@@ -9,8 +9,8 @@ scanner=re.Scanner([
 	(r"[A-Za-z0-9!\_\-?.\*]+\([A-Za-z0-9!\_\-?,.\*\(\)\{\}]+\)|[A-Za-z0-9!\_\-?.\*]+|[\"\'][A-Za-z0-9!?\_\-\#\s.,\*\(\)\{\}]+[\"\']",
 										lambda scanner,token:("ACTION", token)),
 ])
-
-
+	
+	
 def read(folder, autfile):
 	"""Read the .aut file and place the data in a dictionary"""
 	trans = {}
