@@ -25,7 +25,7 @@ class AutLTS(   LTS,
 		states = set(self._transitions.keys())
 		for trans in self._transitions.values():
 			for tgt in trans.values():
-				states = states | tgt
+				states |= tgt
 		return len(states)
 	
 	@property
@@ -51,7 +51,7 @@ class AutLTS(   LTS,
 					m = rex.match(a)
 					if m:
 						tau_tgts = trans.get('tau', set())
-						tau_tgts = tau_tgts | trans[a]
+						tau_tgts |= trans[a]
 						trans['tau'] = tau_tgts
 						del trans[a]
 						break

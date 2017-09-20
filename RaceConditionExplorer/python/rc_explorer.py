@@ -12,6 +12,7 @@ import os
 import re
 import sys
 from lts import *
+from VarDependencyGraph import VarDependencyGraph
 
 from help_on_error_argument_parser import HelpOnErrorArgumentParser
 
@@ -22,16 +23,24 @@ GROUP_WRITE_VARS = 'writes'
 
 action_matcher = re.compile('RW_(?P<'+GROUP_OBJECT+'>[\w|.]+)[!|(][{](?P<'+GROUP_READ_VARS+'>\w?([,]\w)*)[}],[{](?P<'+GROUP_WRITE_VARS+'>\w?([,]\w)*)[}]')
 
-def get_race_conditions_from_file(path):
+
+def RCE_get_race_conditions_from_file(path):
 	lts = LTS.create(path)
 	LTS_remove_peek(lts)
 	lts.minimise(LTS.Equivalence.BRANCHING_BISIM)
-	return get_race_conditions(lts)
+	rcs = get_race_conditions(lts)
+	for obj, locks in rcs.items():
+		print("%s:" % obj)
+		for lock in locks:
+			print("\t%s" % lock)
+
 
 # precondition: peeks are removed from the LTS
 def get_race_conditions(lts):
 	transitions = lts.transition_dict
 	for src, trans in transitions.items():
+		rw_list = []
+		# get read/write actions
 		for a, tgts in trans.items():
 			if a.startswith('RW_'):
 				match_result = action_matcher.match(a)
@@ -42,11 +51,15 @@ def get_race_conditions(lts):
 				obj_id = match_result.group(GROUP_OBJECT)
 				read_vars = set(match_result.group(GROUP_READ_VARS).split(',')) - {''}
 				write_vars = set(match_result.group(GROUP_WRITE_VARS).split(',')) - {''}
-				
-				print(obj_id)
-				print(read_vars)
-				print(write_vars)
-
+				rw_list.append((a, read_vars, write_vars))
+		# analyse read/write performed by src state
+		dep_lts = VarDependencyGraph(rw_list)
+		locked, locked_sets = dep_lts.calculate_locks()
+		locks = locked_sets | {{x} for x in locked}
+		
+		locking = dict()
+		# TODO: match locks with obj_ids and return
+		return locking
 	
 	
 def LTS_remove_peek(lts):
@@ -95,8 +108,7 @@ def main():
 	logging.info('Input LTS  : %s', lts_path)
 	logging.info('Output File: %s', out_path)
 	
-	race_conditions = get_race_conditions_from_file(lts_path)
-	print(race_conditions)
+	RCE_get_race_conditions_from_file(lts_path)
 	
 	logging.info('Finished, output written to %s', out_path)
 	logging.shutdown()
