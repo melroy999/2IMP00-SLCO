@@ -17,17 +17,16 @@ from help_on_error_argument_parser import HelpOnErrorArgumentParser
 
 # matching of RW actions
 GROUP_OBJECT     = 'obj'
-GROUP_SM         = 'sm'
 GROUP_READ_VARS  = 'reads'
 GROUP_WRITE_VARS = 'writes'
 
-action_matcher = re.compile('RW_(?P<'+GROUP_OBJECT+'>\w+)(\.(?P<'+GROUP_SM+'>\w+))?[!|(][{](?P<'+GROUP_READ_VARS+'>\w?([,]\w)*)[}],[{](?P<'+GROUP_WRITE_VARS+'>\w?([,]\w)*)[}]')
+action_matcher = re.compile('RW_(?P<'+GROUP_OBJECT+'>[\w|.]+)[!|(][{](?P<'+GROUP_READ_VARS+'>\w?([,]\w)*)[}],[{](?P<'+GROUP_WRITE_VARS+'>\w?([,]\w)*)[}]')
 
 def get_race_conditions_from_file(path):
 	lts = LTS.create(path)
-	#lts = LTS_remove_peek(lts)
-	#lts.minimise(LTS.Equivalence.BRANCHING_BISIM)
-	return None #get_race_conditions(lts)
+	LTS_remove_peek(lts)
+	lts.minimise(LTS.Equivalence.BRANCHING_BISIM)
+	return get_race_conditions(lts)
 
 # precondition: peeks are removed from the LTS
 def get_race_conditions(lts):
@@ -41,24 +40,21 @@ def get_race_conditions(lts):
 					continue
 				
 				obj_id = match_result.group(GROUP_OBJECT)
-				sm_id = match_result.group(GROUP_SM)
 				read_vars = set(match_result.group(GROUP_READ_VARS).split(',')) - {''}
 				write_vars = set(match_result.group(GROUP_WRITE_VARS).split(',')) - {''}
 				
 				print(obj_id)
-				print(sm_id)
 				print(read_vars)
 				print(write_vars)
 
 	
 	
 def LTS_remove_peek(lts):
-	temp_act = 'i'
-	lts.hide_action_labels({'peek.*'})
+	temp_act = 'temp_tau'
 	lts.rename_action_labels({'tau': temp_act})
+	lts.hide_action_labels({'peek.*'})
 	lts.minimise(LTS.Equivalence.WEAK_BISIM)
 	lts.rename_action_labels({temp_act: 'tau'})
-	return lts
 
 
 def main():

@@ -38,7 +38,6 @@ class LTS(ABC):
 		WEAK_BISIM = 0
 		BRANCHING_BISIM = 1
 		
-		
 	_folder = ''
 	_filename = ''
 	_ext = ''
@@ -85,6 +84,7 @@ class LTS(ABC):
 #	def get_transitions_from_state(self,state):
 #		pass
 
+	#TODO:
 	@abstractmethod
 	def write_to_file(path):
 		pass
@@ -92,9 +92,9 @@ class LTS(ABC):
 	@staticmethod
 	def create(path):
 		_, ext = os.path.splitext(path)
-		read_method = _lts_factories[ext]
-		lts = read_method(path)
-		lts._path, filename = os.path.split(path)
+		create_method = _lts_factories[ext]
+		lts = create_method(path)
+		lts._folder, filename = os.path.split(path)
 		lts._filename, lts._ext = os.path.splitext(filename)
 		return lts
 	

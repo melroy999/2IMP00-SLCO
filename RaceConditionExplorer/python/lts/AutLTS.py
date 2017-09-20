@@ -4,9 +4,7 @@ from . import mcrl2
 import os
 import re
 
-_equivalence_dict = {   LTS.Equivalence.WEAK_BISIM      : mcrl2.WEAK_BISIM,
-						LTS.Equivalence.BRANCHING_BISIM : mcrl2.BRANCHING_BISIM
-					}
+
 
 
 class AutLTS(   LTS,
@@ -14,27 +12,29 @@ class AutLTS(   LTS,
 				ISupportLabelHide,
 				ISuportLabelRename):
 	_init_state = 0
-	_num_states = 0
-	_num_trans = 0
 	_transitions = dict()
 	_action_labels = list()
 	
-	def __init__(self, init_state, num_states, num_trans, transitions, action_labels):
+	def __init__(self, init_state, transitions, action_labels):
 		self._init_state    = init_state
-		self._num_states    = num_states
-		self._num_trans     = num_trans
 		self._transitions   = transitions
 		self._action_labels = action_labels
 	
-	
 	@property
 	def num_states(self):
-		return self._num_states
-	
+		states = set(self._transitions.keys())
+		for trans in self._transitions.values():
+			for tgt in trans.values():
+				states = states | tgt
+		return len(states)
 	
 	@property
 	def num_transitions(self):
-		return self._num_states
+		counter = 0
+		for trans in self._transitions.values():
+			for tgt in trans.values():
+				counter += len(tgt)
+		return counter
 	
 	
 	@property
@@ -42,58 +42,61 @@ class AutLTS(   LTS,
 		return self._transitions
 	
 	
+	# TODO: num_states and num_transitions are not updated by hiding and renaming
 	def hide_action_labels(self,hiding_set):
 		hiding_res = map(re.compile,hiding_set)
 		for src, trans in self._transitions.items():
-			for a, tgts in trans.items():
+			for a in list(trans.keys()):
 				for rex in hiding_res:
 					m = rex.match(a)
 					if m:
 						tau_tgts = trans.get('tau', set())
-						tau_tgts = tau_tgts | tgts
-						trans['tau'] = tgts
+						tau_tgts = tau_tgts | trans[a]
+						trans['tau'] = tau_tgts
+						del trans[a]
 						break
 		pass
 	
 	
 	def rename_action_labels(self, rename_dict):
-		for src, trans in self._transitions.iteritems():
-			# loop over transitions; making use of items() to get a copy of (key, value) pairs such that old actions may be deleted
-			for a, tgts in trans.items():
+		for src, trans in self._transitions.items():
+			for a in list(trans.keys()):
 				new_a = rename_dict.get(a)
 				if new_a:
-					trans[new_a] = tgts
+					trans[new_a] = trans[a]
 					del trans[a]
-					
-				
-		
-	#	@abstractmethod
-	#	def get_transitions(self):
-	#		pass
-	
-	
-	def minimise(self,equivalence):
-		filename = os.path.join(self._folder, self._filename+'.aut')
-		temp_path = self._folder + self._filename + '.temp' + self._ext
-		
 	
 	
 	def write_to_file(self, path):
 		folder, name = os.path.split(path)
-		header = [self._init_state, self._num_trans, self._num_states]
-		aut.write(folder, header, self._transitions)
+		header = [self._init_state, str(self.num_transitions), str(self.num_states)]
+		aut.write(folder, header, self._transitions, name)
+	
+	
+	def minimise(self,equivalence):
+		temp_path_in = os.path.join(self._folder, self._filename + '.temp_min_in')
+		self.write_to_file(temp_path_in)
+		temp_path_in += self._ext
+		temp_path_out = os.path.join(self._folder, self._filename + '.temp_min_out' + self._ext)
+		
+		self.minimise_lts_file(temp_path_in, temp_path_out, equivalence)
+		lts = LTS.create(temp_path_out)
+		# reassign lts variables to self
+		self.__init__(  lts._init_state, lts._transitions, lts._action_labels)
+		os.remove(temp_path_in)
+		os.remove(temp_path_out)
 	
 	
 	@classmethod
 	def minimise_lts_file(cls, input, output, equivalence):
-		mcrl2.minimize(input, output, _equivalence_dict[equivalence])
+		mcrl2.minimize(input, output, equivalence)
 	
 	
 	@staticmethod
 	def _read_from_file(path):
 		folder, name = os.path.split(path)
 		header, trans, labels = aut.read(folder,name)
-		return AutLTS(header[0], header[2], header[1], trans, labels)
+		return AutLTS(header[0], trans, labels)
 
 
 # register AutLTS as read/writer for .aut files
