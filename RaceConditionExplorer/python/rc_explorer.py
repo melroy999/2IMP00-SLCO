@@ -17,12 +17,39 @@ from VarDependencyGraph import VarDependencyGraph
 from help_on_error_argument_parser import HelpOnErrorArgumentParser
 
 # matching of RW actions
-GROUP_OBJECT     = 'obj'
-GROUP_READ_VARS  = 'reads'
-GROUP_WRITE_VARS = 'writes'
+GROUP_SRC_OBJECT        = 'src_obj'
+GROUP_TGT_OBJECT        = 'tgt_obj'
+GROUP_SRC_READ_VARS     = 'src_reads'
+GROUP_TGT_READ_VARS     = 'tgt_reads'
+GROUP_SRC_WRITE_VARS    = 'src_writes'
+GROUP_TGT_WRITE_VARS    = 'tgt_writes'
+GROUP_SRC_STATE_MACHINE = 'src_sm'
+GROUP_TGT_STATE_MACHINE = 'tgt_sm'
+GROUP_PORT              = 'port'
 
-action_matcher = re.compile('RW_(?P<'+GROUP_OBJECT+'>[\w|.]+)[!|(][{](?P<'+GROUP_READ_VARS+'>\w?([,]\w)*)[}],[{](?P<'+GROUP_WRITE_VARS+'>\w?([,]\w)*)[}]')
+action_matcher = re.compile('RW_(?P<'+GROUP_SRC_OBJECT+'>\w+)'
+							'[(](?P<'+GROUP_SRC_STATE_MACHINE+'>\w+),'
+							'[{](?P<'+GROUP_SRC_READ_VARS+'>\w?([,]\w)*)[}],'
+							'[{](?P<'+GROUP_SRC_WRITE_VARS+'>\w?([,]\w)*)[}]')
 
+# 'RW'
+# 'send'
+# 'receive'
+# 'peek'
+# 'comm'
+#
+# '_(?P<'+GROUP_SRC_OBJECT+'>\w+)' # all
+# '\'(?P<'+GROUP_PORT+'>\w+)' # send, receive, peek, comm
+#
+# '_(?P<'+GROUP_TGT_OBJECT+'>\w+)' # peek & comm
+# '\'(?P<'+GROUP_PORT+'>\w+)' # peek & comm
+#
+# '[(](?P<'+GROUP_SRC_STATE_MACHINE+'>\w+),' # all
+# '[{](?P<'+GROUP_SRC_READ_VARS+'>\w?([,]\w)*)[}],' #all
+# '[{](?P<'+GROUP_SRC_WRITE_VARS+'>\w?([,]\w)*)[}],' # all
+# '(?P<'+GROUP_TGT_STATE_MACHINE+'>\w+),' # send, receive, peek, comm
+# '[{](?P<'+GROUP_TGT_READ_VARS+'>\w?([,]\w)*)[}],' # send, receive, peek, comm
+# '[{](?P<'+GROUP_TGT_WRITE_VARS+'>\w?([,]\w)*)[}]' # send, receive, peek, comm
 
 def RCE_get_race_conditions_from_file(path):
 	lts = LTS.create(path)
@@ -47,9 +74,10 @@ def get_race_conditions(lts):
 					logging.error('action label \"%s\" does not adhere to the required format: RW_<ID>.<SUB_ID>({<set of reads>}, {<set of writes>})' % a)
 					continue
 				
-				obj_id = match_result.group(GROUP_OBJECT)
-				read_vars  = set(match_result.group(GROUP_READ_VARS).split(',')) - {''}
-				write_vars = set(match_result.group(GROUP_WRITE_VARS).split(',')) - {''}
+				obj_id = match_result.group(GROUP_SRC_OBJECT)
+				sm_id = match_result.group(GROUP_SRC_STATE_MACHINE)
+				read_vars  = set(match_result.group(GROUP_SRC_READ_VARS).split(',')) - {''}
+				write_vars = set(match_result.group(GROUP_SRC_WRITE_VARS).split(',')) - {''}
 				#read_vars  = {obj_id + '.' + var for var in read_vars}
 				#write_vars = {obj_id + '.' + var for var in write_vars}
 				rw_list.append((a, read_vars, write_vars))
