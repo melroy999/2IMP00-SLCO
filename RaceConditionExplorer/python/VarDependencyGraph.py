@@ -1,8 +1,9 @@
 from lts.SCCTarjan import identifySCCs
+from utils import stack
 
 class VarDependencyGraph:
 	locked = set()
-	locked_sets = set()
+	locked_sets = list()
 	dependency_graph = dict()
 	
 	# Expects a list consisting of tuples of the form (act, set(read_vars), set(write_vars))
@@ -18,26 +19,27 @@ class VarDependencyGraph:
 		for src, read_vars, _ in rw_list:
 			outgoing = dict()
 			for r in read_vars:
-				if r in self.locked:
-					continue
 				# for each action 'tgt', add 'r' to the labels of transition src --labels--> tgt
-				targets = write_dict[r]
+				targets = write_dict.get(r, set())
 				for tgt in targets:
 					labels = outgoing.get(tgt, set()) # we use tgt as key since labels sets are not hashable and updated
 					labels.add(r)
 					outgoing[tgt] = labels
 			if outgoing:
 				self.dependency_graph[src] = outgoing
+		# cleanup empty transitions
+		self.remove_locked_labels_from_transitions()
+		print(self.dependency_graph)
 	
 	def calculate_locks(self):
 		for outgoing in self.dependency_graph.values():
 			for labels in outgoing.values():
 				if len(labels) > 1:
 					self.locked |= labels
-					self.locked_sets.add(labels)
+					self.locked_sets.append(set(labels))
 		self.remove_locked_labels_from_transitions()
 		self.add_scc_locks()
-		return self.locked, self.locked_sets
+		return self.locked, {frozenset(x) for x in self.locked_sets}
 		
 	def remove_locked_labels_from_transitions(self):
 		for outgoing in self.dependency_graph.values():
@@ -53,12 +55,17 @@ class VarDependencyGraph:
 	
 	def add_scc_locks(self):
 		# convert dependency graph format for Tarjan's SCC algorithm
-		L = self.dependency_graph
-		SCCdict = dict()
 		SCCs = list()
-		identifySCCs(L, SCCdict, SCCs)
-		b_locked_updated = False
+		identifySCCs(self.dependency_graph, dict(), SCCs)
+		#b_locked_updated = False
 		for the_scc in SCCs:
+			if the_scc[0] <= 1:
+				continue
+			
+			start_state = next(iter(the_scc[1].keys()))
+			self.locked |= _depth_first_break_cycles(the_scc[1], start_state)
+			
+			'''
 			scc_decomp = [the_scc]
 			while scc_decomp:
 				scc = scc_decomp.pop()
@@ -81,9 +88,37 @@ class VarDependencyGraph:
 				newSCCs = list()
 				identifySCCs(scc[1], dict(), newSCCs)
 				scc_decomp.extend(newSCCs)
-				
-				
+			'''
+	
+# @post: finds back-edges and removes all labels on this back-edge from other transitions
+# @return: a list of labels that were removed from the graph
+def _depth_first_break_cycles(dependency_graph, start_vertex):
+	vstack = stack()
+	vstack.append((None, set('dummy'), start_vertex))
+	discovered = set()
+	back_labels = set()
+	while vstack:
+		src, labels, tgt = vstack.pop()
+		if labels <= back_labels:
+			# edge was removed in a previous iteration
+			continue
+			
+		if tgt not in discovered:
+			discovered.add(tgt)
+			outgoing = dependency_graph.get(tgt, {})
+			vstack.extend([(tgt, labels, newtgt) for newtgt, labels in outgoing.items()])
+			continue
+			
+		# tgt is discovered
+		back_labels |= labels
+		for var in list(labels):
+			_remove_transitions_with_var(dependency_graph, var)
+		
+	return back_labels
+		
 
+# @post: var has been removed from all transitions;
+#        if this results in a transition with no labels, the transition is removed
 def _remove_transitions_with_var(dependency_graph, var):
 	for outgoing in dependency_graph.values():
 		for k in list(outgoing.keys()): # copy keys since we're deleting

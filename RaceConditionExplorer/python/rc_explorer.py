@@ -28,16 +28,15 @@ def RCE_get_race_conditions_from_file(path):
 	lts = LTS.create(path)
 	LTS_remove_peek(lts)
 	lts.minimise(LTS.Equivalence.BRANCHING_BISIM)
-	rcs = get_race_conditions(lts)
-	for obj, locks in rcs.items():
-		print("%s:" % obj)
-		for lock in locks:
-			print("\t%s" % lock)
+	locks = get_race_conditions(lts)
+	for lock in locks:
+		print(lock)
 
 
 # precondition: peeks are removed from the LTS
 def get_race_conditions(lts):
 	transitions = lts.transition_dict
+	locks = set()
 	for src, trans in transitions.items():
 		rw_list = []
 		# get read/write actions
@@ -49,17 +48,18 @@ def get_race_conditions(lts):
 					continue
 				
 				obj_id = match_result.group(GROUP_OBJECT)
-				read_vars = set(match_result.group(GROUP_READ_VARS).split(',')) - {''}
+				read_vars  = set(match_result.group(GROUP_READ_VARS).split(',')) - {''}
 				write_vars = set(match_result.group(GROUP_WRITE_VARS).split(',')) - {''}
+				#read_vars  = {obj_id + '.' + var for var in read_vars}
+				#write_vars = {obj_id + '.' + var for var in write_vars}
 				rw_list.append((a, read_vars, write_vars))
+				
 		# analyse read/write performed by src state
 		dep_lts = VarDependencyGraph(rw_list)
 		locked, locked_sets = dep_lts.calculate_locks()
-		locks = locked_sets | {{x} for x in locked}
-		
-		locking = dict()
-		# TODO: match locks with obj_ids and return
-		return locking
+		flat_locked_sets = {x for locked_set in locked_sets for x in locked_set}
+		locks |= locked_sets | {frozenset(x) for x in locked if x not in flat_locked_sets}
+	return locks
 	
 	
 def LTS_remove_peek(lts):
