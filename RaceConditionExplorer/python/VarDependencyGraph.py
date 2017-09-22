@@ -61,7 +61,6 @@ class VarDependencyGraph:
 			if not self.dependency_graph[src]:
 				del self.dependency_graph[src]
 	
-	
 	def add_scc_locks(self, locked):
 		# convert dependency graph format for Tarjan's SCC algorithm
 		SCCs = list()
@@ -70,7 +69,44 @@ class VarDependencyGraph:
 			if scc[0] <= 1:
 				continue
 			_depth_first_break_cycles(scc[1], locked)
+		
+	def find_cycles(self):
+		visited = {}
+		for s in list(self.dependency_graph.keys()):
+			if s in visited:
+				continue
 			
+			state_stack = stack()
+			state_stack.append((None, s, None))
+			while state_stack:
+				src, state, label = state_stack.peek()
+				if state in visited:
+					# state was already visited
+					state_stack.pop()
+					if src:
+						# add transition
+						state_labels = visited[src].get(state, set())
+						state_labels.add(frozenset(label))
+						visited[src][state] = state_labels
+						# add shortcut transitions
+						for tgt, sets in visited[state].items():
+							tgt_labels = visited[src].get(tgt, set())
+							tgt_labels |= {frozenset(labels | label) for labels in sets}
+							visited[src][tgt] = tgt_labels
+					continue
+				
+				visited[state] = {}
+				outgoing = self.dependency_graph.get(state, {})
+				for tgt, labels in list(outgoing.items()):
+					# continue DFS
+					state_stack.append((state, tgt, labels))
+		# the variables involved in cycles are now the label sets on self loops
+		cycles = []
+		for src, outgoing in visited.items():
+			self_loops = outgoing.get(src)
+			if self_loops:
+				cycles.extend(self_loops)
+		return cycles
 
 
 # @post: finds back-edges and removes all labels on this back-edge from other transitions
@@ -104,7 +140,7 @@ def _depth_first_break_cycles(graph, back_labels):
 					state_stack.append(tgt)
 					labels_stack.append(labels)
 				elif tgt in state_stack:
-					# if tgt is visited and in vstack, then there is a cycle!
+					# if tgt is visited and in state_stack, then there is a cycle!
 					back_labels |= labels
 					for var in list(labels):
 						_remove_transitions_with_var(graph, var)

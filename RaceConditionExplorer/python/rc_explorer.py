@@ -89,6 +89,11 @@ def get_race_conditions(lts):
 		if frozen_signature not in dep_ltss:
 			dep_ltss[frozen_signature] = VarDependencyGraph(rw_list)
 	
+	
+	for dep_lts in dep_ltss.values():
+		print(dep_lts.find_cycles())
+	
+	print()
 	locked_sets = set()
 	for dep_lts in dep_ltss.values():
 		locked_sets |= (dep_lts.get_locked_sets())
