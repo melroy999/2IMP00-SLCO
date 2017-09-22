@@ -63,9 +63,10 @@ def RCE_get_race_conditions_from_file(path):
 # precondition: peeks are removed from the LTS
 def get_race_conditions(lts):
 	transitions = lts.transition_dict
-	locks = set()
+	dep_ltss = dict()
 	for src, trans in transitions.items():
 		rw_list = []
+		signature = set() # a set of all outgoing edges that are relevant for race condition detection
 		# get read/write actions
 		for a, tgts in trans.items():
 			if a.startswith('RW_'):
@@ -78,16 +79,30 @@ def get_race_conditions(lts):
 				sm_id = match_result.group(GROUP_SRC_STATE_MACHINE)
 				read_vars  = set(match_result.group(GROUP_SRC_READ_VARS).split(',')) - {''}
 				write_vars = set(match_result.group(GROUP_SRC_WRITE_VARS).split(',')) - {''}
-				#read_vars  = {obj_id + '.' + var for var in read_vars}
-				#write_vars = {obj_id + '.' + var for var in write_vars}
-				rw_list.append((a, read_vars, write_vars))
+				read_vars  = {obj_id + '.' + var for var in read_vars}  # add object owning the variable
+				write_vars = {obj_id + '.' + var for var in write_vars} # add object owning the variable
+				rw_list.append((a, sm_id, read_vars, write_vars))
+				signature.add(a)
 				
 		# analyse read/write performed by src state
-		dep_lts = VarDependencyGraph(rw_list)
-		locked, locked_sets = dep_lts.calculate_locks()
-		flat_locked_sets = {x for locked_set in locked_sets for x in locked_set}
-		locks |= locked_sets | {frozenset(x) for x in locked if x not in flat_locked_sets}
-	return locks
+		frozen_signature = frozenset(signature)
+		if frozen_signature not in dep_ltss:
+			dep_ltss[frozen_signature] = VarDependencyGraph(rw_list)
+	
+	locked_sets = set()
+	for dep_lts in dep_ltss.values():
+		locked_sets |= (dep_lts.get_locked_sets())
+		
+	# flatten lock_set
+	flat_locked_sets = {x for locked_set in locked_sets for x in locked_set}
+	
+	# calculate further locks
+	locked = set(flat_locked_sets)
+	for dep_lts in dep_ltss.values():
+		# locked is both used as set of existing locks and as accumulator of locks
+		dep_lts.get_locked(locked)
+	
+	return locked_sets | {frozenset([x]) for x in locked if x not in flat_locked_sets}
 	
 	
 def LTS_remove_peek(lts):

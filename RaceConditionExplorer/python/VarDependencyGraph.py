@@ -1,50 +1,59 @@
 from lts.SCCTarjan import identifySCCs
 from utils import stack
 
+
 class VarDependencyGraph:
-	locked = set()
-	locked_sets = list()
 	dependency_graph = dict()
 	
-	# Expects a list consisting of tuples of the form (act, set(read_vars), set(write_vars))
-	def __init__(self, rw_list):
+	# Expects a list consisting of tuples of the form (act, state_machine_id, set(read_vars), set(write_vars))
+	def __init__(self, rw_list, locked = set()):
 		# build dictionary mapping write variables to actions
 		write_dict = dict()
-		for a, _, write_vars in rw_list:
+		for a, sm_id, _, write_vars in rw_list:
 			for w in write_vars:
 				action_set = write_dict.get(w, set())
-				action_set.add(a)
+				action_set.add((a, sm_id))  # a race condition can only occur if different state machines access the variable
 				write_dict[w] = action_set
-		# build dependecy graph for rw_list
-		for src, read_vars, _ in rw_list:
+		# build dependency graph for rw_list
+		for src, sm_id, read_vars, _ in rw_list:
 			outgoing = dict()
 			for r in read_vars:
+				if r in locked:
+					continue
 				# for each action 'tgt', add 'r' to the labels of transition src --labels--> tgt
 				targets = write_dict.get(r, set())
-				for tgt in targets:
-					labels = outgoing.get(tgt, set()) # we use tgt as key since labels sets are not hashable and updated
-					labels.add(r)
-					outgoing[tgt] = labels
+				for tgt, tgt_sm_id in targets:
+					# a race condition can only occur if different state machines access the variable
+					# if read/write is done to by the same state machine the behaviour follows the specification
+					# described by the model and is intended
+					if sm_id != tgt_sm_id:
+						labels = outgoing.get(tgt, set())  # we use tgt as key since labels sets are updated and not hashable
+						labels.add(r)
+						outgoing[tgt] = labels
 			if outgoing:
 				self.dependency_graph[src] = outgoing
 		# cleanup empty transitions
-		self.remove_locked_labels_from_transitions()
-		print(self.dependency_graph)
-	
-	def calculate_locks(self):
+		self.remove_locked_labels_from_transitions(locked)
+		
+	def get_locked_sets(self):
+		locked_sets = set()
 		for outgoing in self.dependency_graph.values():
 			for labels in outgoing.values():
 				if len(labels) > 1:
-					self.locked |= labels
-					self.locked_sets.append(set(labels))
-		self.remove_locked_labels_from_transitions()
-		self.add_scc_locks()
-		return self.locked, {frozenset(x) for x in self.locked_sets}
+					locked_sets.append(frozenset(labels))
+		return locked_sets
+					
+	def get_locked(self, locked):
+		self.remove_locked_labels_from_transitions(locked)
+		self.add_scc_locks(locked)
+		return locked
 		
-	def remove_locked_labels_from_transitions(self):
+	def remove_locked_labels_from_transitions(self, locked):
+		if not locked:
+			return
 		for outgoing in self.dependency_graph.values():
 			for k in list(outgoing.keys()): # copy keys since we're deleting
-				outgoing[k] -= self.locked # remove labels that are locked
+				outgoing[k] -= locked # remove labels that are locked
 				if not outgoing[k]: #if transition labels is empty, remove the transition
 					del outgoing[k]
 		# remove source states without transitions
@@ -53,68 +62,53 @@ class VarDependencyGraph:
 				del self.dependency_graph[src]
 	
 	
-	def add_scc_locks(self):
+	def add_scc_locks(self, locked):
 		# convert dependency graph format for Tarjan's SCC algorithm
 		SCCs = list()
 		identifySCCs(self.dependency_graph, dict(), SCCs)
-		#b_locked_updated = False
-		for the_scc in SCCs:
-			if the_scc[0] <= 1:
+		for scc in SCCs:
+			if scc[0] <= 1:
 				continue
+			_depth_first_break_cycles(scc[1], locked)
 			
-			start_state = next(iter(the_scc[1].keys()))
-			self.locked |= _depth_first_break_cycles(the_scc[1], start_state)
-			
-			'''
-			scc_decomp = [the_scc]
-			while scc_decomp:
-				scc = scc_decomp.pop()
-				if scc[0] <= 1:
-					continue
-				
-				if not b_locked_updated:
-					rem_label = None
-					for src, outgoing in scc[1].items():
-						if outgoing:
-							labels = iter(outgoing.values()).next()
-							rem_label = labels.pop()
-							# NOTE: the hope is that by removing rem_label, the cycle(s) are broken
-							# TODO: Would it make sense to remove the smallest set entirely such that the cycle is guaranteed to be broken?
-							self.locked.add(rem_label)
-							b_locked_updated = True
-							break
-					_remove_transitions_with_var(scc[1], rem_label)
-				
-				newSCCs = list()
-				identifySCCs(scc[1], dict(), newSCCs)
-				scc_decomp.extend(newSCCs)
-			'''
-	
+
+
 # @post: finds back-edges and removes all labels on this back-edge from other transitions
-# @return: a list of labels that were removed from the graph
-def _depth_first_break_cycles(dependency_graph, start_vertex):
-	vstack = stack()
-	vstack.append((None, set('dummy'), start_vertex))
-	discovered = set()
-	back_labels = set()
-	while vstack:
-		src, labels, tgt = vstack.pop()
-		if labels <= back_labels:
-			# edge was removed in a previous iteration
+# @param: graph         the graph
+# @param: back_labels   a set of labels that will be ignored as edges and to labels that are
+#                       removed from the graph are added
+def _depth_first_break_cycles(graph, back_labels):
+	visited = set()
+	for s in list(graph.keys()):
+		if s in visited:
 			continue
-			
-		if tgt not in discovered:
-			discovered.add(tgt)
-			outgoing = dependency_graph.get(tgt, {})
-			vstack.extend([(tgt, labels, newtgt) for newtgt, labels in outgoing.items()])
-			continue
-			
-		# tgt is discovered
-		back_labels |= labels
-		for var in list(labels):
-			_remove_transitions_with_var(dependency_graph, var)
 		
-	return back_labels
+		state_stack = stack()
+		labels_stack = stack()
+		state_stack.append(s)
+		labels_stack.append({s}) # a dummy label set, to pop at the end of the first loop
+		while state_stack:
+			labels = labels_stack.peek()
+			state = state_stack.peek()
+			if labels <= back_labels or state in visited:
+				# edge was removed in a previous iteration
+				# or state was already visited
+				state_stack.pop()
+				labels_stack.pop()
+				continue
+				
+			visited.add(state)
+			outgoing = graph.get(state, {})
+			for tgt, labels in list(outgoing.items()):
+				if tgt not in visited:
+					state_stack.append(tgt)
+					labels_stack.append(labels)
+				elif tgt in state_stack:
+					# if tgt is visited and in vstack, then there is a cycle!
+					back_labels |= labels
+					for var in list(labels):
+						_remove_transitions_with_var(graph, var)
+			
 		
 
 # @post: var has been removed from all transitions;
