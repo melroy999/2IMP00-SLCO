@@ -101,11 +101,11 @@ class VarDependencyGraph:
 					# continue DFS
 					state_stack.append((state, tgt, labels))
 		# the variables involved in cycles are now the label sets on self loops
-		cycles = []
+		cycles = set()
 		for src, outgoing in visited.items():
 			self_loops = outgoing.get(src)
 			if self_loops:
-				cycles.extend(self_loops)
+				cycles |= self_loops
 		return cycles
 
 
