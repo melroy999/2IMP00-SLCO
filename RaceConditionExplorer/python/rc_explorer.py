@@ -55,46 +55,45 @@ def RCE_get_race_conditions_from_file(path):
 	lts = LTS.create(path)
 	LTS_remove_peek(lts)
 	lts.minimise(LTS.Equivalence.BRANCHING_BISIM)
-	locks = get_race_conditions(lts)
-	for lock in locks:
-		print(lock)
-
-
+	dep_ltss = get_dependency_ltss(lts)
+	cycle_sets = get_cycle_sets(dep_ltss)
+	print("cycle_sets: %s" % cycle_sets)
+	locks = get_race_conditions(dep_ltss)
+	print("locks: %s" % locks)
+		
 # precondition: peeks are removed from the LTS
-def get_race_conditions(lts):
+def get_dependency_ltss(lts):
 	transitions = lts.transition_dict
 	dep_ltss = dict()
 	for src, trans in transitions.items():
 		rw_list = []
-		signature = set() # a set of all outgoing edges that are relevant for race condition detection
+		signature = set()  # a set of all outgoing edges that are relevant for race condition detection
 		# get read/write actions
 		for a, tgts in trans.items():
 			if a.startswith('RW_'):
 				match_result = action_matcher.match(a)
 				if not match_result:
-					logging.error('action label \"%s\" does not adhere to the required format: RW_<ID>.<SUB_ID>({<set of reads>}, {<set of writes>})' % a)
+					logging.error(
+						'action label \"%s\" does not adhere to the required format: RW_<ID>.<SUB_ID>({<set of reads>}, {<set of writes>})' % a)
 					continue
 				
 				obj_id = match_result.group(GROUP_SRC_OBJECT)
 				sm_id = match_result.group(GROUP_SRC_STATE_MACHINE)
-				read_vars  = set(match_result.group(GROUP_SRC_READ_VARS).split(',')) - {''}
+				read_vars = set(match_result.group(GROUP_SRC_READ_VARS).split(',')) - {''}
 				write_vars = set(match_result.group(GROUP_SRC_WRITE_VARS).split(',')) - {''}
-				read_vars  = {obj_id + '.' + var for var in read_vars}  # add object owning the variable
-				write_vars = {obj_id + '.' + var for var in write_vars} # add object owning the variable
+				read_vars = {obj_id + '.' + var for var in read_vars}  # add object owning the variable
+				write_vars = {obj_id + '.' + var for var in write_vars}  # add object owning the variable
 				rw_list.append((a, sm_id, read_vars, write_vars))
 				signature.add(a)
-				
+		
 		# analyse read/write performed by src state
 		frozen_signature = frozenset(signature)
 		if frozen_signature not in dep_ltss:
 			dep_ltss[frozen_signature] = VarDependencyGraph(rw_list)
-	
-	cycles = set()
-	for dep_lts in dep_ltss.values():
-		cycles |= dep_lts.find_cycles()
-	print(cycles)
-	# TODO: apply Hitting set problem algorithm to find smallest set of locks
-	
+	return dep_ltss
+
+
+def get_race_conditions(dep_ltss):
 	locked_sets = set()
 	for dep_lts in dep_ltss.values():
 		locked_sets |= (dep_lts.get_locked_sets())
@@ -109,7 +108,15 @@ def get_race_conditions(lts):
 		dep_lts.get_locked(locked)
 	
 	return locked_sets | {frozenset([x]) for x in locked if x not in flat_locked_sets}
-	
+
+
+def get_cycle_sets(dep_ltss):
+	cycles = set()
+	for dep_lts in dep_ltss.values():
+		cycles |= dep_lts.find_cycles()
+	cycles -= set()  # ensure empty set is not present
+	return cycles  # TODO: apply Hitting set problem algorithm to find smallest set of locks
+
 	
 def LTS_remove_peek(lts):
 	temp_act = 'temp_tau'
