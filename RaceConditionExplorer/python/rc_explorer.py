@@ -65,9 +65,10 @@ def RCE_get_race_conditions_from_file(path):
 	lts.minimise(LTS.Equivalence.BRANCHING_BISIM)
 	dep_ltss = get_dependency_ltss(lts)
 	cycle_sets = get_cycle_sets(dep_ltss)
-	print("cycle_sets: %s" % cycle_sets)
+	logging.info("cycle_sets: %s" % cycle_sets)
 	locks = get_race_conditions(dep_ltss)
-	print("locks: %s" % locks)
+	logging.info("locks: %s" % locks)
+	return locks
 	
 	
 # precondition: peeks are removed from the LTS
@@ -214,7 +215,25 @@ def main():
 	logging.info('Input LTS  : %s', lts_path)
 	logging.info('Output File: %s', out_path)
 	
-	RCE_get_race_conditions_from_file(lts_path)
+	locks = RCE_get_race_conditions_from_file(lts_path)
+	object_locks = {}
+	for lock in locks:
+		it = iter(lock)
+		x = next(it)
+		obj, _, var = x.partition('.')
+		combo_lock = [var]
+		for x in it:
+			_, _, var = x.partition('.')
+			combo_lock.append(var)
+		lock_list = object_locks.get(obj, [])
+		lock_list.append(combo_lock)
+		object_locks[obj] = lock_list
+	f = open(out_path, 'w')
+	for obj, locks in object_locks.items():
+		f.write(obj+":\n")
+		for lock in locks:
+			f.write("\t%s\n" % ",".join(lock))
+	f.close()
 	
 	logging.info('Finished, output written to %s', out_path)
 	logging.shutdown()
