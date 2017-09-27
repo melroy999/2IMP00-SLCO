@@ -16,7 +16,8 @@ from VarDependencyGraph import VarDependencyGraph
 
 from help_on_error_argument_parser import HelpOnErrorArgumentParser
 
-# matching of RW actions
+# matching of actions
+GROUP_LABEL              = 'label'
 GROUP_SRC_OBJECT        = 'src_obj'
 GROUP_TGT_OBJECT        = 'tgt_obj'
 GROUP_SRC_READ_VARS     = 'src_reads'
@@ -25,31 +26,38 @@ GROUP_SRC_WRITE_VARS    = 'src_writes'
 GROUP_TGT_WRITE_VARS    = 'tgt_writes'
 GROUP_SRC_STATE_MACHINE = 'src_sm'
 GROUP_TGT_STATE_MACHINE = 'tgt_sm'
-GROUP_PORT              = 'port'
+GROUP_SRC_PORT          = 'src_port'
+GROUP_TGT_PORT          = 'tgt_port'
+GROUP_MSG               = 'msg'
 
-action_matcher = re.compile('RW_(?P<'+GROUP_SRC_OBJECT+'>\w+)'
-							'[(](?P<'+GROUP_SRC_STATE_MACHINE+'>\w+),'
+#action_matcher = re.compile('RW_(?P<'+GROUP_SRC_OBJECT+'>\w+)'
+#							'[(](?P<'+GROUP_SRC_STATE_MACHINE+'>\w+),'
+#							'[{](?P<'+GROUP_SRC_READ_VARS+'>\w?([,]\w)*)[}],'
+#							'[{](?P<'+GROUP_SRC_WRITE_VARS+'>\w?([,]\w)*)[}]')
+
+
+action_matcher = re.compile('(?P<'+GROUP_LABEL+'>RW|send|receive|peek|comm)'
+							'_(?P<'+GROUP_SRC_OBJECT+'>\w+)'
+
+							'([.](?P<'+GROUP_SRC_PORT+'>\w+))?'
+
+							'(_(?P<'+GROUP_TGT_OBJECT+'>\w+)[.](?P<'+GROUP_TGT_PORT+'>\w+))?'
+
+							'[(](?P<'+GROUP_SRC_STATE_MACHINE+'>_|\w+),'
 							'[{](?P<'+GROUP_SRC_READ_VARS+'>\w?([,]\w)*)[}],'
-							'[{](?P<'+GROUP_SRC_WRITE_VARS+'>\w?([,]\w)*)[}]')
+							'[{](?P<'+GROUP_SRC_WRITE_VARS+'>\w?([,]\w)*)[}]'
 
-# 'RW'
-# 'send'
-# 'receive'
-# 'peek'
-# 'comm'
-#
-# '_(?P<'+GROUP_SRC_OBJECT+'>\w+)' # all
-# '\'(?P<'+GROUP_PORT+'>\w+)' # send, receive, peek, comm
-#
-# '_(?P<'+GROUP_TGT_OBJECT+'>\w+)' # peek & comm
-# '\'(?P<'+GROUP_PORT+'>\w+)' # peek & comm
-#
-# '[(](?P<'+GROUP_SRC_STATE_MACHINE+'>\w+),' # all
-# '[{](?P<'+GROUP_SRC_READ_VARS+'>\w?([,]\w)*)[}],' #all
-# '[{](?P<'+GROUP_SRC_WRITE_VARS+'>\w?([,]\w)*)[}],' # all
-# '(?P<'+GROUP_TGT_STATE_MACHINE+'>\w+),' # send, receive, peek, comm
-# '[{](?P<'+GROUP_TGT_READ_VARS+'>\w?([,]\w)*)[}],' # send, receive, peek, comm
-# '[{](?P<'+GROUP_TGT_WRITE_VARS+'>\w?([,]\w)*)[}]' # send, receive, peek, comm
+							'(,(?P<'+GROUP_TGT_STATE_MACHINE+'>_|\w+),'
+							'[{](?P<'+GROUP_TGT_READ_VARS+'>\w?([,]\w)*)[}],'
+							'[{](?P<'+GROUP_TGT_WRITE_VARS+'>\w?([,]\w)*)[}],'
+							'(?P<'+GROUP_MSG+'>_|\w*[)]))?')
+
+class ActionSyntaxException(Exception):
+	def __init__(self, value):
+		self.parameter = value
+	def __str__(self):
+		return repr(self.parameter)
+
 
 def RCE_get_race_conditions_from_file(path):
 	lts = LTS.create(path)
@@ -60,9 +68,29 @@ def RCE_get_race_conditions_from_file(path):
 	print("cycle_sets: %s" % cycle_sets)
 	locks = get_race_conditions(dep_ltss)
 	print("locks: %s" % locks)
-		
+	
+	
 # precondition: peeks are removed from the LTS
 def get_dependency_ltss(lts):
+	### Begin switch "append_rw" ###
+	# absence of ports are ignored as they do not contribute to the dependency ltss
+	def append_standard():
+		rw_list.append((a, src_sm, src_read_vars, src_write_vars))
+	
+	def append_receive():
+		if (tgt_sm is None) or (tgt_read is None) or (tgt_write is None):
+			raise ActionSyntaxException(
+				'action label \"%s\" is missing value for target state_machine, read, and/or write.' % a)
+		rw_list.append((a, tgt_sm, tgt_read_vars, tgt_write_vars))
+	
+	def append_comm():
+		append_standard()
+		append_receive()
+	
+	append_rw = {'RW': append_standard, 'send': append_standard, 'receive': append_receive,
+		'peek': append_standard, 'comm': append_comm}
+	### End switch ###
+	
 	transitions = lts.transition_dict
 	dep_ltss = dict()
 	for src, trans in transitions.items():
@@ -70,21 +98,43 @@ def get_dependency_ltss(lts):
 		signature = set()  # a set of all outgoing edges that are relevant for race condition detection
 		# get read/write actions
 		for a, tgts in trans.items():
-			if a.startswith('RW_'):
-				match_result = action_matcher.match(a)
-				if not match_result:
-					logging.error(
-						'action label \"%s\" does not adhere to the required format: RW_<ID>.<SUB_ID>({<set of reads>}, {<set of writes>})' % a)
-					continue
+			if a.startswith('tau'):
+				continue
+			
+			match_result = action_matcher.match(a)
+			if not match_result:
+				raise ActionSyntaxException('action label \"%s\" does not match the required format.' % a)
 				
-				obj_id = match_result.group(GROUP_SRC_OBJECT)
-				sm_id = match_result.group(GROUP_SRC_STATE_MACHINE)
-				read_vars = set(match_result.group(GROUP_SRC_READ_VARS).split(',')) - {''}
-				write_vars = set(match_result.group(GROUP_SRC_WRITE_VARS).split(',')) - {''}
-				read_vars = {obj_id + '.' + var for var in read_vars}  # add object owning the variable
-				write_vars = {obj_id + '.' + var for var in write_vars}  # add object owning the variable
-				rw_list.append((a, sm_id, read_vars, write_vars))
-				signature.add(a)
+			label = match_result.group(GROUP_LABEL)
+			
+			src_obj  = match_result.group(GROUP_SRC_OBJECT)
+			src_sm   = match_result.group(GROUP_SRC_STATE_MACHINE)
+			#src_port = match_result.group(GROUP_SRC_PORT)
+			tgt_obj  = match_result.group(GROUP_TGT_OBJECT)
+			tgt_sm   = match_result.group(GROUP_TGT_STATE_MACHINE)
+			#tgt_port = match_result.group(GROUP_TGT_PORT)
+			
+			src_read  = match_result.group(GROUP_SRC_READ_VARS)
+			src_write = match_result.group(GROUP_SRC_WRITE_VARS)
+			tgt_read  = match_result.group(GROUP_TGT_READ_VARS)
+			tgt_write = match_result.group(GROUP_TGT_WRITE_VARS)
+			
+			#msg = match_result.group(GROUP_MSG)
+			
+			src_read_vars  = set(src_read.split(',')) - {''}
+			src_write_vars = set(src_write.split(',')) - {''}
+			tgt_read_vars = set(tgt_read.split(',')) - {''} if tgt_read else set()
+			tgt_write_vars = set(tgt_write.split(',')) - {''} if tgt_write else set()
+			
+			# add object owning the variable
+			tgt_pre = src_obj if label == 'receive' else tgt_obj
+			src_read_vars  = {src_obj + '.' + var for var in src_read_vars}
+			src_write_vars = {src_obj + '.' + var for var in src_write_vars}
+			tgt_read_vars  = {tgt_pre + '.' + var for var in tgt_read_vars}
+			tgt_write_vars = {tgt_pre + '.' + var for var in tgt_write_vars}
+			
+			append_rw[label]() # switch on label to push to rw_list
+			signature.add(a)
 		
 		# analyse read/write performed by src state
 		frozen_signature = frozenset(signature)
@@ -121,7 +171,7 @@ def get_cycle_sets(dep_ltss):
 def LTS_remove_peek(lts):
 	temp_act = 'temp_tau'
 	lts.rename_action_labels({'tau': temp_act})
-	lts.hide_action_labels({'peek.*'})
+	lts.hide_action_labels({'peek_\w+!\w+[(]'})
 	lts.minimise(LTS.Equivalence.WEAK_BISIM)
 	lts.rename_action_labels({temp_act: 'tau'})
 

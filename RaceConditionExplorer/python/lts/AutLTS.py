@@ -44,7 +44,7 @@ class AutLTS(   LTS,
 	
 	# TODO: num_states and num_transitions are not updated by hiding and renaming
 	def hide_action_labels(self,hiding_set):
-		hiding_res = map(re.compile,hiding_set)
+		hiding_res = [re.compile(x) for x in hiding_set]
 		for src, trans in self._transitions.items():
 			for a in list(trans.keys()):
 				for rex in hiding_res:
@@ -55,7 +55,6 @@ class AutLTS(   LTS,
 						trans['tau'] = tau_tgts
 						del trans[a]
 						break
-		pass
 	
 	
 	def rename_action_labels(self, rename_dict):

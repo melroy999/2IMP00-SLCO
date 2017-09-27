@@ -23,7 +23,7 @@ class VarDependencyGraph:
 				# for each action 'tgt', add 'r' to the labels of transition src --labels--> tgt
 				targets = write_dict.get(r, set())
 				for tgt, tgt_sm_id in targets:
-					# a race condition can only occur if different state machines access the variable
+					# a race condition can only occur if different state machines access the variable,
 					# if read/write is done to by the same state machine the behaviour follows the specification
 					# described by the model and is intended
 					if sm_id != tgt_sm_id:
@@ -40,7 +40,7 @@ class VarDependencyGraph:
 		for outgoing in self.dependency_graph.values():
 			for labels in outgoing.values():
 				if len(labels) > 1:
-					locked_sets.append(frozenset(labels))
+					locked_sets.add(frozenset(labels))
 		return locked_sets
 					
 	def get_locked(self, locked):
