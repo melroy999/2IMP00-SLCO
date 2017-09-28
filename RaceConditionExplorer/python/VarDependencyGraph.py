@@ -4,9 +4,11 @@ from utils import stack
 
 class VarDependencyGraph:
 	dependency_graph = dict()
+	_locked = set()
 	
 	# Expects a list consisting of tuples of the form (act, state_machine_id, set(read_vars), set(write_vars))
 	def __init__(self, rw_list, locked = set()):
+		self.locked = locked
 		# build dictionary mapping write variables to actions
 		write_dict = dict()
 		for a, sm_id, _, write_vars in rw_list:
@@ -15,13 +17,16 @@ class VarDependencyGraph:
 				action_set.add((a, sm_id))  # a race condition can only occur if different state machines access the variable
 				write_dict[w] = action_set
 		# build dependency graph for rw_list
-		for src, sm_id, read_vars, _ in rw_list:
+		for src, sm_id, read_vars, write_vars in rw_list:
 			outgoing = dict()
 			for r in read_vars:
-				if r in locked:
+				if r in self._locked:
 					continue
 				# for each action 'tgt', add 'r' to the labels of transition src --labels--> tgt
 				targets = write_dict.get(r, set())
+				# a race condition may occur when a transitions writes and r
+				if r in write_vars and len(targets) > 1:
+					self._locked.add(r)
 				for tgt, tgt_sm_id in targets:
 					# a race condition can only occur if different state machines access the variable,
 					# if read/write is done to by the same state machine the behaviour follows the specification
@@ -32,8 +37,7 @@ class VarDependencyGraph:
 						outgoing[tgt] = labels
 			if outgoing:
 				self.dependency_graph[src] = outgoing
-		# cleanup empty transitions
-		self.remove_locked_labels_from_transitions(locked)
+
 		
 	def get_locked_sets(self):
 		locked_sets = set()
@@ -44,6 +48,7 @@ class VarDependencyGraph:
 		return locked_sets
 					
 	def get_locked(self, locked):
+		locked |= self._locked
 		self.remove_locked_labels_from_transitions(locked)
 		self.add_scc_locks(locked)
 		return locked
