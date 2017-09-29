@@ -18,7 +18,7 @@ class VarDependencyGraph:
 				write_dict[w] = action_set
 		# build dependency graph for rw_list
 		for src, sm_id, read_vars, write_vars in rw_list:
-			outgoing = dict()
+			outgoing = self.dependency_graph.get(src, {})
 			for r in read_vars:
 				if r in self._locked:
 					continue

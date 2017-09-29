@@ -76,13 +76,13 @@ def get_dependency_ltss(lts):
 	### Begin switch "append_rw" ###
 	# absence of ports are ignored as they do not contribute to the dependency ltss
 	def append_standard():
-		rw_list.append((a, src_sm, src_read_vars, src_write_vars))
+		rw_list.append((a + src_obj + src_sm, src_sm, src_read_vars, src_write_vars))
 	
 	def append_receive():
-		if (tgt_sm is None) or (tgt_read is None) or (tgt_write is None):
+		if (tgt_pre is None) or (tgt_sm is None) or (tgt_read is None) or (tgt_write is None):
 			raise ActionSyntaxException(
 				'action label \"%s\" is missing value for target state_machine, read, and/or write.' % a)
-		rw_list.append((a, tgt_sm, tgt_read_vars, tgt_write_vars))
+		rw_list.append((a + tgt_pre + tgt_sm, tgt_sm, tgt_read_vars, tgt_write_vars))
 	
 	def append_comm():
 		append_standard()
