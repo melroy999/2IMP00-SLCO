@@ -75,6 +75,8 @@ def RCE_get_race_conditions_from_file(path):
 def get_dependency_ltss(lts):
 	### Begin switch "append_rw" ###
 	# absence of ports are ignored as they do not contribute to the dependency ltss
+	# a postfix is added to the action label to ensure two nodes for the comm action
+	# and consistent naming for the nodes
 	def append_standard():
 		rw_list.append((a + src_obj + src_sm, src_sm, src_read_vars, src_write_vars))
 	
