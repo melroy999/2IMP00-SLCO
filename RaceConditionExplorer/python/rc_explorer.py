@@ -63,10 +63,10 @@ def RCE_get_race_conditions_from_file(path):
 	lts = LTS.create(path)
 	LTS_remove_peek(lts)
 	lts.minimise(LTS.Equivalence.BRANCHING_BISIM)
-	dep_ltss = get_dependency_ltss(lts)
+	dep_ltss, locked = get_dependency_ltss(lts)
 	cycle_sets = get_cycle_sets(dep_ltss)
 	logging.info("cycle_sets: %s" % cycle_sets)
-	locks = get_race_conditions(dep_ltss)
+	locks = get_race_conditions(dep_ltss, locked)
 	logging.info("locks: %s" % locks)
 	return locks
 	
@@ -141,12 +141,13 @@ def get_dependency_ltss(lts):
 		
 		# analyse read/write performed by src state
 		frozen_signature = frozenset(signature)
+		locked = set()
 		if frozen_signature not in dep_ltss:
-			dep_ltss[frozen_signature] = VarDependencyGraph(rw_list)
-	return dep_ltss
+			dep_ltss[frozen_signature] = VarDependencyGraph(rw_list, locked)
+	return (dep_ltss, locked)
 
 
-def get_race_conditions(dep_ltss):
+def get_race_conditions(dep_ltss, pre_locked):
 	locked_sets = set()
 	for dep_lts in dep_ltss.values():
 		locked_sets |= (dep_lts.get_locked_sets())
@@ -155,7 +156,7 @@ def get_race_conditions(dep_ltss):
 	flat_locked_sets = {x for locked_set in locked_sets for x in locked_set}
 	
 	# calculate further locks
-	locked = set(flat_locked_sets)
+	locked = set(flat_locked_sets) | pre_locked
 	for dep_lts in dep_ltss.values():
 		# locked is both used as set of existing locks and as accumulator of locks
 		dep_lts.get_locked(locked)

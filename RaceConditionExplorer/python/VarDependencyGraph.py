@@ -8,7 +8,6 @@ class VarDependencyGraph:
 	
 	# Expects a list consisting of tuples of the form (act, state_machine_id, set(read_vars), set(write_vars))
 	def __init__(self, rw_list, locked = set()):
-		self.locked = locked
 		# build dictionary mapping write variables to actions
 		write_dict = dict()
 		for a, sm_id, _, write_vars in rw_list:
@@ -19,14 +18,23 @@ class VarDependencyGraph:
 		# build dependency graph for rw_list
 		for src, sm_id, read_vars, write_vars in rw_list:
 			outgoing = self.dependency_graph.get(src, {})
+			
+			# if a statement write to multiple variables, then all write variables to which other statements write must be locked
+			if len(write_vars) > 1: # TODO: or intersection with another statement s' in rw_list?
+				for w in write_vars:
+					targets = write_dict.get(w, set())
+					if len(targets) > 1:
+						locked.add(w)
+			
 			for r in read_vars:
-				if r in self._locked:
+				if r in locked:
+					continue
+				targets = write_dict.get(r, set())
+				# a race condition may occur when a transitions writes and reads a variable
+				if r in write_vars and len(targets) > 1: # TODO: what about one write and multiple reads?
+					locked.add(r)
 					continue
 				# for each action 'tgt', add 'r' to the labels of transition src --labels--> tgt
-				targets = write_dict.get(r, set())
-				# a race condition may occur when a transitions writes and r
-				if r in write_vars and len(targets) > 1:
-					self._locked.add(r)
 				for tgt, tgt_sm_id in targets:
 					# a race condition can only occur if different state machines access the variable,
 					# if read/write is done to by the same state machine the behaviour follows the specification
@@ -37,6 +45,7 @@ class VarDependencyGraph:
 						outgoing[tgt] = labels
 			if outgoing:
 				self.dependency_graph[src] = outgoing
+		self._locked = locked
 
 		
 	def get_locked_sets(self):
