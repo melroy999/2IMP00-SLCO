@@ -17,7 +17,7 @@ from VarDependencyGraph import VarDependencyGraph
 from help_on_error_argument_parser import HelpOnErrorArgumentParser
 
 # matching of actions
-GROUP_LABEL              = 'label'
+GROUP_LABEL             = 'label'
 GROUP_SRC_OBJECT        = 'src_obj'
 GROUP_TGT_OBJECT        = 'tgt_obj'
 GROUP_SRC_READ_VARS     = 'src_reads'

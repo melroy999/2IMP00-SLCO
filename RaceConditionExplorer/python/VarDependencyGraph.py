@@ -16,22 +16,27 @@ class VarDependencyGraph:
 				action_set.add((a, sm_id))  # a race condition can only occur if different state machines access the variable
 				write_dict[w] = action_set
 		# build dependency graph for rw_list
-		for src, sm_id, read_vars, write_vars in rw_list:
+		for i in range(0,len(rw_list)):
+			src, sm_id, read_vars, write_vars = rw_list[i]
+			
+			# a race condition may occur when two transitions both write to more than one common variable
+			# if |write_vars[i] cap write_vars[j]| > 1 then write_vars[i] cap write_vars[j] must be locked
+			if len(write_vars) > 1:
+				for j in range(i+1,len(rw_list)):
+					_, _, _ , write_vars2 = rw_list[j]
+					w_intersect = write_vars & write_vars2
+					if len(w_intersect) > 1:
+						locked |= w_intersect
+					
+			# build dependency graph
 			outgoing = self.dependency_graph.get(src, {})
-			
-			# if a statement write to multiple variables, then all write variables to which other statements write must be locked
-			if len(write_vars) > 1: # TODO: or intersection with another statement s' in rw_list?
-				for w in write_vars:
-					targets = write_dict.get(w, set())
-					if len(targets) > 1:
-						locked.add(w)
-			
 			for r in read_vars:
 				if r in locked:
 					continue
 				targets = write_dict.get(r, set())
-				# a race condition may occur when a transitions writes and reads a variable
-				if r in write_vars and len(targets) > 1: # TODO: what about one write and multiple reads?
+				# a race condition may occur when a transitions writes and reads a variable and another transition writes as well
+				# if read_vars cap write_vars cap write_vars_of_other_transition is not empty, then add result to locked
+				if r in write_vars and len(targets) > 1:
 					locked.add(r)
 					continue
 				# for each action 'tgt', add 'r' to the labels of transition src --labels--> tgt
