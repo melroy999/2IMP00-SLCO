@@ -111,10 +111,10 @@ ArgumentType :
   type = VariableType;
 
 Variable:
-  type=VariableType name=ID (':=' (intialValue = Expression | ConstantArray )? ;
+  type=VariableType name=ID (':=' intialValue = (Expression | ConstantArray) )?;
 
 ConstantArray:
-  '['values+=Expression (',' values+=Expression)* ']'
+  '['values+=Expression (',' values+=Expression)* ']';
 
 VariableType:
   base=PrimitiveType ('[' size=INT ']')?;
@@ -136,7 +136,6 @@ Expression :
 TerminalExpression returns Expression :
   BooleanConstantExpression |
   IntegerConstantExpression |
-  StringConstantExpression |
   VariableExpression |
   BracketExpression;
 
