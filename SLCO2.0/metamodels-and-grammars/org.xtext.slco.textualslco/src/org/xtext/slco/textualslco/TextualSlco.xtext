@@ -111,11 +111,10 @@ ArgumentType :
   type = VariableType;
 
 Variable:
-  (type=VariableType?) name=ID (':=' 
-  	  (defvalue=VariableType)
-  	| ('['defvalues+=VariableType (',' defvalues+=VariableType)* ']')
-  )?
-;
+  type=VariableType name=ID (':=' (intialValue = Expression | ConstantArray )? ;
+
+ConstantArray:
+  '['values+=Expression (',' values+=Expression)* ']'
 
 VariableType:
   base=PrimitiveType ('[' size=INT ']')?;
@@ -124,8 +123,8 @@ enum PrimitiveType:
 	Integer | Boolean;
 
 ChannelType :
-    Synchronous = 'sync' 
-  | Asynchronous = 'async' ('[' size=INT']')? (losstype='lossless'|losstype='lossy');
+    Synchronous ?= 'sync' 
+  | Asynchronous ?= 'async' ('[' size=INT']')? (losstype='lossless'|losstype='lossy');
 
 Composite:
   '[' (guard=Expression ';')? assignments+=Assignment (';' assignments+=Assignment)* ']'
@@ -145,7 +144,6 @@ enum Operator :
     moreThan = '>' | lessThan = '<' | atLeast = '>=' | atMost = '<=' 
   | and = '&&' | or = '||' | equals = '==' | differs = '!=' 
   | mutiplication = '*' | add = '+' | subtract = '-' | modulo = '%'
-  | alternativeComposition = '|'
 ;
 
 BooleanConstantExpression :
@@ -153,9 +151,6 @@ BooleanConstantExpression :
 
 IntegerConstantExpression :
   value = INT;
-
-StringConstantExpression :
-  value = STRING;
   
 VariableReference:
   var=[Variable] ('['index=Expression']')?;  
