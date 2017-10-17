@@ -51,7 +51,7 @@ Transition:
   '}' )?
 ;
 
-Statement:
+Statement: // non-LL* due to recursion in assignment expression actionref
   (Composite | SignalReception | SendSignal | Delay | Assignment | Expression | ActionRef)
 ;
 
@@ -126,7 +126,7 @@ ChannelType :
     Synchronous ?= 'sync' 
   | Asynchronous ?= 'async' ('[' size=INT']')? (losstype='lossless'|losstype='lossy');
 
-Composite:
+Composite: // non-ll* due to recursion in expression and assignment
   '[' (guard=Expression ';')? assignments+=Assignment (';' assignments+=Assignment)* ']'
 ;
 
