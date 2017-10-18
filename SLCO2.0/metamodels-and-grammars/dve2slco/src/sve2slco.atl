@@ -1,0 +1,85 @@
+module sve2slco;
+
+-- @path DVE=/org.xtext.dve/model/generated/DVE.ecore
+-- @path SLCO=/org.xtext.slco.textualslco/model/generated/TextualSlco.ecore
+
+create OUT: SLCO from IN: DVE;
+
+rule Model2Model {
+	from dve : DVE!Model
+	to 	slco : SLCO!Model (
+			name <- 'dveModel',
+			--actions
+			classes <- globalClass,
+			objects <- singleObject
+			--channels
+		),
+		globalClass : SLCO!Class(
+			name <- 'globalClass'
+			variables <- globalVar2SMVar
+			-- ports
+			stateMachines <- Process2StateMachine
+			
+		),
+		singleObject : SLCO!Object(
+			name <- 'singleObject',
+			class <- globalClass
+		)
+}
+
+rule GlobalVar2StateMachineVar {
+	from varlist : DVE!VarList
+	to varseq : List(SLCO!Variable)
+}
+
+-- (type : DVE!PrimitiveType)
+rule Variable2Variable {
+	from dvar : DVE!Var
+	to 	svar : SLCO!Variable (
+			type <- PrimitiveType2VariableType(type),
+			name <- dvar.name,
+			initialValue <- Expression2Expression or ArrayExpression2ConstantArray
+		)
+}
+
+lazy rule Process2StateMachine {
+	from proc : DVE!Process
+	to obj : SLCO!StateMachine (
+	)
+}
+
+rule BooleanConstantExpression2BooleanConstantExpression {
+	from dexpr : DVE!BooleanConstantExpression
+	to 	sexpr : SLCO!BooleanConstantExpression(
+			value <- dexpr.value
+		)
+}
+
+rule IntegerConstantExpression2IntegerConstantExpression {
+	from dexpr : DVE!IntegerConstantExpression
+	to 	sexpr : SLCO!IntegerConstantExpression(
+			value <- dexpr.value
+		)
+}
+
+rule VariableExpression2VariableExpression {
+	from dexpr : DVE!VariableExpression
+	to 	sexpr : SLCO!VariableExpression(
+			variable <- varRef
+		),
+		varRef : SLCO!VariableReference(
+			var <- Variable ref
+			index <- Expression2Expression
+		)
+}
+
+rule BinaryOperatorExpression2BinaryOperatorExpression {
+	from dexpr : DVE!BinaryOperatorExpression
+	to 	sexpr : SLCO!BinaryOperatorExpression(
+			operand1 <- dexpr.operand1,
+			operator <- dexpr.operator,
+			operand2 <- dexpr.operand2
+		)
+}
+
+--helper context DVE!Operator def: getSlcoOp() : SLCO!Operator = self;

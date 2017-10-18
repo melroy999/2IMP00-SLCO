@@ -6,7 +6,7 @@ Model:
   ('actions' actions+=Action)?
   'model' name=ID '{'
   ('classes' (classes+=Class)*)?
-  ('Objects' (Objects+=Object)*)?
+  ('Objects' (objects+=Object)*)?
   ('channels' (channels+=Channel)*)?
   '}'
 ;
@@ -15,7 +15,7 @@ Class:
   name=ID '{'
     ('variables' (variables+=Variable)*)?
   	('ports' (ports+=Port)*)?
-	('state machines' (statemachines+=StateMachine)* )?
+	('state machines' (stateMachines+=StateMachine)* )?
   '}'
 ;
 
