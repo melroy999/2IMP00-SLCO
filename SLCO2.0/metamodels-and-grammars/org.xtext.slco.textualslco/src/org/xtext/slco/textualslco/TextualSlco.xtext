@@ -52,13 +52,7 @@ Transition:
 ;
 
 Statement: // non-LL* due to recursion in assignment expression
-  (Composite | Assignment | SignalReception | SendSignal | Delay | DoAction
-  //| Expression // Expression without one of the above does not make sense
-  )
-;
-
-Statement2:
-	Expression | DoAction
+  (Composite | Assignment | SignalReception | SendSignal | Delay | DoAction | Expression)
 ;
 
 Delay:
@@ -136,13 +130,29 @@ Composite:
 ;
 
 Expression :
-  TerminalExpression ({BinaryOperatorExpression.operand1 = current} operator = Operator operand2 = Expression)?;
+  (=> TerminalExpression) ({BinaryOperatorExpression.operand1 = current} operator = Operator  operand2 = Expression)?;
+/*
+Expression:
+  left=ExprPrec3 ((op='=='|op='!='|op='<='|op='>='|op='<'|op='>') right=ExprPrec3)?
+;
 
+ExprPrec3:
+  left=ExprPrec2 ((op='+'|op='-'|op='||'|op='&&') right=ExprPrec2)?
+;
+
+ExprPrec2:
+  left=ExprPrec1 ((op='*'|op='/'|op='%') right=ExprPrec1)?
+;
+
+ExprPrec1:
+  left=TerminalExpression (op='**' right=TerminalExpression)?
+;
+*/
 TerminalExpression returns Expression :
   BooleanConstantExpression |
   IntegerConstantExpression |
-  VariableExpression |
-  BracketExpression;
+  BracketExpression |
+  VariableExpression;
 
 enum Operator :
     moreThan = '>' | lessThan = '<' | atLeast = '>=' | atMost = '<=' 

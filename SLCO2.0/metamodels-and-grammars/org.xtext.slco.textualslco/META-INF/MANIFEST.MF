@@ -12,7 +12,8 @@ Require-Bundle: org.eclipse.xtext,
  org.eclipse.xtext.xbase.lib,
  org.eclipse.xtext.util,
  org.eclipse.xtend.lib,
- org.eclipse.emf.common
+ org.eclipse.emf.common,
+ org.antlr.runtime
 Bundle-RequiredExecutionEnvironment: JavaSE-1.8
 Export-Package: org.xtext.slco.textualslco,
  org.xtext.slco.textualslco.textualSlco,
@@ -22,5 +23,7 @@ Export-Package: org.xtext.slco.textualslco,
  org.xtext.slco.textualslco.textualSlco.impl,
  org.xtext.slco.textualslco.generator,
  org.xtext.slco.textualslco.scoping,
- org.xtext.slco.textualslco.textualSlco.util
+ org.xtext.slco.textualslco.textualSlco.util,
+ org.xtext.slco.textualslco.parser.antlr.internal,
+ org.xtext.slco.textualslco.parser.antlr
 Import-Package: org.apache.log4j
