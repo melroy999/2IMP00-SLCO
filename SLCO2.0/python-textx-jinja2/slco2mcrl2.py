@@ -315,7 +315,8 @@ def statementactionlabel(s,c,includesignal):
 			output += c.name + "'" + s.target.name
 		elif s.__class__.__name__ == "Expression":
 			if expression_is_actionref(s):
-				output += expression(s,sm[s],c,{})
+				#output += expression(s,sm[s],c,{})
+				output += "tau'"
 			else:
 				output = mcrl2readwrite + "_" + c.name
 				readwrite = True
@@ -369,7 +370,11 @@ def statementparameters(s,c):
 				else:
 					first = False
 				output += mcrl2varprefix + v
-			output += "},{" + mcrl2varprefix + s.left.var.name + "})"
+			output += "},{"
+			writeset = expression_varset(s.left,sm[s],c,{})
+			for v in writeset:
+				output += mcrl2varprefix + v
+			output += "})"
 			readwrite = True
 		elif s.__class__.__name__ == "Composite":
 			output = "(" + sm[s].name + ",{"
@@ -385,7 +390,7 @@ def statementparameters(s,c):
 				newright = expression(st.right,sm[s],c,vardict)
 				varname = scopedvars[c.name + "'" + sm[s].name][st.left.var.name]
 				if st.left.index != None:
-					vardict[varname] = "update(" + expression(st.left.var,sm[s],c,vardict) + "," + expression(st.left.index,sm[s],c,vardict) + "," + newright + ")"
+					vardict[varname] = "update(" + expression(st.left.var,sm[s],c,vardict) + ",Int2Nat(" + expression(st.left.index,sm[s],c,vardict) + ")," + newright + ")"
 				else:
 					vardict[varname] = "(" + newright + ")"
 			varlist = sorted(list(readset))
@@ -461,7 +466,7 @@ def statementparameters(s,c):
 			if expression_is_actionref(s):
 				output = ""
 			else:
-				output += "(" + sm[s].name + "{"
+				output += "(" + sm[s].name + ",{"
 				varlist = list(expression_varset(s,sm[s],c,{}))
 				varlist = sorted(varlist)
 				first = True
@@ -735,7 +740,7 @@ def statementstatechanges(s,c):
 		#	varname = s.left.var.name
 		# an assignment to an array cell should be handled differently from other cases
 		if s.left.index != None:
-			output = "update(" + varname + "," + expression(s.left.index,sm[s],c,{}) + "," + expression(s.right,sm[s],c,{}) + ")"
+			output = "update(" + varname + ",Int2Nat(" + expression(s.left.index,sm[s],c,{}) + ")," + expression(s.right,sm[s],c,{}) + ")"
 		else:
 			output = ", " + varname
 			output += "=" + expression(s.right,sm[s],c,{})
@@ -746,7 +751,7 @@ def statementstatechanges(s,c):
 			newright = expression(e.right,sm[s],c,vardict)
 			varname = scopedvars[c.name + "'" + sm[s].name][e.left.var.name]
 			if e.left.index != None:
-				vardict[varname] = "update(" + expression(e.left.var,sm[s],c,vardict) + "," + expression(e.left.index,sm[s],c,vardict) + "," + newright + ")"
+				vardict[varname] = "update(" + expression(e.left.var,sm[s],c,vardict) + ",Int2Nat(" + expression(e.left.index,sm[s],c,vardict) + ")," + newright + ")"
 			else:
 				vardict[varname] = "(" + newright + ")"
 		# add assignments to state changes
@@ -892,10 +897,12 @@ def expression(s,stm,c,primmap):
 			if s.ref.ref in actions:
 				output += s.ref.ref
 			else:
-				output += primmap.get(scopedvars[c.name + "'" + stm.name][s.ref.ref], scopedvars[c.name + "'" + stm.name][s.ref.ref])
 				# is an index to an array given?
 				if s.ref.index != None:
-					output += "." + expression(s.ref.index,stm,c,primmap)
+					output += "("
+				output += primmap.get(scopedvars[c.name + "'" + stm.name][s.ref.ref], scopedvars[c.name + "'" + stm.name][s.ref.ref])
+				if s.ref.index != None:
+					output += ".Int2Nat(" + expression(s.ref.index,stm,c,primmap) + "))"
 		else:
 			output += '(' + expression(s.body,stm,c,primmap) + ')'
 	return output
@@ -909,7 +916,7 @@ def expression_varset(s,stm,c,primmap):
 		if s.var.name not in smlocalvars.get(c.name + "'" + stm.name,set([])):
 			varname = s.var.name
 			if s.index != None:
-				varname += "(" + expression(s.index,stm,c,primmap) + ")"
+				varname += "(Int2Nat(" + expression(s.index,stm,c,primmap) + "))"
 			output.add(varname)
 	elif s.__class__.__name__ != "Primary":
 		output |= expression_varset(s.left,stm,c,primmap)
@@ -922,7 +929,7 @@ def expression_varset(s,stm,c,primmap):
 				if s.ref.ref not in smlocalvars.get(c.name + "'" + stm.name,set([])):
 					varname = s.ref.ref
 					if s.ref.index != None:
-						varname += "(" + expression(s.ref.index,stm,c,primmap) + ")"
+						varname += "(Int2Nat(" + expression(s.ref.index,stm,c,primmap) + "))"
 					output.add(varname)
 	return output
 
@@ -1475,20 +1482,21 @@ def preprocess():
 	visibleactions = {}
 	# temporary dict to ensure that no two statements are stored in visibleactions with the same label
 	visibleactionstrings = {}
-	for c in model.classes:
-		for stm in c.statemachines:
-			for trn in stm.transitions:
-				for stat in trn.statements:
-					if expression_is_actionref(stat):
-						stringset = visibleactionstrings.get(c, set([]))
-						if statementactionlabel(stat,c,False) not in stringset:
-							stringset.add(statementactionlabel(stat,c,False))
-							visibleactionstrings[c] = stringset
-							actset = visibleactions.get(c, set([]))
-							actset.add(stat)
-							visibleactions[c] = actset
-	# also add other visible actions, in case of race condition checking
-	if check_rc:
+	if not check_rc:
+		for c in model.classes:
+			for stm in c.statemachines:
+				for trn in stm.transitions:
+					for stat in trn.statements:
+						if expression_is_actionref(stat):
+							stringset = visibleactionstrings.get(c, set([]))
+							if statementactionlabel(stat,c,False) not in stringset:
+								stringset.add(statementactionlabel(stat,c,False))
+								visibleactionstrings[c] = stringset
+								actset = visibleactions.get(c, set([]))
+								actset.add(stat)
+								visibleactions[c] = actset
+	# add other visible actions, in case of race condition checking
+	else:
 		for c in model.classes:
 			for stm in c.statemachines:
 				for trn in stm.transitions:
@@ -1561,6 +1569,7 @@ def translate():
 	jinja_env.tests['syncstatwithsyncguards'] = syncstatwithsyncguards
 	jinja_env.tests['syncstatement'] = syncstatement
 	jinja_env.tests['o2o_sync'] = o2o_sync
+	jinja_env.tests['actionref'] = expression_is_actionref
 
 	# load the mCRL2 template
 	template = jinja_env.get_template('mcrl2.jinja2template')

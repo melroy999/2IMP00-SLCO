@@ -120,7 +120,7 @@ proc {{class.name}}({%for var in class.variables%}{{var.name}}: {{var.type|mcrl2
 	{% set statindex = 0 %}
 	{% if not loop.first %}{% set statindex = transcounter|length+statloop.index0 %}{% endif %}
 	({{sm.name}}_state == {{tr.source.name}} && {{sm.name}}_stindex == {{statindex}}{{stat|statementguard(class,statindex,loop.index0==0,False)}}{% for cs in class_sguard_creceives|reject("equalto", stat) %} && {% if cs in condstats %}!{% endif %}rec_enabled{{cs._tx_position}}{% endfor %}) -> {{stat|statementsummation(class)}}{{stat|statementlabel(class,loop.index0==0,0)}}{{stat|statementparameters(class)}}.{{class.name}}({% if loop.last %}{{sm.name}}_state={{tr.target.name}}{% if tr.statements|length>1 %}, {% endif %}{% endif %}{% if tr.statements|length>1 %}{{sm.name}}_stindex={% if loop.last %}0{% else %}{{transcounter|length+loop.index0+1}}{% endif %}{% endif %}{{stat|statementstatechanges(class)}}{% for s in class_receives[class] %}, rec_enabled{{s._tx_position}}=true{% endfor %}){% if stat.__class__.__name__ == 'ReceiveSignal' %}<>{% if stat is o2o_sync(class) %}not'{{stat|statementactionlabel(class,False)}}{% else %}tau'{% endif %}.{{class.name}}(rec_enabled{{stat._tx_position}}=false)){% endif %}{% if not loop.last or not trloop.last or not smstatloop.last or stat.__class__.__name__ == 'SendSignal' %} +{% elif o2o_sync_summands.get(class) != None or class_receives.get(class)|length > 0 %} +{% else %};{% endif %}
-	{% if check_rc and stat.__class__.__name__ == 'Expression' %}
+	{% if check_rc and stat.__class__.__name__ == 'Expression' and stat is not actionref %}
 
 	({{sm.name}}_state == {{tr.source.name}} && {{sm.name}}_stindex == {{statindex}}{{stat|statementguard(class,statindex,loop.index0==0,True)}}{% for cs in class_sguard_creceives|reject("equalto", stat) %} && {% if cs in condstats %}!{% endif %}rec_enabled{{cs._tx_position}}{% endfor %}) -> {{stat|statementsummation(class)}}{{stat|statementlabel(class,loop.index0==0,0)}}{{stat|statementparameters(class)}}.{{class.name}}(){% if not loop.last or not trloop.last or not smstatloop.last %} +{% elif o2o_sync_summands.get(class) != None  or class_receives.get(class)|length > 0 %} +{% else %};{% endif %}
 	{% endif %}
@@ -132,7 +132,7 @@ proc {{class.name}}({%for var in class.variables%}{{var.name}}: {{var.type|mcrl2
 	{% endif %}
 	{% for condstats in class_sguard_creceives_combs %}
 	({{sm.name}}_state == {{tr.source.name}} && {{sm.name}}_stindex == {{statindex}}{{stat|statementguard(class,statindex,statloop.index0==0,False)}}{% for cs in class_sguard_creceives|reject("equalto", stat) %} && {% if cs in condstats %}!{% endif %}rec_enabled{{cs._tx_position}}{% endfor %}) -> {{stat|statementsummation(class)}}{{stat|statementlabel(class,False,loop.index)}}{{stat|statementparameters(class)}}.{{class.name}}({% if statloop.last %}{{sm.name}}_state={{tr.target.name}}{% if tr.statements|length>1 %}, {% endif %}{% endif %}{% if tr.statements|length>1 %}{{sm.name}}_stindex={% if statloop.last %}0{% else %}{{transcounter|length+statloop.index0+1}}{% endif %}{% endif %}{{stat|statementstatechanges(class)}}{% for s in class_receives[class] %}, rec_enabled{{s._tx_position}}=true{% endfor %}){% if stat.__class__.__name__ == 'ReceiveSignal' %}<>{% if stat is o2o_sync(class) %}not'{{stat|statementactionlabel(class,False)}}{% else %}tau'{% endif %}.{{class.name}}(rec_enabled{{stat._tx_position}}=false)){% endif %}{% if not loop.last or statloop.last or not trloop.last or not smstatloop.last or stat.__class__.__name__ == 'SendSignal' %} +{% elif o2o_sync_summands.get(class) != None or class_receives.get(class)|length > 0 %} +{% else %};{% endif %}
-	{% if check_rc and stat.__class__.__name__ == 'Expression' %}
+	{% if check_rc and stat.__class__.__name__ == 'Expression' and stat is not actionref %}
 
 	({{sm.name}}_state == {{tr.source.name}} && {{sm.name}}_stindex == {{statindex}}{{stat|statementguard(class,statindex,loop.index0==0,True)}}{% for cs in class_sguard_creceives|reject("equalto", stat) %} && {% if cs in condstats %}!{% endif %}rec_enabled{{cs._tx_position}}{% endfor %}) -> {{stat|statementsummation(class)}}{{stat|statementlabel(class,loop.index0==0,0)}}{{stat|statementparameters(class)}}.{{class.name}}(){% if not loop.last or not trloop.last or not smstatloop.last %} +{% elif o2o_sync_summands.get(class) != None or class_receives.get(class)|length > 0 %} +{% else %};{% endif %}
 	{% endif %}
@@ -248,7 +248,9 @@ proc {{c.name}} = rename({cannot'insert -> cannot'insert_{{c.source.name}}'{{c.p
 % *** INITIALISATION ***
 
 {% for c in model.channels %}
-{% if loop.first %}act {% else %}    {% endif %}{% if c.synctype == 'async' %}{{c|commsendactionlabel}}, {{c|commreceiveactionlabel}}, {{c|commpeekactionlabel}}{% else %}{{c|syncactionlabel}}, {{c|peeksyncactionlabel}}{% endif %}: Signal'{% for t in c.type %}{{t|mcrl2type|datatypeacronym}}{% endfor %}{% for t in c.type %} # {{t|mcrl2type}}{% endfor %};
+{% if loop.first %}act {% else %}    {% endif %}{% if c.synctype == 'async' %}{{c|commsendactionlabel}}, {{c|commreceiveactionlabel}}{{c|sendactiontype}};
+    {{c|commpeekactionlabel}}{{c|peekactiontype}}{% else %}{{c|syncactionlabel}}{{c|sendactiontype}};
+	  {{c|peeksyncactionlabel}}{{c|sendpeekactiontype}}{% endif %};
 {% if c.synctype == 'sync' %}    not'{{c|syncactionlabel}};
 {% endif %}
 {% endfor %}
