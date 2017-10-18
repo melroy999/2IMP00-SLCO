@@ -44,12 +44,12 @@ action_matcher = re.compile('(?P<'+GROUP_LABEL+'>RW|send|receive|peek|comm)'
 							'(_(?P<'+GROUP_TGT_OBJECT+'>\w+)[.](?P<'+GROUP_TGT_PORT+'>\w+))?'
 
 							'[(](?P<'+GROUP_SRC_STATE_MACHINE+'>_|\w+),'
-							'[{](?P<'+GROUP_SRC_READ_VARS+'>\w?([,]\w)*)[}],'
+							'[{](?P<'+GROUP_SRC_READ_VARS+'>(\w([(]\d[)])?)?([,]\w([(]\d[)])?)*)[}],'
 							'[{](?P<'+GROUP_SRC_WRITE_VARS+'>\w?([,]\w)*)[}]'
 
 							'(,(?P<'+GROUP_TGT_STATE_MACHINE+'>_|\w+),'
-							'[{](?P<'+GROUP_TGT_READ_VARS+'>\w?([,]\w)*)[}],'
-							'[{](?P<'+GROUP_TGT_WRITE_VARS+'>\w?([,]\w)*)[}],'
+							'[{](?P<'+GROUP_TGT_READ_VARS+'>(\w([(]\d[)])?)?([,]\w([(]\d[)])?)*)[}],'
+							'[{](?P<'+GROUP_TGT_WRITE_VARS+'>(\w([(]\d[)])?)?([,]\w([(]\d[)])?)*)[}],'
 							'(?P<'+GROUP_MSG+'>_|\w*[)]))?')
 
 class ActionSyntaxException(Exception):
