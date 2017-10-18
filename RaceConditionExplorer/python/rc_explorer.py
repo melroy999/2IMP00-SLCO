@@ -36,12 +36,12 @@ GROUP_MSG               = 'msg'
 #							'[{](?P<'+GROUP_SRC_WRITE_VARS+'>\w?([,]\w)*)[}]')
 
 
-action_matcher = re.compile('(?P<'+GROUP_LABEL+'>RW|send|receive|peek|comm)'
+action_matcher = re.compile('(?P<'+GROUP_LABEL+'>rw|send|receive|peek|comm)'
 							'_(?P<'+GROUP_SRC_OBJECT+'>\w+)'
 
-							'([.](?P<'+GROUP_SRC_PORT+'>\w+))?'
+							'(_(?P<'+GROUP_SRC_PORT+'>\w+))?'
 
-							'(_(?P<'+GROUP_TGT_OBJECT+'>\w+)[.](?P<'+GROUP_TGT_PORT+'>\w+))?'
+							'(_(?P<'+GROUP_TGT_OBJECT+'>\w+)_(?P<'+GROUP_TGT_PORT+'>\w+))?'
 
 							'[(](?P<'+GROUP_SRC_STATE_MACHINE+'>_|\w+),'
 							'[{](?P<'+GROUP_SRC_READ_VARS+'>(\w([(]\d[)])?)?([,]\w([(]\d[)])?)*)[}],'
@@ -90,7 +90,7 @@ def get_dependency_ltss(lts):
 		append_standard()
 		append_receive()
 	
-	append_rw = {'RW': append_standard, 'send': append_standard, 'receive': append_receive,
+	append_rw = {'rw': append_standard, 'send': append_standard, 'receive': append_receive,
 		'peek': append_standard, 'comm': append_comm}
 	### End switch ###
 	
@@ -193,7 +193,7 @@ def main():
 	
 	# parse arguments
 	parser = HelpOnErrorArgumentParser(
-		description='Race Condition Explorer: finds race conditions in state spaces in aut format, where labels are formatted as RW_Object(Read set, Write set)',
+		description='Race Condition Explorer: finds race conditions in state spaces in aut format, where labels are formatted as rw_Object(Read set, Write set)',
 		formatter_class=argparse.ArgumentDefaultsHelpFormatter
 	)
 	parser.add_argument("INPUT_LTS", type=str, help="LTS file in aut format")

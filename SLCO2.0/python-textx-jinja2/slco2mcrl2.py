@@ -969,23 +969,23 @@ def peekactionlabel(s):
 
 def commsendactionlabel(s):
 	"""Produces mCRL2 successful communication send action label for object connected to given channel"""
-	return mcrl2commsend + "_" + s.source.name + "'" + s.ports[0].name
+	return mcrl2commsend + "_" + s.source.name + "_" + s.ports[0].name
 
 def commreceiveactionlabel(s):
 	"""Produces mCRL2 successful communication receive action label from channel connected to given channel"""
-	return mcrl2commreceive + "_" + s.target.name + "'" + s.ports[1].name
+	return mcrl2commreceive + "_" + s.target.name + "_" + s.ports[1].name
 
 def commpeekactionlabel(s):
 	"""Produces mCRL2 successful communication receive action label from channel connected to given channel"""
-	return mcrl2commpeek + "_" + s.target.name + "'" + s.ports[1].name
+	return mcrl2commpeek + "_" + s.target.name + "_" + s.ports[1].name
 
 def syncactionlabel(s):
 	"""Produces mCRL2 successful communication action label between objects, given the channel"""
-	return mcrl2comm + "_" + s.source.name + "'" + s.ports[0].name + "_" + s.target.name + "'" + s.ports[1].name
+	return mcrl2comm + "_" + s.source.name + "_" + s.ports[0].name + "_" + s.target.name + "_" + s.ports[1].name
 
 def peeksyncactionlabel(s):
 	"""Produces mCRL2 successful peek action label between objects, given the channel"""
-	return mcrl2commpeek + "_" + s.source.name + "'" + s.ports[0].name + "_" + s.target.name + "'" + s.ports[1].name
+	return mcrl2commpeek + "_" + s.source.name + "_" + s.ports[0].name + "_" + s.target.name + "_" + s.ports[1].name
 
 # Communication types (given a channel object)
 
