@@ -51,8 +51,14 @@ Transition:
   '}' )?
 ;
 
-Statement: // non-LL* due to recursion in assignment expression actionref
-  (Composite | SignalReception | SendSignal | Delay | Assignment | Expression | ActionRef)
+Statement: // non-LL* due to recursion in assignment expression
+  (Composite | Assignment | SignalReception | SendSignal | Delay | DoAction
+  //| Expression // Expression without one of the above does not make sense
+  )
+;
+
+Statement2:
+	Expression | DoAction
 ;
 
 Delay:
@@ -61,10 +67,9 @@ Delay:
 Action:
   name=ID;
 
-ActionRef:
-name=ID;
+DoAction:
+  'do' name=ID;
 
-// TODO: does SLCO 2 support conditional receive? or is that via the composit statement?
 SignalReception:
   'receive' signalName=ID '(' (arguments += SignalArgument (',' arguments += SignalArgument)*)?
 	('|' condition = Expression)? ')' 'from' port = [Port];
@@ -79,7 +84,7 @@ SignalArgumentExpression :
   '[[' expression = Expression ']]';
 
 Assignment:
-  left=VariableReference ':=' right=Expression;
+  variable=VariableReference ':=' expression=Expression;
   
 SendSignal:
   'send' signal=ID '(' (params+=Expression (',' params+=Expression)*)? ')' 'to' target=[Port]
@@ -126,8 +131,8 @@ ChannelType :
     Synchronous ?= 'sync' 
   | Asynchronous ?= 'async' ('[' size=INT']')? (losstype='lossless'|losstype='lossy');
 
-Composite: // non-ll* due to recursion in expression and assignment
-  '[' (guard=Expression ';')? assignments+=Assignment (';' assignments+=Assignment)* ']'
+Composite:
+  '[' (=> guard=Expression ';')? assignments+=Assignment (';' assignments+=Assignment)* ']'
 ;
 
 Expression :
