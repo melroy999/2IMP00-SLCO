@@ -56,7 +56,7 @@ VarList:
 
 Var:
 	name=ID 
-	('[' length=Expression ']')?
+	('[' length=INT ']')?
 	('=' initialValue=Expression)?
 ;
 

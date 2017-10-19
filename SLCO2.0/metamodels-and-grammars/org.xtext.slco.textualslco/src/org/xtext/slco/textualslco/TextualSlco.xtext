@@ -34,13 +34,13 @@ StateMachine:
 Vertex:
 	Initial | State | Final;
 
-Initial returns Vertex:
+Initial:
   name=ID ;
 
-State returns Vertex:
+State:
   name=ID ;
 
-Final returns Vertex:
+Final:
   name=ID ;
 
 Transition:

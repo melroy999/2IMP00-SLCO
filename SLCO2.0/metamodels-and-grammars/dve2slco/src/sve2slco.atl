@@ -5,20 +5,25 @@ module sve2slco;
 
 create OUT: SLCO from IN: DVE;
 
+
+
 rule Model2Model {
 	from dve : DVE!Model
 	to 	slco : SLCO!Model (
-			name <- 'dveModel',
+			name 	<- 'dveModel',
 			--actions
 			classes <- globalClass,
 			objects <- singleObject
 			--channels
 		),
 		globalClass : SLCO!Class(
-			name <- 'globalClass'
-			variables <- globalVar2SMVar
+			name 			<- 'globalClass',
+			variables 		<- dve.declarations->select(i | i.oclIsTypeOf(DVE!VarList))->
+								collect(i | i.variables->
+									collect(j | thisModule.Variable2Variable(j, i.type))
+								)->flatten(),
 			-- ports
-			stateMachines <- Process2StateMachine
+			stateMachines 	<- dve.declarations->select(i | i.oclIsTypeOf(DVE!Process))
 			
 		),
 		singleObject : SLCO!Object(
@@ -27,25 +32,63 @@ rule Model2Model {
 		)
 }
 
-rule GlobalVar2StateMachineVar {
-	from varlist : DVE!VarList
-	to varseq : List(SLCO!Variable)
+helper context DVE!PrimitiveType def : map() : SLCO!PrimitiveType = 
+	Map{(#ByteType,#"Integer"),
+		(#IntType ,#"Integer"),
+		(#BoolType,#"Boolean")}.get(self);
+
+--rule NewVariableType(varType : SLCO!PrimitiveType, size : Integer) {
+--	to 	dvarType : SLCO!VariableType (type <- varType, size <- size)
+--}
+
+rule Variable2Variable(dvar : DVE!Var, varType : DVE!PrimitiveType) {
+	to 	svar : SLCO!Variable (
+			type <- dvarType,
+			name <- dvar.name,
+			initialValue <- dvar.initialValue
+		),
+		dvarType : SLCO!VariableType (type <- varType, size <- size)
+	--do { svar.type <- NewVariableType(varType.map(), dvar.length) }
 }
 
--- (type : DVE!PrimitiveType)
-rule Variable2Variable {
-	from dvar : DVE!Var
-	to 	svar : SLCO!Variable (
-			type <- PrimitiveType2VariableType(type),
-			name <- dvar.name,
-			initialValue <- Expression2Expression or ArrayExpression2ConstantArray
+rule Process2StateMachine {
+	from proc : DVE!Process
+	using {
+		non_init_states : Sequence(DVE!State) = proc.states->excluding(init);
+	}
+	to 	obj : SLCO!StateMachine (
+			name <- proc.name,
+			variables <- proc.varlists->
+							collect(i | i.variables->
+								collect(j | thisModule.Variable2Variable(j, i.type))
+							)->flatten(),
+			vertices <- non_init_states->collect(i | thisModule.State2State(i))->
+										 append(thisModule.State2Initial(proc.init)),
+			transitions <- proc.transitions
 		)
 }
 
-lazy rule Process2StateMachine {
-	from proc : DVE!Process
-	to obj : SLCO!StateMachine (
-	)
+lazy rule State2State {
+	from dstate : DVE!State
+	to 	sstate : SLCO!State(name <- dstate.name)
+}
+
+lazy rule State2Initial {
+	from dstate : DVE!State
+	to 	sstate : SLCO!Initial(name <- dstate.name)
+}
+
+rule Transition2Transition {
+	from dtrans : DVE!Transition
+	using {
+		assigns : Sequence(DVE!Assignment) = dtrans.effects->collect(i | i.assignments)->flatten();
+	}
+	to 	strans : SLCO!Transition(
+			source <- thisModule.resolveTemp(dtrans.source, 'sstate'),
+			target <- thisModule.resolveTemp(dtrans.source, 'sstate'),
+			statements <- Sequence{composite}
+		),
+		composite : SLCO!Composite(guard <- dtrans.guard, assignments <- assigns)
 }
 
 rule BooleanConstantExpression2BooleanConstantExpression {
