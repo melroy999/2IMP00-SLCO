@@ -47,14 +47,14 @@ rule Variable2Variable(dvar : DVE!Var, varType : DVE!PrimitiveType) {
 			name <- dvar.name,
 			initialValue <- dvar.initialValue
 		),
-		dvarType : SLCO!VariableType (type <- varType, size <- size)
+		dvarType : SLCO!VariableType (type <- varType, size <- dvar.length)
 	--do { svar.type <- NewVariableType(varType.map(), dvar.length) }
 }
 
 rule Process2StateMachine {
 	from proc : DVE!Process
 	using {
-		non_init_states : Sequence(DVE!State) = proc.states->excluding(init);
+		non_init_states : Sequence(DVE!State) = proc.states->excluding(proc.init);
 	}
 	to 	obj : SLCO!StateMachine (
 			name <- proc.name,
@@ -91,6 +91,25 @@ rule Transition2Transition {
 		composite : SLCO!Composite(guard <- dtrans.guard, assignments <- assigns)
 }
 
+rule Assignment2Assignment {
+	from das : DVE!Assignment
+	to 	sas : SLCO!Assignment(
+			variable <- varRef
+		),
+		varRef : SLCO!VariableReference(
+			var <- thisModule.resolveTemp(das.variable, 'svar'),
+			index <- das.index,
+			expression <- das.expression
+		)
+}
+
+rule ArrayConstantExpression2ConstantArray {
+	from dexpr : DVE!ArrayConstantExpression
+	to 	sexpr : SLCO!ConstantArray (
+			values <- dexpr.values
+		)
+}
+
 rule BooleanConstantExpression2BooleanConstantExpression {
 	from dexpr : DVE!BooleanConstantExpression
 	to 	sexpr : SLCO!BooleanConstantExpression(
@@ -111,8 +130,8 @@ rule VariableExpression2VariableExpression {
 			variable <- varRef
 		),
 		varRef : SLCO!VariableReference(
-			var <- Variable ref
-			index <- Expression2Expression
+			var <- thisModule.resolveTemp(dexpr.variable, 'svar'),
+			index <- dexpr.index
 		)
 }
 

@@ -78,7 +78,7 @@ Expression :
 TerminalExpression returns Expression :
   BooleanConstantExpression |
   IntegerConstantExpression |
-  ArrayExpression |
+  ArrayConstantExpression |
   VariableExpression |
   BracketExpression;
 
@@ -89,7 +89,7 @@ enum Operator :
   | alternativeComposition = '|'
 ;
 
-ArrayExpression:
+ArrayConstantExpression:
 	'{' (values+=Expression) (',' values+=Expression)* '}'
 ;
 
