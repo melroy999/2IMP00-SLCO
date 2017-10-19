@@ -6,7 +6,7 @@ Model:
   ('actions' actions+=Action)?
   'model' name=ID '{'
   ('classes' (classes+=Class)*)?
-  ('Objects' (objects+=Object)*)?
+  ('objects' (objects+=Object)*)?
   ('channels' (channels+=Channel)*)?
   '}'
 ;
