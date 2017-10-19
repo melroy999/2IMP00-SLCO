@@ -5,63 +5,83 @@ module sve2slco;
 
 create OUT: SLCO from IN: DVE;
 
+helper def : getTupleVars (varlists : Sequence(DVE!VarList)) 
+	: Sequence(TupleType(type : DVE!PrimitiveType, var : DVE!Var)) =
+		varlists->collect(i | i.variables->collect(j | Tuple{type = i.type, var = j}))->flatten();
 
-
-rule Model2Model {
-	from dve : DVE!Model
+rule DVEModel2SLCOModel {
+	from dve : DVE!DVEModel
+	using {
+		varlists : Sequence(DVE!VarList) = dve.declarations->select(i | i.oclIsTypeOf(DVE!VarList));
+		procs    : Sequence(DVE!Process) = dve.declarations->select(i | i.oclIsTypeOf(DVE!Process));
+		vars 	 : Sequence(TupleType(type : DVE!PrimitiveType, var : DVE!Var)) 
+						= thisModule.getTupleVars(varlists);
+	}
 	to 	slco : SLCO!Model (
 			name 	<- 'dveModel',
 			--actions
-			classes <- globalClass,
-			objects <- singleObject
+			classes <- Sequence{globalClass},
+			objects <- Sequence{singleObject}
 			--channels
 		),
 		globalClass : SLCO!Class(
 			name 			<- 'globalClass',
-			variables 		<- dve.declarations->select(i | i.oclIsTypeOf(DVE!VarList))->
-								collect(i | i.variables->
-									collect(j | thisModule.Variable2Variable(j, i.type))
-								)->flatten(),
+			variables 		<- vars->collect(i | thisModule.VarTuple2Variable(i)), 
 			-- ports
-			stateMachines 	<- dve.declarations->select(i | i.oclIsTypeOf(DVE!Process))
-			
+			stateMachines 	<- procs
 		),
 		singleObject : SLCO!Object(
 			name <- 'singleObject',
 			class <- globalClass
 		)
+	do {	
+		
+--		dve.declarations->select(i | i.oclIsTypeOf(DVE!VarList))->
+--								collect(i | i.variables->
+--									collect(j | thisModule.Variable2Variable(j, i.type))
+--								)->flatten()
+	}
 }
 
-helper context DVE!PrimitiveType def : map() : SLCO!PrimitiveType = 
+helper def : mapPrimitiveType(src : DVE!PrimitiveType) : SLCO!PrimitiveType = 
 	Map{(#ByteType,#"Integer"),
 		(#IntType ,#"Integer"),
-		(#BoolType,#"Boolean")}.get(self);
+		(#BoolType,#"Boolean")}.get(src);
 
 --rule NewVariableType(varType : SLCO!PrimitiveType, size : Integer) {
 --	to 	dvarType : SLCO!VariableType (type <- varType, size <- size)
 --}
 
-rule Variable2Variable(dvar : DVE!Var, varType : DVE!PrimitiveType) {
+lazy rule VarTuple2Variable {
+	from tup : TupleType(type : DVE!PrimitiveType, var : DVE!Var)
 	to 	svar : SLCO!Variable (
 			type <- dvarType,
-			name <- dvar.name,
-			initialValue <- dvar.initialValue
+			name <- tup.var.name,
+			initialValue <- tup.var.initialValue
 		),
-		dvarType : SLCO!VariableType (type <- varType, size <- dvar.length)
-	--do { svar.type <- NewVariableType(varType.map(), dvar.length) }
+		dvarType : SLCO!VariableType (base <- thisModule.mapPrimitiveType(tup.type), size <- tup.var.length)
 }
+
+--rule Variable2Variable(dvar : DVE!Var, varType : DVE!PrimitiveType) {
+--	to 	svar : SLCO!Variable (
+--			type <- dvarType,
+--			name <- dvar.name,
+--			initialValue <- dvar.initialValue
+--		),
+--		dvarType : SLCO!VariableType (base <- thisModule.mapPrimitiveType(varType), size <- dvar.length)
+--	--do { svar.type <- NewVariableType(varType.map(), dvar.length) }
+--}
 
 rule Process2StateMachine {
 	from proc : DVE!Process
 	using {
 		non_init_states : Sequence(DVE!State) = proc.states->excluding(proc.init);
+		vars 	 : Sequence(TupleType(type : DVE!PrimitiveType, var : DVE!Var)) 
+						= thisModule.getTupleVars(proc.varlists);
 	}
 	to 	obj : SLCO!StateMachine (
 			name <- proc.name,
-			variables <- proc.varlists->
-							collect(i | i.variables->
-								collect(j | thisModule.Variable2Variable(j, i.type))
-							)->flatten(),
+			variables <- vars->collect(i | thisModule.VarTuple2Variable(i)),
 			vertices <- non_init_states->collect(i | thisModule.State2State(i))->
 										 append(thisModule.State2Initial(proc.init)),
 			transitions <- proc.transitions
@@ -94,12 +114,12 @@ rule Transition2Transition {
 rule Assignment2Assignment {
 	from das : DVE!Assignment
 	to 	sas : SLCO!Assignment(
-			variable <- varRef
+			variable <- varRef,
+			expression <- das.expression
 		),
 		varRef : SLCO!VariableReference(
 			var <- thisModule.resolveTemp(das.variable, 'svar'),
-			index <- das.index,
-			expression <- das.expression
+			index <- das.index
 		)
 }
 
@@ -143,5 +163,3 @@ rule BinaryOperatorExpression2BinaryOperatorExpression {
 			operand2 <- dexpr.operand2
 		)
 }
-
---helper context DVE!Operator def: getSlcoOp() : SLCO!Operator = self;

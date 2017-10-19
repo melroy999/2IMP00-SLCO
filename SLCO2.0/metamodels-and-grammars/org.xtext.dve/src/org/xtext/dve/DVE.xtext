@@ -2,7 +2,7 @@ grammar org.xtext.dve.DVE with org.eclipse.xtext.common.Terminals
 
 generate dve "http://www.xtext.org/dve/DVE"
 
-Model hidden(WS, ML_COMMENT, SL_COMMENT):
+DVEModel hidden(WS, ML_COMMENT, SL_COMMENT):
 	(declarations+=Declaration)+
 	'system' 'async' ';'
 ;
