@@ -110,7 +110,7 @@ ArgumentType :
   type = VariableType;
 
 Variable:
-  type=VariableType name=ID (':=' intialValue = (Expression | ConstantArray) )?;
+  type=VariableType name=ID (':=' initialValue = (Expression | ConstantArray) )?;
 
 ConstantArray:
   '['values+=Expression (',' values+=Expression)* ']';
