@@ -29,6 +29,7 @@ GROUP_TGT_STATE_MACHINE = 'tgt_sm'
 GROUP_SRC_PORT          = 'src_port'
 GROUP_TGT_PORT          = 'tgt_port'
 GROUP_MSG               = 'msg'
+GROUP_VAL               = 'val'
 
 #action_matcher = re.compile('RW_(?P<'+GROUP_SRC_OBJECT+'>\w+)'
 #							'[(](?P<'+GROUP_SRC_STATE_MACHINE+'>\w+),'
@@ -37,20 +38,21 @@ GROUP_MSG               = 'msg'
 
 
 action_matcher = re.compile('(?P<'+GROUP_LABEL+'>rw|send|receive|peek|comm)'
-							'_(?P<'+GROUP_SRC_OBJECT+'>\w+)'
+							'_(?P<'+GROUP_SRC_OBJECT+'>[a-zA-Z0-9]+)'
 
-							'(_(?P<'+GROUP_SRC_PORT+'>\w+))?'
+							'(_(?P<'+GROUP_SRC_PORT+'>[a-zA-Z0-9]+))?'
 
-							'(_(?P<'+GROUP_TGT_OBJECT+'>\w+)_(?P<'+GROUP_TGT_PORT+'>\w+))?'
+							'(_(?P<'+GROUP_TGT_OBJECT+'>[a-zA-Z0-9]+)_(?P<'+GROUP_TGT_PORT+'>[a-zA-Z0-9]+))?'
 
-							'[(](?P<'+GROUP_SRC_STATE_MACHINE+'>_|\w+),'
-							'[{](?P<'+GROUP_SRC_READ_VARS+'>(\w([(]\d[)])?)?([,]\w([(]\d[)])?)*)[}],'
-							'[{](?P<'+GROUP_SRC_WRITE_VARS+'>\w?([,]\w)*)[}]'
+							'[(](?P<'+GROUP_SRC_STATE_MACHINE+'>\w+),'
+							'[{](?P<'+GROUP_SRC_READ_VARS+'>(\w+([(]\d[)])?)?([,]\w+([(]\d[)])?)*)[}],'
+							'[{](?P<'+GROUP_SRC_WRITE_VARS+'>(\w+([(]\d[)])?)?([,]\w+([(]\d[)])?)*)[}]'
 
-							'(,(?P<'+GROUP_TGT_STATE_MACHINE+'>_|\w+),'
-							'[{](?P<'+GROUP_TGT_READ_VARS+'>(\w([(]\d[)])?)?([,]\w([(]\d[)])?)*)[}],'
-							'[{](?P<'+GROUP_TGT_WRITE_VARS+'>(\w([(]\d[)])?)?([,]\w([(]\d[)])?)*)[}],'
-							'(?P<'+GROUP_MSG+'>_|\w*[)]))?')
+							'(,(?P<'+GROUP_TGT_STATE_MACHINE+'>\w+),'
+							'[{](?P<'+GROUP_TGT_READ_VARS+'>(\w+([(]\d[)])?)?([,]\w+([(]\d[)])?)*)[}],'
+							'[{](?P<'+GROUP_TGT_WRITE_VARS+'>(\w+([(]\d[)])?)?([,]\w+([(]\d[)])?)*)[}],'
+							'(?P<'+GROUP_MSG+'>\w+),'
+							'(?P<'+GROUP_VAL+'>\d+)[)])?')
 
 class ActionSyntaxException(Exception):
 	def __init__(self, value):
@@ -112,10 +114,10 @@ def get_dependency_ltss(lts):
 			
 			src_obj  = match_result.group(GROUP_SRC_OBJECT)
 			src_sm   = match_result.group(GROUP_SRC_STATE_MACHINE)
-			#src_port = match_result.group(GROUP_SRC_PORT)
+			src_port = match_result.group(GROUP_SRC_PORT)
 			tgt_obj  = match_result.group(GROUP_TGT_OBJECT)
 			tgt_sm   = match_result.group(GROUP_TGT_STATE_MACHINE)
-			#tgt_port = match_result.group(GROUP_TGT_PORT)
+			tgt_port = match_result.group(GROUP_TGT_PORT)
 			
 			src_read  = match_result.group(GROUP_SRC_READ_VARS)
 			src_write = match_result.group(GROUP_SRC_WRITE_VARS)
