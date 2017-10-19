@@ -740,7 +740,7 @@ def statementstatechanges(s,c):
 		#	varname = s.left.var.name
 		# an assignment to an array cell should be handled differently from other cases
 		if s.left.index != None:
-			output = "update(" + varname + ",Int2Nat(" + expression(s.left.index,sm[s],c,{}) + ")," + expression(s.right,sm[s],c,{}) + ")"
+			output = ", " + varname + "=update(" + varname + ",Int2Nat(" + expression(s.left.index,sm[s],c,{}) + ")," + expression(s.right,sm[s],c,{}) + ")"
 		else:
 			output = ", " + varname
 			output += "=" + expression(s.right,sm[s],c,{})
@@ -1383,13 +1383,13 @@ def preprocess():
 			smlocalvars[c.name + "'" + stm.name] = varset
 	# build dictionary making variable scopes explicit
 	for c in model.classes:
-		vdict = {}
-		for var in c.variables:
-			vdict[var.name] = var.name
 		for stm in c.statemachines:
+			vdict = {}
+			for var in c.variables:
+				vdict[var.name] = var.name
 			for var in stm.variables:
 				vdict[var.name] = stm.name + "'" + var.name
-		scopedvars[c.name + "'" + stm.name] = vdict
+			scopedvars[c.name + "'" + stm.name] = vdict
 	# if required, construct set of variables (with scopes) appearing in the model)
 	# also store the type of each variable
 	if check_rc:
