@@ -34,23 +34,12 @@ rule DVEModel2SLCOModel {
 			name <- 'singleObject',
 			class <- globalClass
 		)
-	do {	
-		
---		dve.declarations->select(i | i.oclIsTypeOf(DVE!VarList))->
---								collect(i | i.variables->
---									collect(j | thisModule.Variable2Variable(j, i.type))
---								)->flatten()
-	}
 }
 
 helper def : mapPrimitiveType(src : DVE!PrimitiveType) : SLCO!PrimitiveType = 
 	Map{(#ByteType,#"Integer"),
 		(#IntType ,#"Integer"),
 		(#BoolType,#"Boolean")}.get(src);
-
---rule NewVariableType(varType : SLCO!PrimitiveType, size : Integer) {
---	to 	dvarType : SLCO!VariableType (type <- varType, size <- size)
---}
 
 lazy rule VarTuple2Variable {
 	from tup : TupleType(type : DVE!PrimitiveType, var : DVE!Var)
@@ -62,15 +51,6 @@ lazy rule VarTuple2Variable {
 		dvarType : SLCO!VariableType (base <- thisModule.mapPrimitiveType(tup.type), size <- tup.var.length)
 }
 
---rule Variable2Variable(dvar : DVE!Var, varType : DVE!PrimitiveType) {
---	to 	svar : SLCO!Variable (
---			type <- dvarType,
---			name <- dvar.name,
---			initialValue <- dvar.initialValue
---		),
---		dvarType : SLCO!VariableType (base <- thisModule.mapPrimitiveType(varType), size <- dvar.length)
---	--do { svar.type <- NewVariableType(varType.map(), dvar.length) }
---}
 
 rule Process2StateMachine {
 	from proc : DVE!Process
