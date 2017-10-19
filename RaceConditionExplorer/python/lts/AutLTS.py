@@ -41,8 +41,7 @@ class AutLTS(   LTS,
 	def transition_dict(self):
 		return self._transitions
 	
-	
-	# TODO: num_states and num_transitions are not updated by hiding and renaming
+
 	def hide_action_labels(self,hiding_set):
 		hiding_res = [re.compile(x) for x in hiding_set]
 		for src, trans in self._transitions.items():
@@ -62,7 +61,8 @@ class AutLTS(   LTS,
 			for a in list(trans.keys()):
 				new_a = rename_dict.get(a)
 				if new_a:
-					trans[new_a] = trans[a]
+					targets = trans.get(new_a, set())
+					trans[new_a] = targets | trans[a]
 					del trans[a]
 	
 	
@@ -80,8 +80,7 @@ class AutLTS(   LTS,
 		
 		self.minimise_lts_file(temp_path_in, temp_path_out, equivalence)
 		lts = LTS.create(temp_path_out)
-		# reassign lts variables to self
-		self.__init__(  lts._init_state, lts._transitions, lts._action_labels)
+		return lts
 		os.remove(temp_path_in)
 		os.remove(temp_path_out)
 	

@@ -28,8 +28,7 @@ GROUP_SRC_STATE_MACHINE = 'src_sm'
 GROUP_TGT_STATE_MACHINE = 'tgt_sm'
 GROUP_SRC_PORT          = 'src_port'
 GROUP_TGT_PORT          = 'tgt_port'
-GROUP_MSG               = 'msg'
-GROUP_VAL               = 'val'
+GROUP_MSG               = 'sg'
 
 #action_matcher = re.compile('RW_(?P<'+GROUP_SRC_OBJECT+'>\w+)'
 #							'[(](?P<'+GROUP_SRC_STATE_MACHINE+'>\w+),'
@@ -51,8 +50,7 @@ action_matcher = re.compile('(?P<'+GROUP_LABEL+'>rw|send|receive|peek|comm)'
 							'(,(?P<'+GROUP_TGT_STATE_MACHINE+'>\w+),'
 							'[{](?P<'+GROUP_TGT_READ_VARS+'>(\w+([(]\d[)])?)?([,]\w+([(]\d[)])?)*)[}],'
 							'[{](?P<'+GROUP_TGT_WRITE_VARS+'>(\w+([(]\d[)])?)?([,]\w+([(]\d[)])?)*)[}],'
-							'(?P<'+GROUP_MSG+'>\w+),'
-							'(?P<'+GROUP_VAL+'>\d+)[)])?')
+							'(?P<'+GROUP_MSG+'>\w+).*[)])?')
 
 class ActionSyntaxException(Exception):
 	def __init__(self, value):
@@ -63,8 +61,8 @@ class ActionSyntaxException(Exception):
 
 def RCE_get_race_conditions_from_file(path):
 	lts = LTS.create(path)
-	LTS_remove_peek(lts)
-	lts.minimise(LTS.Equivalence.BRANCHING_BISIM)
+	lts = LTS_remove_peek(lts)
+	lts = lts.minimise(LTS.Equivalence.BRANCHING_BISIM)
 	dep_ltss, locked = get_dependency_ltss(lts)
 	cycle_sets = get_cycle_sets(dep_ltss)
 	logging.info("cycle_sets: %s" % cycle_sets)
@@ -174,12 +172,13 @@ def get_cycle_sets(dep_ltss):
 	return cycles  # TODO: apply Hitting set problem algorithm to find smallest set of locks
 
 	
-def LTS_remove_peek(lts):
+def LTS_remove_peek(my_lts):
 	temp_act = 'temp_tau'
-	lts.rename_action_labels({'tau': temp_act})
-	lts.hide_action_labels({'peek_\w+!\w+[(]'})
-	lts.minimise(LTS.Equivalence.WEAK_BISIM)
-	lts.rename_action_labels({temp_act: 'tau'})
+	my_lts.rename_action_labels({'tau': temp_act})
+	my_lts.hide_action_labels({'peek_[a-zA-Z0-9]+_[a-zA-Z0-9]+[(].*'})
+	my_lts = my_lts.minimise(LTS.Equivalence.WEAK_BISIM)
+	my_lts.rename_action_labels({temp_act: 'tau'})
+	return my_lts
 
 
 def main():
