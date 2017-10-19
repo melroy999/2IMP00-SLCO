@@ -6,7 +6,7 @@ Model:
   ('actions' actions+=Action)?
   'model' name=ID '{'
   ('classes' (classes+=Class)*)?
-  ('Objects' (objects+=Object)*)?
+  ('objects' (objects+=Object)*)?
   ('channels' (channels+=Channel)*)?
   '}'
 ;
@@ -131,23 +131,7 @@ Composite:
 
 Expression :
   (=> TerminalExpression) ({BinaryOperatorExpression.operand1 = current} operator = Operator  operand2 = Expression)?;
-/*
-Expression:
-  left=ExprPrec3 ((op='=='|op='!='|op='<='|op='>='|op='<'|op='>') right=ExprPrec3)?
-;
 
-ExprPrec3:
-  left=ExprPrec2 ((op='+'|op='-'|op='||'|op='&&') right=ExprPrec2)?
-;
-
-ExprPrec2:
-  left=ExprPrec1 ((op='*'|op='/'|op='%') right=ExprPrec1)?
-;
-
-ExprPrec1:
-  left=TerminalExpression (op='**' right=TerminalExpression)?
-;
-*/
 TerminalExpression returns Expression :
   BooleanConstantExpression |
   IntegerConstantExpression |
