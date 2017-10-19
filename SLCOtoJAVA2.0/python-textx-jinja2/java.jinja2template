@@ -1,0 +1,175 @@
+import java.util.Random;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.Arrays;
+
+// main class
+public class {{model.name}} {
+  // The threads
+  {% for c in model.classes %}
+  {% for sm in c.statemachines %}
+  {{sm.name}}Thread T_{{sm.name}};
+  {% endfor %}
+  {% endfor %}
+
+  // Enum type for state machine states
+  public enum State {
+  {% for s in states %}{{'  ' if loop.first }}{{s}}{{', ' if not loop.last }}{% endfor %}
+
+  }
+
+  // Global variables
+  {% for c in model.classes %}
+  {% for v in c.variables %}
+  public static {{v.type|javatype}} {{v.name}};
+  {% endfor %}
+
+	// Lock class to handle locks of global variables
+	class Keeper {
+		ReentrantLock[] locks;
+
+		// Constructor
+		Keeper() {
+			locks = new ReentrantLock[{{numberofelemvariables}}];
+			for (int i = 0; i < {{numberofelemvariables}}; i++) {
+				locks[i] = new ReentrantLock(true);
+			}
+		}
+
+		// Lock method
+		public void lock(int[] l, int size) {
+			for (int i = 0; i < size; i++) {
+        locks[l[i]].lock();
+      }
+		}
+
+		// Unlock method
+		public void unlock(int[] l, int size) {
+		  for (int i = 0; i < size; i++) {
+        locks[l[i]].unlock();
+      }
+		}
+	}
+	{% endfor %}
+
+	{% for o in model.objects %}
+	{% set c = o.type %}
+	{% for sm in c.statemachines %}
+	class {{sm.name}}Thread extends Thread {
+		private Thread t;
+		private String threadName = "{{sm.name}}Thread";
+		// Current state
+		private {{model.name}}.State currentState;
+		// Random number generator to handle non-determinism
+		private Random randomGenerator;
+		// Keeper of global variables
+		private {{model.name}}.Keeper kp;
+		// Array to store IDs of locks to be acquired
+		private int[] lockIDs;
+		// Thread local variables
+		{% for v in sm.variables %}
+		private {{v.type|javatype}} {{v.name}};
+		{% endfor %}
+
+		// Constructor
+		{{sm.name}}Thread ({{model.name}}.Keeper k) {
+			randomGenerator = new Random();
+			currentState = {{model.name}}.State.{{sm.initialstate.name}};
+      kp = k;
+      lockIDs = new int[{{numberofelemvariables}}];
+			{% for v in sm.variables %}
+			{{v.name}} = {% if v.type.size > 1 %}new {{v|javatype}} {% endif %}{{v|variabledefault}};
+			{% endfor %}
+		}
+
+		// Execute method
+		public synchronized void exec() {
+			while(true) {
+				switch(currentState) {
+					{% for s in sm.states|select("hasoutgoingtrans", sm.transitions) %}
+					case {{s.name}}:
+						{% set sout = s|outgoingtrans(sm.transitions) %}
+						{% if sout|length > 1 %}
+						int choice = randomGenerator.nextInt({{sout|length}});
+						switch(choice) {
+							{% for i in range(0,sout|length) %}
+							case {{i}}:
+								{% for st in sout[i].statements %}
+								// {{st|getlabel}}
+								{% set varids = st|getvarids %}
+								{% for id in varids %}
+							  lockIDs[{{loop.index0}}] = {{id}};
+								{% endfor %}
+								Arrays.sort(lockIDs,0,{{varids|length}});
+								kp.lock(lockIDs, {{varids|length}});
+								{{st|javastatement(varids|length,16)}}
+								kp.unlock(lockIDs, {{varids|length}});{{'\n                notifyAll();' if st.__class__.__name__ == "Assignment" or (st.__class__.__name__ == "Composite" and st.assignments|length > 1)}}
+								{% endfor %}
+								// Change state
+								currentState = {{model.name}}.State.{{sout[i].target.name}};
+								break;
+							{% endfor %}
+						}
+					  {% else %}
+						{% for st in sout[0].statements %}
+						// {{st|getlabel}}
+						{% set varids = st|getvarids %}
+						{% for id in varids %}
+						lockIDs[{{loop.index0}}] = {{id}};
+						{% endfor %}
+						Arrays.sort(lockIDs,0,{{varids|length}});
+						kp.lock(lockIDs, {{varids|length}});
+						{{st|javastatement(varids|length,12)}}
+						kp.unlock(lockIDs, {{varids|length}});{{'\n              notifyAll();' if st.__class__.__name__ == "Assignment" or (st.__class__.__name__ == "Composite" and st.assignments|length > 1)}}
+						{% endfor %}
+						// Change state
+						currentState = {{model.name}}.State.{{sout[0].target.name}};
+						break;
+						{% endif %}
+					{% endfor %}
+					default:
+						return;
+				}
+			}
+		}
+
+		// Run method
+		public void run() {
+			exec();
+		}
+
+		// Start method
+		public void start() {
+			if (t == null) {
+				t = new Thread(this);
+				t.start();
+			}
+		}
+	}
+	{% endfor %}
+
+  // Constructor for main class
+  {{model.name}}() {
+    // Instantiate global variables
+    {% for v in c.variables %}
+    {{v.name}} = {% if v.type.size > 1 %}new {{v.type|javatype}} {% endif %}{{v|initialvalue(o)}};
+    {% endfor %}
+	  {{model.name}}.Keeper k = new {{model.name}}.Keeper();
+	  {% for sm in c.statemachines %}
+		T_{{sm.name}} = new {{model.name}}.{{sm.name}}Thread(k);
+	  {% endfor %}
+  }
+
+  // Start all threads
+  public void startThreads() {
+{% for sm in c.statemachines %}
+    T_{{sm.name}}.start();
+{% endfor %}
+  }
+
+	// Run application
+	public static void main(String args[]) {
+    {{model.name}} ap = new {{model.name}}();
+    ap.startThreads();
+	}
+	{% endfor %}
+}
