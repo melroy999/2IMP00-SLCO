@@ -3,7 +3,7 @@ grammar org.xtext.slco.textualslco.TextualSlco with org.eclipse.xtext.common.Ter
 generate textualSlco "http://www.xtext.org/slco/textualslco/TextualSlco"
 
 Model:
-  ('actions' actions+=Action)?
+  ('actions' (actions+=Action)*)?
   'model' name=ID '{'
   ('classes' (classes+=Class)*)?
   ('objects' (objects+=Object)*)?
@@ -21,13 +21,11 @@ Class:
 
 StateMachine:
   name=ID '{'
-	('variables'
-		(variables+=Variable)*
-	)?
-	('initial' (vertices+=Initial)*)?
-	('state' (vertices+=State)*)?
-	('final' (vertices+=Final)*)?
-	('transitions' (transitions+=Transition)*)?
+	('variables' 	(variables+=Variable)*)?
+	('initial' 	 	(vertices+=Initial  )*)?
+	('state'   	 	(vertices+=State   	)*)?
+	('final'     	(vertices+=Final  	)*)?
+	('transitions' 	(transitions+=Transition)*)?
   '}'
 ;
 
