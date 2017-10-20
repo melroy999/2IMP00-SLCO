@@ -14,39 +14,39 @@ classes
 				states  
 				transitions
 					from q to q {
-						[done==0 and a[74] == 2 and a[75] == 2 and a[85] == 2 and a[86] == 2 and a[96] == 2 and a[97] == 2; done := 1]
+						[done=0 and a[74] = 2 and a[75] = 2 and a[85] = 2 and a[86] = 2 and a[96] = 2 and a[97] = 2; done := 1]
 					}
 	
 					from q to q {
-						[done==0 and a[((y)*19+x-1)]==0; x := x-1]
+						[done=0 and a[((y)*19+x-1)]=0; x := x-1]
 					}
 	
 					from q to q {
-						[done==0 and a[((y)*19+x+1)]==0; x := x+1]
+						[done=0 and a[((y)*19+x+1)]=0; x := x+1]
 					}
 	
 					from q to q {
-						[done==0 and a[((y-1)*19+x)]==0; y := y-1]
+						[done=0 and a[((y-1)*19+x)]=0; y := y-1]
 					}
 	
 					from q to q {
-						[done==0 and a[((y+1)*19+x)]==0; y := y+1]
+						[done=0 and a[((y+1)*19+x)]=0; y := y+1]
 					}
 	
 					from q to q {
-						[done==0 and a[((y)*19+x-1)]==2 && a[((y)*19+x-2)]==0; a[((y)*19+x-2)] := 2;a[((y)*19+x-1)] := 0;x := x-1]
+						[done=0 and a[((y)*19+x-1)]=2 and a[((y)*19+x-2)]=0; a[((y)*19+x-2)] := 2;a[((y)*19+x-1)] := 0;x := x-1]
 					}
 	
 					from q to q {
-						[done==0 and a[((y)*19+x+1)]==2 && a[((y)*19+x+2)]==0; a[((y)*19+x+2)] := 2;a[((y)*19+x+1)] := 0;x := x+1]
+						[done=0 and a[((y)*19+x+1)]=2 and a[((y)*19+x+2)]=0; a[((y)*19+x+2)] := 2;a[((y)*19+x+1)] := 0;x := x+1]
 					}
 	
 					from q to q {
-						[done==0 and a[((y-1)*19+x)]==2 && a[((y-2)*19+x)]==0; a[((y-2)*19+x)] := 2;a[((y-1)*19+x)] := 0;y := y-1]
+						[done=0 and a[((y-1)*19+x)]=2 and a[((y-2)*19+x)]=0; a[((y-2)*19+x)] := 2;a[((y-1)*19+x)] := 0;y := y-1]
 					}
 	
 					from q to q {
-						[done==0 and a[((y+1)*19+x)]==2 && a[((y+2)*19+x)]==0; a[((y+2)*19+x)] := 2;a[((y+1)*19+x)] := 0;y := y+1]
+						[done=0 and a[((y+1)*19+x)]=2 and a[((y+2)*19+x)]=0; a[((y+2)*19+x)] := 2;a[((y+1)*19+x)] := 0;y := y+1]
 					}
 	
 				}

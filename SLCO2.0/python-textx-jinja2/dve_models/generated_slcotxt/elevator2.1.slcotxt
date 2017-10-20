@@ -18,7 +18,7 @@ classes
 					}
 	
 					from mov to open {
-						[t==p]
+						[t=p]
 					}
 	
 					from mov to mov {
@@ -42,19 +42,19 @@ classes
 				states  
 				transitions
 					from read to read {
-						[req[0]==0; req[0] := 1]
+						[req[0]=0; req[0] := 1]
 					}
 	
 					from read to read {
-						[req[1]==0; req[1] := 1]
+						[req[1]=0; req[1] := 1]
 					}
 	
 					from read to read {
-						[req[2]==0; req[2] := 1]
+						[req[2]=0; req[2] := 1]
 					}
 	
 					from read to read {
-						[req[3]==0; req[3] := 1]
+						[req[3]=0; req[3] := 1]
 					}
 	
 				}
@@ -66,19 +66,19 @@ classes
 				states  work done
 				transitions
 					from wait to work {
-						[v==0; t := t+(2*ldir)-1]
+						[v=0; t := t+(2*ldir)-1]
 					}
 	
 					from work to wait {
-						[t<0 || t==4; ldir := 1-ldir]
+						[t<0 or t=4; ldir := 1-ldir]
 					}
 	
 					from work to done {
-						[t>=0 && t<4 && req[t]==1]
+						[t>=0 and t<4 and req[t]=1]
 					}
 	
 					from work to work {
-						[t>=0 && t<4 && req[t]==0; t := t+(2*ldir)-1]
+						[t>=0 and t<4 and req[t]=0; t := t+(2*ldir)-1]
 					}
 	
 					from done to wait {

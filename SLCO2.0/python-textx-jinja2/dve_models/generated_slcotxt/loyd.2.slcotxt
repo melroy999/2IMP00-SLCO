@@ -37,9 +37,9 @@ classes
 				states  done
 				transitions
 					from not_done to done {
-						[a[0] == 8  and a[1] == 7  and a[2] == 6   and
-a[3] == 5  and a[4] == 4  and a[5] == 3   and
-a[6] == 2  and a[7] == 1  and a[8] == 0]
+						[a[0] = 8  and a[1] = 7  and a[2] = 6   and
+a[3] = 5  and a[4] = 4  and a[5] = 3   and
+a[6] = 2  and a[7] = 1  and a[8] = 0]
 					}
 	
 				}

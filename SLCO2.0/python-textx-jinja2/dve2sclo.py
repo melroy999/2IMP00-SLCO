@@ -1,5 +1,5 @@
 import sys
-from os.path import dirname, basename, join
+from os.path import dirname, basename, join, exists
 from os import mkdir
 from textx.metamodel import metamodel_from_file
 from shutil import rmtree
@@ -70,6 +70,14 @@ def dve_var2slco_variable(dve_var, dve_type):
 def dve_expr2slco_expr(dve_expr):
 	i = 0
 	expr = dve_mm.parser.input[dve_expr._tx_position:dve_expr._tx_position_end]
+	expr = expr.replace('==', '=')
+	expr = expr.replace('!=', '<>')
+	expr = expr.replace(' && ', ' and ')
+	expr = expr.replace(' &&', ' and ')
+	expr = expr.replace('&&', ' and ')
+	expr = expr.replace(' || ', ' or ')
+	expr = expr.replace(' ||', ' or ')
+	expr = expr.replace('||', ' or ')
 	return expr
 '''
 	if dve_expr.__class__.__name__ == 'BooleanConstantExpression'\
@@ -220,11 +228,13 @@ def main(args):
 	gen_dir = "generated_slcotxt"
 	dir = dirname(batch[0])
 	gen_folder = join(dir,gen_dir)
-	rmtree(gen_folder)
+	if exists(gen_folder):
+		rmtree(gen_folder)
 	mkdir(gen_folder)
 	# read model
 	for file in batch:
 		model = dve_mm.model_from_file(file)
+		print("processing model %s" % basename(file))
 		# translate
 		out_model = translate(model)
 		# write to file

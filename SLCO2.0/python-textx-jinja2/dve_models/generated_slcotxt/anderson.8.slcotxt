@@ -16,15 +16,15 @@ classes
 					}
 	
 					from p1 to p2 {
-						[my_place == 7-1; next := next-7]
+						[my_place = 7-1; next := next-7]
 					}
 	
 					from p1 to p2 {
-						[my_place != 7-1; my_place := my_place%7]
+						[my_place <> 7-1; my_place := my_place%7]
 					}
 	
 					from p2 to p3 {
-						[Slot[my_place] == 1]
+						[Slot[my_place] = 1]
 					}
 	
 					from p3 to CS {
@@ -48,15 +48,15 @@ classes
 					}
 	
 					from p1 to p2 {
-						[my_place == 7-1; next := next-7]
+						[my_place = 7-1; next := next-7]
 					}
 	
 					from p1 to p2 {
-						[my_place != 7-1; my_place := my_place%7]
+						[my_place <> 7-1; my_place := my_place%7]
 					}
 	
 					from p2 to p3 {
-						[Slot[my_place] == 1]
+						[Slot[my_place] = 1]
 					}
 	
 					from p3 to CS {
@@ -80,15 +80,15 @@ classes
 					}
 	
 					from p1 to p2 {
-						[my_place == 7-1; next := next-7]
+						[my_place = 7-1; next := next-7]
 					}
 	
 					from p1 to p2 {
-						[my_place != 7-1; my_place := my_place%7]
+						[my_place <> 7-1; my_place := my_place%7]
 					}
 	
 					from p2 to p3 {
-						[Slot[my_place] == 1]
+						[Slot[my_place] = 1]
 					}
 	
 					from p3 to CS {
@@ -112,15 +112,15 @@ classes
 					}
 	
 					from p1 to p2 {
-						[my_place == 7-1; next := next-7]
+						[my_place = 7-1; next := next-7]
 					}
 	
 					from p1 to p2 {
-						[my_place != 7-1; my_place := my_place%7]
+						[my_place <> 7-1; my_place := my_place%7]
 					}
 	
 					from p2 to p3 {
-						[Slot[my_place] == 1]
+						[Slot[my_place] = 1]
 					}
 	
 					from p3 to CS {
@@ -144,15 +144,15 @@ classes
 					}
 	
 					from p1 to p2 {
-						[my_place == 7-1; next := next-7]
+						[my_place = 7-1; next := next-7]
 					}
 	
 					from p1 to p2 {
-						[my_place != 7-1; my_place := my_place%7]
+						[my_place <> 7-1; my_place := my_place%7]
 					}
 	
 					from p2 to p3 {
-						[Slot[my_place] == 1]
+						[Slot[my_place] = 1]
 					}
 	
 					from p3 to CS {
@@ -176,15 +176,15 @@ classes
 					}
 	
 					from p1 to p2 {
-						[my_place == 7-1; next := next-7]
+						[my_place = 7-1; next := next-7]
 					}
 	
 					from p1 to p2 {
-						[my_place != 7-1; my_place := my_place%7]
+						[my_place <> 7-1; my_place := my_place%7]
 					}
 	
 					from p2 to p3 {
-						[Slot[my_place] == 1]
+						[Slot[my_place] = 1]
 					}
 	
 					from p3 to CS {
@@ -208,15 +208,15 @@ classes
 					}
 	
 					from p1 to p2 {
-						[my_place == 7-1; next := next-7]
+						[my_place = 7-1; next := next-7]
 					}
 	
 					from p1 to p2 {
-						[my_place != 7-1; my_place := my_place%7]
+						[my_place <> 7-1; my_place := my_place%7]
 					}
 	
 					from p2 to p3 {
-						[Slot[my_place] == 1]
+						[Slot[my_place] = 1]
 					}
 	
 					from p3 to CS {
