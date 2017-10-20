@@ -100,13 +100,15 @@ public class {{model.name}} {
 
 		// Execute method
 		public synchronized void exec() {
+			// variable to store non-deterministic choices
+			int choice;
 			while(transcounter < COUNTER_BOUND && !terminate) {
 				switch(currentState) {
 					{% for s in sm.states|select("hasoutgoingtrans", sm.transitions) %}
 					case {{s.name}}:
 						{% set sout = s|outgoingtrans(sm.transitions) %}
 						{% if sout|length > 1 %}
-						int choice = randomGenerator.nextInt({{sout|length}});
+						choice = randomGenerator.nextInt({{sout|length}});
 						switch(choice) {
 							{% for i in range(0,sout|length) %}
 							case {{i}}:

@@ -1181,7 +1181,7 @@ def variabledefault(s):
 				defv += ','
 			else:
 				first = False
-			defv += v
+			defv += str(v)
 		defv += ']'
 		return defv
 	elif s.type.base == 'Integer':
