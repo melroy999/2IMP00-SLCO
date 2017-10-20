@@ -8,10 +8,16 @@ public class Test {
   SMCThread T_SMC;
   ComThread T_Com;
 
+  // Upperbound for transition counter
+  public static final long COUNTER_BOUND = 9999999999L;
+
   // Enum type for state machine states
   public enum State {
   SMC1, SMC0, Com1, Com2, Com0
   }
+
+	// Flag indicating whether threads should terminate execution
+	public static boolean terminate;
 
   // Global variables
   public static boolean[] x;
@@ -19,11 +25,15 @@ public class Test {
 
 	// Lock class to handle locks of global variables
 	class Keeper {
+    // The locks
 		ReentrantLock[] locks;
+    // Which locks need to be acquired?
+    boolean[] lockneeded;
 
 		// Constructor
 		Keeper() {
 			locks = new ReentrantLock[3];
+			lockneeded = new boolean[] { true,true,true };
 			for (int i = 0; i < 3; i++) {
 				locks[i] = new ReentrantLock(true);
 			}
@@ -32,14 +42,18 @@ public class Test {
 		// Lock method
 		public void lock(int[] l, int size) {
 			for (int i = 0; i < size; i++) {
-        locks[l[i]].lock();
+				if (lockneeded[i]) {
+          locks[l[i]].lock();
+        }
       }
 		}
 
 		// Unlock method
 		public void unlock(int[] l, int size) {
 		  for (int i = 0; i < size; i++) {
-        locks[l[i]].unlock();
+			  if (lockneeded[i]) {
+          locks[l[i]].unlock();
+        }
       }
 		}
 	}
@@ -51,6 +65,8 @@ public class Test {
 		private Test.State currentState;
 		// Random number generator to handle non-determinism
 		private Random randomGenerator;
+		// Counter of main while-loop iterations
+		long transcounter;
 		// Keeper of global variables
 		private Test.Keeper kp;
 		// Array to store IDs of locks to be acquired
@@ -61,6 +77,7 @@ public class Test {
 		// Constructor
 		SMCThread (Test.Keeper k) {
 			randomGenerator = new Random();
+			transcounter = 0;
 			currentState = Test.State.SMC0;
       kp = k;
       lockIDs = new int[3];
@@ -69,7 +86,7 @@ public class Test {
 
 		// Execute method
 		public synchronized void exec() {
-			while(true) {
+			while(transcounter < COUNTER_BOUND && !terminate) {
 				switch(currentState) {
 					case SMC0:
 						int choice = randomGenerator.nextInt(2);
@@ -81,7 +98,7 @@ public class Test {
 							  lockIDs[2] = 0 + i;
 								Arrays.sort(lockIDs,0,3);
 								kp.lock(lockIDs, 3);
-								while(!(!(x[i]))) { kp.unlock(lockIDs, 3); try{ wait(); } catch (InterruptedException e) {} kp.lock(lockIDs, 3);}
+								if (!(!(x[i]))) { kp.unlock(lockIDs, 3); transcounter++; break; }
                 i = i + 1;
                 x[i] = i == 2;
                 i = 3;
@@ -90,6 +107,8 @@ public class Test {
                 notifyAll();
 								// Change state
 								currentState = Test.State.SMC1;
+                // Increment counter
+                transcounter++;
 								break;
 							case 1:
 								// i := 0
@@ -100,12 +119,16 @@ public class Test {
                 notifyAll();
 								// Change state
 								currentState = Test.State.SMC0;
+                // Increment counter
+                transcounter++;
 								break;
 						}
 					default:
 						return;
 				}
 			}
+			// Terminate program
+			terminate = true;
 		}
 
 		// Run method
@@ -128,6 +151,8 @@ public class Test {
 		private Test.State currentState;
 		// Random number generator to handle non-determinism
 		private Random randomGenerator;
+		// Counter of main while-loop iterations
+		long transcounter;
 		// Keeper of global variables
 		private Test.Keeper kp;
 		// Array to store IDs of locks to be acquired
@@ -138,6 +163,7 @@ public class Test {
 		// Constructor
 		ComThread (Test.Keeper k) {
 			randomGenerator = new Random();
+			transcounter = 0;
 			currentState = Test.State.Com0;
       kp = k;
       lockIDs = new int[3];
@@ -146,21 +172,25 @@ public class Test {
 
 		// Execute method
 		public synchronized void exec() {
-			while(true) {
+			while(transcounter < COUNTER_BOUND && !terminate) {
 				switch(currentState) {
 					case Com0:
 						// lx == 0
 						Arrays.sort(lockIDs,0,0);
 						kp.lock(lockIDs, 0);
-						while(!(lx == 0)) { kp.unlock(lockIDs, 0); try{ wait(); } catch (InterruptedException e) {} kp.lock(lockIDs, 0);}
+						while(!(lx == 0)) { kp.unlock(lockIDs, 0); try{ wait(10000); } catch (InterruptedException e) {} kp.lock(lockIDs, 0);}
 						kp.unlock(lockIDs, 0);
 						// Change state
 						currentState = Test.State.Com1;
+            // Increment counter
+            transcounter++;
 						break;
 					default:
 						return;
 				}
 			}
+			// Terminate program
+			terminate = true;
 		}
 
 		// Run method
@@ -179,6 +209,7 @@ public class Test {
 
   // Constructor for main class
   Test() {
+		terminate = false;
     // Instantiate global variables
     x = new boolean[] {false,true};
     y = 0;
