@@ -1,6 +1,6 @@
 import sys
 from os import mkdir
-from os.path import exists, dirname, join
+from os.path import exists, dirname, join, split
 import jinja2
 from textx.metamodel import metamodel_from_file
 from copy import deepcopy
@@ -1513,7 +1513,9 @@ def preprocess():
 def translate():
 	"""The translation function"""
 	global modelname, model, porttypes, states, channeltypes, asynclosslesstypes, asynclossytypes, synctypes, syncactionlabelsdict, o2o_sync_summands, class_receives, check_rc
-	outFile = open(join(this_folder,modelname[:-4] + "mcrl2"), 'w')
+	
+	path, name = split(modelname)
+	outFile = open(join(path,modelname[:-4] + "mcrl2"), 'w')
 
 	# Initialize the template engine.
 	jinja_env = jinja2.Environment(loader=jinja2.FileSystemLoader(this_folder), trim_blocks=True, lstrip_blocks=True, extensions=['jinja2.ext.loopcontrols','jinja2.ext.do',])

@@ -61,8 +61,8 @@ class ActionSyntaxException(Exception):
 
 def RCE_get_race_conditions_from_file(path):
 	lts = LTS.create(path)
-	lts = LTS_remove_peek(lts)
-	lts = lts.minimise(LTS.Equivalence.BRANCHING_BISIM)
+	#lts = LTS_remove_peek(lts)
+	#lts = lts.minimise(LTS.Equivalence.BRANCHING_BISIM)
 	dep_ltss, locked = get_dependency_ltss(lts)
 	cycle_sets = get_cycle_sets(dep_ltss)
 	logging.info("cycle_sets: %s" % cycle_sets)
