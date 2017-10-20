@@ -1,0 +1,236 @@
+model  {
+classes
+	GlobalClass {
+		variables
+			Integer[7] Slot := [1,0,0,0,0,0,0,0]
+			Integer next := 0
+		state machines
+			P_0 {
+				variables
+					Integer my_place
+				initial NCS
+				states  p1 p2 p3 CS
+				transitions
+					from NCS to p1 {
+						[my_place := next;next := next+1]
+					}
+	
+					from p1 to p2 {
+						[my_place == 7-1; next := next-7]
+					}
+	
+					from p1 to p2 {
+						[my_place != 7-1; my_place := my_place%7]
+					}
+	
+					from p2 to p3 {
+						[Slot[my_place] == 1]
+					}
+	
+					from p3 to CS {
+						[Slot[my_place] := 0]
+					}
+	
+					from CS to NCS {
+						[Slot[(my_place+1)%7] := 1]
+					}
+	
+				}
+	
+			P_1 {
+				variables
+					Integer my_place
+				initial NCS
+				states  p1 p2 p3 CS
+				transitions
+					from NCS to p1 {
+						[my_place := next;next := next+1]
+					}
+	
+					from p1 to p2 {
+						[my_place == 7-1; next := next-7]
+					}
+	
+					from p1 to p2 {
+						[my_place != 7-1; my_place := my_place%7]
+					}
+	
+					from p2 to p3 {
+						[Slot[my_place] == 1]
+					}
+	
+					from p3 to CS {
+						[Slot[my_place] := 0]
+					}
+	
+					from CS to NCS {
+						[Slot[(my_place+1)%7] := 1]
+					}
+	
+				}
+	
+			P_2 {
+				variables
+					Integer my_place
+				initial NCS
+				states  p1 p2 p3 CS
+				transitions
+					from NCS to p1 {
+						[my_place := next;next := next+1]
+					}
+	
+					from p1 to p2 {
+						[my_place == 7-1; next := next-7]
+					}
+	
+					from p1 to p2 {
+						[my_place != 7-1; my_place := my_place%7]
+					}
+	
+					from p2 to p3 {
+						[Slot[my_place] == 1]
+					}
+	
+					from p3 to CS {
+						[Slot[my_place] := 0]
+					}
+	
+					from CS to NCS {
+						[Slot[(my_place+1)%7] := 1]
+					}
+	
+				}
+	
+			P_3 {
+				variables
+					Integer my_place
+				initial NCS
+				states  p1 p2 p3 CS
+				transitions
+					from NCS to p1 {
+						[my_place := next;next := next+1]
+					}
+	
+					from p1 to p2 {
+						[my_place == 7-1; next := next-7]
+					}
+	
+					from p1 to p2 {
+						[my_place != 7-1; my_place := my_place%7]
+					}
+	
+					from p2 to p3 {
+						[Slot[my_place] == 1]
+					}
+	
+					from p3 to CS {
+						[Slot[my_place] := 0]
+					}
+	
+					from CS to NCS {
+						[Slot[(my_place+1)%7] := 1]
+					}
+	
+				}
+	
+			P_4 {
+				variables
+					Integer my_place
+				initial NCS
+				states  p1 p2 p3 CS
+				transitions
+					from NCS to p1 {
+						[my_place := next;next := next+1]
+					}
+	
+					from p1 to p2 {
+						[my_place == 7-1; next := next-7]
+					}
+	
+					from p1 to p2 {
+						[my_place != 7-1; my_place := my_place%7]
+					}
+	
+					from p2 to p3 {
+						[Slot[my_place] == 1]
+					}
+	
+					from p3 to CS {
+						[Slot[my_place] := 0]
+					}
+	
+					from CS to NCS {
+						[Slot[(my_place+1)%7] := 1]
+					}
+	
+				}
+	
+			P_5 {
+				variables
+					Integer my_place
+				initial NCS
+				states  p1 p2 p3 CS
+				transitions
+					from NCS to p1 {
+						[my_place := next;next := next+1]
+					}
+	
+					from p1 to p2 {
+						[my_place == 7-1; next := next-7]
+					}
+	
+					from p1 to p2 {
+						[my_place != 7-1; my_place := my_place%7]
+					}
+	
+					from p2 to p3 {
+						[Slot[my_place] == 1]
+					}
+	
+					from p3 to CS {
+						[Slot[my_place] := 0]
+					}
+	
+					from CS to NCS {
+						[Slot[(my_place+1)%7] := 1]
+					}
+	
+				}
+	
+			P_6 {
+				variables
+					Integer my_place
+				initial NCS
+				states  p1 p2 p3 CS
+				transitions
+					from NCS to p1 {
+						[my_place := next;next := next+1]
+					}
+	
+					from p1 to p2 {
+						[my_place == 7-1; next := next-7]
+					}
+	
+					from p1 to p2 {
+						[my_place != 7-1; my_place := my_place%7]
+					}
+	
+					from p2 to p3 {
+						[Slot[my_place] == 1]
+					}
+	
+					from p3 to CS {
+						[Slot[my_place] := 0]
+					}
+	
+					from CS to NCS {
+						[Slot[(my_place+1)%7] := 1]
+					}
+	
+				}
+	
+	}
+
+objects
+	globalObject : GlobalClass
+}

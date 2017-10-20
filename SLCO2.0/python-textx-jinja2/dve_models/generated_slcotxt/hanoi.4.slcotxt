@@ -1,0 +1,88 @@
+model  {
+classes
+	GlobalClass {
+		variables
+			Integer[18] a := [100,17 - 0,17 - 1,17 - 2,17 - 3,17 - 4,17 - 5,17 - 6,17 - 7,17 - 8,17 - 9,17 - 10,17 - 11,17 - 12,17 - 13,17 - 14,17 - 15,17 - 16]
+			Integer a_act := 18
+			Integer[18] b := [100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+			Integer b_act := 1
+			Integer[18] c := [100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+			Integer c_act := 1
+		state machines
+			AtoB {
+				variables
+					
+				initial q
+				states  
+				transitions
+					from q to q {
+						[a[a_act-1] < b[b_act-1]; b[b_act] := a[a_act-1];b_act := b_act +1;a[a_act-1] := 0;a_act := a_act -1]
+					}
+	
+				}
+	
+			AtoC {
+				variables
+					
+				initial q
+				states  
+				transitions
+					from q to q {
+						[a[a_act-1] < c[c_act-1]; c[c_act] := a[a_act-1];c_act := c_act +1;a[a_act-1] := 0;a_act := a_act -1]
+					}
+	
+				}
+	
+			BtoA {
+				variables
+					
+				initial q
+				states  
+				transitions
+					from q to q {
+						[b[b_act-1] < a[a_act-1]; a[a_act] := b[b_act-1];a_act := a_act +1;b[b_act-1] := 0;b_act := b_act -1]
+					}
+	
+				}
+	
+			BtoC {
+				variables
+					
+				initial q
+				states  
+				transitions
+					from q to q {
+						[b[b_act-1] < c[c_act-1]; c[c_act] := b[b_act-1];c_act := c_act +1;b[b_act-1] := 0;b_act := b_act -1]
+					}
+	
+				}
+	
+			CtoA {
+				variables
+					
+				initial q
+				states  
+				transitions
+					from q to q {
+						[c[c_act-1] < a[a_act-1]; a[a_act] := c[c_act-1];a_act := a_act +1;c[c_act-1] := 0;c_act := c_act -1]
+					}
+	
+				}
+	
+			CtoB {
+				variables
+					
+				initial q
+				states  
+				transitions
+					from q to q {
+						[c[c_act-1] < b[b_act-1]; b[b_act] := c[c_act-1];b_act := b_act +1;c[c_act-1] := 0;c_act := c_act -1]
+					}
+	
+				}
+	
+	}
+
+objects
+	globalObject : GlobalClass
+}

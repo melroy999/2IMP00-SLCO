@@ -1,6 +1,8 @@
 import sys
-from os.path import dirname, join
+from os.path import dirname, basename, join
+from os import mkdir
 from textx.metamodel import metamodel_from_file
+from shutil import rmtree
 import glob
 
 dve_mm = None
@@ -215,6 +217,11 @@ def main(args):
 	else:
 		batch = glob.glob(join(this_folder,modelname,"*.dve"))
 
+	gen_dir = "generated_slcotxt"
+	dir = dirname(batch[0])
+	gen_folder = join(dir,gen_dir)
+	rmtree(gen_folder)
+	mkdir(gen_folder)
 	# read model
 	for file in batch:
 		model = dve_mm.model_from_file(file)
@@ -223,7 +230,8 @@ def main(args):
 		# write to file
 		if len(batch) == 1:
 			print(out_model)
-		outFile = open(file[:-3] + "slcotxt", 'w')
+
+		outFile = open(join(gen_folder,basename(file)[:-3] + "slcotxt"), 'w')
 		outFile.write(out_model)
 		outFile.close()
 
