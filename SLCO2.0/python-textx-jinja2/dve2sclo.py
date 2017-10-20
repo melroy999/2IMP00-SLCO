@@ -10,7 +10,7 @@ slco_mm = None
 modelname = ""
 this_folder = dirname(__file__)
 
-slco_template = """model %s {
+slco_template = """model dve_%s {
 classes
 	GlobalClass {
 		variables
@@ -20,7 +20,7 @@ classes
 	}
 
 objects
-	globalObject : GlobalClass
+	globalObject : GlobalClass()
 }
 """
 
@@ -234,6 +234,7 @@ def main(args):
 		mname = basename(file)
 		print("processing model %s" % mname)
 		mname = mname[:-4]
+		mname = mname.replace('.', '_')
 		# translate
 		out_model = translate(model, mname)
 		# write to file
