@@ -1,4 +1,4 @@
-model  {
+model driving_phils.1 {
 classes
 	GlobalClass {
 		variables
@@ -35,7 +35,7 @@ classes
 					}
 	
 					from begin1 to begin1 {
-						[i < 2 and not(res0[i] = -1); resources[res0[i]*2] := entryRound;resources[res0[i]*2+1] := i;i := i+1]
+						[i < 2 and res0[i] <> -1; resources[res0[i]*2] := entryRound;resources[res0[i]*2+1] := i;i := i+1]
 					}
 	
 					from begin1 to begin1 {
@@ -47,7 +47,7 @@ classes
 					}
 	
 					from begin2 to begin2 {
-						[i < 2 and not(res1[i] = -1); resources[res1[i]*2] := entryRound;resources[res1[i]*2+1] := i;i := i+1]
+						[i < 2 and res1[i] <> -1; resources[res1[i]*2] := entryRound;resources[res1[i]*2+1] := i;i := i+1]
 					}
 	
 					from begin2 to begin2 {
@@ -63,7 +63,7 @@ classes
 					}
 	
 					from end0 to end0 {
-						[i < 1 and not(resources[2*i] = 0); request[1*resources[2*i+1]+i] := 0;starvers[1*resources[2*i+1]+i] := 0;i := i+1]
+						[i < 1 and resources[2*i] <> 0; request[1*resources[2*i+1]+i] := 0;starvers[1*resources[2*i+1]+i] := 0;i := i+1]
 					}
 	
 					from end0 to end0 {
@@ -91,7 +91,7 @@ classes
 				states  end mutex
 				transitions
 					from action to end {
-						[phase = 1 and not(res0[0] = -1); resources[res0[0]] := 0;resources[res0[0]+1] := 0;res0[0] := res1[0];res1[0] := -1;fire := fire + 1]
+						[phase = 1 and res0[0] <> -1; resources[res0[0]] := 0;resources[res0[0]+1] := 0;res0[0] := res1[0];res1[0] := -1;fire := fire + 1]
 					}
 	
 					from action to end {
@@ -107,11 +107,11 @@ classes
 					}
 	
 					from end to mutex {
-						[phase = 2 and not(acquiring[0] = -1) and fire = 0]
+						[phase = 2 and acquiring[0] <> -1 and fire = 0]
 					}
 	
 					from mutex to mutex {
-						[i < 2 and not(res0[i] = acquiring[0]) and not(res1[i] = acquiring[0]); i := i + 1]
+						[i < 2 and res0[i] <> acquiring[0] and res1[i] <> acquiring[0]; i := i + 1]
 					}
 	
 					from mutex to action {
@@ -123,11 +123,11 @@ classes
 					}
 	
 					from mutex to action {
-						[i = 2 and not(res0[0] = -1); res1[0] := acquiring[0];acquiring[0] := -1;fire := fire + 1;i := 0]
+						[i = 2 and res0[0] <> -1; res1[0] := acquiring[0];acquiring[0] := -1;fire := fire + 1;i := 0]
 					}
 	
 					from end to action {
-						[phase = 2 and not(acquiring[0] = -1); fire := fire + 1]
+						[phase = 2 and acquiring[0] <> -1; fire := fire + 1]
 					}
 	
 				}
@@ -139,7 +139,7 @@ classes
 				states  end mutex
 				transitions
 					from action to end {
-						[phase = 1 and not(res0[1] = -1); resources[res0[1]] := 0;resources[res0[1]+1] := 0;res0[1] := res1[1];res1[1] := -1;fire := fire + 1]
+						[phase = 1 and res0[1] <> -1; resources[res0[1]] := 0;resources[res0[1]+1] := 0;res0[1] := res1[1];res1[1] := -1;fire := fire + 1]
 					}
 	
 					from action to end {
@@ -155,11 +155,11 @@ classes
 					}
 	
 					from end to mutex {
-						[phase = 2 and not(acquiring[1] = -1) and fire = 1]
+						[phase = 2 and acquiring[1] <> -1 and fire = 1]
 					}
 	
 					from mutex to mutex {
-						[i < 2 and not(res0[i] = acquiring[1]) and not(res1[i] = acquiring[1]); i := i + 1]
+						[i < 2 and res0[i] <> acquiring[1] and res1[i] <> acquiring[1]; i := i + 1]
 					}
 	
 					from mutex to action {
@@ -171,11 +171,11 @@ classes
 					}
 	
 					from mutex to action {
-						[i = 2 and not(res0[1] = -1); res1[1] := acquiring[1];acquiring[1] := -1;fire := fire + 1;i := 0]
+						[i = 2 and res0[1] <> -1; res1[1] := acquiring[1];acquiring[1] := -1;fire := fire + 1;i := 0]
 					}
 	
 					from end to action {
-						[phase = 2 and not(acquiring[1] = -1); fire := fire + 1]
+						[phase = 2 and acquiring[1] <> -1; fire := fire + 1]
 					}
 	
 				}

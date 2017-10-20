@@ -1,4 +1,4 @@
-model  {
+model mcs.2 {
 classes
 	GlobalClass {
 		variables
@@ -21,11 +21,11 @@ classes
 					}
 	
 					from p3 to CS {
-						[pred == 255]
+						[pred = 255]
 					}
 	
 					from p3 to p4 {
-						[pred != 255]
+						[pred <> 255]
 					}
 	
 					from p4 to p5 {
@@ -37,27 +37,27 @@ classes
 					}
 	
 					from p6 to CS {
-						[locked[0] == 0]
+						[locked[0] = 0]
 					}
 	
 					from CS to p9 {
-						[next[0] == 255]
+						[next[0] = 255]
 					}
 	
 					from CS to p13 {
-						[next[0] != 255]
+						[next[0] <> 255]
 					}
 	
 					from p9 to NCS {
-						[tail == 0; tail := 255]
+						[tail = 0; tail := 255]
 					}
 	
 					from p9 to p10 {
-						[tail != 0]
+						[tail <> 0]
 					}
 	
 					from p10 to p13 {
-						[next[0] != 255]
+						[next[0] <> 255]
 					}
 	
 					from p13 to NCS {
@@ -81,11 +81,11 @@ classes
 					}
 	
 					from p3 to CS {
-						[pred == 255]
+						[pred = 255]
 					}
 	
 					from p3 to p4 {
-						[pred != 255]
+						[pred <> 255]
 					}
 	
 					from p4 to p5 {
@@ -97,27 +97,27 @@ classes
 					}
 	
 					from p6 to CS {
-						[locked[1] == 0]
+						[locked[1] = 0]
 					}
 	
 					from CS to p9 {
-						[next[1] == 255]
+						[next[1] = 255]
 					}
 	
 					from CS to p13 {
-						[next[1] != 255]
+						[next[1] <> 255]
 					}
 	
 					from p9 to NCS {
-						[tail == 1; tail := 255]
+						[tail = 1; tail := 255]
 					}
 	
 					from p9 to p10 {
-						[tail != 1]
+						[tail <> 1]
 					}
 	
 					from p10 to p13 {
-						[next[1] != 255]
+						[next[1] <> 255]
 					}
 	
 					from p13 to NCS {
@@ -141,11 +141,11 @@ classes
 					}
 	
 					from p3 to CS {
-						[pred == 255]
+						[pred = 255]
 					}
 	
 					from p3 to p4 {
-						[pred != 255]
+						[pred <> 255]
 					}
 	
 					from p4 to p5 {
@@ -157,27 +157,27 @@ classes
 					}
 	
 					from p6 to CS {
-						[locked[2] == 0]
+						[locked[2] = 0]
 					}
 	
 					from CS to p9 {
-						[next[2] == 255]
+						[next[2] = 255]
 					}
 	
 					from CS to p13 {
-						[next[2] != 255]
+						[next[2] <> 255]
 					}
 	
 					from p9 to NCS {
-						[tail == 2; tail := 255]
+						[tail = 2; tail := 255]
 					}
 	
 					from p9 to p10 {
-						[tail != 2]
+						[tail <> 2]
 					}
 	
 					from p10 to p13 {
-						[next[2] != 255]
+						[next[2] <> 255]
 					}
 	
 					from p13 to NCS {

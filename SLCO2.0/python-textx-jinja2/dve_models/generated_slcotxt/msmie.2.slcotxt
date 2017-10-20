@@ -1,4 +1,4 @@
-model  {
+model msmie.2 {
 classes
 	GlobalClass {
 		variables
@@ -14,43 +14,43 @@ classes
 				states  q0 q1 q2 q3 error_state
 				transitions
 					from idle to q0 {
-						[sem == 1; sem := 0]
+						[sem = 1; sem := 0]
 					}
 	
 					from q0 to q1 {
-						[b[0] == 1; b[0] := 0]
+						[b[0] = 1; b[0] := 0]
 					}
 	
 					from q0 to q1 {
-						[b[1] == 1; b[1] := 0]
+						[b[1] = 1; b[1] := 0]
 					}
 	
 					from q0 to q1 {
-						[b[0] != 1  && b[1] != 1]
+						[b[0] <> 1  and b[1] <> 1]
 					}
 	
 					from q1 to q2 {
-						[b[0] == 2; b[0] := 1]
+						[b[0] = 2; b[0] := 1]
 					}
 	
 					from q1 to q2 {
-						[b[1] == 2; b[1] := 1]
+						[b[1] = 2; b[1] := 1]
 					}
 	
 					from q1 to error_state {
-						[b[0] != 2  && b[1] != 2]
+						[b[0] <> 2  and b[1] <> 2]
 					}
 	
 					from q2 to q3 {
-						[b[0] == 0; b[0] := 2]
+						[b[0] = 0; b[0] := 2]
 					}
 	
 					from q2 to q3 {
-						[b[1] == 0; b[1] := 2]
+						[b[1] = 0; b[1] := 2]
 					}
 	
 					from q2 to error_state {
-						[b[0] != 0  && b[1] != 0]
+						[b[0] <> 0  and b[1] <> 0]
 					}
 	
 					from q3 to idle {
@@ -66,43 +66,43 @@ classes
 				states  q0 q1 q2 q3 error_state
 				transitions
 					from idle to q0 {
-						[sem == 1; sem := 0]
+						[sem = 1; sem := 0]
 					}
 	
 					from q0 to q1 {
-						[b[0] == 1; b[0] := 0]
+						[b[0] = 1; b[0] := 0]
 					}
 	
 					from q0 to q1 {
-						[b[1] == 1; b[1] := 0]
+						[b[1] = 1; b[1] := 0]
 					}
 	
 					from q0 to q1 {
-						[b[0] != 1  && b[1] != 1]
+						[b[0] <> 1  and b[1] <> 1]
 					}
 	
 					from q1 to q2 {
-						[b[0] == 2; b[0] := 1]
+						[b[0] = 2; b[0] := 1]
 					}
 	
 					from q1 to q2 {
-						[b[1] == 2; b[1] := 1]
+						[b[1] = 2; b[1] := 1]
 					}
 	
 					from q1 to error_state {
-						[b[0] != 2  && b[1] != 2]
+						[b[0] <> 2  and b[1] <> 2]
 					}
 	
 					from q2 to q3 {
-						[b[0] == 0; b[0] := 2]
+						[b[0] = 0; b[0] := 2]
 					}
 	
 					from q2 to q3 {
-						[b[1] == 0; b[1] := 2]
+						[b[1] = 0; b[1] := 2]
 					}
 	
 					from q2 to error_state {
-						[b[0] != 0  && b[1] != 0]
+						[b[0] <> 0  and b[1] <> 0]
 					}
 	
 					from q3 to idle {
@@ -118,43 +118,43 @@ classes
 				states  q0 q1 q2 q3 error_state
 				transitions
 					from idle to q0 {
-						[sem == 1; sem := 0]
+						[sem = 1; sem := 0]
 					}
 	
 					from q0 to q1 {
-						[b[0] == 1; b[0] := 0]
+						[b[0] = 1; b[0] := 0]
 					}
 	
 					from q0 to q1 {
-						[b[1] == 1; b[1] := 0]
+						[b[1] = 1; b[1] := 0]
 					}
 	
 					from q0 to q1 {
-						[b[0] != 1  && b[1] != 1]
+						[b[0] <> 1  and b[1] <> 1]
 					}
 	
 					from q1 to q2 {
-						[b[0] == 2; b[0] := 1]
+						[b[0] = 2; b[0] := 1]
 					}
 	
 					from q1 to q2 {
-						[b[1] == 2; b[1] := 1]
+						[b[1] = 2; b[1] := 1]
 					}
 	
 					from q1 to error_state {
-						[b[0] != 2  && b[1] != 2]
+						[b[0] <> 2  and b[1] <> 2]
 					}
 	
 					from q2 to q3 {
-						[b[0] == 0; b[0] := 2]
+						[b[0] = 0; b[0] := 2]
 					}
 	
 					from q2 to q3 {
-						[b[1] == 0; b[1] := 2]
+						[b[1] = 0; b[1] := 2]
 					}
 	
 					from q2 to error_state {
-						[b[0] != 0  && b[1] != 0]
+						[b[0] <> 0  and b[1] <> 0]
 					}
 	
 					from q3 to idle {
@@ -170,43 +170,43 @@ classes
 				states  q0 q1 q2 q3 error_state
 				transitions
 					from idle to q0 {
-						[sem == 1; sem := 0]
+						[sem = 1; sem := 0]
 					}
 	
 					from q0 to q1 {
-						[b[0] == 1; b[0] := 0]
+						[b[0] = 1; b[0] := 0]
 					}
 	
 					from q0 to q1 {
-						[b[1] == 1; b[1] := 0]
+						[b[1] = 1; b[1] := 0]
 					}
 	
 					from q0 to q1 {
-						[b[0] != 1  && b[1] != 1]
+						[b[0] <> 1  and b[1] <> 1]
 					}
 	
 					from q1 to q2 {
-						[b[0] == 2; b[0] := 1]
+						[b[0] = 2; b[0] := 1]
 					}
 	
 					from q1 to q2 {
-						[b[1] == 2; b[1] := 1]
+						[b[1] = 2; b[1] := 1]
 					}
 	
 					from q1 to error_state {
-						[b[0] != 2  && b[1] != 2]
+						[b[0] <> 2  and b[1] <> 2]
 					}
 	
 					from q2 to q3 {
-						[b[0] == 0; b[0] := 2]
+						[b[0] = 0; b[0] := 2]
 					}
 	
 					from q2 to q3 {
-						[b[1] == 0; b[1] := 2]
+						[b[1] = 0; b[1] := 2]
 					}
 	
 					from q2 to error_state {
-						[b[0] != 0  && b[1] != 0]
+						[b[0] <> 0  and b[1] <> 0]
 					}
 	
 					from q3 to idle {
@@ -222,43 +222,43 @@ classes
 				states  q0 q1 q2 q3 error_state
 				transitions
 					from idle to q0 {
-						[sem == 1; sem := 0]
+						[sem = 1; sem := 0]
 					}
 	
 					from q0 to q1 {
-						[b[0] == 1; b[0] := 0]
+						[b[0] = 1; b[0] := 0]
 					}
 	
 					from q0 to q1 {
-						[b[1] == 1; b[1] := 0]
+						[b[1] = 1; b[1] := 0]
 					}
 	
 					from q0 to q1 {
-						[b[0] != 1  && b[1] != 1]
+						[b[0] <> 1  and b[1] <> 1]
 					}
 	
 					from q1 to q2 {
-						[b[0] == 2; b[0] := 1]
+						[b[0] = 2; b[0] := 1]
 					}
 	
 					from q1 to q2 {
-						[b[1] == 2; b[1] := 1]
+						[b[1] = 2; b[1] := 1]
 					}
 	
 					from q1 to error_state {
-						[b[0] != 2  && b[1] != 2]
+						[b[0] <> 2  and b[1] <> 2]
 					}
 	
 					from q2 to q3 {
-						[b[0] == 0; b[0] := 2]
+						[b[0] = 0; b[0] := 2]
 					}
 	
 					from q2 to q3 {
-						[b[1] == 0; b[1] := 2]
+						[b[1] = 0; b[1] := 2]
 					}
 	
 					from q2 to error_state {
-						[b[0] != 0  && b[1] != 0]
+						[b[0] <> 0  and b[1] <> 0]
 					}
 	
 					from q3 to idle {
@@ -274,43 +274,43 @@ classes
 				states  q0 q1 q2 q3 error_state
 				transitions
 					from idle to q0 {
-						[sem == 1; sem := 0]
+						[sem = 1; sem := 0]
 					}
 	
 					from q0 to q1 {
-						[b[0] == 1; b[0] := 0]
+						[b[0] = 1; b[0] := 0]
 					}
 	
 					from q0 to q1 {
-						[b[1] == 1; b[1] := 0]
+						[b[1] = 1; b[1] := 0]
 					}
 	
 					from q0 to q1 {
-						[b[0] != 1  && b[1] != 1]
+						[b[0] <> 1  and b[1] <> 1]
 					}
 	
 					from q1 to q2 {
-						[b[0] == 2; b[0] := 1]
+						[b[0] = 2; b[0] := 1]
 					}
 	
 					from q1 to q2 {
-						[b[1] == 2; b[1] := 1]
+						[b[1] = 2; b[1] := 1]
 					}
 	
 					from q1 to error_state {
-						[b[0] != 2  && b[1] != 2]
+						[b[0] <> 2  and b[1] <> 2]
 					}
 	
 					from q2 to q3 {
-						[b[0] == 0; b[0] := 2]
+						[b[0] = 0; b[0] := 2]
 					}
 	
 					from q2 to q3 {
-						[b[1] == 0; b[1] := 2]
+						[b[1] = 0; b[1] := 2]
 					}
 	
 					from q2 to error_state {
-						[b[0] != 0  && b[1] != 0]
+						[b[0] <> 0  and b[1] <> 0]
 					}
 	
 					from q3 to idle {
@@ -326,43 +326,43 @@ classes
 				states  q0 q1 q2 q3 error_state
 				transitions
 					from idle to q0 {
-						[sem == 1; sem := 0]
+						[sem = 1; sem := 0]
 					}
 	
 					from q0 to q1 {
-						[b[0] == 1; b[0] := 0]
+						[b[0] = 1; b[0] := 0]
 					}
 	
 					from q0 to q1 {
-						[b[1] == 1; b[1] := 0]
+						[b[1] = 1; b[1] := 0]
 					}
 	
 					from q0 to q1 {
-						[b[0] != 1  && b[1] != 1]
+						[b[0] <> 1  and b[1] <> 1]
 					}
 	
 					from q1 to q2 {
-						[b[0] == 2; b[0] := 1]
+						[b[0] = 2; b[0] := 1]
 					}
 	
 					from q1 to q2 {
-						[b[1] == 2; b[1] := 1]
+						[b[1] = 2; b[1] := 1]
 					}
 	
 					from q1 to error_state {
-						[b[0] != 2  && b[1] != 2]
+						[b[0] <> 2  and b[1] <> 2]
 					}
 	
 					from q2 to q3 {
-						[b[0] == 0; b[0] := 2]
+						[b[0] = 0; b[0] := 2]
 					}
 	
 					from q2 to q3 {
-						[b[1] == 0; b[1] := 2]
+						[b[1] = 0; b[1] := 2]
 					}
 	
 					from q2 to error_state {
-						[b[0] != 0  && b[1] != 0]
+						[b[0] <> 0  and b[1] <> 0]
 					}
 	
 					from q3 to idle {
@@ -378,31 +378,31 @@ classes
 				states  q0 no_master master reading r0 no_readers change r1
 				transitions
 					from idle to q0 {
-						[sem == 1; sem := 0]
+						[sem = 1; sem := 0]
 					}
 	
 					from q0 to master {
-						[b[0] == 3]
+						[b[0] = 3]
 					}
 	
 					from q0 to master {
-						[b[1] == 3]
+						[b[1] = 3]
 					}
 	
 					from q0 to no_master {
-						[b[0] != 3  && b[1] != 3]
+						[b[0] <> 3  and b[1] <> 3]
 					}
 	
 					from no_master to master {
-						[b[0] == 1; b[0] := 3]
+						[b[0] = 1; b[0] := 3]
 					}
 	
 					from no_master to master {
-						[b[1] == 1; b[1] := 3]
+						[b[1] = 1; b[1] := 3]
 					}
 	
 					from no_master to idle {
-						[b[0] != 1  && b[1] != 1; sem := 1]
+						[b[0] <> 1  and b[1] <> 1; sem := 1]
 					}
 	
 					from master to reading {
@@ -410,11 +410,11 @@ classes
 					}
 	
 					from reading to r0 {
-						[sem == 1; sem := 0;readers := readers -1]
+						[sem = 1; sem := 0;readers := readers -1]
 					}
 	
 					from r0 to no_readers {
-						[readers ==0]
+						[readers =0]
 					}
 	
 					from r0 to r1 {
@@ -422,19 +422,19 @@ classes
 					}
 	
 					from no_readers to change {
-						[b[0] == 1  || b[0] == 1; change_to := 0]
+						[b[0] = 1  or b[0] = 1; change_to := 0]
 					}
 	
 					from no_readers to change {
-						[b[0] != 1  && b[0] != 1; change_to := 1]
+						[b[0] <> 1  and b[0] <> 1; change_to := 1]
 					}
 	
 					from change to r1 {
-						[b[0] == 3; b[0] := change_to]
+						[b[0] = 3; b[0] := change_to]
 					}
 	
 					from change to r1 {
-						[b[0] == 3; b[0] := change_to]
+						[b[0] = 3; b[0] := change_to]
 					}
 	
 					from r1 to idle {
@@ -450,31 +450,31 @@ classes
 				states  q0 no_master master reading r0 no_readers change r1
 				transitions
 					from idle to q0 {
-						[sem == 1; sem := 0]
+						[sem = 1; sem := 0]
 					}
 	
 					from q0 to master {
-						[b[0] == 3]
+						[b[0] = 3]
 					}
 	
 					from q0 to master {
-						[b[1] == 3]
+						[b[1] = 3]
 					}
 	
 					from q0 to no_master {
-						[b[0] != 3  && b[1] != 3]
+						[b[0] <> 3  and b[1] <> 3]
 					}
 	
 					from no_master to master {
-						[b[0] == 1; b[0] := 3]
+						[b[0] = 1; b[0] := 3]
 					}
 	
 					from no_master to master {
-						[b[1] == 1; b[1] := 3]
+						[b[1] = 1; b[1] := 3]
 					}
 	
 					from no_master to idle {
-						[b[0] != 1  && b[1] != 1; sem := 1]
+						[b[0] <> 1  and b[1] <> 1; sem := 1]
 					}
 	
 					from master to reading {
@@ -482,11 +482,11 @@ classes
 					}
 	
 					from reading to r0 {
-						[sem == 1; sem := 0;readers := readers -1]
+						[sem = 1; sem := 0;readers := readers -1]
 					}
 	
 					from r0 to no_readers {
-						[readers ==0]
+						[readers =0]
 					}
 	
 					from r0 to r1 {
@@ -494,19 +494,19 @@ classes
 					}
 	
 					from no_readers to change {
-						[b[0] == 1  || b[0] == 1; change_to := 0]
+						[b[0] = 1  or b[0] = 1; change_to := 0]
 					}
 	
 					from no_readers to change {
-						[b[0] != 1  && b[0] != 1; change_to := 1]
+						[b[0] <> 1  and b[0] <> 1; change_to := 1]
 					}
 	
 					from change to r1 {
-						[b[0] == 3; b[0] := change_to]
+						[b[0] = 3; b[0] := change_to]
 					}
 	
 					from change to r1 {
-						[b[0] == 3; b[0] := change_to]
+						[b[0] = 3; b[0] := change_to]
 					}
 	
 					from r1 to idle {
@@ -522,31 +522,31 @@ classes
 				states  q0 no_master master reading r0 no_readers change r1
 				transitions
 					from idle to q0 {
-						[sem == 1; sem := 0]
+						[sem = 1; sem := 0]
 					}
 	
 					from q0 to master {
-						[b[0] == 3]
+						[b[0] = 3]
 					}
 	
 					from q0 to master {
-						[b[1] == 3]
+						[b[1] = 3]
 					}
 	
 					from q0 to no_master {
-						[b[0] != 3  && b[1] != 3]
+						[b[0] <> 3  and b[1] <> 3]
 					}
 	
 					from no_master to master {
-						[b[0] == 1; b[0] := 3]
+						[b[0] = 1; b[0] := 3]
 					}
 	
 					from no_master to master {
-						[b[1] == 1; b[1] := 3]
+						[b[1] = 1; b[1] := 3]
 					}
 	
 					from no_master to idle {
-						[b[0] != 1  && b[1] != 1; sem := 1]
+						[b[0] <> 1  and b[1] <> 1; sem := 1]
 					}
 	
 					from master to reading {
@@ -554,11 +554,11 @@ classes
 					}
 	
 					from reading to r0 {
-						[sem == 1; sem := 0;readers := readers -1]
+						[sem = 1; sem := 0;readers := readers -1]
 					}
 	
 					from r0 to no_readers {
-						[readers ==0]
+						[readers =0]
 					}
 	
 					from r0 to r1 {
@@ -566,19 +566,19 @@ classes
 					}
 	
 					from no_readers to change {
-						[b[0] == 1  || b[0] == 1; change_to := 0]
+						[b[0] = 1  or b[0] = 1; change_to := 0]
 					}
 	
 					from no_readers to change {
-						[b[0] != 1  && b[0] != 1; change_to := 1]
+						[b[0] <> 1  and b[0] <> 1; change_to := 1]
 					}
 	
 					from change to r1 {
-						[b[0] == 3; b[0] := change_to]
+						[b[0] = 3; b[0] := change_to]
 					}
 	
 					from change to r1 {
-						[b[0] == 3; b[0] := change_to]
+						[b[0] = 3; b[0] := change_to]
 					}
 	
 					from r1 to idle {
@@ -594,31 +594,31 @@ classes
 				states  q0 no_master master reading r0 no_readers change r1
 				transitions
 					from idle to q0 {
-						[sem == 1; sem := 0]
+						[sem = 1; sem := 0]
 					}
 	
 					from q0 to master {
-						[b[0] == 3]
+						[b[0] = 3]
 					}
 	
 					from q0 to master {
-						[b[1] == 3]
+						[b[1] = 3]
 					}
 	
 					from q0 to no_master {
-						[b[0] != 3  && b[1] != 3]
+						[b[0] <> 3  and b[1] <> 3]
 					}
 	
 					from no_master to master {
-						[b[0] == 1; b[0] := 3]
+						[b[0] = 1; b[0] := 3]
 					}
 	
 					from no_master to master {
-						[b[1] == 1; b[1] := 3]
+						[b[1] = 1; b[1] := 3]
 					}
 	
 					from no_master to idle {
-						[b[0] != 1  && b[1] != 1; sem := 1]
+						[b[0] <> 1  and b[1] <> 1; sem := 1]
 					}
 	
 					from master to reading {
@@ -626,11 +626,11 @@ classes
 					}
 	
 					from reading to r0 {
-						[sem == 1; sem := 0;readers := readers -1]
+						[sem = 1; sem := 0;readers := readers -1]
 					}
 	
 					from r0 to no_readers {
-						[readers ==0]
+						[readers =0]
 					}
 	
 					from r0 to r1 {
@@ -638,19 +638,19 @@ classes
 					}
 	
 					from no_readers to change {
-						[b[0] == 1  || b[0] == 1; change_to := 0]
+						[b[0] = 1  or b[0] = 1; change_to := 0]
 					}
 	
 					from no_readers to change {
-						[b[0] != 1  && b[0] != 1; change_to := 1]
+						[b[0] <> 1  and b[0] <> 1; change_to := 1]
 					}
 	
 					from change to r1 {
-						[b[0] == 3; b[0] := change_to]
+						[b[0] = 3; b[0] := change_to]
 					}
 	
 					from change to r1 {
-						[b[0] == 3; b[0] := change_to]
+						[b[0] = 3; b[0] := change_to]
 					}
 	
 					from r1 to idle {
@@ -666,31 +666,31 @@ classes
 				states  q0 no_master master reading r0 no_readers change r1
 				transitions
 					from idle to q0 {
-						[sem == 1; sem := 0]
+						[sem = 1; sem := 0]
 					}
 	
 					from q0 to master {
-						[b[0] == 3]
+						[b[0] = 3]
 					}
 	
 					from q0 to master {
-						[b[1] == 3]
+						[b[1] = 3]
 					}
 	
 					from q0 to no_master {
-						[b[0] != 3  && b[1] != 3]
+						[b[0] <> 3  and b[1] <> 3]
 					}
 	
 					from no_master to master {
-						[b[0] == 1; b[0] := 3]
+						[b[0] = 1; b[0] := 3]
 					}
 	
 					from no_master to master {
-						[b[1] == 1; b[1] := 3]
+						[b[1] = 1; b[1] := 3]
 					}
 	
 					from no_master to idle {
-						[b[0] != 1  && b[1] != 1; sem := 1]
+						[b[0] <> 1  and b[1] <> 1; sem := 1]
 					}
 	
 					from master to reading {
@@ -698,11 +698,11 @@ classes
 					}
 	
 					from reading to r0 {
-						[sem == 1; sem := 0;readers := readers -1]
+						[sem = 1; sem := 0;readers := readers -1]
 					}
 	
 					from r0 to no_readers {
-						[readers ==0]
+						[readers =0]
 					}
 	
 					from r0 to r1 {
@@ -710,19 +710,19 @@ classes
 					}
 	
 					from no_readers to change {
-						[b[0] == 1  || b[0] == 1; change_to := 0]
+						[b[0] = 1  or b[0] = 1; change_to := 0]
 					}
 	
 					from no_readers to change {
-						[b[0] != 1  && b[0] != 1; change_to := 1]
+						[b[0] <> 1  and b[0] <> 1; change_to := 1]
 					}
 	
 					from change to r1 {
-						[b[0] == 3; b[0] := change_to]
+						[b[0] = 3; b[0] := change_to]
 					}
 	
 					from change to r1 {
-						[b[0] == 3; b[0] := change_to]
+						[b[0] = 3; b[0] := change_to]
 					}
 	
 					from r1 to idle {
@@ -738,31 +738,31 @@ classes
 				states  q0 no_master master reading r0 no_readers change r1
 				transitions
 					from idle to q0 {
-						[sem == 1; sem := 0]
+						[sem = 1; sem := 0]
 					}
 	
 					from q0 to master {
-						[b[0] == 3]
+						[b[0] = 3]
 					}
 	
 					from q0 to master {
-						[b[1] == 3]
+						[b[1] = 3]
 					}
 	
 					from q0 to no_master {
-						[b[0] != 3  && b[1] != 3]
+						[b[0] <> 3  and b[1] <> 3]
 					}
 	
 					from no_master to master {
-						[b[0] == 1; b[0] := 3]
+						[b[0] = 1; b[0] := 3]
 					}
 	
 					from no_master to master {
-						[b[1] == 1; b[1] := 3]
+						[b[1] = 1; b[1] := 3]
 					}
 	
 					from no_master to idle {
-						[b[0] != 1  && b[1] != 1; sem := 1]
+						[b[0] <> 1  and b[1] <> 1; sem := 1]
 					}
 	
 					from master to reading {
@@ -770,11 +770,11 @@ classes
 					}
 	
 					from reading to r0 {
-						[sem == 1; sem := 0;readers := readers -1]
+						[sem = 1; sem := 0;readers := readers -1]
 					}
 	
 					from r0 to no_readers {
-						[readers ==0]
+						[readers =0]
 					}
 	
 					from r0 to r1 {
@@ -782,19 +782,19 @@ classes
 					}
 	
 					from no_readers to change {
-						[b[0] == 1  || b[0] == 1; change_to := 0]
+						[b[0] = 1  or b[0] = 1; change_to := 0]
 					}
 	
 					from no_readers to change {
-						[b[0] != 1  && b[0] != 1; change_to := 1]
+						[b[0] <> 1  and b[0] <> 1; change_to := 1]
 					}
 	
 					from change to r1 {
-						[b[0] == 3; b[0] := change_to]
+						[b[0] = 3; b[0] := change_to]
 					}
 	
 					from change to r1 {
-						[b[0] == 3; b[0] := change_to]
+						[b[0] = 3; b[0] := change_to]
 					}
 	
 					from r1 to idle {

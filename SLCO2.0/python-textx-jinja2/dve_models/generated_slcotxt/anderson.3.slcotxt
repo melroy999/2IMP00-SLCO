@@ -1,4 +1,4 @@
-model  {
+model anderson.3 {
 classes
 	GlobalClass {
 		variables
@@ -16,15 +16,15 @@ classes
 					}
 	
 					from p1 to p2 {
-						[my_place == 3-1; next := next-3]
+						[my_place = 3-1; next := next-3]
 					}
 	
 					from p1 to p2 {
-						[my_place != 3-1; my_place := my_place%3]
+						[my_place <> 3-1; my_place := my_place%3]
 					}
 	
 					from p2 to p3 {
-						[Slot[my_place] == 1]
+						[Slot[my_place] = 1]
 					}
 	
 					from p3 to CS {
@@ -48,15 +48,15 @@ classes
 					}
 	
 					from p1 to p2 {
-						[my_place == 3-1; next := next-3]
+						[my_place = 3-1; next := next-3]
 					}
 	
 					from p1 to p2 {
-						[my_place != 3-1; my_place := my_place%3]
+						[my_place <> 3-1; my_place := my_place%3]
 					}
 	
 					from p2 to p3 {
-						[Slot[my_place] == 1]
+						[Slot[my_place] = 1]
 					}
 	
 					from p3 to CS {
@@ -80,15 +80,15 @@ classes
 					}
 	
 					from p1 to p2 {
-						[my_place == 3-1; next := next-3]
+						[my_place = 3-1; next := next-3]
 					}
 	
 					from p1 to p2 {
-						[my_place != 3-1; my_place := my_place%3]
+						[my_place <> 3-1; my_place := my_place%3]
 					}
 	
 					from p2 to p3 {
-						[Slot[my_place] == 1]
+						[Slot[my_place] = 1]
 					}
 	
 					from p3 to CS {

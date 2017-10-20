@@ -1,4 +1,4 @@
-model  {
+model leader_filters.5 {
 classes
 	GlobalClass {
 		variables
@@ -17,7 +17,7 @@ classes
 					}
 	
 					from p2 to p3 {
-						[b[curr] == 0]
+						[b[curr] = 0]
 					}
 	
 					from p3 to p4 {
@@ -25,7 +25,7 @@ classes
 					}
 	
 					from p4 to p5 {
-						[turn[curr] != 0]
+						[turn[curr] <> 0]
 					}
 	
 					from p5 to p6 {
@@ -37,11 +37,11 @@ classes
 					}
 	
 					from p4 to p8 {
-						[turn[curr] == 0]
+						[turn[curr] = 0]
 					}
 	
 					from p8 to p9 {
-						[curr > 0 && c[curr-1] == 0]
+						[curr > 0 and c[curr-1] = 0]
 					}
 	
 					from p9 to elected {
@@ -49,7 +49,7 @@ classes
 					}
 	
 					from p8 to p1 {
-						[curr == 0 || c[curr-1] == 1; curr := curr+1]
+						[curr = 0 or c[curr-1] = 1; curr := curr+1]
 					}
 	
 				}
@@ -65,7 +65,7 @@ classes
 					}
 	
 					from p2 to p3 {
-						[b[curr] == 0]
+						[b[curr] = 0]
 					}
 	
 					from p3 to p4 {
@@ -73,7 +73,7 @@ classes
 					}
 	
 					from p4 to p5 {
-						[turn[curr] != 1]
+						[turn[curr] <> 1]
 					}
 	
 					from p5 to p6 {
@@ -85,11 +85,11 @@ classes
 					}
 	
 					from p4 to p8 {
-						[turn[curr] == 1]
+						[turn[curr] = 1]
 					}
 	
 					from p8 to p9 {
-						[curr > 0 && c[curr-1] == 0]
+						[curr > 0 and c[curr-1] = 0]
 					}
 	
 					from p9 to elected {
@@ -97,7 +97,7 @@ classes
 					}
 	
 					from p8 to p1 {
-						[curr == 0 || c[curr-1] == 1; curr := curr+1]
+						[curr = 0 or c[curr-1] = 1; curr := curr+1]
 					}
 	
 				}
@@ -113,7 +113,7 @@ classes
 					}
 	
 					from p2 to p3 {
-						[b[curr] == 0]
+						[b[curr] = 0]
 					}
 	
 					from p3 to p4 {
@@ -121,7 +121,7 @@ classes
 					}
 	
 					from p4 to p5 {
-						[turn[curr] != 2]
+						[turn[curr] <> 2]
 					}
 	
 					from p5 to p6 {
@@ -133,11 +133,11 @@ classes
 					}
 	
 					from p4 to p8 {
-						[turn[curr] == 2]
+						[turn[curr] = 2]
 					}
 	
 					from p8 to p9 {
-						[curr > 0 && c[curr-1] == 0]
+						[curr > 0 and c[curr-1] = 0]
 					}
 	
 					from p9 to elected {
@@ -145,7 +145,7 @@ classes
 					}
 	
 					from p8 to p1 {
-						[curr == 0 || c[curr-1] == 1; curr := curr+1]
+						[curr = 0 or c[curr-1] = 1; curr := curr+1]
 					}
 	
 				}
@@ -161,7 +161,7 @@ classes
 					}
 	
 					from p2 to p3 {
-						[b[curr] == 0]
+						[b[curr] = 0]
 					}
 	
 					from p3 to p4 {
@@ -169,7 +169,7 @@ classes
 					}
 	
 					from p4 to p5 {
-						[turn[curr] != 3]
+						[turn[curr] <> 3]
 					}
 	
 					from p5 to p6 {
@@ -181,11 +181,11 @@ classes
 					}
 	
 					from p4 to p8 {
-						[turn[curr] == 3]
+						[turn[curr] = 3]
 					}
 	
 					from p8 to p9 {
-						[curr > 0 && c[curr-1] == 0]
+						[curr > 0 and c[curr-1] = 0]
 					}
 	
 					from p9 to elected {
@@ -193,7 +193,7 @@ classes
 					}
 	
 					from p8 to p1 {
-						[curr == 0 || c[curr-1] == 1; curr := curr+1]
+						[curr = 0 or c[curr-1] = 1; curr := curr+1]
 					}
 	
 				}
@@ -209,7 +209,7 @@ classes
 					}
 	
 					from p2 to p3 {
-						[b[curr] == 0]
+						[b[curr] = 0]
 					}
 	
 					from p3 to p4 {
@@ -217,7 +217,7 @@ classes
 					}
 	
 					from p4 to p5 {
-						[turn[curr] != 4]
+						[turn[curr] <> 4]
 					}
 	
 					from p5 to p6 {
@@ -229,11 +229,11 @@ classes
 					}
 	
 					from p4 to p8 {
-						[turn[curr] == 4]
+						[turn[curr] = 4]
 					}
 	
 					from p8 to p9 {
-						[curr > 0 && c[curr-1] == 0]
+						[curr > 0 and c[curr-1] = 0]
 					}
 	
 					from p9 to elected {
@@ -241,7 +241,7 @@ classes
 					}
 	
 					from p8 to p1 {
-						[curr == 0 || c[curr-1] == 1; curr := curr+1]
+						[curr = 0 or c[curr-1] = 1; curr := curr+1]
 					}
 	
 				}

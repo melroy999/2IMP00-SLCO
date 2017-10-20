@@ -1,4 +1,4 @@
-model  {
+model lamport.7 {
 classes
 	GlobalClass {
 		variables
@@ -21,15 +21,15 @@ classes
 					}
 	
 					from q2 to q22 {
-						[y != 255; b[0] := 0]
+						[y <> 255; b[0] := 0]
 					}
 	
 					from q22 to NCS {
-						[y == 255]
+						[y = 255]
 					}
 	
 					from q2 to p {
-						[y == 255]
+						[y = 255]
 					}
 	
 					from p to q3 {
@@ -37,27 +37,27 @@ classes
 					}
 	
 					from q3 to CS {
-						[x == 0]
+						[x = 0]
 					}
 	
 					from q3 to q4 {
-						[x != 0; b[0] := 0;j := 0]
+						[x <> 0; b[0] := 0;j := 0]
 					}
 	
 					from q4 to q4 {
-						[j<5 && b[j]==0; j := j+1]
+						[j<5 and b[j]=0; j := j+1]
 					}
 	
 					from q4 to q5 {
-						[j==5]
+						[j=5]
 					}
 	
 					from q5 to CS {
-						[y == 0]
+						[y = 0]
 					}
 	
 					from q5 to NCS {
-						[y == 255]
+						[y = 255]
 					}
 	
 					from CS to e1 {
@@ -85,15 +85,15 @@ classes
 					}
 	
 					from q2 to q22 {
-						[y != 255; b[1] := 0]
+						[y <> 255; b[1] := 0]
 					}
 	
 					from q22 to NCS {
-						[y == 255]
+						[y = 255]
 					}
 	
 					from q2 to p {
-						[y == 255]
+						[y = 255]
 					}
 	
 					from p to q3 {
@@ -101,27 +101,27 @@ classes
 					}
 	
 					from q3 to CS {
-						[x == 1]
+						[x = 1]
 					}
 	
 					from q3 to q4 {
-						[x != 1; b[1] := 0;j := 0]
+						[x <> 1; b[1] := 0;j := 0]
 					}
 	
 					from q4 to q4 {
-						[j<5 && b[j]==0; j := j+1]
+						[j<5 and b[j]=0; j := j+1]
 					}
 	
 					from q4 to q5 {
-						[j==5]
+						[j=5]
 					}
 	
 					from q5 to CS {
-						[y == 1]
+						[y = 1]
 					}
 	
 					from q5 to NCS {
-						[y == 255]
+						[y = 255]
 					}
 	
 					from CS to e1 {
@@ -149,15 +149,15 @@ classes
 					}
 	
 					from q2 to q22 {
-						[y != 255; b[2] := 0]
+						[y <> 255; b[2] := 0]
 					}
 	
 					from q22 to NCS {
-						[y == 255]
+						[y = 255]
 					}
 	
 					from q2 to p {
-						[y == 255]
+						[y = 255]
 					}
 	
 					from p to q3 {
@@ -165,27 +165,27 @@ classes
 					}
 	
 					from q3 to CS {
-						[x == 2]
+						[x = 2]
 					}
 	
 					from q3 to q4 {
-						[x != 2; b[2] := 0;j := 0]
+						[x <> 2; b[2] := 0;j := 0]
 					}
 	
 					from q4 to q4 {
-						[j<5 && b[j]==0; j := j+1]
+						[j<5 and b[j]=0; j := j+1]
 					}
 	
 					from q4 to q5 {
-						[j==5]
+						[j=5]
 					}
 	
 					from q5 to CS {
-						[y == 2]
+						[y = 2]
 					}
 	
 					from q5 to NCS {
-						[y == 255]
+						[y = 255]
 					}
 	
 					from CS to e1 {
@@ -213,15 +213,15 @@ classes
 					}
 	
 					from q2 to q22 {
-						[y != 255; b[3] := 0]
+						[y <> 255; b[3] := 0]
 					}
 	
 					from q22 to NCS {
-						[y == 255]
+						[y = 255]
 					}
 	
 					from q2 to p {
-						[y == 255]
+						[y = 255]
 					}
 	
 					from p to q3 {
@@ -229,27 +229,27 @@ classes
 					}
 	
 					from q3 to CS {
-						[x == 3]
+						[x = 3]
 					}
 	
 					from q3 to q4 {
-						[x != 3; b[3] := 0;j := 0]
+						[x <> 3; b[3] := 0;j := 0]
 					}
 	
 					from q4 to q4 {
-						[j<5 && b[j]==0; j := j+1]
+						[j<5 and b[j]=0; j := j+1]
 					}
 	
 					from q4 to q5 {
-						[j==5]
+						[j=5]
 					}
 	
 					from q5 to CS {
-						[y == 3]
+						[y = 3]
 					}
 	
 					from q5 to NCS {
-						[y == 255]
+						[y = 255]
 					}
 	
 					from CS to e1 {
@@ -277,15 +277,15 @@ classes
 					}
 	
 					from q2 to q22 {
-						[y != 255; b[4] := 0]
+						[y <> 255; b[4] := 0]
 					}
 	
 					from q22 to NCS {
-						[y == 255]
+						[y = 255]
 					}
 	
 					from q2 to p {
-						[y == 255]
+						[y = 255]
 					}
 	
 					from p to q3 {
@@ -293,27 +293,27 @@ classes
 					}
 	
 					from q3 to CS {
-						[x == 4]
+						[x = 4]
 					}
 	
 					from q3 to q4 {
-						[x != 4; b[4] := 0;j := 0]
+						[x <> 4; b[4] := 0;j := 0]
 					}
 	
 					from q4 to q4 {
-						[j<5 && b[j]==0; j := j+1]
+						[j<5 and b[j]=0; j := j+1]
 					}
 	
 					from q4 to q5 {
-						[j==5]
+						[j=5]
 					}
 	
 					from q5 to CS {
-						[y == 4]
+						[y = 4]
 					}
 	
 					from q5 to NCS {
-						[y == 255]
+						[y = 255]
 					}
 	
 					from CS to e1 {

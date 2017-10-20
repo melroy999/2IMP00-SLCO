@@ -1,4 +1,4 @@
-model  {
+model adding.1 {
 classes
 	GlobalClass {
 		variables

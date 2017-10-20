@@ -1,4 +1,4 @@
-model  {
+model peterson.7 {
 classes
 	GlobalClass {
 		variables
@@ -25,15 +25,15 @@ classes
 					}
 	
 					from q3 to q3 {
-						[k < 5 && (k == 0 || pos[k] < j); k := k+1]
+						[k < 5 and (k = 0 or pos[k] < j); k := k+1]
 					}
 	
 					from q3 to wait {
-						[step[j-1] != 0 || k == 5; j := j+1]
+						[step[j-1] <> 0 or k = 5; j := j+1]
 					}
 	
 					from wait to CS {
-						[j == 5]
+						[j = 5]
 					}
 	
 					from CS to NCS {
@@ -62,15 +62,15 @@ classes
 					}
 	
 					from q3 to q3 {
-						[k < 5 && (k == 1 || pos[k] < j); k := k+1]
+						[k < 5 and (k = 1 or pos[k] < j); k := k+1]
 					}
 	
 					from q3 to wait {
-						[step[j-1] != 1 || k == 5; j := j+1]
+						[step[j-1] <> 1 or k = 5; j := j+1]
 					}
 	
 					from wait to CS {
-						[j == 5]
+						[j = 5]
 					}
 	
 					from CS to NCS {
@@ -99,15 +99,15 @@ classes
 					}
 	
 					from q3 to q3 {
-						[k < 5 && (k == 2 || pos[k] < j); k := k+1]
+						[k < 5 and (k = 2 or pos[k] < j); k := k+1]
 					}
 	
 					from q3 to wait {
-						[step[j-1] != 2 || k == 5; j := j+1]
+						[step[j-1] <> 2 or k = 5; j := j+1]
 					}
 	
 					from wait to CS {
-						[j == 5]
+						[j = 5]
 					}
 	
 					from CS to NCS {
@@ -136,15 +136,15 @@ classes
 					}
 	
 					from q3 to q3 {
-						[k < 5 && (k == 3 || pos[k] < j); k := k+1]
+						[k < 5 and (k = 3 or pos[k] < j); k := k+1]
 					}
 	
 					from q3 to wait {
-						[step[j-1] != 3 || k == 5; j := j+1]
+						[step[j-1] <> 3 or k = 5; j := j+1]
 					}
 	
 					from wait to CS {
-						[j == 5]
+						[j = 5]
 					}
 	
 					from CS to NCS {
@@ -173,15 +173,15 @@ classes
 					}
 	
 					from q3 to q3 {
-						[k < 5 && (k == 4 || pos[k] < j); k := k+1]
+						[k < 5 and (k = 4 or pos[k] < j); k := k+1]
 					}
 	
 					from q3 to wait {
-						[step[j-1] != 4 || k == 5; j := j+1]
+						[step[j-1] <> 4 or k = 5; j := j+1]
 					}
 	
 					from wait to CS {
-						[j == 5]
+						[j = 5]
 					}
 	
 					from CS to NCS {

@@ -1,4 +1,4 @@
-model  {
+model sokoban.1 {
 classes
 	GlobalClass {
 		variables
@@ -14,39 +14,39 @@ classes
 				states  
 				transitions
 					from q to q {
-						[done==0 and a[25] == 2 and a[35] == 2 and a[42] == 2 and a[37] == 2; done := 1]
+						[done=0 and a[25] = 2 and a[35] = 2 and a[42] = 2 and a[37] = 2; done := 1]
 					}
 	
 					from q to q {
-						[done==0 and a[((y)*8+x-1)]==0; x := x-1]
+						[done=0 and a[((y)*8+x-1)]=0; x := x-1]
 					}
 	
 					from q to q {
-						[done==0 and a[((y)*8+x+1)]==0; x := x+1]
+						[done=0 and a[((y)*8+x+1)]=0; x := x+1]
 					}
 	
 					from q to q {
-						[done==0 and a[((y-1)*8+x)]==0; y := y-1]
+						[done=0 and a[((y-1)*8+x)]=0; y := y-1]
 					}
 	
 					from q to q {
-						[done==0 and a[((y+1)*8+x)]==0; y := y+1]
+						[done=0 and a[((y+1)*8+x)]=0; y := y+1]
 					}
 	
 					from q to q {
-						[done==0 and a[((y)*8+x-1)]==2 && a[((y)*8+x-2)]==0; a[((y)*8+x-2)] := 2;a[((y)*8+x-1)] := 0;x := x-1]
+						[done=0 and a[((y)*8+x-1)]=2 and a[((y)*8+x-2)]=0; a[((y)*8+x-2)] := 2;a[((y)*8+x-1)] := 0;x := x-1]
 					}
 	
 					from q to q {
-						[done==0 and a[((y)*8+x+1)]==2 && a[((y)*8+x+2)]==0; a[((y)*8+x+2)] := 2;a[((y)*8+x+1)] := 0;x := x+1]
+						[done=0 and a[((y)*8+x+1)]=2 and a[((y)*8+x+2)]=0; a[((y)*8+x+2)] := 2;a[((y)*8+x+1)] := 0;x := x+1]
 					}
 	
 					from q to q {
-						[done==0 and a[((y-1)*8+x)]==2 && a[((y-2)*8+x)]==0; a[((y-2)*8+x)] := 2;a[((y-1)*8+x)] := 0;y := y-1]
+						[done=0 and a[((y-1)*8+x)]=2 and a[((y-2)*8+x)]=0; a[((y-2)*8+x)] := 2;a[((y-1)*8+x)] := 0;y := y-1]
 					}
 	
 					from q to q {
-						[done==0 and a[((y+1)*8+x)]==2 && a[((y+2)*8+x)]==0; a[((y+2)*8+x)] := 2;a[((y+1)*8+x)] := 0;y := y+1]
+						[done=0 and a[((y+1)*8+x)]=2 and a[((y+2)*8+x)]=0; a[((y+2)*8+x)] := 2;a[((y+1)*8+x)] := 0;y := y+1]
 					}
 	
 				}

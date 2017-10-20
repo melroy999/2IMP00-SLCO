@@ -1,4 +1,4 @@
-model  {
+model phils.3 {
 classes
 	GlobalClass {
 		variables
@@ -11,11 +11,11 @@ classes
 				states  one eat finish
 				transitions
 					from think to one {
-						[fork[1] == 0; fork[1] := 1]
+						[fork[1] = 0; fork[1] := 1]
 					}
 	
 					from one to eat {
-						[fork[0] == 0; fork[0] := 1]
+						[fork[0] = 0; fork[0] := 1]
 					}
 	
 					from eat to finish {
@@ -35,11 +35,11 @@ classes
 				states  one eat finish
 				transitions
 					from think to one {
-						[fork[1] == 0; fork[1] := 1]
+						[fork[1] = 0; fork[1] := 1]
 					}
 	
 					from one to eat {
-						[fork[2] == 0; fork[2] := 1]
+						[fork[2] = 0; fork[2] := 1]
 					}
 	
 					from eat to finish {
@@ -59,11 +59,11 @@ classes
 				states  one eat finish
 				transitions
 					from think to one {
-						[fork[2] == 0; fork[2] := 1]
+						[fork[2] = 0; fork[2] := 1]
 					}
 	
 					from one to eat {
-						[fork[3] == 0; fork[3] := 1]
+						[fork[3] = 0; fork[3] := 1]
 					}
 	
 					from eat to finish {
@@ -83,11 +83,11 @@ classes
 				states  one eat finish
 				transitions
 					from think to one {
-						[fork[3] == 0; fork[3] := 1]
+						[fork[3] = 0; fork[3] := 1]
 					}
 	
 					from one to eat {
-						[fork[4] == 0; fork[4] := 1]
+						[fork[4] = 0; fork[4] := 1]
 					}
 	
 					from eat to finish {
@@ -107,11 +107,11 @@ classes
 				states  one eat finish
 				transitions
 					from think to one {
-						[fork[4] == 0; fork[4] := 1]
+						[fork[4] = 0; fork[4] := 1]
 					}
 	
 					from one to eat {
-						[fork[5] == 0; fork[5] := 1]
+						[fork[5] = 0; fork[5] := 1]
 					}
 	
 					from eat to finish {
@@ -131,11 +131,11 @@ classes
 				states  one eat finish
 				transitions
 					from think to one {
-						[fork[5] == 0; fork[5] := 1]
+						[fork[5] = 0; fork[5] := 1]
 					}
 	
 					from one to eat {
-						[fork[0] == 0; fork[0] := 1]
+						[fork[0] = 0; fork[0] := 1]
 					}
 	
 					from eat to finish {
