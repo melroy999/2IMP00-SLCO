@@ -13,19 +13,19 @@ classes
 				states  choose forloop wait CS
 				transitions
 					from NCS to choose {
-						[choosing[0] := 1;j := 0;max := 0]
+						choosing[0] := 1;j := 0;max := 0
 					}
 
 					from choose to choose {
-						[j<2 and number[j]>max; max := number[j];j := j +1]
+						j<2 and number[j]>max; max := number[j];j := j +1
 					}
 
 					from choose to choose {
-						[j<2 and number[j]<=max; j := j+1]
+						j<2 and number[j]<=max; j := j+1
 					}
 
 					from choose to forloop {
-						[j = 2 and max < 9; number[0] := max + 1;j := 0;choosing[0] := 0]
+						j = 2 and max < 9; number[0] := max + 1;j := 0;choosing[0] := 0
 					}
 
 					from forloop to wait {
@@ -33,8 +33,8 @@ classes
 					}
 
 					from wait to forloop {
-						[number[j] = 0 or (number[j] > number[0]) or
-			(number[j] = number[0] and 0 <= j); j := j+1]
+						number[j] = 0 or (number[j] > number[0]) or
+			(number[j] = number[0] and 0 <= j); j := j+1
 					}
 
 					from forloop to CS {
@@ -42,7 +42,7 @@ classes
 					}
 
 					from CS to NCS {
-						[number[0] := 0]
+						number[0] := 0
 					}
 
 				}
@@ -55,19 +55,19 @@ classes
 				states  choose forloop wait CS
 				transitions
 					from NCS to choose {
-						[choosing[1] := 1;j := 0;max := 0]
+						choosing[1] := 1;j := 0;max := 0
 					}
 
 					from choose to choose {
-						[j<2 and number[j]>max; max := number[j];j := j +1]
+						j<2 and number[j]>max; max := number[j];j := j +1
 					}
 
 					from choose to choose {
-						[j<2 and number[j]<=max; j := j+1]
+						j<2 and number[j]<=max; j := j+1
 					}
 
 					from choose to forloop {
-						[j = 2 and max < 9; number[1] := max + 1;j := 0;choosing[1] := 0]
+						j = 2 and max < 9; number[1] := max + 1;j := 0;choosing[1] := 0
 					}
 
 					from forloop to wait {
@@ -75,8 +75,8 @@ classes
 					}
 
 					from wait to forloop {
-						[number[j] = 0 or (number[j] > number[1]) or
-			(number[j] = number[1] and 1 <= j); j := j+1]
+						number[j] = 0 or (number[j] > number[1]) or
+			(number[j] = number[1] and 1 <= j); j := j+1
 					}
 
 					from forloop to CS {
@@ -84,7 +84,7 @@ classes
 					}
 
 					from CS to NCS {
-						[number[1] := 0]
+						number[1] := 0
 					}
 
 				}

@@ -13,15 +13,15 @@ classes
 				states  R S
 				transitions
 					from Q to R {
-						[c<20; x1 := c]
+						c<20; x1 := c
 					}
 
 					from R to S {
-						[x1 := x1 + c]
+						x1 := x1 + c
 					}
 
 					from S to Q {
-						[c := x1]
+						c := x1
 					}
 
 				}
@@ -33,15 +33,15 @@ classes
 				states  R S
 				transitions
 					from Q to R {
-						[c<20; x2 := c]
+						c<20; x2 := c
 					}
 
 					from R to S {
-						[x2 := x2 + c]
+						x2 := x2 + c
 					}
 
 					from S to Q {
-						[c := x2]
+						c := x2
 					}
 
 				}

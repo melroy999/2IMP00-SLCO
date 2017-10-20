@@ -13,7 +13,7 @@ classes
 				states  p2 p3 p4 p5 p6 p7 p8 p9 elected
 				transitions
 					from p1 to p2 {
-						[turn[curr] := 0]
+						turn[curr] := 0
 					}
 
 					from p2 to p3 {
@@ -21,7 +21,7 @@ classes
 					}
 
 					from p3 to p4 {
-						[b[curr] := 1]
+						b[curr] := 1
 					}
 
 					from p4 to p5 {
@@ -29,11 +29,11 @@ classes
 					}
 
 					from p5 to p6 {
-						[c[curr] := 1]
+						c[curr] := 1
 					}
 
 					from p6 to p7 {
-						[b[curr] := 0]
+						b[curr] := 0
 					}
 
 					from p4 to p8 {
@@ -49,7 +49,7 @@ classes
 					}
 
 					from p8 to p1 {
-						[curr = 0 or c[curr-1] = 1; curr := curr+1]
+						curr = 0 or c[curr-1] = 1; curr := curr+1
 					}
 
 				}
@@ -61,7 +61,7 @@ classes
 				states  p2 p3 p4 p5 p6 p7 p8 p9 elected
 				transitions
 					from p1 to p2 {
-						[turn[curr] := 1]
+						turn[curr] := 1
 					}
 
 					from p2 to p3 {
@@ -69,7 +69,7 @@ classes
 					}
 
 					from p3 to p4 {
-						[b[curr] := 1]
+						b[curr] := 1
 					}
 
 					from p4 to p5 {
@@ -77,11 +77,11 @@ classes
 					}
 
 					from p5 to p6 {
-						[c[curr] := 1]
+						c[curr] := 1
 					}
 
 					from p6 to p7 {
-						[b[curr] := 0]
+						b[curr] := 0
 					}
 
 					from p4 to p8 {
@@ -97,7 +97,7 @@ classes
 					}
 
 					from p8 to p1 {
-						[curr = 0 or c[curr-1] = 1; curr := curr+1]
+						curr = 0 or c[curr-1] = 1; curr := curr+1
 					}
 
 				}
@@ -109,7 +109,7 @@ classes
 				states  p2 p3 p4 p5 p6 p7 p8 p9 elected
 				transitions
 					from p1 to p2 {
-						[turn[curr] := 2]
+						turn[curr] := 2
 					}
 
 					from p2 to p3 {
@@ -117,7 +117,7 @@ classes
 					}
 
 					from p3 to p4 {
-						[b[curr] := 1]
+						b[curr] := 1
 					}
 
 					from p4 to p5 {
@@ -125,11 +125,11 @@ classes
 					}
 
 					from p5 to p6 {
-						[c[curr] := 1]
+						c[curr] := 1
 					}
 
 					from p6 to p7 {
-						[b[curr] := 0]
+						b[curr] := 0
 					}
 
 					from p4 to p8 {
@@ -145,7 +145,7 @@ classes
 					}
 
 					from p8 to p1 {
-						[curr = 0 or c[curr-1] = 1; curr := curr+1]
+						curr = 0 or c[curr-1] = 1; curr := curr+1
 					}
 
 				}
@@ -157,7 +157,7 @@ classes
 				states  p2 p3 p4 p5 p6 p7 p8 p9 elected
 				transitions
 					from p1 to p2 {
-						[turn[curr] := 3]
+						turn[curr] := 3
 					}
 
 					from p2 to p3 {
@@ -165,7 +165,7 @@ classes
 					}
 
 					from p3 to p4 {
-						[b[curr] := 1]
+						b[curr] := 1
 					}
 
 					from p4 to p5 {
@@ -173,11 +173,11 @@ classes
 					}
 
 					from p5 to p6 {
-						[c[curr] := 1]
+						c[curr] := 1
 					}
 
 					from p6 to p7 {
-						[b[curr] := 0]
+						b[curr] := 0
 					}
 
 					from p4 to p8 {
@@ -193,7 +193,7 @@ classes
 					}
 
 					from p8 to p1 {
-						[curr = 0 or c[curr-1] = 1; curr := curr+1]
+						curr = 0 or c[curr-1] = 1; curr := curr+1
 					}
 
 				}

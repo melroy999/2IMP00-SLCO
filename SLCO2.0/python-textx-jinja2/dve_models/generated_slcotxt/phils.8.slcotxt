@@ -11,19 +11,19 @@ classes
 				states  one eat finish
 				transitions
 					from think to one {
-						[fork[0] = 0; fork[0] := 1]
+						fork[0] = 0; fork[0] := 1
 					}
 
 					from one to eat {
-						[fork[1] = 0; fork[1] := 1]
+						fork[1] = 0; fork[1] := 1
 					}
 
 					from eat to finish {
-						[fork[0] := 0]
+						fork[0] := 0
 					}
 
 					from finish to think {
-						[fork[1] := 0]
+						fork[1] := 0
 					}
 
 				}
@@ -35,19 +35,19 @@ classes
 				states  one eat finish
 				transitions
 					from think to one {
-						[fork[1] = 0; fork[1] := 1]
+						fork[1] = 0; fork[1] := 1
 					}
 
 					from one to eat {
-						[fork[2] = 0; fork[2] := 1]
+						fork[2] = 0; fork[2] := 1
 					}
 
 					from eat to finish {
-						[fork[1] := 0]
+						fork[1] := 0
 					}
 
 					from finish to think {
-						[fork[2] := 0]
+						fork[2] := 0
 					}
 
 				}
@@ -59,19 +59,19 @@ classes
 				states  one eat finish
 				transitions
 					from think to one {
-						[fork[2] = 0; fork[2] := 1]
+						fork[2] = 0; fork[2] := 1
 					}
 
 					from one to eat {
-						[fork[3] = 0; fork[3] := 1]
+						fork[3] = 0; fork[3] := 1
 					}
 
 					from eat to finish {
-						[fork[2] := 0]
+						fork[2] := 0
 					}
 
 					from finish to think {
-						[fork[3] := 0]
+						fork[3] := 0
 					}
 
 				}
@@ -83,19 +83,19 @@ classes
 				states  one eat finish
 				transitions
 					from think to one {
-						[fork[3] = 0; fork[3] := 1]
+						fork[3] = 0; fork[3] := 1
 					}
 
 					from one to eat {
-						[fork[4] = 0; fork[4] := 1]
+						fork[4] = 0; fork[4] := 1
 					}
 
 					from eat to finish {
-						[fork[3] := 0]
+						fork[3] := 0
 					}
 
 					from finish to think {
-						[fork[4] := 0]
+						fork[4] := 0
 					}
 
 				}
@@ -107,19 +107,19 @@ classes
 				states  one eat finish
 				transitions
 					from think to one {
-						[fork[4] = 0; fork[4] := 1]
+						fork[4] = 0; fork[4] := 1
 					}
 
 					from one to eat {
-						[fork[5] = 0; fork[5] := 1]
+						fork[5] = 0; fork[5] := 1
 					}
 
 					from eat to finish {
-						[fork[4] := 0]
+						fork[4] := 0
 					}
 
 					from finish to think {
-						[fork[5] := 0]
+						fork[5] := 0
 					}
 
 				}
@@ -131,19 +131,19 @@ classes
 				states  one eat finish
 				transitions
 					from think to one {
-						[fork[5] = 0; fork[5] := 1]
+						fork[5] = 0; fork[5] := 1
 					}
 
 					from one to eat {
-						[fork[6] = 0; fork[6] := 1]
+						fork[6] = 0; fork[6] := 1
 					}
 
 					from eat to finish {
-						[fork[5] := 0]
+						fork[5] := 0
 					}
 
 					from finish to think {
-						[fork[6] := 0]
+						fork[6] := 0
 					}
 
 				}
@@ -155,19 +155,19 @@ classes
 				states  one eat finish
 				transitions
 					from think to one {
-						[fork[6] = 0; fork[6] := 1]
+						fork[6] = 0; fork[6] := 1
 					}
 
 					from one to eat {
-						[fork[7] = 0; fork[7] := 1]
+						fork[7] = 0; fork[7] := 1
 					}
 
 					from eat to finish {
-						[fork[6] := 0]
+						fork[6] := 0
 					}
 
 					from finish to think {
-						[fork[7] := 0]
+						fork[7] := 0
 					}
 
 				}
@@ -179,19 +179,19 @@ classes
 				states  one eat finish
 				transitions
 					from think to one {
-						[fork[7] = 0; fork[7] := 1]
+						fork[7] = 0; fork[7] := 1
 					}
 
 					from one to eat {
-						[fork[8] = 0; fork[8] := 1]
+						fork[8] = 0; fork[8] := 1
 					}
 
 					from eat to finish {
-						[fork[7] := 0]
+						fork[7] := 0
 					}
 
 					from finish to think {
-						[fork[8] := 0]
+						fork[8] := 0
 					}
 
 				}
@@ -203,19 +203,19 @@ classes
 				states  one eat finish
 				transitions
 					from think to one {
-						[fork[8] = 0; fork[8] := 1]
+						fork[8] = 0; fork[8] := 1
 					}
 
 					from one to eat {
-						[fork[9] = 0; fork[9] := 1]
+						fork[9] = 0; fork[9] := 1
 					}
 
 					from eat to finish {
-						[fork[8] := 0]
+						fork[8] := 0
 					}
 
 					from finish to think {
-						[fork[9] := 0]
+						fork[9] := 0
 					}
 
 				}
@@ -227,19 +227,19 @@ classes
 				states  one eat finish
 				transitions
 					from think to one {
-						[fork[9] = 0; fork[9] := 1]
+						fork[9] = 0; fork[9] := 1
 					}
 
 					from one to eat {
-						[fork[10] = 0; fork[10] := 1]
+						fork[10] = 0; fork[10] := 1
 					}
 
 					from eat to finish {
-						[fork[9] := 0]
+						fork[9] := 0
 					}
 
 					from finish to think {
-						[fork[10] := 0]
+						fork[10] := 0
 					}
 
 				}
@@ -251,19 +251,19 @@ classes
 				states  one eat finish
 				transitions
 					from think to one {
-						[fork[10] = 0; fork[10] := 1]
+						fork[10] = 0; fork[10] := 1
 					}
 
 					from one to eat {
-						[fork[11] = 0; fork[11] := 1]
+						fork[11] = 0; fork[11] := 1
 					}
 
 					from eat to finish {
-						[fork[10] := 0]
+						fork[10] := 0
 					}
 
 					from finish to think {
-						[fork[11] := 0]
+						fork[11] := 0
 					}
 
 				}
@@ -275,19 +275,19 @@ classes
 				states  one eat finish
 				transitions
 					from think to one {
-						[fork[11] = 0; fork[11] := 1]
+						fork[11] = 0; fork[11] := 1
 					}
 
 					from one to eat {
-						[fork[12] = 0; fork[12] := 1]
+						fork[12] = 0; fork[12] := 1
 					}
 
 					from eat to finish {
-						[fork[11] := 0]
+						fork[11] := 0
 					}
 
 					from finish to think {
-						[fork[12] := 0]
+						fork[12] := 0
 					}
 
 				}
@@ -299,19 +299,19 @@ classes
 				states  one eat finish
 				transitions
 					from think to one {
-						[fork[12] = 0; fork[12] := 1]
+						fork[12] = 0; fork[12] := 1
 					}
 
 					from one to eat {
-						[fork[13] = 0; fork[13] := 1]
+						fork[13] = 0; fork[13] := 1
 					}
 
 					from eat to finish {
-						[fork[12] := 0]
+						fork[12] := 0
 					}
 
 					from finish to think {
-						[fork[13] := 0]
+						fork[13] := 0
 					}
 
 				}
@@ -323,19 +323,19 @@ classes
 				states  one eat finish
 				transitions
 					from think to one {
-						[fork[13] = 0; fork[13] := 1]
+						fork[13] = 0; fork[13] := 1
 					}
 
 					from one to eat {
-						[fork[14] = 0; fork[14] := 1]
+						fork[14] = 0; fork[14] := 1
 					}
 
 					from eat to finish {
-						[fork[13] := 0]
+						fork[13] := 0
 					}
 
 					from finish to think {
-						[fork[14] := 0]
+						fork[14] := 0
 					}
 
 				}
@@ -347,19 +347,19 @@ classes
 				states  one eat finish
 				transitions
 					from think to one {
-						[fork[14] = 0; fork[14] := 1]
+						fork[14] = 0; fork[14] := 1
 					}
 
 					from one to eat {
-						[fork[15] = 0; fork[15] := 1]
+						fork[15] = 0; fork[15] := 1
 					}
 
 					from eat to finish {
-						[fork[14] := 0]
+						fork[14] := 0
 					}
 
 					from finish to think {
-						[fork[15] := 0]
+						fork[15] := 0
 					}
 
 				}
@@ -371,19 +371,19 @@ classes
 				states  one eat finish
 				transitions
 					from think to one {
-						[fork[15] = 0; fork[15] := 1]
+						fork[15] = 0; fork[15] := 1
 					}
 
 					from one to eat {
-						[fork[0] = 0; fork[0] := 1]
+						fork[0] = 0; fork[0] := 1
 					}
 
 					from eat to finish {
-						[fork[15] := 0]
+						fork[15] := 0
 					}
 
 					from finish to think {
-						[fork[0] := 0]
+						fork[0] := 0
 					}
 
 				}

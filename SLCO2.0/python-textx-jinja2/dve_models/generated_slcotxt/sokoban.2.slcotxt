@@ -14,39 +14,39 @@ classes
 				states  
 				transitions
 					from q to q {
-						[done=0 and a[18] = 2 and a[27] = 2 and a[28] = 2 and a[37] = 2 and a[38] = 2; done := 1]
+						done=0 and a[18] = 2 and a[27] = 2 and a[28] = 2 and a[37] = 2 and a[38] = 2; done := 1
 					}
 
 					from q to q {
-						[done=0 and a[((y)*10+x-1)]=0; x := x-1]
+						done=0 and a[((y)*10+x-1)]=0; x := x-1
 					}
 
 					from q to q {
-						[done=0 and a[((y)*10+x+1)]=0; x := x+1]
+						done=0 and a[((y)*10+x+1)]=0; x := x+1
 					}
 
 					from q to q {
-						[done=0 and a[((y-1)*10+x)]=0; y := y-1]
+						done=0 and a[((y-1)*10+x)]=0; y := y-1
 					}
 
 					from q to q {
-						[done=0 and a[((y+1)*10+x)]=0; y := y+1]
+						done=0 and a[((y+1)*10+x)]=0; y := y+1
 					}
 
 					from q to q {
-						[done=0 and a[((y)*10+x-1)]=2 and a[((y)*10+x-2)]=0; a[((y)*10+x-2)] := 2;a[((y)*10+x-1)] := 0;x := x-1]
+						done=0 and a[((y)*10+x-1)]=2 and a[((y)*10+x-2)]=0; a[((y)*10+x-2)] := 2;a[((y)*10+x-1)] := 0;x := x-1
 					}
 
 					from q to q {
-						[done=0 and a[((y)*10+x+1)]=2 and a[((y)*10+x+2)]=0; a[((y)*10+x+2)] := 2;a[((y)*10+x+1)] := 0;x := x+1]
+						done=0 and a[((y)*10+x+1)]=2 and a[((y)*10+x+2)]=0; a[((y)*10+x+2)] := 2;a[((y)*10+x+1)] := 0;x := x+1
 					}
 
 					from q to q {
-						[done=0 and a[((y-1)*10+x)]=2 and a[((y-2)*10+x)]=0; a[((y-2)*10+x)] := 2;a[((y-1)*10+x)] := 0;y := y-1]
+						done=0 and a[((y-1)*10+x)]=2 and a[((y-2)*10+x)]=0; a[((y-2)*10+x)] := 2;a[((y-1)*10+x)] := 0;y := y-1
 					}
 
 					from q to q {
-						[done=0 and a[((y+1)*10+x)]=2 and a[((y+2)*10+x)]=0; a[((y+2)*10+x)] := 2;a[((y+1)*10+x)] := 0;y := y+1]
+						done=0 and a[((y+1)*10+x)]=2 and a[((y+2)*10+x)]=0; a[((y+2)*10+x)] := 2;a[((y+1)*10+x)] := 0;y := y+1
 					}
 
 				}

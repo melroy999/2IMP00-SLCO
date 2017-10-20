@@ -13,11 +13,11 @@ classes
 				states  p2 p3 p4 p5 p6 CS p9 p13 p10
 				transitions
 					from NCS to p2 {
-						[next[0] := 255]
+						next[0] := 255
 					}
 
 					from p2 to p3 {
-						[pred := tail;tail := 0]
+						pred := tail;tail := 0
 					}
 
 					from p3 to CS {
@@ -29,11 +29,11 @@ classes
 					}
 
 					from p4 to p5 {
-						[locked[0] := 1]
+						locked[0] := 1
 					}
 
 					from p5 to p6 {
-						[next[0] := 0]
+						next[0] := 0
 					}
 
 					from p6 to CS {
@@ -49,7 +49,7 @@ classes
 					}
 
 					from p9 to NCS {
-						[tail = 0; tail := 255]
+						tail = 0; tail := 255
 					}
 
 					from p9 to p10 {
@@ -61,7 +61,7 @@ classes
 					}
 
 					from p13 to NCS {
-						[locked[next[0]] := 0]
+						locked[next[0]] := 0
 					}
 
 				}
@@ -73,11 +73,11 @@ classes
 				states  p2 p3 p4 p5 p6 CS p9 p13 p10
 				transitions
 					from NCS to p2 {
-						[next[1] := 255]
+						next[1] := 255
 					}
 
 					from p2 to p3 {
-						[pred := tail;tail := 1]
+						pred := tail;tail := 1
 					}
 
 					from p3 to CS {
@@ -89,11 +89,11 @@ classes
 					}
 
 					from p4 to p5 {
-						[locked[1] := 1]
+						locked[1] := 1
 					}
 
 					from p5 to p6 {
-						[next[1] := 1]
+						next[1] := 1
 					}
 
 					from p6 to CS {
@@ -109,7 +109,7 @@ classes
 					}
 
 					from p9 to NCS {
-						[tail = 1; tail := 255]
+						tail = 1; tail := 255
 					}
 
 					from p9 to p10 {
@@ -121,7 +121,7 @@ classes
 					}
 
 					from p13 to NCS {
-						[locked[next[1]] := 0]
+						locked[next[1]] := 0
 					}
 
 				}
@@ -133,11 +133,11 @@ classes
 				states  p2 p3 p4 p5 p6 CS p9 p13 p10
 				transitions
 					from NCS to p2 {
-						[next[2] := 255]
+						next[2] := 255
 					}
 
 					from p2 to p3 {
-						[pred := tail;tail := 2]
+						pred := tail;tail := 2
 					}
 
 					from p3 to CS {
@@ -149,11 +149,11 @@ classes
 					}
 
 					from p4 to p5 {
-						[locked[2] := 1]
+						locked[2] := 1
 					}
 
 					from p5 to p6 {
-						[next[2] := 2]
+						next[2] := 2
 					}
 
 					from p6 to CS {
@@ -169,7 +169,7 @@ classes
 					}
 
 					from p9 to NCS {
-						[tail = 2; tail := 255]
+						tail = 2; tail := 255
 					}
 
 					from p9 to p10 {
@@ -181,7 +181,7 @@ classes
 					}
 
 					from p13 to NCS {
-						[locked[next[2]] := 0]
+						locked[next[2]] := 0
 					}
 
 				}
@@ -193,11 +193,11 @@ classes
 				states  p2 p3 p4 p5 p6 CS p9 p13 p10
 				transitions
 					from NCS to p2 {
-						[next[3] := 255]
+						next[3] := 255
 					}
 
 					from p2 to p3 {
-						[pred := tail;tail := 3]
+						pred := tail;tail := 3
 					}
 
 					from p3 to CS {
@@ -209,11 +209,11 @@ classes
 					}
 
 					from p4 to p5 {
-						[locked[3] := 1]
+						locked[3] := 1
 					}
 
 					from p5 to p6 {
-						[next[3] := 3]
+						next[3] := 3
 					}
 
 					from p6 to CS {
@@ -229,7 +229,7 @@ classes
 					}
 
 					from p9 to NCS {
-						[tail = 3; tail := 255]
+						tail = 3; tail := 255
 					}
 
 					from p9 to p10 {
@@ -241,7 +241,7 @@ classes
 					}
 
 					from p13 to NCS {
-						[locked[next[3]] := 0]
+						locked[next[3]] := 0
 					}
 
 				}
@@ -253,11 +253,11 @@ classes
 				states  p2 p3 p4 p5 p6 CS p9 p13 p10
 				transitions
 					from NCS to p2 {
-						[next[4] := 255]
+						next[4] := 255
 					}
 
 					from p2 to p3 {
-						[pred := tail;tail := 4]
+						pred := tail;tail := 4
 					}
 
 					from p3 to CS {
@@ -269,11 +269,11 @@ classes
 					}
 
 					from p4 to p5 {
-						[locked[4] := 1]
+						locked[4] := 1
 					}
 
 					from p5 to p6 {
-						[next[4] := 4]
+						next[4] := 4
 					}
 
 					from p6 to CS {
@@ -289,7 +289,7 @@ classes
 					}
 
 					from p9 to NCS {
-						[tail = 4; tail := 255]
+						tail = 4; tail := 255
 					}
 
 					from p9 to p10 {
@@ -301,7 +301,7 @@ classes
 					}
 
 					from p13 to NCS {
-						[locked[next[4]] := 0]
+						locked[next[4]] := 0
 					}
 
 				}
