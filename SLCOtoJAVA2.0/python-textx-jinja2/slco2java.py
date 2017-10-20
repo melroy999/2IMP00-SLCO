@@ -29,6 +29,8 @@ def operator(s):
 		return '<='
 	elif s == '=':
 		return '=='
+	elif s == '!=':
+		return '!='
 	else:
 		return s
 
@@ -81,7 +83,7 @@ def getlabel(s):
 		if s.guard != None:
 			result += " | " + getlabel(s.guard)
 		result += ") <b>from </b>" + s.target.name
-	elif s.__class__.__name__ == "Expression" or s.__class__.__name__ == "ExprPrec3" or s.__class__.__name__ == "ExprPrec2" or s.__class__.__name__ == "ExprPrec1":
+	elif s.__class__.__name__ == "Expression" or s.__class__.__name__ == "ExprPrec4" or s.__class__.__name__ == "ExprPrec3" or s.__class__.__name__ == "ExprPrec2" or s.__class__.__name__ == "ExprPrec1":
 		if s.op != '':
 			result += getlabel(s.left) + " " + operator(s.op) + " " + getlabel(s.right)
 		else:
@@ -125,7 +127,7 @@ def getinstruction(s):
 			if i < len(s.assignments)-1:
 				result += ";"
 		result += "]"
-	elif s.__class__.__name__ == "Expression" or s.__class__.__name__ == "ExprPrec3" or s.__class__.__name__ == "ExprPrec2" or s.__class__.__name__ == "ExprPrec1":
+	elif s.__class__.__name__ == "Expression" or s.__class__.__name__ == "ExprPrec4" or s.__class__.__name__ == "ExprPrec3" or s.__class__.__name__ == "ExprPrec2" or s.__class__.__name__ == "ExprPrec1":
 		if s.op != '':
 			result += getinstruction(s.left) + " " + operator(s.op) + " " + getinstruction(s.right)
 		else:
@@ -498,6 +500,8 @@ def read_locking_file(model,lockingfilename):
 				for i in range(0,len(results)):
 					if results[i][0] == 'VARIABLE':
 						varlist.append(results[i][1][4:])
+				oldlist = lockdict.get(key,[])
+				varlist += oldlist
 				lockdict[key] = varlist
 	else:
 		# fill lockdict with all variables in the system
@@ -595,6 +599,7 @@ def main(args):
 	# translate
 	slco_to_java(modelfolder,modelname,model,lockingdict)
 
+	print(lockingdict)
 	for o in model.objects:
 		lockedvars = lockingdict.get(o.name,[])
 	print("SLCO model translated to Java")

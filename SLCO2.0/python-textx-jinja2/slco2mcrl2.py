@@ -607,7 +607,7 @@ def statementlabel(s,c,firstinblock,elseindex):
 						# add current statement
 						action = statementactionlabel(s,o,False)
 						if s.__class__.__name__ == "ReceiveSignal":
-							action = condreceivepeeklabel(s,o)
+							action = peekstatementlabel(s,o)
 						# if appropriate, add action and object with which current statement needs to synchronise
 						syncaction = ''
 						if syncactionlabelsdict.get(action) != None:
@@ -876,7 +876,7 @@ def expression(s,stm,c,primmap):
 	# special case: s is a variableref. In this case, it is the left-hand side of an assignment, and s refers to an array
 	if s.__class__.__name__ == "Variable":
 		output = primmap.get(s.name, scopedvars[c.name + "'" + stm.name][s.name])
-	if s.__class__.__name__ == "Expression" or s.__class__.__name__ == "ExprPrec3" or s.__class__.__name__ == "ExprPrec2":
+	if s.__class__.__name__ == "Expression" or s.__class__.__name__ == "ExprPrec4" or s.__class__.__name__ == "ExprPrec3" or s.__class__.__name__ == "ExprPrec2":
 		#if s.op != '':
 		#	output = '('
 		if s.op != '' and s.op != 'xor':
@@ -1329,10 +1329,12 @@ def expression_is_actionref(s):
 					snext = snext.left
 					if snext.op == '':
 						snext = snext.left
-						if snext.ref != None and snext.sign == '':
-							snext = snext.ref
-							if snext.ref in actions:
-								return True
+						if snext.op == '':
+							snext = snext.left
+							if snext.ref != None and snext.sign == '':
+								snext = snext.ref
+								if snext.ref in actions:
+									return True
 	return False
 
 def preprocess():

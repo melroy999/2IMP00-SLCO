@@ -145,8 +145,8 @@ public class {{model.name}} {
 						currentState = {{model.name}}.State.{{sout[0].target.name}};
             // Increment counter
             transcounter++;
-						break;
 						{% endif %}
+						break;
 					{% endfor %}
 					default:
 						return;
@@ -191,10 +191,25 @@ public class {{model.name}} {
 {% endfor %}
   }
 
+  // Join all threads
+  public void joinThreads() {
+    while (true) {
+      try {
+    {% for sm in c.statemachines %}
+			  T_{{sm.name}}.join();
+    {% endfor %}
+        break;
+			} catch (InterruptedException e) {
+        e.printStackTrace();
+      }
+		}
+  }
+
 	// Run application
 	public static void main(String args[]) {
     {{model.name}} ap = new {{model.name}}();
     ap.startThreads();
+    ap.joinThreads();
 	}
 	{% endfor %}
 }

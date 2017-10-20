@@ -70,7 +70,7 @@ Assignment:
 ;
 
 Composite:
-  '[' (guard=Expression ';')? assignments+=Assignment[';'] ']'
+  '[' (guard=Expression ';')? assignments*=Assignment[';'] ']'
 ;
 
 ReceiveSignal:
@@ -82,11 +82,15 @@ SendSignal:
 ;
 
 Expression:
-  left=ExprPrec3 ((op='='|op='<>'|op='<='|op='>='|op='<'|op='>') right=Expression)?
+  left=ExprPrec4 ((op='or'|op='xor'|op='and'|op='&&'|op='||') right=Expression)?
+;
+
+ExprPrec4:
+  left=ExprPrec3 ((op='!='|op='='|op='<>'|op='<='|op='>='|op='<'|op='>') right=ExprPrec4)?
 ;
 
 ExprPrec3:
-  left=ExprPrec2 ((op='+'|op='-'|op='or'|op='xor'|op='and') right=ExprPrec3)?
+  left=ExprPrec2 ((op='+'|op='-') right=ExprPrec3)?
 ;
 
 ExprPrec2:
@@ -118,7 +122,7 @@ VariableRef:
 ;
 
 Variable:
-  (type=Type?) name=NID (':=' ((defvalue=INT | defvalue=BOOL)|('['(defvalues+=INT[',']|defvalues+=BOOL[','])']')))?
+  (type=Type?) name=NID (':=' (defvalue=INT | defvalue=BOOL)|('['(defvalues+=INT[',']|defvalues+=BOOL[','])']'))?
 ;
 
 Type:
