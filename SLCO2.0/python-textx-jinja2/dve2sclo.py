@@ -9,6 +9,7 @@ dve_mm = None
 slco_mm = None
 modelname = ""
 this_folder = dirname(__file__)
+use_composite_statement = False
 
 slco_template = """model dve_%s {
 classes
@@ -27,6 +28,8 @@ objects
 class TranslateException(Exception):
     pass
 
+keywords = ['not', 'or', 'and', 'xor']
+changed_words = {}
 
 typemap = {'byte'   : 'Integer',
            'int'    : 'Integer',
@@ -51,17 +54,36 @@ def dve_const_array2slco_const_array(dve_array):
 	values = ','.join([dve_expr2slco_expr(x) for x in dve_array.values])
 	return "[%s]" % values
 
+def fix_for_keywords(s):
+	global changed_words
+	if s in changed_words:
+		return changed_words[s]
+
+	s_new = s
+	changed = False
+	if '_' in s_new:
+		s_new = s_new.replace('_', '')
+		changed = True
+	for k in keywords:
+		if s_new.startswith(k):
+			s_new = 'dve' + s_new
+			break
+	if changed:
+		changed_words[s] = s_new
+	return s_new
+
 def dve_var2slco_variable(dve_var, dve_type):
 	slco_var = None
+	name = fix_for_keywords(dve_var.name)
 	if dve_var.length and dve_var.length > 0:
 		if dve_var.initialValue and\
 		   dve_var.initialValue.__class__.__name__ != 'ArrayConstantExpression':
 			raise TranslateException('Unsupported initialValue "'+dve_var.initialValue.__class__.__name__+'" on variable "'+dve_var.name+'"')
-		slco_var = dve_primitive_type2sclo_type(dve_type, dve_var.length) + " " + dve_var.name
+		slco_var = dve_primitive_type2sclo_type(dve_type, dve_var.length) + " " + name
 		if dve_var.initialValue:
 			slco_var += " := " + dve_const_array2slco_const_array(dve_var.initialValue)
 	else:
-		slco_var = dve_primitive_type2sclo_type(dve_type) + " " + dve_var.name
+		slco_var = dve_primitive_type2sclo_type(dve_type) + " " + name
 		if dve_var.initialValue:
 			slco_var += " := " + dve_expr2slco_expr(dve_var.initialValue)
 	return slco_var
@@ -78,6 +100,8 @@ def dve_expr2slco_expr(dve_expr):
 	expr = expr.replace(' || ', ' or ')
 	expr = expr.replace(' ||', ' or ')
 	expr = expr.replace('||', ' or ')
+	for old, new in changed_words.items():
+		expr = expr.replace(old, new)
 	return expr
 '''
 	if dve_expr.__class__.__name__ == 'BooleanConstantExpression'\
@@ -122,7 +146,7 @@ def dve_expr2slco_expr(dve_expr):
 
 
 def dve_state2slco_state(dve_state):
-	return dve_state.name
+	return fix_for_keywords(dve_state.name)
 
 
 def dve_process2slco_state_machine(dve_process):
@@ -152,11 +176,14 @@ def dve_transition2slco_transition(dve_trans):
 		statement_list = [dve_statement2slco_statement(x) for x in dve_trans.effects]
 		statements += "; ".join(statement_list)
 	trans = '''from %s to %s {
-						[%s]
-					}
-	''' % (dve_state2slco_state(dve_trans.source),
-	       dve_state2slco_state(dve_trans.target),
-	       "%s" % statements)
+						%s
+					}\n'''
+	if use_composite_statement and dve_trans.effects:
+			statements = '[%s]' % statements
+
+	trans = trans % (dve_state2slco_state(dve_trans.source),
+	                 dve_state2slco_state(dve_trans.target),
+	                 "%s" % statements)
 	return trans
 
 def dve_statement2slco_statement(dve_statement):
@@ -174,7 +201,7 @@ def dve_assignment2slco_assignment(dve_assign):
 
 
 def dve_var_ref2slco_var_ref(dve_var, index_expr):
-	var = dve_var.name
+	var = fix_for_keywords(dve_var.name)
 	if index_expr:
 		var += "[%s]" % dve_expr2slco_expr(index_expr)
 	return var
@@ -197,7 +224,7 @@ def translate(dve_model, mname):
 
 def main(args):
 	"""The main function"""
-	global dve_mm, slco_mm
+	global dve_mm, slco_mm, use_composite_statement
 	if len(args) == 0:
 		print("Missing argument: DVE model")
 		sys.exit(1)
@@ -206,11 +233,15 @@ def main(args):
 			print("Usage: pypy/python3 dve2slco <file_in>")
 			print("")
 			print("Transform an DVE model to an SLCO 2.0 model.")
+			print("-composite       use composite statement for dve transitions")
 			sys.exit(0)
 		else:
 			for i in range(0,len(args)):
-				modelname = args[i]
-				break
+				if args[i] == '-composite':
+					use_composite_statement = True
+				else:
+					modelname = args[i]
+					break
 
 	# create meta-model
 	dve_mm = metamodel_from_file(join(this_folder,'dve.tx'))

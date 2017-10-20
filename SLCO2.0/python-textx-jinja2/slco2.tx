@@ -39,7 +39,7 @@ Channel:
 StateMachine:
   name=NID '{'
 	('variables'
-		variables*=Variable[',']
+		variables*=Variable
 	)?
 	'initial' initialstate=State
 	('state' states*=State)?
@@ -82,19 +82,19 @@ SendSignal:
 ;
 
 Expression:
-  left=ExprPrec3 ((op='='|op='<>'|op='<='|op='>='|op='<'|op='>') right=ExprPrec3)?
+  left=ExprPrec3 ((op='='|op='<>'|op='<='|op='>='|op='<'|op='>') right=Expression)?
 ;
 
 ExprPrec3:
-  left=ExprPrec2 ((op='+'|op='-'|op='or'|op='xor'|op='and') right=ExprPrec2)?
+  left=ExprPrec2 ((op='+'|op='-'|op='or'|op='xor'|op='and') right=ExprPrec3)?
 ;
 
 ExprPrec2:
-  left=ExprPrec1 ((op='*'|op='/'|op='%') right=ExprPrec1)?
+  left=ExprPrec1 ((op='*'|op='/'|op='%') right=ExprPrec2)?
 ;
 
 ExprPrec1:
-  left=Primary (op='**' right=Primary)?
+  left=Primary (op='**' right=ExprPrec1)?
 ;
 
 Primary:
@@ -118,7 +118,7 @@ VariableRef:
 ;
 
 Variable:
-  (type=Type?) name=NID (':=' (defvalue=INT | defvalue=BOOL)|('['(defvalues+=INT[',']|defvalues+=BOOL[','])']'))?
+  (type=Type?) name=NID (':=' ((defvalue=INT | defvalue=BOOL)|('['(defvalues+=INT[',']|defvalues+=BOOL[','])']')))?
 ;
 
 Type:
