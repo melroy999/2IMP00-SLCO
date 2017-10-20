@@ -1,4 +1,4 @@
-model  {
+model mcs.6 {
 classes
 	GlobalClass {
 		variables

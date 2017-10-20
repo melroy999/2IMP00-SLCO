@@ -1,4 +1,4 @@
-model  {
+model telephony.3 {
 classes
 	GlobalClass {
 		variables

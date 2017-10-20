@@ -180,11 +180,8 @@ def dve_var_ref2slco_var_ref(dve_var, index_expr):
 	return var
 
 
-def translate(dve_model):
+def translate(dve_model, mname):
 	"""The translation function"""
-	start = modelname.rfind('/') + 1
-	mname =  modelname[start:-4]
-
 	dve_global_vars = [x for x in dve_model.declarations
 	                   if x.__class__.__name__ == "VarList"]
 	global_vars = []
@@ -234,9 +231,11 @@ def main(args):
 	# read model
 	for file in batch:
 		model = dve_mm.model_from_file(file)
-		print("processing model %s" % basename(file))
+		mname = basename(file)
+		print("processing model %s" % mname)
+		mname = mname[:-4]
 		# translate
-		out_model = translate(model)
+		out_model = translate(model, mname)
 		# write to file
 		if len(batch) == 1:
 			print(out_model)

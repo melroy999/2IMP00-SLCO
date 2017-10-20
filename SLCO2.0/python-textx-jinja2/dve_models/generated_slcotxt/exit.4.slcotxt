@@ -1,4 +1,4 @@
-model  {
+model exit.4 {
 classes
 	GlobalClass {
 		variables

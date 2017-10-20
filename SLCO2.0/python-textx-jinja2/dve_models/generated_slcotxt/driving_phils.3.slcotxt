@@ -1,4 +1,4 @@
-model  {
+model driving_phils.3 {
 classes
 	GlobalClass {
 		variables

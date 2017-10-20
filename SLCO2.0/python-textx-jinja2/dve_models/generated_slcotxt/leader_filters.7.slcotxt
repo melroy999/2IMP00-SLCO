@@ -1,4 +1,4 @@
-model  {
+model leader_filters.7 {
 classes
 	GlobalClass {
 		variables

@@ -1,4 +1,4 @@
-model  {
+model anderson.5 {
 classes
 	GlobalClass {
 		variables

@@ -1,4 +1,4 @@
-model  {
+model sokoban.2 {
 classes
 	GlobalClass {
 		variables

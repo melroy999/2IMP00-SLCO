@@ -1,4 +1,4 @@
-model  {
+model hanoi.1 {
 classes
 	GlobalClass {
 		variables

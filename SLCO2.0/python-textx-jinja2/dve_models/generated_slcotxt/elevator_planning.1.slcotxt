@@ -1,4 +1,4 @@
-model  {
+model elevator_planning.1 {
 classes
 	GlobalClass {
 		variables

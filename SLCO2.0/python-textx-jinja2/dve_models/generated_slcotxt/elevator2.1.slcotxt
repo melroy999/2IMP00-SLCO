@@ -1,4 +1,4 @@
-model  {
+model elevator2.1 {
 classes
 	GlobalClass {
 		variables

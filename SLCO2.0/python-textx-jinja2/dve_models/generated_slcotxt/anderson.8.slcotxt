@@ -1,4 +1,4 @@
-model  {
+model anderson.8 {
 classes
 	GlobalClass {
 		variables

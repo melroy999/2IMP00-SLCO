@@ -1,4 +1,4 @@
-model  {
+model frogs.2 {
 classes
 	GlobalClass {
 		variables

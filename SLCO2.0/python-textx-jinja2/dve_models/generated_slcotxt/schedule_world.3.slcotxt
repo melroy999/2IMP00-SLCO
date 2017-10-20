@@ -1,4 +1,4 @@
-model  {
+model schedule_world.3 {
 classes
 	GlobalClass {
 		variables

@@ -1,4 +1,4 @@
-model  {
+model bakery.7 {
 classes
 	GlobalClass {
 		variables

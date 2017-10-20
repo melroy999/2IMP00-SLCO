@@ -1,4 +1,4 @@
-model  {
+model peterson.4 {
 classes
 	GlobalClass {
 		variables

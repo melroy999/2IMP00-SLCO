@@ -1,4 +1,4 @@
-model  {
+model rushhour.1 {
 classes
 	GlobalClass {
 		variables

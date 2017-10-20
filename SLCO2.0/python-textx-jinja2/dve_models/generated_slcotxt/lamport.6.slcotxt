@@ -1,4 +1,4 @@
-model  {
+model lamport.6 {
 classes
 	GlobalClass {
 		variables

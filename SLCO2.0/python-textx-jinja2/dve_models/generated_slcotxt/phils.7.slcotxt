@@ -1,4 +1,4 @@
-model  {
+model phils.7 {
 classes
 	GlobalClass {
 		variables

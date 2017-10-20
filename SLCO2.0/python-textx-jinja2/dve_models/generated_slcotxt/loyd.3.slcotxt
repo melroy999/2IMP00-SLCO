@@ -1,4 +1,4 @@
-model  {
+model loyd.3 {
 classes
 	GlobalClass {
 		variables

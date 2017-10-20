@@ -1,4 +1,4 @@
-model  {
+model peg_solitaire.6 {
 classes
 	GlobalClass {
 		variables
