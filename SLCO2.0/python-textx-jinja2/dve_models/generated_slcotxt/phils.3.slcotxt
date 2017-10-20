@@ -1,4 +1,4 @@
-model phils.3 {
+model dve_phils_3 {
 classes
 	GlobalClass {
 		variables
@@ -13,19 +13,19 @@ classes
 					from think to one {
 						[fork[1] = 0; fork[1] := 1]
 					}
-	
+
 					from one to eat {
 						[fork[0] = 0; fork[0] := 1]
 					}
-	
+
 					from eat to finish {
 						[fork[1] := 0]
 					}
-	
+
 					from finish to think {
 						[fork[0] := 0]
 					}
-	
+
 				}
 	
 			phil_1 {
@@ -37,19 +37,19 @@ classes
 					from think to one {
 						[fork[1] = 0; fork[1] := 1]
 					}
-	
+
 					from one to eat {
 						[fork[2] = 0; fork[2] := 1]
 					}
-	
+
 					from eat to finish {
 						[fork[1] := 0]
 					}
-	
+
 					from finish to think {
 						[fork[2] := 0]
 					}
-	
+
 				}
 	
 			phil_2 {
@@ -61,19 +61,19 @@ classes
 					from think to one {
 						[fork[2] = 0; fork[2] := 1]
 					}
-	
+
 					from one to eat {
 						[fork[3] = 0; fork[3] := 1]
 					}
-	
+
 					from eat to finish {
 						[fork[2] := 0]
 					}
-	
+
 					from finish to think {
 						[fork[3] := 0]
 					}
-	
+
 				}
 	
 			phil_3 {
@@ -85,19 +85,19 @@ classes
 					from think to one {
 						[fork[3] = 0; fork[3] := 1]
 					}
-	
+
 					from one to eat {
 						[fork[4] = 0; fork[4] := 1]
 					}
-	
+
 					from eat to finish {
 						[fork[3] := 0]
 					}
-	
+
 					from finish to think {
 						[fork[4] := 0]
 					}
-	
+
 				}
 	
 			phil_4 {
@@ -109,19 +109,19 @@ classes
 					from think to one {
 						[fork[4] = 0; fork[4] := 1]
 					}
-	
+
 					from one to eat {
 						[fork[5] = 0; fork[5] := 1]
 					}
-	
+
 					from eat to finish {
 						[fork[4] := 0]
 					}
-	
+
 					from finish to think {
 						[fork[5] := 0]
 					}
-	
+
 				}
 	
 			phil_5 {
@@ -133,23 +133,23 @@ classes
 					from think to one {
 						[fork[5] = 0; fork[5] := 1]
 					}
-	
+
 					from one to eat {
 						[fork[0] = 0; fork[0] := 1]
 					}
-	
+
 					from eat to finish {
 						[fork[5] := 0]
 					}
-	
+
 					from finish to think {
 						[fork[0] := 0]
 					}
-	
+
 				}
 	
 	}
 
 objects
-	globalObject : GlobalClass
+	globalObject : GlobalClass()
 }

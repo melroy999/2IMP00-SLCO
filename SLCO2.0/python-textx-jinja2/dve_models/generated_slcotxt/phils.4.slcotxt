@@ -1,4 +1,4 @@
-model phils.4 {
+model dve_phils_4 {
 classes
 	GlobalClass {
 		variables
@@ -14,27 +14,27 @@ classes
 					from think to inside {
 						[count < 7; count := count+1]
 					}
-	
+
 					from inside to think {
 						[count := count -1]
 					}
-	
+
 					from inside to one {
 						[fork[0] = 0; fork[0] := 1]
 					}
-	
+
 					from one to eat {
 						[fork[1] = 0; fork[1] := 1]
 					}
-	
+
 					from eat to finish {
 						[fork[0] := 0]
 					}
-	
+
 					from finish to inside {
 						[fork[1] := 0]
 					}
-	
+
 				}
 	
 			phil_1 {
@@ -46,27 +46,27 @@ classes
 					from think to inside {
 						[count < 7; count := count+1]
 					}
-	
+
 					from inside to think {
 						[count := count -1]
 					}
-	
+
 					from inside to one {
 						[fork[1] = 0; fork[1] := 1]
 					}
-	
+
 					from one to eat {
 						[fork[2] = 0; fork[2] := 1]
 					}
-	
+
 					from eat to finish {
 						[fork[1] := 0]
 					}
-	
+
 					from finish to inside {
 						[fork[2] := 0]
 					}
-	
+
 				}
 	
 			phil_2 {
@@ -78,27 +78,27 @@ classes
 					from think to inside {
 						[count < 7; count := count+1]
 					}
-	
+
 					from inside to think {
 						[count := count -1]
 					}
-	
+
 					from inside to one {
 						[fork[2] = 0; fork[2] := 1]
 					}
-	
+
 					from one to eat {
 						[fork[3] = 0; fork[3] := 1]
 					}
-	
+
 					from eat to finish {
 						[fork[2] := 0]
 					}
-	
+
 					from finish to inside {
 						[fork[3] := 0]
 					}
-	
+
 				}
 	
 			phil_3 {
@@ -110,27 +110,27 @@ classes
 					from think to inside {
 						[count < 7; count := count+1]
 					}
-	
+
 					from inside to think {
 						[count := count -1]
 					}
-	
+
 					from inside to one {
 						[fork[3] = 0; fork[3] := 1]
 					}
-	
+
 					from one to eat {
 						[fork[4] = 0; fork[4] := 1]
 					}
-	
+
 					from eat to finish {
 						[fork[3] := 0]
 					}
-	
+
 					from finish to inside {
 						[fork[4] := 0]
 					}
-	
+
 				}
 	
 			phil_4 {
@@ -142,27 +142,27 @@ classes
 					from think to inside {
 						[count < 7; count := count+1]
 					}
-	
+
 					from inside to think {
 						[count := count -1]
 					}
-	
+
 					from inside to one {
 						[fork[4] = 0; fork[4] := 1]
 					}
-	
+
 					from one to eat {
 						[fork[5] = 0; fork[5] := 1]
 					}
-	
+
 					from eat to finish {
 						[fork[4] := 0]
 					}
-	
+
 					from finish to inside {
 						[fork[5] := 0]
 					}
-	
+
 				}
 	
 			phil_5 {
@@ -174,27 +174,27 @@ classes
 					from think to inside {
 						[count < 7; count := count+1]
 					}
-	
+
 					from inside to think {
 						[count := count -1]
 					}
-	
+
 					from inside to one {
 						[fork[5] = 0; fork[5] := 1]
 					}
-	
+
 					from one to eat {
 						[fork[6] = 0; fork[6] := 1]
 					}
-	
+
 					from eat to finish {
 						[fork[5] := 0]
 					}
-	
+
 					from finish to inside {
 						[fork[6] := 0]
 					}
-	
+
 				}
 	
 			phil_6 {
@@ -206,27 +206,27 @@ classes
 					from think to inside {
 						[count < 7; count := count+1]
 					}
-	
+
 					from inside to think {
 						[count := count -1]
 					}
-	
+
 					from inside to one {
 						[fork[6] = 0; fork[6] := 1]
 					}
-	
+
 					from one to eat {
 						[fork[7] = 0; fork[7] := 1]
 					}
-	
+
 					from eat to finish {
 						[fork[6] := 0]
 					}
-	
+
 					from finish to inside {
 						[fork[7] := 0]
 					}
-	
+
 				}
 	
 			phil_7 {
@@ -238,27 +238,27 @@ classes
 					from think to inside {
 						[count < 7; count := count+1]
 					}
-	
+
 					from inside to think {
 						[count := count -1]
 					}
-	
+
 					from inside to one {
 						[fork[7] = 0; fork[7] := 1]
 					}
-	
+
 					from one to eat {
 						[fork[8] = 0; fork[8] := 1]
 					}
-	
+
 					from eat to finish {
 						[fork[7] := 0]
 					}
-	
+
 					from finish to inside {
 						[fork[8] := 0]
 					}
-	
+
 				}
 	
 			phil_8 {
@@ -270,31 +270,31 @@ classes
 					from think to inside {
 						[count < 7; count := count+1]
 					}
-	
+
 					from inside to think {
 						[count := count -1]
 					}
-	
+
 					from inside to one {
 						[fork[8] = 0; fork[8] := 1]
 					}
-	
+
 					from one to eat {
 						[fork[0] = 0; fork[0] := 1]
 					}
-	
+
 					from eat to finish {
 						[fork[8] := 0]
 					}
-	
+
 					from finish to inside {
 						[fork[0] := 0]
 					}
-	
+
 				}
 	
 	}
 
 objects
-	globalObject : GlobalClass
+	globalObject : GlobalClass()
 }

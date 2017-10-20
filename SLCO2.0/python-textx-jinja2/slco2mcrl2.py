@@ -1,10 +1,12 @@
 import sys
 from os import mkdir
-from os.path import exists, dirname, join, split
+from os.path import exists, dirname, basename, join, split
 import jinja2
 from textx.metamodel import metamodel_from_file
 from copy import deepcopy
 import itertools
+import glob
+import traceback
 
 # powerset function
 def powerset(iterable):
@@ -755,7 +757,7 @@ def statementstatechanges(s,c):
 			else:
 				vardict[varname] = "(" + newright + ")"
 		# add assignments to state changes
-		for key, value in vardict.iteritems():
+		for key, value in vardict.items():
 			output += ", " + key + "=" + value
 	elif s.__class__.__name__ == "Delay":
 		output = ""
@@ -1517,7 +1519,11 @@ def translate():
 	global modelname, model, porttypes, states, channeltypes, asynclosslesstypes, asynclossytypes, synctypes, syncactionlabelsdict, o2o_sync_summands, class_receives, check_rc
 	
 	path, name = split(modelname)
-	outFile = open(join(path,modelname[:-4] + "mcrl2"), 'w')
+	if name.endswith('.slco'):
+		name = name[:-4]
+	else:
+		name = name[:-7]
+	outFile = open(join(path,name + "mcrl2"), 'w')
 
 	# Initialize the template engine.
 	jinja_env = jinja2.Environment(loader=jinja2.FileSystemLoader(this_folder), trim_blocks=True, lstrip_blocks=True, extensions=['jinja2.ext.loopcontrols','jinja2.ext.do',])
@@ -1577,9 +1583,19 @@ def translate():
 
 	# load the mCRL2 template
 	template = jinja_env.get_template('mcrl2.jinja2template')
-
+	out = template.render(model=model, porttypes=porttypes, states=states, channeltypes=channeltypes,
+	                asynclosslesstypes=asynclosslesstypes, asynclossytypes=asynclossytypes, synctypes=synctypes,
+	                visibleactions=visibleactions, actions=actions, sync_guarded_statements=sync_guarded_statements,
+	                sync_guard_rules=sync_guard_rules, guard_priority=guard_priority,
+	                syncactionlabelsdict=syncactionlabelsdict, mcrl2objectsend=mcrl2objectsend,
+	                mcrl2objectreceive=mcrl2objectreceive, mcrl2resetrecs=mcrl2resetrecs, classobjects=classobjects,
+	                o2o_sync_summands=o2o_sync_summands, class_receives=class_receives,
+	                class_sguard_creceives=class_sguard_creceives,
+	                class_sguard_creceives_combs=class_sguard_creceives_combs, previous_sid=previous_sid,
+	                sync_guarded_sids=sync_guarded_sids, check_rc=check_rc, modelvars=modelvars,
+	                statemachinenames=statemachinenames, mcrl2varprefix=mcrl2varprefix)
 	# write mCRL2 spec
-	outFile.write(template.render(model=model,porttypes=porttypes,states=states,channeltypes=channeltypes,asynclosslesstypes=asynclosslesstypes,asynclossytypes=asynclossytypes,synctypes=synctypes,visibleactions=visibleactions,actions=actions,sync_guarded_statements=sync_guarded_statements,sync_guard_rules=sync_guard_rules,guard_priority=guard_priority,syncactionlabelsdict=syncactionlabelsdict,mcrl2objectsend=mcrl2objectsend,mcrl2objectreceive=mcrl2objectreceive,mcrl2resetrecs=mcrl2resetrecs,classobjects=classobjects,o2o_sync_summands=o2o_sync_summands,class_receives=class_receives,class_sguard_creceives=class_sguard_creceives,class_sguard_creceives_combs=class_sguard_creceives_combs,previous_sid=previous_sid,sync_guarded_sids=sync_guarded_sids, check_rc=check_rc,modelvars=modelvars,statemachinenames=statemachinenames,mcrl2varprefix=mcrl2varprefix))
+	outFile.write(out)
 	outFile.close()
 
 def main(args):
@@ -1605,12 +1621,36 @@ def main(args):
 
 	# create meta-model
 	slco_mm = metamodel_from_file(join(this_folder,'slco2.tx'))
-	# read model
-	model = slco_mm.model_from_file(modelname)
-	# preprocess model
-	preprocess()
-	# translate
-	translate()
+
+	batch = []
+	if modelname.endswith('.slcotxt'):
+		batch = [join(this_folder, modelname)]
+	else:
+		batch = glob.glob(join(this_folder, modelname, "*.slcotxt"))
+
+	if not batch:
+		exit(1)
+
+	#gen_dir = "generated_mcrl2"
+	#dir = dirname(batch[0])
+	#gen_folder = join(dir, gen_dir)
+	#if exists(gen_folder):
+	#	rmtree(gen_folder)
+	#mkdir(gen_folder)
+
+	for file in batch:
+		# read model
+		modelname = file
+		model = slco_mm.model_from_file(file)
+		print("processing model %s" % basename(file))
+		try:
+			# preprocess model
+			preprocess()
+			# translate
+			translate()
+		except Exception:
+			print("failed to process model %s" % basename(file))
+			print(traceback.format_exc())
 
 if __name__ == '__main__':
 	args = []
