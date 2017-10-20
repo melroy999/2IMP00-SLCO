@@ -92,7 +92,7 @@ public class {{model.name}} {
 			transcounter = 0;
 			currentState = {{model.name}}.State.{{sm.initialstate.name}};
       kp = k;
-      lockIDs = new int[{{numberofelemvariables}}];
+      lockIDs = new int[{{sm|maxnumbervarids}}];
 			{% for v in sm.variables %}
 			{{v.name}} = {% if v.type.size > 1 %}new {{v|javatype}} {% endif %}{{v|variabledefault}};
 			{% endfor %}

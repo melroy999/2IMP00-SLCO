@@ -269,12 +269,24 @@ def statementvarids(s,primmap):
 				if s.ref.index != None:
 					varid += " + " + expression(s.ref.index,primmap)
 				output.append(varid)
+	# remove duplicates
+	output = list(set(output))
 	# sort output
 	sortedoutput = sorted(output)
 	return sortedoutput
 
 def getvarids(s):
 	return statementvarids(s,{})
+
+def maxnumbervarids(s):
+	"""For the given state machine s, determine max number of varids required for a statement contained in it"""
+	maxnumber = 0
+	for tr in s.transitions:
+		for st in tr.statements:
+			varids = statementvarids(st,{})
+			if len(varids) > maxnumber:
+				maxnumber = len(varids)
+	return maxnumber
 
 def variabledefault(s):
 	""" return default value for given variable """
@@ -391,14 +403,14 @@ def outgoingtrans(s,t):
 	"""Return the set of transitions with s as source"""
 	tlist = []
 	for tr in t:
-		if tr.source == s:
+		if tr.source.name == s.name:
 			tlist.append(tr)
 	return tlist
 
 def hasoutgoingtrans(s,t):
 	"""Check whether state s has outgoing transitions in t"""
 	for tr in t:
-		if tr.source == s:
+		if tr.source.name == s.name:
 			return True
 	return False
 
@@ -527,6 +539,7 @@ def slco_to_java(modelfolder,modelname,model,lockingdict):
 
 	# Register the filters
 	jinja_env.filters['getvarids'] = getvarids
+	jinja_env.filters['maxnumbervarids'] = maxnumbervarids
 	jinja_env.filters['getlabel'] = getlabel
 	jinja_env.filters['variabledefault'] = variabledefault
 	jinja_env.filters['initialvalue'] = initialvalue
