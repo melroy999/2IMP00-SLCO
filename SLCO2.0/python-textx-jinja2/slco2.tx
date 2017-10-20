@@ -42,7 +42,7 @@ StateMachine:
 		variables*=Variable
 	)?
 	'initial' initialstate=State
-	('state' states*=State)?
+	('states' states*=State)?
 	('transitions' transitions*=Transition)?
   '}'
 ;
@@ -122,7 +122,7 @@ VariableRef:
 ;
 
 Variable:
-  (type=Type?) name=NID (':=' (defvalue=INT | defvalue=BOOL)|('['(defvalues+=INT[',']|defvalues+=BOOL[','])']'))?
+  (type=Type?) name=NID (':=' (defvalue=INT | defvalue=BOOL|('['(defvalues+=INT[',']|defvalues+=BOOL[','])']')))?
 ;
 
 Type:

@@ -31,6 +31,12 @@ def operator(s):
 		return '=='
 	elif s == '!=':
 		return '!='
+	elif s == 'and':
+		return '&&'
+	elif s == 'or':
+		return '||'
+	elif s == '<>':
+		return '!='
 	else:
 		return s
 
@@ -52,7 +58,6 @@ def getlabel(s):
 		result += "["
 		if s.guard != None:
 			result += getlabel(s.guard)
-		if len(s.assignments) > 1:
 			result += ";"
 		for i in range(0,len(s.assignments)):
 			result += " " + getlabel(s.assignments[i])
@@ -204,7 +209,7 @@ def expression(s,primmap):
 	# special case: s is a variableref. In this case, it is the left-hand side of an assignment, and s refers to an array
 	if s.__class__.__name__ == "Variable":
 		output = primmap.get(s.name, s.name)
-	if s.__class__.__name__ == "Expression" or s.__class__.__name__ == "ExprPrec3" or s.__class__.__name__ == "ExprPrec2":
+	if s.__class__.__name__ == "Expression" or s.__class__.__name__ == "ExprPrec4" or s.__class__.__name__ == "ExprPrec3" or s.__class__.__name__ == "ExprPrec2":
 		#if s.op != '':
 		#	output = '('
 		if s.op != '' and s.op != 'xor':
@@ -369,7 +374,7 @@ def initialvalue(s,o):
 				defv += ','
 			else:
 				first = False
-			defv += v
+			defv += str(v)
 		defv += '}'
 		return defv
 	elif s.type.base == 'Integer':
@@ -599,7 +604,6 @@ def main(args):
 	# translate
 	slco_to_java(modelfolder,modelname,model,lockingdict)
 
-	print(lockingdict)
 	for o in model.objects:
 		lockedvars = lockingdict.get(o.name,[])
 	print("SLCO model translated to Java")
