@@ -13,6 +13,7 @@ import re
 import sys
 from lts import *
 from VarDependencyGraph import VarDependencyGraph
+import time
 
 from help_on_error_argument_parser import HelpOnErrorArgumentParser
 
@@ -63,11 +64,14 @@ def RCE_get_race_conditions_from_file(path):
 	lts = LTS.create(path)
 	#lts = LTS_remove_peek(lts)
 	#lts = lts.minimise(LTS.Equivalence.BRANCHING_BISIM)
+	start = time.time()
 	dep_ltss, locked = get_dependency_ltss(lts)
 	cycle_sets = get_cycle_sets(dep_ltss)
 	logging.info("cycle_sets: %s" % cycle_sets)
 	locks = get_race_conditions(dep_ltss, locked)
 	logging.info("locks: %s" % locks)
+	end = time.time()
+	print("Analysis took " + str(end - start))
 	return locks
 	
 	

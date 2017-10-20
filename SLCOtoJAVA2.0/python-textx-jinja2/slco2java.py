@@ -498,6 +498,8 @@ def read_locking_file(model,lockingfilename):
 				for i in range(0,len(results)):
 					if results[i][0] == 'VARIABLE':
 						varlist.append(results[i][1][4:])
+				oldlist = lockdict.get(key,[])
+				varlist += oldlist
 				lockdict[key] = varlist
 	else:
 		# fill lockdict with all variables in the system
@@ -595,6 +597,7 @@ def main(args):
 	# translate
 	slco_to_java(modelfolder,modelname,model,lockingdict)
 
+	print(lockingdict)
 	for o in model.objects:
 		lockedvars = lockingdict.get(o.name,[])
 	print("SLCO model translated to Java")
