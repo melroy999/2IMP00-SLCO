@@ -1267,7 +1267,7 @@ def outgoingfromstate(t,s):
 def hasoutgoingtrans(s,t):
 	"""Check whether state s has outgoing transitions in t"""
 	for tr in t:
-		if tr.source == s:
+		if tr.source.name == s.name:
 			return True
 	return False
 
@@ -1604,7 +1604,7 @@ def main(args):
 	# create meta-model
 	slco_mm = metamodel_from_file(join(this_folder,'slco2.tx'))
 	# read model
-	model = slco_mm.model_from_file(join(this_folder,modelname))
+	model = slco_mm.model_from_file(modelname)
 	# preprocess model
 	preprocess()
 	# translate
