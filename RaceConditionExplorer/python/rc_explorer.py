@@ -31,12 +31,8 @@ GROUP_SRC_PORT          = 'src_port'
 GROUP_TGT_PORT          = 'tgt_port'
 GROUP_MSG               = 'sg'
 
-#action_matcher = re.compile('RW_(?P<'+GROUP_SRC_OBJECT+'>\w+)'
-#							'[(](?P<'+GROUP_SRC_STATE_MACHINE+'>\w+),'
-#							'[{](?P<'+GROUP_SRC_READ_VARS+'>\w?([,]\w)*)[}],'
-#							'[{](?P<'+GROUP_SRC_WRITE_VARS+'>\w?([,]\w)*)[}]')
-
-
+test_regex = None#"rw_globalObject(Frog,{var_a(10)},{var_a(9),var_a(10)})"
+#(?P<GROUP_LABEL>rw|send|receive|peek|comm)_(?P<GROUP_SRC_OBJECT>[a-zA-Z0-9]+)(_(?P<GROUP_SRC_PORT>[a-zA-Z0-9]+))?(_(?P<GROUP_TGT_OBJECT>[a-zA-Z0-9]+)_(?P<GROUP_TGT_PORT>[a-zA-Z0-9]+))?[(](?P<GROUP_SRC_STATE_MACHINE>\w+),[{](?P<GROUP_SRC_READ_VARS>(\w+([(]\d[)])?)?([,]\w+([(]\d[)])?)*)[}],[{](?P<GROUP_SRC_WRITE_VARS>(\w+([(]\d[)])?)?([,]\w+([(]\d[)])?)*)[}](,(?P<GROUP_TGT_STATE_MACHINE>\w+),[{](?P<GROUP_TGT_READ_VARS>(\w+([(]\d[)])?)?([,]\w+([(]\d[)])?)*)[}],[{](?P<GROUP_TGT_WRITE_VARS>(\w+([(]\d[)])?)?([,]\w+([(]\d[)])?)*)[}],(?P<GROUP_MSG>\w+).*[)])?
 action_matcher = re.compile('(?P<'+GROUP_LABEL+'>rw|send|receive|peek|comm)'
 							'_(?P<'+GROUP_SRC_OBJECT+'>[a-zA-Z0-9]+)'
 
@@ -45,12 +41,12 @@ action_matcher = re.compile('(?P<'+GROUP_LABEL+'>rw|send|receive|peek|comm)'
 							'(_(?P<'+GROUP_TGT_OBJECT+'>[a-zA-Z0-9]+)_(?P<'+GROUP_TGT_PORT+'>[a-zA-Z0-9]+))?'
 
 							'[(](?P<'+GROUP_SRC_STATE_MACHINE+'>\w+),'
-							'[{](?P<'+GROUP_SRC_READ_VARS+'>(\w+([(]\d[)])?)?([,]\w+([(]\d[)])?)*)[}],'
-							'[{](?P<'+GROUP_SRC_WRITE_VARS+'>(\w+([(]\d[)])?)?([,]\w+([(]\d[)])?)*)[}]'
+							'[{](?P<'+GROUP_SRC_READ_VARS+'>(\w+([(]\d+[)])?)?([,]\w+([(]\d+[)])?)*)[}],'
+							'[{](?P<'+GROUP_SRC_WRITE_VARS+'>(\w+([(]\d+[)])?)?([,]\w+([(]\d+[)])?)*)[}]'
 
 							'(,(?P<'+GROUP_TGT_STATE_MACHINE+'>\w+),'
-							'[{](?P<'+GROUP_TGT_READ_VARS+'>(\w+([(]\d[)])?)?([,]\w+([(]\d[)])?)*)[}],'
-							'[{](?P<'+GROUP_TGT_WRITE_VARS+'>(\w+([(]\d[)])?)?([,]\w+([(]\d[)])?)*)[}],'
+							'[{](?P<'+GROUP_TGT_READ_VARS+'>(\w+([(]\d+[)])?)?([,]\w+([(]\d+[)])?)*)[}],'
+							'[{](?P<'+GROUP_TGT_WRITE_VARS+'>(\w+([(]\d+[)])?)?([,]\w+([(]\d+[)])?)*)[}],'
 							'(?P<'+GROUP_MSG+'>\w+).*[)])?')
 
 class ActionSyntaxException(Exception):
@@ -58,7 +54,6 @@ class ActionSyntaxException(Exception):
 		self.parameter = value
 	def __str__(self):
 		return repr(self.parameter)
-
 
 def RCE_get_race_conditions_from_file(path):
 	lts = LTS.create(path)
@@ -186,6 +181,14 @@ def LTS_remove_peek(my_lts):
 
 
 def main():
+	if test_regex:
+		match_result = action_matcher.match(test_regex)
+		if match_result:
+			print("match successful!")
+		else:
+			print("match failed!")
+		exit()
+
 	# setup logging
 	file_handler    = logging.FileHandler(filename='rc_explorer.log', mode='w')
 	console_handler = logging.StreamHandler(stream=sys.stdout)
