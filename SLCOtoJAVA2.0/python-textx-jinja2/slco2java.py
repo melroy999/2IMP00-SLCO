@@ -546,6 +546,7 @@ def slco_to_java(modelfolder,modelname,model,lockingdict):
 
 def main(args):
 	"""The main function"""
+	global numberofelemvariables
 	lockingfilename = ''
 	if len(args) == 0:
 		print("Missing argument: SLCO model")
@@ -580,6 +581,11 @@ def main(args):
 	lockingdict = read_locking_file(model,lockingfilename)
 	# translate
 	slco_to_java(modelfolder,modelname,model,lockingdict)
+
+	for o in model.objects:
+		lockedvars = lockingdict.get(o.name,[])
+	print("SLCO model translated to Java")
+	print("Ratio of locked variables/total number: " + str(len(lockedvars)) + "/" + str(numberofelemvariables))
 
 if __name__ == '__main__':
 	args = []
