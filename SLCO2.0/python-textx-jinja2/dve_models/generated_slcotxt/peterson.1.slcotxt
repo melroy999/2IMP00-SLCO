@@ -1,4 +1,4 @@
-model dve_peterson_1 {
+model peterson1 {
 classes
 	GlobalClass {
 		variables
