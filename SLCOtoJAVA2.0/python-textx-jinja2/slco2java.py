@@ -180,7 +180,7 @@ def javastatement(s,nlocks,indent,nondet):
 		if not nondet:
 			output += "while(!(" + getinstruction(s) + ")) { kp.unlock(lockIDs, "
 			output += str(nlocks)
-			output += "); try{ wait(10000); } catch (InterruptedException e) {} kp.lock(lockIDs, "
+			output += "); try{ wait(100); } catch (InterruptedException e) { break; } kp.lock(lockIDs, "
 			output += str(nlocks) + ");}"
 		else:
 			output += "if (!(" + getinstruction(s) + ")) { kp.unlock(lockIDs, "
@@ -606,6 +606,7 @@ def main(args):
 
 	for o in model.objects:
 		lockedvars = lockingdict.get(o.name,[])
+		lockedvars = set(lockedvars)
 	print("SLCO model translated to Java")
 	print("Ratio of locked variables/total number: " + str(len(lockedvars)) + "/" + str(numberofelemvariables))
 

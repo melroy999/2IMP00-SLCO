@@ -24,7 +24,7 @@ porttypes = {}
 # statemachine names used in the model
 statemachinenames = set([])
 # dictionary to look up state machine owning a given statement
-sm = {}
+statemachine = {}
 # dictionary to look up transition owning a given statement
 tr = {}
 # per class / statemachine, give a set of local variables
@@ -109,7 +109,7 @@ guarddict = {}
 
 def checkforsynccondition(s,c,i,firstinblock):
 	""" Check whether for statement s, an additional sync condition (in the form of an extra mCRL2 summand) should be added. This is to handle prioritised transitions. Class c owning the statement is also given. i is the current index of the statement as considered in the template. firstinblock is a Boolean indicating whether the given statement is the first in a statement block"""
-	global classobjects, syncactionlabelsdict, o2o_sync_summands, guard_priority, sm, tr
+	global classobjects, syncactionlabelsdict, o2o_sync_summands, guard_priority, statemachine, tr
 	is_synchronous = False
 	for o in classobjects.get(c,set([])):
 		action = statementactionlabel(s,o,False)
@@ -124,7 +124,7 @@ def checkforsynccondition(s,c,i,firstinblock):
 		summandtuple = summands.get(label,tuple([s,set([])]))
 		stat = summandtuple[0]
 		guard = summandtuple[1]
-		newguard = "!(" + sm[s].name + "_state == " + tr[s].source.name + " && " + sm[s].name + "_stindex == " + str(i)
+		newguard = "!(" + statemachine[s].name + "_state == " + tr[s].source.name + " && " + statemachine[s].name + "_stindex == " + str(i)
 		if s.__class__.__name__ == 'ReceiveSignal':
 			newguard += " && rec_enabled" + str(s._tx_position)
 		if firstinblock:
@@ -137,12 +137,12 @@ def checkforsynccondition(s,c,i,firstinblock):
 
 def statementguard(s,c,i,firstinblock,negated):
 	"""Maps SLCO statement guards to mCRL2 action guards, possibly negated, if negated == True. Class c owning the statement is also given. i is the current index of the statement as considered in the template. firstinblock is a Boolean indicating whether the given statement is the first in a statement block"""
-	global porttypes, guard_priority, guard_priority_in_construction, current_priority_guard, current_sm, current_state, o2o_sync_summands, syncactionlabelsdict, classobjects, sync_guard_actions, sync_guard_objects, sync_guard_receives_actions, sync_guard_receives_objects, class_sguard_creceives, class_sguard_creceives_combs, scopedvars, sm, tr
+	global porttypes, guard_priority, guard_priority_in_construction, current_priority_guard, current_sm, current_state, o2o_sync_summands, syncactionlabelsdict, classobjects, sync_guard_actions, sync_guard_objects, sync_guard_receives_actions, sync_guard_receives_objects, class_sguard_creceives, class_sguard_creceives_combs, scopedvars, statemachine, tr
 	output = ''
 	# possibly reset the priority guards
 	if firstinblock and not negated:
-		if sm[s] != current_sm or current_state != tr[s].source.name:
-			current_sm = sm[s]
+		if statemachine[s] != current_sm or current_state != tr[s].source.name:
+			current_sm = statemachine[s]
 			current_state = tr[s].source.name
 			# reset guards
 			guard_priority = set([])
@@ -181,7 +181,7 @@ def statementguard(s,c,i,firstinblock,negated):
 			guard_priority_in_construction.add("!(true)")
 	elif s.__class__.__name__ == "Composite":
 		if s.guard != None:
-			guard = expression(s.guard,sm[s],c,{})
+			guard = expression(s.guard,statemachine[s],c,{})
 			if negated:
 				output += " && !(" + guard + ")"
 			else:
@@ -215,7 +215,7 @@ def statementguard(s,c,i,firstinblock,negated):
 		output += " && rec_enabled" + str(s._tx_position)
 	elif s.__class__.__name__ == "Expression":
 		if not expression_is_actionref(s):
-			guard = expression(s,sm[s],c,scopedvars[c.name + "'" + sm[s].name])
+			guard = expression(s,statemachine[s],c,scopedvars[c.name + "'" + statemachine[s].name])
 			if negated:
 				output += " && !(" + guard + ")"
 			else:
@@ -252,7 +252,7 @@ def statementsummation(s,c):
 			for p in s.params:
 				output += ", x'" + str(pindex) + ": " + type[pindex]
 				# add this variable to the vardict
-				varname = scopedvars[c.name + "'" + sm[s].name][p.var.name]
+				varname = scopedvars[c.name + "'" + statemachine[s].name][p.var.name]
 				vardict[varname] = "x'" + str(pindex)
 				pindex += 1
 			output += ". "
@@ -290,7 +290,7 @@ def statementsummation(s,c):
 
 def statementactionlabel(s,c,includesignal):
 	"""Maps SLCO statements to mCRL2 action labels, Class (or Object) c owns the statement. includesignal is a Boolean indicating whether in case of Send and ReceiveSignals, the signal name should be included in the label"""
-	global check_rc, sm
+	global check_rc, statemachine
 	output = ''
 	readwrite = False
 	if check_rc:
@@ -317,7 +317,7 @@ def statementactionlabel(s,c,includesignal):
 			output += c.name + "'" + s.target.name
 		elif s.__class__.__name__ == "Expression":
 			if expression_is_actionref(s):
-				#output += expression(s,sm[s],c,{})
+				#output += expression(s,statemachine[s],c,{})
 				output += "tau'"
 			else:
 				output = mcrl2readwrite + "_" + c.name
@@ -346,7 +346,7 @@ def statementactionlabel(s,c,includesignal):
 			output += c.name + "'" + s.target.name
 		elif s.__class__.__name__ == "Expression":
 			if expression_is_actionref(s):
-				output += expression(s,sm[s],c,{})
+				output += expression(s,statemachine[s],c,{})
 			else:
 				output += "tau'"
 		# add the object name to the label, in case we call this function with c being an object
@@ -356,14 +356,14 @@ def statementactionlabel(s,c,includesignal):
 
 def statementparameters(s,c):
 	"""Produce mCRL2 action parameters for the given SLCO statement. Class c owns the statement"""
-	global check_rc, sm, scopedvars
+	global check_rc, statemachine, scopedvars
 	output = ''
 	if check_rc:
 		if s == "tau'":
 			output = ""
 		elif s.__class__.__name__ == "Assignment":
-			output = "(" + sm[s].name + ",{"
-			varlist = list(expression_varset(s.right,sm[s],c,{}))
+			output = "(" + statemachine[s].name + ",{"
+			varlist = list(expression_varset(s.right,statemachine[s],c,{}))
 			varlist = sorted(varlist)
 			first = True
 			for v in varlist:
@@ -373,26 +373,26 @@ def statementparameters(s,c):
 					first = False
 				output += mcrl2varprefix + v
 			output += "},{"
-			writeset = expression_varset(s.left,sm[s],c,{})
+			writeset = expression_varset(s.left,statemachine[s],c,{})
 			for v in writeset:
 				output += mcrl2varprefix + v
 			output += "})"
 			readwrite = True
 		elif s.__class__.__name__ == "Composite":
-			output = "(" + sm[s].name + ",{"
+			output = "(" + statemachine[s].name + ",{"
 			vardict = {}
 			readset = set([])
 			writeset = set([])
 			if s.guard != None:
-				readset |= expression_varset(s.guard,sm[s],c,vardict)
+				readset |= expression_varset(s.guard,statemachine[s],c,vardict)
 			for st in s.assignments:
-				readset |= expression_varset(st.right,sm[s],c,vardict)
-				writeset |= expression_varset(st.left,sm[s],c,vardict)
+				readset |= expression_varset(st.right,statemachine[s],c,vardict)
+				writeset |= expression_varset(st.left,statemachine[s],c,vardict)
 				# update vardict (to correctly handle possible array index use in subsequent assignments)
-				newright = expression(st.right,sm[s],c,vardict)
-				varname = scopedvars[c.name + "'" + sm[s].name][st.left.var.name]
+				newright = expression(st.right,statemachine[s],c,vardict)
+				varname = scopedvars[c.name + "'" + statemachine[s].name][st.left.var.name]
 				if st.left.index != None:
-					vardict[varname] = "update(" + expression(st.left.var,sm[s],c,vardict) + ",Int2Nat(" + expression(st.left.index,sm[s],c,vardict) + ")," + newright + ")"
+					vardict[varname] = "update(" + expression(st.left.var,statemachine[s],c,vardict) + ",Int2Nat(" + expression(st.left.index,statemachine[s],c,vardict) + ")," + newright + ")"
 				else:
 					vardict[varname] = "(" + newright + ")"
 			varlist = sorted(list(readset))
@@ -416,10 +416,10 @@ def statementparameters(s,c):
 		elif s.__class__.__name__ == "Delay":
 			output = ""
 		elif s.__class__.__name__ == "SendSignal":
-			output = "(" + sm[s].name + ",{"
+			output = "(" + statemachine[s].name + ",{"
 			varset = set([])
 			for st in s.params:
-				varset |= expression_varset(st,sm[s],c,{})
+				varset |= expression_varset(st,statemachine[s],c,{})
 			varlist = sorted(list(varset))
 			first = True
 			for v in varlist:
@@ -430,17 +430,17 @@ def statementparameters(s,c):
 				output += mcrl2varprefix + v
 			output += "},{},SM',R',W'," + s.signal
 			for p in s.params:
-				output += "," + expression(p,sm[s],c,{})
+				output += "," + expression(p,statemachine[s],c,{})
 			output += ")"
 		elif s.__class__.__name__ == "ReceiveSignal":
 			pindex = 0
-			output = "(SM',R',W'," + sm[s].name + ",{"
+			output = "(SM',R',W'," + statemachine[s].name + ",{"
 			writeset = set([])
 			for st in s.params:
-				writeset |= expression_varset(st,sm[s],c,{})
+				writeset |= expression_varset(st,statemachine[s],c,{})
 			readset = set([])
 			if s.guard != None:
-				readset = expression_varset(s.guard,sm[s],c,{})
+				readset = expression_varset(s.guard,statemachine[s],c,{})
 			# in SLCO ReceiveSignal, it is not possible to refer to the old value of a variable to which you are reading. Hence, reading AND writing to the same variable cannot occur
 			readset = readset - writeset
 			varlist = sorted(list(readset))
@@ -468,8 +468,8 @@ def statementparameters(s,c):
 			if expression_is_actionref(s):
 				output = ""
 			else:
-				output += "(" + sm[s].name + ",{"
-				varlist = list(expression_varset(s,sm[s],c,{}))
+				output += "(" + statemachine[s].name + ",{"
+				varlist = list(expression_varset(s,statemachine[s],c,{}))
 				varlist = sorted(varlist)
 				first = True
 				for v in varlist:
@@ -491,7 +491,7 @@ def statementparameters(s,c):
 		elif s.__class__.__name__ == "SendSignal":
 			output = "(" + s.signal
 			for p in s.params:
-				output += ", " + expression(p,sm[s],c,{})
+				output += ", " + expression(p,statemachine[s],c,{})
 			output += ")"
 		elif s.__class__.__name__ == "ReceiveSignal":
 			pindex = 0
@@ -568,7 +568,7 @@ def statementactiontype(s,c):
 
 def statementlabel(s,c,firstinblock,elseindex):
 	"""Maps SLCO statements to mCRL2 behaviour. Class (or Object) c owning this statement is also given. Flag firstinblock indicates whether the statement is the first in a statement block. elseindex is an index for the statement in a block of else alternatives. If it is not set to 0, it should be added to the statement label"""
-	global porttypes, vardict, sync_guard_rules, sync_guard_actions, sync_guard_objects, current_priority_sync, sync_guarded_statements, sync_guarded_sids, syncactionlabelsdict, classobjects, sync_guard_receives_actions, sync_guard_receives_objects, class_sguard_creceives, class_sguard_creceives_combs, previous_sid, sm, tr
+	global porttypes, vardict, sync_guard_rules, sync_guard_actions, sync_guard_objects, current_priority_sync, sync_guarded_statements, sync_guarded_sids, syncactionlabelsdict, classobjects, sync_guard_receives_actions, sync_guard_receives_objects, class_sguard_creceives, class_sguard_creceives_combs, previous_sid, statemachine, tr
 	output = ''
 	statement_id = ''
 	if elseindex != 0:
@@ -685,9 +685,9 @@ def statementlabel(s,c,firstinblock,elseindex):
 		if elseindex != 0:
 			output += "_" + str(elseindex)
 		output += peekstatementparameters(s,c) + ".((s'==" + s.signal
-		sguard = expression(s.guard,sm[s],c,vardict)
+		sguard = expression(s.guard,statemachine[s],c,vardict)
 		if sguard != '':
-			output += " && " + expression(s.guard,sm[s],c,vardict)
+			output += " && " + expression(s.guard,statemachine[s],c,vardict)
 		output += ") -> "
 		output += statementactionlabel(s,c,False)
 		output += statement_id
@@ -728,32 +728,32 @@ def statementlabel(s,c,firstinblock,elseindex):
 
 def statementstatechanges(s,c):
 	"""Maps SLCO statement effects to mCRL2 state changes. Class c owning the statement is also given"""
-	global porttypes, vardict, scopedvars, sm
+	global porttypes, vardict, scopedvars, statemachine
 	output = ''
 	if s == "tau'":
 		output = ""
 	elif s.__class__.__name__ == "ActionRef":
 		output = ""
 	elif s.__class__.__name__ == "Assignment":
-		varname = scopedvars[c.name + "'" + sm[s].name][s.left.var.name]
-		#if s.left.var.name in smlocalvars.get(c.name + "'" + sm[s].name,set([])):
-		#	varname = sm[s].name + "'" + s.left.var.name
+		varname = scopedvars[c.name + "'" + statemachine[s].name][s.left.var.name]
+		#if s.left.var.name in smlocalvars.get(c.name + "'" + statemachine[s].name,set([])):
+		#	varname = statemachine[s].name + "'" + s.left.var.name
 		#else:
 		#	varname = s.left.var.name
 		# an assignment to an array cell should be handled differently from other cases
 		if s.left.index != None:
-			output = ", " + varname + "=update(" + varname + ",Int2Nat(" + expression(s.left.index,sm[s],c,{}) + ")," + expression(s.right,sm[s],c,{}) + ")"
+			output = ", " + varname + "=update(" + varname + ",Int2Nat(" + expression(s.left.index,statemachine[s],c,{}) + ")," + expression(s.right,statemachine[s],c,{}) + ")"
 		else:
 			output = ", " + varname
-			output += "=" + expression(s.right,sm[s],c,{})
+			output += "=" + expression(s.right,statemachine[s],c,{})
 	elif s.__class__.__name__ == "Composite":
 		# first build vardict for sequence of assignments
 		vardict = {}
 		for e in s.assignments:
-			newright = expression(e.right,sm[s],c,vardict)
-			varname = scopedvars[c.name + "'" + sm[s].name][e.left.var.name]
+			newright = expression(e.right,statemachine[s],c,vardict)
+			varname = scopedvars[c.name + "'" + statemachine[s].name][e.left.var.name]
 			if e.left.index != None:
-				vardict[varname] = "update(" + expression(e.left.var,sm[s],c,vardict) + ",Int2Nat(" + expression(e.left.index,sm[s],c,vardict) + ")," + newright + ")"
+				vardict[varname] = "update(" + expression(e.left.var,statemachine[s],c,vardict) + ",Int2Nat(" + expression(e.left.index,statemachine[s],c,vardict) + ")," + newright + ")"
 			else:
 				vardict[varname] = "(" + newright + ")"
 		# add assignments to state changes
@@ -768,7 +768,7 @@ def statementstatechanges(s,c):
 		for p in s.params:
 			output += ", "
 			vname = p.var.name
-			output += scopedvars[c.name + "'" + sm[s].name][vname]
+			output += scopedvars[c.name + "'" + statemachine[s].name][vname]
 			if p.index != None:
 				output += "." + p.index
 			output += "=x'" + str(pindex)
@@ -787,7 +787,7 @@ def peekstatementlabel(s,c):
 
 def peekstatementparameters(s,c):
 	"""Produce mCRL2 action parameters for the oeek action of a given ReceiveSignal or SendSignal SLCO statement. Class c owns the statement"""
-	global check_rc, sm
+	global check_rc, statemachine
 	output = ''
 	if check_rc:
 		if s.__class__.__name__ == "ReceiveSignal":
@@ -798,10 +798,10 @@ def peekstatementparameters(s,c):
 				output += ",x'" + str(pindex)
 			output += ")"
 		else:
-			output += "(" + sm[s].name + ", {"
+			output += "(" + statemachine[s].name + ", {"
 			varset = set([])
 			for st in s.params:
-				varset |= expression_varset(st,sm[s],c,{})
+				varset |= expression_varset(st,statemachine[s],c,{})
 			varlist = sorted(list(varset))
 			first = True
 			for v in varlist:
@@ -813,7 +813,7 @@ def peekstatementparameters(s,c):
 			output += "},{},"
 			output += s.signal
 			for p in s.params:
-				output += ", " + expression(p,sm[s],c,{})
+				output += ", " + expression(p,statemachine[s],c,{})
 			output += ")"
 	else:
 		if s.__class__.__name__ == "ReceiveSignal":
@@ -825,7 +825,7 @@ def peekstatementparameters(s,c):
 		else:
 			output += "(" + s.signal
 			for p in s.params:
-				output += ", " + expression(p,sm[s],c,{})
+				output += ", " + expression(p,statemachine[s],c,{})
 			output += ")"
 	return output
 
@@ -1339,13 +1339,13 @@ def expression_is_actionref(s):
 
 def preprocess():
 	"""preprocessing method"""
-	global model, porttypes, scopedvars, smlocalvars, signaltypes, states, channeltypes, asynclosslesstypes, asynclossytypes, synctypes, actions, visibleactions, syncactionlabelsdict, classobjects, class_receives, sm, tr, check_rc, modelvars, statemachinenames
+	global model, porttypes, scopedvars, smlocalvars, signaltypes, states, channeltypes, asynclosslesstypes, asynclossytypes, synctypes, actions, visibleactions, syncactionlabelsdict, classobjects, class_receives, statemachine, tr, check_rc, modelvars, statemachinenames
 	# build dictionaries providing for a given statement the state machine and transition owning it
 	for c in model.classes:
 		for stm in c.statemachines:
 			for trn in stm.transitions:
 				for stat in trn.statements:
-					sm[stat] = stm
+					statemachine[stat] = stm
 					tr[stat] = trn
 	# for each state machine, add the initial state to its list of states
 	for c in model.classes:
@@ -1356,6 +1356,10 @@ def preprocess():
 		for i in range(0,len(c.variables)):
 			if c.variables[i].type == None:
 				c.variables[i].type = c.variables[i-1].type
+		for sm in c.statemachines:
+			for i in range(0,len(sm.variables)):
+				if sm.variables[i].type == None:
+					sm.variables[i].type = sm.variables[i-1].type
 	# add tau action to all transitions without statements
 	for c in model.classes:
 		for stm in c.statemachines:
@@ -1623,8 +1627,8 @@ def main(args):
 	slco_mm = metamodel_from_file(join(this_folder,'slco2.tx'))
 
 	batch = []
-	if modelname.endswith('.slcotxt'):
-		batch = [join(this_folder, modelname)]
+	if modelname.endswith('.slco'):
+		batch = [modelname]
 	else:
 		batch = glob.glob(join(this_folder, modelname, "*.slcotxt"))
 
