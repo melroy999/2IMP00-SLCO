@@ -4,6 +4,7 @@ import sys
 import os
 import jinja2
 from textx.metamodel import metamodel_from_file
+import re
 
 # Set of all state names in the model
 states = set([])
@@ -28,6 +29,14 @@ def operator(s):
 		return '<='
 	elif s == '=':
 		return '=='
+	elif s == '!=':
+		return '!='
+	elif s == 'and':
+		return '&&'
+	elif s == 'or':
+		return '||'
+	elif s == '<>':
+		return '!='
 	else:
 		return s
 
@@ -49,7 +58,6 @@ def getlabel(s):
 		result += "["
 		if s.guard != None:
 			result += getlabel(s.guard)
-		if len(s.assignments) > 1:
 			result += ";"
 		for i in range(0,len(s.assignments)):
 			result += " " + getlabel(s.assignments[i])
@@ -80,7 +88,7 @@ def getlabel(s):
 		if s.guard != None:
 			result += " | " + getlabel(s.guard)
 		result += ") <b>from </b>" + s.target.name
-	elif s.__class__.__name__ == "Expression" or s.__class__.__name__ == "ExprPrec3" or s.__class__.__name__ == "ExprPrec2" or s.__class__.__name__ == "ExprPrec1":
+	elif s.__class__.__name__ == "Expression" or s.__class__.__name__ == "ExprPrec4" or s.__class__.__name__ == "ExprPrec3" or s.__class__.__name__ == "ExprPrec2" or s.__class__.__name__ == "ExprPrec1":
 		if s.op != '':
 			result += getlabel(s.left) + " " + operator(s.op) + " " + getlabel(s.right)
 		else:
@@ -124,7 +132,7 @@ def getinstruction(s):
 			if i < len(s.assignments)-1:
 				result += ";"
 		result += "]"
-	elif s.__class__.__name__ == "Expression" or s.__class__.__name__ == "ExprPrec3" or s.__class__.__name__ == "ExprPrec2" or s.__class__.__name__ == "ExprPrec1":
+	elif s.__class__.__name__ == "Expression" or s.__class__.__name__ == "ExprPrec4" or s.__class__.__name__ == "ExprPrec3" or s.__class__.__name__ == "ExprPrec2" or s.__class__.__name__ == "ExprPrec1":
 		if s.op != '':
 			result += getinstruction(s.left) + " " + operator(s.op) + " " + getinstruction(s.right)
 		else:
@@ -163,22 +171,27 @@ def javatype(s):
 		else:
 			return 'boolean[]'
 
-def javastatement(s,nlocks,indent):
-	"""Translates SLCO statement s to Java code. indent indicates how much every line needs to be indented, nlocks indicates how many locks need to be acquired (optional)"""
+def javastatement(s,nlocks,indent,nondet):
+	"""Translates SLCO statement s to Java code. indent indicates how much every line needs to be indented, nlocks indicates how many locks need to be acquired (optional). nondet indicates whether this statement is at the head of a statement block and in a non-deterministic choice; it affects how expressions are translated."""
 	output = ""
 	if s.__class__.__name__ == "Assignment":
 		output += getinstruction(s) + ";"
 	elif s.__class__.__name__ == "Expression":
-		output += "while(!(" + getinstruction(s) + ")) { kp.unlock(lockIDs, "
-		output += str(nlocks)
-		output += "); try{ wait(); } catch (InterruptedException e) {} kp.lock(lockIDs, "
-		output += str(nlocks) + ");}"
+		if not nondet:
+			output += "while(!(" + getinstruction(s) + ")) { kp.unlock(lockIDs, "
+			output += str(nlocks)
+			output += "); try{ wait(100); } catch (InterruptedException e) { break; } kp.lock(lockIDs, "
+			output += str(nlocks) + ");}"
+		else:
+			output += "if (!(" + getinstruction(s) + ")) { kp.unlock(lockIDs, "
+			output += str(nlocks)
+			output += "); transcounter++; break; }"
 	elif s.__class__.__name__ == "Composite":
 		indentspace = ""
 		for i in range(0,indent):
 			indentspace += " "
 		if s.guard != None:
-			output += javastatement(s.guard,nlocks,indent)
+			output += javastatement(s.guard,nlocks,indent,nondet)
 		if len(s.assignments) > 0:
 			output += "\n"
 		first = True
@@ -196,7 +209,7 @@ def expression(s,primmap):
 	# special case: s is a variableref. In this case, it is the left-hand side of an assignment, and s refers to an array
 	if s.__class__.__name__ == "Variable":
 		output = primmap.get(s.name, s.name)
-	if s.__class__.__name__ == "Expression" or s.__class__.__name__ == "ExprPrec3" or s.__class__.__name__ == "ExprPrec2":
+	if s.__class__.__name__ == "Expression" or s.__class__.__name__ == "ExprPrec4" or s.__class__.__name__ == "ExprPrec3" or s.__class__.__name__ == "ExprPrec2":
 		#if s.op != '':
 		#	output = '('
 		if s.op != '' and s.op != 'xor':
@@ -263,12 +276,24 @@ def statementvarids(s,primmap):
 				if s.ref.index != None:
 					varid += " + " + expression(s.ref.index,primmap)
 				output.append(varid)
+	# remove duplicates
+	output = list(set(output))
 	# sort output
 	sortedoutput = sorted(output)
 	return sortedoutput
 
 def getvarids(s):
 	return statementvarids(s,{})
+
+def maxnumbervarids(s):
+	"""For the given state machine s, determine max number of varids required for a statement contained in it"""
+	maxnumber = 0
+	for tr in s.transitions:
+		for st in tr.statements:
+			varids = statementvarids(st,{})
+			if len(varids) > maxnumber:
+				maxnumber = len(varids)
+	return maxnumber
 
 def variabledefault(s):
 	""" return default value for given variable """
@@ -349,7 +374,7 @@ def initialvalue(s,o):
 				defv += ','
 			else:
 				first = False
-			defv += v
+			defv += str(v)
 		defv += '}'
 		return defv
 	elif s.type.base == 'Integer':
@@ -385,14 +410,14 @@ def outgoingtrans(s,t):
 	"""Return the set of transitions with s as source"""
 	tlist = []
 	for tr in t:
-		if tr.source == s:
+		if tr.source.name == s.name:
 			tlist.append(tr)
 	return tlist
 
 def hasoutgoingtrans(s,t):
 	"""Check whether state s has outgoing transitions in t"""
 	for tr in t:
-		if tr.source == s:
+		if tr.source.name == s.name:
 			return True
 	return False
 
@@ -449,19 +474,81 @@ def preprocess(model):
 			count += v.type.size
 		else:
 			count += 1
-	print(varids)
 	return model
 
-def slco_to_java(modelfolder,modelname,model):
+lockscanner=re.Scanner([
+	(r"[A-Za-z0-9]+:",											lambda scanner,token:("OBJECT", token)),
+	(r"var_[A-Za-z0-9]+(\([0-9]+\))?",			lambda scanner,token:("VARIABLE", token)),
+	(r"[\s\(\),]+", None), # None == skip token.
+])
+
+def read_locking_file(model,lockingfilename):
+	"""Read locking file and return dict of vars to lock"""
+	global varids
+	lockdict = {}
+	if lockingfilename != '':
+		try:
+			inFile = open(lockingfilename,'r')
+		except IOError:
+			print("ERROR: locking file does not exist!")
+			exit(1);
+		inFile.close()
+		key = ''
+		for line in open(lockingfilename):
+			remainder = line
+			while remainder != "":
+				results, remainder = lockscanner.scan(remainder)
+			if results[0][0] == 'OBJECT':
+				key = results[0][1][:-1]
+			else:
+				varlist = []
+				for i in range(0,len(results)):
+					if results[i][0] == 'VARIABLE':
+						varlist.append(results[i][1][4:])
+				oldlist = lockdict.get(key,[])
+				varlist += oldlist
+				lockdict[key] = varlist
+	else:
+		# fill lockdict with all variables in the system
+		for o in model.objects:
+			varlist = []
+			for v in o.type.variables:
+				varname = v.name
+				if v.type.size > 1:
+					for i in range(0,v.type.size):
+						varlist.append(varname + "(" + str(i) + ")")
+				else:
+					varlist.append(varname)
+			lockdict[o.name] = varlist
+	return lockdict
+
+def slco_to_java(modelfolder,modelname,model,lockingdict):
 	"""The translation function"""
-	global states, varids
+	global states, varids, numberofelemvariables
 	outFile = open(os.path.join(modelfolder,modelname[:-4] + "java"), 'w')
+
+	# prepare lockingdict information for code generator
+	lockids = []
+	for o in model.objects:
+		locklist = lockingdict.get(o.name,[])
+		for v in locklist:
+			vsplit = v.split('(')
+			vid = int(varids.get(vsplit[0],"0"))
+			if len(vsplit) > 1:
+				vx = vsplit[1].rstrip(')')
+				vid = vid + int(vx)
+			lockids.append(vid)
+	lockids = set(lockids)
+	lockneeded = []
+	for i in range(0,numberofelemvariables):
+		lockneeded.append(i in lockids)
 
 	# Initialize the template engine.
 	jinja_env = jinja2.Environment(loader=jinja2.FileSystemLoader(this_folder), trim_blocks=True, lstrip_blocks=True, extensions=['jinja2.ext.loopcontrols','jinja2.ext.do',])
 
 	# Register the filters
 	jinja_env.filters['getvarids'] = getvarids
+	jinja_env.filters['maxnumbervarids'] = maxnumbervarids
 	jinja_env.filters['getlabel'] = getlabel
 	jinja_env.filters['variabledefault'] = variabledefault
 	jinja_env.filters['initialvalue'] = initialvalue
@@ -476,11 +563,13 @@ def slco_to_java(modelfolder,modelname,model):
 	template = jinja_env.get_template('java.jinja2template')
 
 	# write the program
-	outFile.write(template.render(model=model,states=states,numberofelemvariables=numberofelemvariables))
+	outFile.write(template.render(model=model,states=states,numberofelemvariables=numberofelemvariables,lockneeded=lockneeded))
 	outFile.close()
 
 def main(args):
 	"""The main function"""
+	global numberofelemvariables
+	lockingfilename = ''
 	if len(args) == 0:
 		print("Missing argument: SLCO model")
 		sys.exit(1)
@@ -489,12 +578,19 @@ def main(args):
 			print("Usage: pypy/python3 slco2java")
 			print("")
 			print("Transform an SLCO 2.0 model to a Java program.")
-			print("")
+			print("-l <file>							provide locking file for smart locking")
 			sys.exit(0)
 		else:
 			i = 0
 			while i < len(args):
-				modelfolder, modelname = os.path.split(args[i])
+				if args[i] == '-l':
+					i += 1
+					if i >= len(args):
+						print("ERROR: lock file name missing!")
+						exit(1);
+					lockingfilename = args[i];
+				else:
+					modelfolder, modelname = os.path.split(args[i])
 				i += 1
 
 	# create meta-model
@@ -503,8 +599,16 @@ def main(args):
 	model = slco_mm.model_from_file(os.path.join(modelfolder,modelname))
 	# preprocess
 	model = preprocess(model)
+	# read locking file
+	lockingdict = read_locking_file(model,lockingfilename)
 	# translate
-	slco_to_java(modelfolder,modelname,model)
+	slco_to_java(modelfolder,modelname,model,lockingdict)
+
+	for o in model.objects:
+		lockedvars = lockingdict.get(o.name,[])
+		lockedvars = set(lockedvars)
+	print("SLCO model translated to Java")
+	print("Ratio of locked variables/total number: " + str(len(lockedvars)) + "/" + str(numberofelemvariables))
 
 if __name__ == '__main__':
 	args = []

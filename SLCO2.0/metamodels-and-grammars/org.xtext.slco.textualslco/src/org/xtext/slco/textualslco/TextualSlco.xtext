@@ -3,7 +3,7 @@ grammar org.xtext.slco.textualslco.TextualSlco with org.eclipse.xtext.common.Ter
 generate textualSlco "http://www.xtext.org/slco/textualslco/TextualSlco"
 
 Model:
-  ('actions' actions+=Action)?
+  ('actions' (actions+=Action)*)?
   'model' name=ID '{'
   ('classes' (classes+=Class)*)?
   ('objects' (objects+=Object)*)?
@@ -21,13 +21,11 @@ Class:
 
 StateMachine:
   name=ID '{'
-	('variables'
-		(variables+=Variable)*
-	)?
-	('initial' (vertices+=Initial)*)?
-	('state' (vertices+=State)*)?
-	('final' (vertices+=Final)*)?
-	('transitions' (transitions+=Transition)*)?
+	('variables' 	(variables+=Variable)*)?
+	('initial' 	 	(vertices+=Initial  )*)?
+	('state'   	 	(vertices+=State   	)*)?
+	('final'     	(vertices+=Final  	)*)?
+	('transitions' 	(transitions+=Transition)*)?
   '}'
 ;
 
@@ -131,23 +129,7 @@ Composite:
 
 Expression :
   (=> TerminalExpression) ({BinaryOperatorExpression.operand1 = current} operator = Operator  operand2 = Expression)?;
-/*
-Expression:
-  left=ExprPrec3 ((op='=='|op='!='|op='<='|op='>='|op='<'|op='>') right=ExprPrec3)?
-;
 
-ExprPrec3:
-  left=ExprPrec2 ((op='+'|op='-'|op='||'|op='&&') right=ExprPrec2)?
-;
-
-ExprPrec2:
-  left=ExprPrec1 ((op='*'|op='/'|op='%') right=ExprPrec1)?
-;
-
-ExprPrec1:
-  left=TerminalExpression (op='**' right=TerminalExpression)?
-;
-*/
 TerminalExpression returns Expression :
   BooleanConstantExpression |
   IntegerConstantExpression |
