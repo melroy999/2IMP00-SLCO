@@ -161,69 +161,81 @@ def statementguard(s,c,i,firstinblock,negated):
 			guard_priority_in_construction = set([])
 			current_priority_guard = tr[s].priority
 		# add current priority guard to output
+		first = True
 		for g in guard_priority:
-			output += " && " + g
+			if not first:
+				output += " && "
+			else:
+				first = False
+			output += g
 	if s == "tau'":
 		if negated:
-			output += "&& False"
-		else:
-			output += ""
+			if output != '':
+				output += " && "
+			output += "False"
 		# add negation of guard to priority guard under construction, if statement first in block
 		if firstinblock and not negated:
 			guard_priority_in_construction.add("!(true)")
 	elif s.__class__.__name__ == "Assignment":
 		if negated:
-			output += "&& False"
-		else:
-			output += ""
+			if output != '':
+				output += " && "
+			output += "False"
 		# add negation of guard to priority guard under construction, if statement first in block
 		if firstinblock and not negated:
 			guard_priority_in_construction.add("!(true)")
 	elif s.__class__.__name__ == "Composite":
 		if s.guard != None:
+			if output != '':
+				output += " && "
 			guard = expression(s.guard,statemachine[s],c,{})
 			if negated:
-				output += " && !(" + guard + ")"
+				output += "!(" + guard + ")"
 			else:
-				output += " && " + guard
+				output += guard
 			# add negation of guard to priority guard under construction, if statement first in block
 			if firstinblock and not negated:
 				guard_priority_in_construction.add("!(" + guard + ")")
 	elif s.__class__.__name__ == "Delay":
+		if output != '':
+			output += " && "
 		if negated:
-			output += "&& False"
-		else:
-			output += ""
+			output += "False"
 		# add negation of guard to priority guard under construction, if statement first in block
 		if firstinblock and not negated:
 			guard_priority_in_construction.add("!(true)")
 	elif s.__class__.__name__ == "SendSignal":
+		if output != '':
+			output += " && "
 		if negated:
-			output += "&& False"
-		else:
-			output += ""
+			output += "False"
 		# to handle priorities, check for all objects of type c whether this statement is synchronous (object to object). If so, record an additional summand encoding the inability to perform this statement
 		checkforsynccondition(s,c,i,firstinblock)
 	elif s.__class__.__name__ == "ReceiveSignal":
+		if output != '':
+			output += " && "
 		if negated:
-			output += "&& False"
-		else:
-			output += ""
+			output += "False && "
 		# to handle priorities, check for all objects of type c whether this statement is synchronous (object to object). If so, record an additional summand encoding the inability to perform this statement
 		checkforsynccondition(s,c,i,firstinblock)
 		# add the requirement that the corresponding Boolean flag must be true
-		output += " && rec_enabled" + str(s._tx_position)
+		output += "rec_enabled" + str(s._tx_position)
 	elif s.__class__.__name__ == "Expression":
 		if not expression_is_actionref(s):
+			if output != '':
+				output += " && "
 			guard = expression(s,statemachine[s],c,scopedvars[c.name + "'" + statemachine[s].name])
 			if negated:
-				output += " && !(" + guard + ")"
+				output += "!(" + guard + ")"
 			else:
-				output += " && " + guard
+				output += guard
 			# add negation of guard to priority guard under construction, if statement first in block
 			if firstinblock and not negated:
 				guard_priority_in_construction.add("!(" + guard + ")")
-	return output
+	if output == '':
+		return output
+	else:
+		return " && (" + output + ")"
 
 def statementsummation(s,c):
 	"""Produce mCRL2 variable summations for the given SLCO statement. Class c owns the statement"""
