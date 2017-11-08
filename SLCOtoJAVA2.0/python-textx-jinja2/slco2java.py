@@ -170,6 +170,11 @@ def javatype(s):
 			return 'boolean'
 		else:
 			return 'boolean[]'
+	elif s.base == 'Byte':
+		if s.size < 2:
+			return 'byte'
+		else:
+			return 'byte[]'
 
 def javastatement(s,nlocks,indent,nondet):
 	"""Translates SLCO statement s to Java code. indent indicates how much every line needs to be indented, nlocks indicates how many locks need to be acquired (optional). nondet indicates whether this statement is at the head of a statement block and in a non-deterministic choice; it affects how expressions are translated."""
@@ -310,7 +315,7 @@ def variabledefault(s):
 			defv += v
 		defv += ']'
 		return defv
-	elif s.type.base == 'Integer':
+	elif s.type.base == 'Integer' or s.type.base == 'Byte':
 		if s.type.size < 2:
 			return '0'
 		else:
@@ -377,7 +382,7 @@ def initialvalue(s,o):
 			defv += str(v)
 		defv += '}'
 		return defv
-	elif s.type.base == 'Integer':
+	elif s.type.base == 'Integer' or s.type.base == 'Byte':
 		if s.type.size < 2:
 			return '0'
 		else:
