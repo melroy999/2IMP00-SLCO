@@ -257,7 +257,7 @@ def statementsummation(s,c):
 			pindex = 0
 			output += "sum SM': Statemachine, R': Set(Var), W': Set(Var), "
 			# add a variable for the signal
-			type = porttypes[c.name + "'" + s.target.name]
+			type = mcrl2typetuple(porttypes[c.name + "'" + s.target.name])
 			output += "s': Signal'"
 			for d in type:
 				output += datatypeacronym(d)
@@ -286,7 +286,7 @@ def statementsummation(s,c):
 			pindex = 0
 			output += "sum "
 			# add a variable for the signal
-			type = porttypes[c.name + "'" + s.target.name]
+			type = mcrl2typetuple(porttypes[c.name + "'" + s.target.name])
 			output += "s': Signal'"
 			for d in type:
 				output += datatypeacronym(d)
@@ -529,7 +529,7 @@ def statementactiontype(s,c):
 		elif s.__class__.__name__ == "Delay":
 			output = ""
 		elif s.__class__.__name__ == "SendSignal":
-			type = porttypes[c.name + "'" + s.target.name]
+			type = mcrl2typetuple(porttypes[c.name + "'" + s.target.name])
 			output += ": Statemachine # Set(Var) # Set(Var) # Statemachine # Set(Var) # Set(Var) # Signal'"
 			params = ""
 			for t in type:
@@ -537,7 +537,7 @@ def statementactiontype(s,c):
 				params += " # " + str(t)
 			output += params
 		elif s.__class__.__name__ == "ReceiveSignal":
-			type = porttypes[c.name + "'" + s.target.name]
+			type = mcrl2typetuple(porttypes[c.name + "'" + s.target.name])
 			output += ": Statemachine # Set(Var) # Set(Var) # Statemachine # Set(Var) # Set(Var) # Signal'"
 			params = ""
 			for t in type:
@@ -559,7 +559,7 @@ def statementactiontype(s,c):
 		elif s.__class__.__name__ == "Delay":
 			output = "Int"
 		elif s.__class__.__name__ == "SendSignal":
-			type = porttypes[c.name + "'" + s.target.name]
+			type = mcrl2typetuple(porttypes[c.name + "'" + s.target.name])
 			output += ": Signal'"
 			params = ""
 			for t in type:
@@ -567,7 +567,7 @@ def statementactiontype(s,c):
 				params += " # " + str(t)
 			output += params
 		elif s.__class__.__name__ == "ReceiveSignal":
-			type = porttypes[c.name + "'" + s.target.name]
+			type = mcrl2typetuple(porttypes[c.name + "'" + s.target.name])
 			output += ": Signal'"
 			params = ""
 			for t in type:
@@ -754,15 +754,26 @@ def statementstatechanges(s,c):
 		#	varname = s.left.var.name
 		# an assignment to an array cell should be handled differently from other cases
 		if s.left.index != None:
-			output = ", " + varname + "=update(" + varname + ",Int2Nat(" + expression(s.left.index,statemachine[s],c,{}) + ")," + expression(s.right,statemachine[s],c,{}) + ")"
+			output = ", " + varname + "=update(" + varname + ",Int2Nat(" + expression(s.left.index,statemachine[s],c,{}) + "),"
+			# in case we are updating a Byte, restrict the new value
+			eright = expression(s.right,statemachine[s],c,{})
+			if s.left.var.type.base == 'Byte':
+				eright = "(" + eright + ") mod 256"
+			output += eright + ")"
 		else:
 			output = ", " + varname
-			output += "=" + expression(s.right,statemachine[s],c,{})
+			eright = expression(s.right,statemachine[s],c,{})
+			if s.left.var.type.base == 'Byte':
+				eright = "(" + eright + ") mod 256"
+			output += "=" + eright
 	elif s.__class__.__name__ == "Composite":
 		# first build vardict for sequence of assignments
 		vardict = {}
 		for e in s.assignments:
 			newright = expression(e.right,statemachine[s],c,vardict)
+			# in case we are updating a Byte, restrict the new value
+			if e.left.var.type.base == 'Byte':
+				newright = "(" + newright + ") mod 256"
 			varname = scopedvars[c.name + "'" + statemachine[s].name][e.left.var.name]
 			if e.left.index != None:
 				vardict[varname] = "update(" + expression(e.left.var,statemachine[s],c,vardict) + ",Int2Nat(" + expression(e.left.index,statemachine[s],c,vardict) + ")," + newright + ")"
@@ -783,7 +794,11 @@ def statementstatechanges(s,c):
 			output += scopedvars[c.name + "'" + statemachine[s].name][vname]
 			if p.index != None:
 				output += "." + p.index
+			# in case we are updating a Byte, restrict the new value
+			type = porttypes[c.name + "'" + s.target.name]
 			output += "=x'" + str(pindex)
+			if type[pindex] == 'Byte':
+				output += " mod 256"
 			pindex += 1
 	elif s.__class__.__name__ == "Expression":
 		output = ""
@@ -847,7 +862,7 @@ def peekstatementactiontype(s,c):
 	output = ''
 	if check_rc:
 		if s.__class__.__name__ == "ReceiveSignal":
-			type = porttypes[c.name + "'" + s.target.name]
+			type = mcrl2typetuple(porttypes[c.name + "'" + s.target.name])
 			output += ": Statemachine # Set(Var) # Set(Var) # Signal'"
 			params = ""
 			for t in type:
@@ -855,7 +870,7 @@ def peekstatementactiontype(s,c):
 				params += " # " + str(t)
 			output += params
 		else:
-			type = porttypes[c.name + "'" + s.target.name]
+			type = mcrl2typetuple(porttypes[c.name + "'" + s.target.name])
 			output += ": Statemachine # Set(Var) # Set(Var) # Signal'"
 			params = ""
 			for t in type:
@@ -864,7 +879,7 @@ def peekstatementactiontype(s,c):
 			output += params
 	else:
 		if s.__class__.__name__ == "ReceiveSignal":
-			type = porttypes[c.name + "'" + s.target.name]
+			type = mcrl2typetuple(porttypes[c.name + "'" + s.target.name])
 			output += ": Signal'"
 			params = ""
 			for t in type:
@@ -872,7 +887,7 @@ def peekstatementactiontype(s,c):
 				params += " # " + str(t)
 			output += params
 		else:
-			type = porttypes[c.name + "'" + s.target.name]
+			type = mcrl2typetuple(porttypes[c.name + "'" + s.target.name])
 			output += ": Signal'"
 			params = ""
 			for t in type:
@@ -1198,7 +1213,7 @@ def variabledefault(s):
 			defv += str(v)
 		defv += ']'
 		return defv
-	elif s.type.base == 'Integer':
+	elif s.type.base == 'Integer' or s.type.base == 'Byte':
 		if s.type.size < 2:
 			return '0'
 		else:
@@ -1240,7 +1255,7 @@ def datatypeacronym(s):
 
 def mcrl2type(s):
 	"""Maps type names from SLCO to mCRL2"""
-	if s.base == 'Integer':
+	if s.base == 'Integer' or s.base == 'Byte':
 		if s.size < 2:
 			return 'Int'
 		else:
@@ -1391,9 +1406,8 @@ def preprocess():
 		classobjects[o.type] = oset
 	# build a dictionary providing the type of messages that can be sent over a given port
 	for c in model.channels:
-		type = mcrl2typetuple(c.type)
-		porttypes[str(c.source.type.name) + "'" + str(c.ports[0].name)] = type
-		porttypes[str(c.target.type.name) + "'" + str(c.ports[1].name)] = type
+		porttypes[str(c.source.type.name) + "'" + str(c.ports[0].name)] = c.type
+		porttypes[str(c.target.type.name) + "'" + str(c.ports[1].name)] = c.type
 	# build a dictionary providing sets of variables local for given state machines
 	for c in model.classes:
 		for stm in c.statemachines:
@@ -1450,7 +1464,7 @@ def preprocess():
 				for stat in trn.statements:
 					if stat.__class__.__name__ == "ReceiveSignal" or stat.__class__.__name__ == "SendSignal":
 						# get type
-						ctype = porttypes[c.name + "'" + stat.target.name]
+						ctype = mcrl2typetuple(porttypes[c.name + "'" + stat.target.name])
 						signalset = channeltypes[ctype]
 						signalset.add(stat.signal)
 
@@ -1599,7 +1613,7 @@ def translate():
 
 	# load the mCRL2 template
 	template = jinja_env.get_template('mcrl2.jinja2template')
-	out = template.render(model=model, porttypes=porttypes, states=states, channeltypes=channeltypes,
+	out = template.render(model=model, states=states, channeltypes=channeltypes,
 	                asynclosslesstypes=asynclosslesstypes, asynclossytypes=asynclossytypes, synctypes=synctypes,
 	                visibleactions=visibleactions, actions=actions, sync_guarded_statements=sync_guarded_statements,
 	                sync_guard_rules=sync_guard_rules, guard_priority=guard_priority,

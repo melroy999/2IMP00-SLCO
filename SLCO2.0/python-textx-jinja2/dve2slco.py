@@ -31,7 +31,7 @@ class TranslateException(Exception):
 keywords = ['not', 'or', 'and', 'xor']
 changed_words = {}
 
-typemap = {'byte'   : 'Integer',
+typemap = {'byte'   : 'Byte',
            'int'    : 'Integer',
            'boolean': 'Boolean'}
 
