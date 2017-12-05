@@ -11,30 +11,33 @@ scanner=re.Scanner([
 ])
 	
 	
-def read(folder, autfile):
+def read_from_file(folder, autfile):
 	"""Read the .aut file and place the data in a dictionary"""
-	trans = {}
 	aut_file_path = os.path.join(folder, autfile)
-	open(aut_file_path,'r')
 	inFile = None
 	try:
-		inFile = open(os.path.join(folder, autfile),'r')
+		inFile = open(aut_file_path, 'r')
 	except IOError:
 		logging.error('Input LTS file does not exist: \%s', aut_file_path)
 		return None
-	# scan the first line
-	line = inFile.readline()
-	results, remainder = scanner.scan(line)
+	ret = read(inFile)
 	inFile.close()
-
+	return ret
+	
+def read(input_stream):
+	"""Read the .aut file and place the data in a dictionary"""
+	# scan the first line
+	line = input_stream.readline()
+	results, remainder = scanner.scan(line)
 	# read the header
 	if results[0][0] != 'HEADER':
 		logging.error("Unexpected start of .aut description!")
 	transheader = []
 	# an aut file has three values in the header
-	for index in range(1,4):
+	for index in range(1, 4):
 		transheader.append(results[index][1])
-
+		
+	trans = {}
 	# count to remove double entries
 	ntrans = 0
 	actset = set([])
@@ -43,7 +46,7 @@ def read(folder, autfile):
 	currentsrc = ''
 	newentry = {}
 	first = True
-	for transline in open(aut_file_path):
+	for transline in input_stream:
 		if first:
 			first = False
 			continue
@@ -80,17 +83,23 @@ def read(folder, autfile):
 	# add final entry
 	trans[currentsrc] = newentry
 	transheader[1] = str(ntrans)
+	input_stream.close()
 	return [transheader, trans, actset]
 
-
-def write(folder, header, trans, autfile):
+def write_to_file(folder, header, trans, autfile):
 	"""Write the trans LTS to file autfile"""
-	outfile = open(os.path.join(folder, autfile + ".aut"),'w')
+	outfile = open(os.path.join(folder, autfile + ".aut"), 'w')
+	for line in to_string(header, trans):
+		outfile.write(outfile, header, trans)
+	outfile.flush()
+	outfile.close()
 
+def to_string(header, trans):
+	"""Write the trans LTS to file aut stream"""
 	#print header of .aut file
 	if header[0] == '':
 		header[0] = '0'
-	outfile.write('des (' + header[0] + ', ' + header[1] + ', ' + header[2] + ')\n')
+	yield 'des (' + header[0] + ', ' + header[1] + ', ' + header[2] + ')\n'
 	for s in sorted(trans):
 		outgoing = trans.get(s,{})
 		for k, v in outgoing.items():
@@ -98,5 +107,4 @@ def write(folder, header, trans, autfile):
 			if label[0] != '"':
 				label = '"' + str(k) + '"'
 			for t in v:
-				outfile.write('(' + s + ', ' + label + ', ' + t + ')\n')
-	outfile.close()
+				yield '(' + s + ', ' + label + ', ' + t + ')\n'

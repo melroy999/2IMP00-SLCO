@@ -3,8 +3,7 @@ from . import aut
 from . import mcrl2
 import os
 import re
-
-
+import io
 
 
 class AutLTS(   LTS,
@@ -36,13 +35,16 @@ class AutLTS(   LTS,
 				counter += len(tgt)
 		return counter
 	
-	
 	@property
 	def transition_dict(self):
 		return self._transitions
 	
-
+	@property
+	def action_labels(self):
+		return self._action_labels
+	
 	def hide_action_labels(self,hiding_set):
+		hidden = False
 		hiding_res = [re.compile(x) for x in hiding_set]
 		for src, trans in self._transitions.items():
 			for a in list(trans.keys()):
@@ -53,47 +55,46 @@ class AutLTS(   LTS,
 						tau_tgts |= trans[a]
 						trans['tau'] = tau_tgts
 						del trans[a]
+						hidden = True
 						break
+		return hidden
 	
 	
 	def rename_action_labels(self, rename_dict):
+		changed = False
 		for src, trans in self._transitions.items():
 			for a in list(trans.keys()):
+				if a not in self._action_labels:
+					continue
+				self._action_labels.remove(a)
 				new_a = rename_dict.get(a)
 				if new_a:
 					targets = trans.get(new_a, set())
 					trans[new_a] = targets | trans[a]
 					del trans[a]
-	
+					self._action_labels.add(new_a)
+					changed = True
+		return changed
 	
 	def write_to_file(self, path):
 		folder, name = os.path.split(path)
 		header = [self._init_state, str(self.num_transitions), str(self.num_states)]
-		aut.write(folder, header, self._transitions, name)
+		aut.write_to_file(folder, header, self._transitions, name)
 	
 	
 	def minimise(self,equivalence):
-		temp_path_in = os.path.join(self._folder, self._filename + '.temp_min_in')
-		self.write_to_file(temp_path_in)
-		temp_path_in += self._ext
-		temp_path_out = os.path.join(self._folder, self._filename + '.temp_min_out' + self._ext)
-		
-		self.minimise_lts_file(temp_path_in, temp_path_out, equivalence)
-		lts = LTS.create(temp_path_out)
-		return lts
-		os.remove(temp_path_in)
-		os.remove(temp_path_out)
-	
-	
-	@classmethod
-	def minimise_lts_file(cls, input, output, equivalence):
-		mcrl2.minimize(input, output, equivalence)
+		header = [self._init_state, str(self.num_transitions), str(self.num_states)]
+		lts_stream = aut.to_string(header, self._transitions)
+		lts_str = ''.join(list(lts_stream))
+		out = mcrl2.minimize(lts_str, equivalence, 'aut', 'aut')
+		header, trans, labels = aut.read(io.StringIO(out))
+		return AutLTS(header[0], trans, labels)
 	
 	
 	@staticmethod
 	def _read_from_file(path):
 		folder, name = os.path.split(path)
-		header, trans, labels = aut.read(folder,name)
+		header, trans, labels = aut.read_from_file(folder,name)
 		return AutLTS(header[0], trans, labels)
 
 

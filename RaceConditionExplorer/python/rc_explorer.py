@@ -57,8 +57,9 @@ class ActionSyntaxException(Exception):
 
 def RCE_get_race_conditions_from_file(path):
 	lts = LTS.create(path)
-	#lts = LTS_remove_peek(lts)
-	#lts = lts.minimise(LTS.Equivalence.BRANCHING_BISIM)
+	contains_tau, lts = LTS_remove_peek(lts)
+	if contains_tau:
+		lts = lts.minimise(LTS.Equivalence.BRANCHING_BISIM)
 	start = time.time()
 	dep_ltss, locked = get_dependency_ltss(lts)
 	cycle_sets = get_cycle_sets(dep_ltss)
@@ -173,11 +174,12 @@ def get_cycle_sets(dep_ltss):
 	
 def LTS_remove_peek(my_lts):
 	temp_act = 'temp_tau'
-	my_lts.rename_action_labels({'tau': temp_act})
-	my_lts.hide_action_labels({'peek_[a-zA-Z0-9]+_[a-zA-Z0-9]+[(].*'})
-	my_lts = my_lts.minimise(LTS.Equivalence.WEAK_BISIM)
+	contains_tau = my_lts.rename_action_labels({'tau': temp_act})
+	hidden = my_lts.hide_action_labels({'peek_[a-zA-Z0-9]+_[a-zA-Z0-9]+[(].*'})
+	if hidden:
+		my_lts = my_lts.minimise(LTS.Equivalence.WEAK_BISIM)
 	my_lts.rename_action_labels({temp_act: 'tau'})
-	return my_lts
+	return (contains_tau, my_lts)
 
 
 def main():

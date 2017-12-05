@@ -5,18 +5,14 @@ import os
 _lts_factories = dict()
 
 class ISupportMinimise(ABC):
-	@classmethod
-	@abstractmethod
-	def minimise_lts_file(cls, path):
-		pass
-	
 	@abstractmethod
 	def minimise(self,equivalence):
 		pass
 
 
-
 class ISupportLabelHide(ABC):
+	
+	# @return:  True iff some action label has been hidden
 	@abstractmethod
 	def hide_action_labels(self, hiding_set):
 		pass
@@ -24,6 +20,7 @@ class ISupportLabelHide(ABC):
 
 
 class ISuportLabelRename(ABC):
+	# @return:  True iff some action label has been renamed
 	@abstractmethod
 	def rename_action_labels(self, rename_dict):
 		pass
@@ -69,6 +66,11 @@ class LTS(ABC):
 	@property
 	@abstractmethod
 	def transition_dict(self):
+		pass
+	
+	@property
+	@abstractmethod
+	def action_labels(self):
 		pass
 	
 #	@property
