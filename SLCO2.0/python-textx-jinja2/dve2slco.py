@@ -31,12 +31,12 @@ class TranslateException(Exception):
 keywords = ['not', 'or', 'and', 'xor']
 changed_words = {}
 
-typemap = {'byte'   : 'Integer',
+typemap = {'byte'   : 'Byte',
            'int'    : 'Integer',
            'boolean': 'Boolean'}
 
 
-def dve_primitive_type2sclo_type(dve_type, length=None):
+def dve_primitive_type2slco_type(dve_type, length=None):
 	type = typemap[dve_type.base]
 	if length:
 		type += '[%d]' % length
@@ -79,11 +79,11 @@ def dve_var2slco_variable(dve_var, dve_type):
 		if dve_var.initialValue and\
 		   dve_var.initialValue.__class__.__name__ != 'ArrayConstantExpression':
 			raise TranslateException('Unsupported initialValue "'+dve_var.initialValue.__class__.__name__+'" on variable "'+dve_var.name+'"')
-		slco_var = dve_primitive_type2sclo_type(dve_type, dve_var.length) + " " + name
+		slco_var = dve_primitive_type2slco_type(dve_type, dve_var.length) + " " + name
 		if dve_var.initialValue:
 			slco_var += " := " + dve_const_array2slco_const_array(dve_var.initialValue)
 	else:
-		slco_var = dve_primitive_type2sclo_type(dve_type) + " " + name
+		slco_var = dve_primitive_type2slco_type(dve_type) + " " + name
 		if dve_var.initialValue:
 			slco_var += " := " + dve_expr2slco_expr(dve_var.initialValue)
 	return slco_var
@@ -249,11 +249,11 @@ def main(args):
 
 	batch = []
 	if modelname.endswith('.dve'):
-		batch = [join(this_folder,modelname)]
+		batch = [modelname]
 	else:
 		batch = glob.glob(join(this_folder,modelname,"*.dve"))
 
-	gen_dir = "generated_slcotxt"
+	gen_dir = "generated_slco"
 	dir = dirname(batch[0])
 	gen_folder = join(dir,gen_dir)
 	if exists(gen_folder):
@@ -272,7 +272,7 @@ def main(args):
 		if len(batch) == 1:
 			print(out_model)
 
-		outFile = open(join(gen_folder,basename(file)[:-3] + "slcotxt"), 'w')
+		outFile = open(join(gen_folder,basename(file)[:-3] + "slco"), 'w')
 		outFile.write(out_model)
 		outFile.close()
 

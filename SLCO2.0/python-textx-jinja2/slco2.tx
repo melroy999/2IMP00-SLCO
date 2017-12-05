@@ -126,11 +126,11 @@ Variable:
 ;
 
 Type:
-  (base='Integer' | base='Boolean') ('[' size=INT ']')?
+  (base='Integer' | base='Boolean' | base='Byte') ('[' size=INT ']')?
 ;
 
 Keyword:
-  'actions' | 'model' | 'classes' | 'ports' | 'state machines' | 'variables' | 'initial' | 'state' | 'transitions' | 'from' | 'to' | 'send' | 'receive' | 'objects' | 'channels' | 'Boolean' | 'Integer' | 'async' | 'sync' | 'lossless' | 'lossy' | 'between' | 'and' | ':=' | 'after' | 'ms' | 'not' | '-' | '+' | 'or' | 'xor' | 'and' | '==' | '<>' | '<=' | '>=' | '<' | '>' | 'mod' | '*' | '/' | '**' | 'true' | 'false'
+  'actions' | 'model' | 'classes' | 'ports' | 'state machines' | 'variables' | 'initial' | 'state' | 'transitions' | 'from' | 'to' | 'send' | 'receive' | 'objects' | 'channels' | 'Boolean' | 'Integer' | 'Byte' | 'async' | 'sync' | 'lossless' | 'lossy' | 'between' | 'and' | ':=' | 'after' | 'ms' | 'not' | '-' | '+' | 'or' | 'xor' | 'and' | '==' | '<>' | '<=' | '>=' | '<' | '>' | 'mod' | '*' | '/' | '**' | 'true' | 'false'
 ;
 
 NID:

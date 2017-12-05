@@ -9,19 +9,16 @@ public class Test {
   ComThread T_Com;
 
   // Upperbound for transition counter
-  public static final long COUNTER_BOUND = 9999999999L;
+  public static final long COUNTER_BOUND = 999999999L;
 
   // Enum type for state machine states
   public enum State {
   SMC1, SMC0, Com1, Com2, Com0
   }
 
-	// Flag indicating whether threads should terminate execution
-	public static boolean terminate;
-
   // Global variables
-  public static boolean[] x;
-  public static int y;
+  public boolean[] x;
+  public int y;
 
 	// Lock class to handle locks of global variables
 	class Keeper {
@@ -42,7 +39,7 @@ public class Test {
 		// Lock method
 		public void lock(int[] l, int size) {
 			for (int i = 0; i < size; i++) {
-				if (lockneeded[i]) {
+				if (lockneeded[l[i]]) {
           locks[l[i]].lock();
         }
       }
@@ -51,7 +48,7 @@ public class Test {
 		// Unlock method
 		public void unlock(int[] l, int size) {
 		  for (int i = 0; i < size; i++) {
-			  if (lockneeded[i]) {
+			  if (lockneeded[l[i]]) {
           locks[l[i]].unlock();
         }
       }
@@ -86,49 +83,68 @@ public class Test {
 
 		// Execute method
 		public synchronized void exec() {
-			while(transcounter < COUNTER_BOUND && !terminate) {
+			// variable to store non-deterministic choices
+			int choice;
+			while(transcounter < COUNTER_BOUND) {
 				switch(currentState) {
 					case SMC0:
-						int choice = randomGenerator.nextInt(2);
+						//System.out.println("SMC_SMC0 " + transcounter);
+						choice = randomGenerator.nextInt(2);
 						switch(choice) {
 							case 0:
+								//System.out.println("SMC_SMC0_0");
 								// [not x[i]; i := i + 1; x[i] := i == 2; i := 3; x[0] := False]
+								//System.out.println("SMC_SMC0_0");
 							  lockIDs[0] = 0 + (i + 1);
+								//System.out.println("SMC_SMC0_1");
 							  lockIDs[1] = 0 + 0;
+								//System.out.println("SMC_SMC0_2");
 							  lockIDs[2] = 0 + i;
+								//System.out.println("SMC_SMC0_0_sort");
 								Arrays.sort(lockIDs,0,3);
+								//System.out.println("SMC_SMC0_0_lock");
 								kp.lock(lockIDs, 3);
+								//System.out.println("SMC_SMC0_0_stat");
 								if (!(!(x[i]))) { kp.unlock(lockIDs, 3); transcounter++; break; }
                 i = i + 1;
                 x[i] = i == 2;
                 i = 3;
                 x[0] = false;
+								//System.out.println("SMC_SMC0_0_unlock");
 								kp.unlock(lockIDs, 3);
                 notifyAll();
 								// Change state
+								//System.out.println("SMC_SMC0_0_changestate");
 								currentState = Test.State.SMC1;
                 // Increment counter
+								//System.out.println("SMC_SMC0_0_increment");
                 transcounter++;
 								break;
 							case 1:
+								//System.out.println("SMC_SMC0_1");
 								// i := 0
+								//System.out.println("SMC_SMC0_1_sort");
 								Arrays.sort(lockIDs,0,0);
+								//System.out.println("SMC_SMC0_1_lock");
 								kp.lock(lockIDs, 0);
+								//System.out.println("SMC_SMC0_1_stat");
 								i = 0;
+								//System.out.println("SMC_SMC0_1_unlock");
 								kp.unlock(lockIDs, 0);
                 notifyAll();
 								// Change state
+								//System.out.println("SMC_SMC0_1_changestate");
 								currentState = Test.State.SMC0;
                 // Increment counter
+								//System.out.println("SMC_SMC0_1_increment");
                 transcounter++;
 								break;
 						}
+						break;
 					default:
 						return;
 				}
 			}
-			// Terminate program
-			terminate = true;
 		}
 
 		// Run method
@@ -166,19 +182,22 @@ public class Test {
 			transcounter = 0;
 			currentState = Test.State.Com0;
       kp = k;
-      lockIDs = new int[3];
+      lockIDs = new int[0];
 			lx = 0;
 		}
 
 		// Execute method
 		public synchronized void exec() {
-			while(transcounter < COUNTER_BOUND && !terminate) {
+			// variable to store non-deterministic choices
+			int choice;
+			while(transcounter < COUNTER_BOUND) {
 				switch(currentState) {
 					case Com0:
+						//System.out.println("Com_Com0 " + transcounter);
 						// lx == 0
 						Arrays.sort(lockIDs,0,0);
 						kp.lock(lockIDs, 0);
-						while(!(lx == 0)) { kp.unlock(lockIDs, 0); try{ wait(10000); } catch (InterruptedException e) {} kp.lock(lockIDs, 0);}
+						if (!(lx == 0)) { kp.unlock(lockIDs, 0); transcounter++; break; }
 						kp.unlock(lockIDs, 0);
 						// Change state
 						currentState = Test.State.Com1;
@@ -189,8 +208,6 @@ public class Test {
 						return;
 				}
 			}
-			// Terminate program
-			terminate = true;
 		}
 
 		// Run method
@@ -209,7 +226,6 @@ public class Test {
 
   // Constructor for main class
   Test() {
-		terminate = false;
     // Instantiate global variables
     x = new boolean[] {false,true};
     y = 0;
@@ -224,9 +240,23 @@ public class Test {
     T_Com.start();
   }
 
+  // Join all threads
+  public void joinThreads() {
+    while (true) {
+      try {
+			  T_SMC.join();
+			  T_Com.join();
+        break;
+			} catch (InterruptedException e) {
+        e.printStackTrace();
+      }
+		}
+  }
+
 	// Run application
 	public static void main(String args[]) {
     Test ap = new Test();
     ap.startThreads();
+    ap.joinThreads();
 	}
 }
