@@ -60,14 +60,29 @@ def RCE_get_race_conditions_from_file(path):
 	contains_tau, lts = LTS_remove_peek(lts)
 	if contains_tau:
 		lts = lts.minimise(LTS.Equivalence.BRANCHING_BISIM)
+	
+	# calculate dependency LTSs
 	start = time.time()
 	dep_ltss, locked = get_dependency_ltss(lts)
-	cycle_sets = get_cycle_sets(dep_ltss)
-	logging.info("cycle_sets: %s" % cycle_sets)
+	time_dep_ltss = time.time() - start
+	print("Calculating dependency LTSs took " + str(time_dep_ltss))
+	
+	# Quickly find un-optimal locks
+	start = time.time()
 	locks = get_race_conditions(dep_ltss, locked)
 	logging.info("locks: %s" % locks)
-	end = time.time()
-	print("Analysis took " + str(end - start))
+	time_quick = time.time() - start
+	print("Quick analysis took " + str(time_quick))
+	
+	# Find optimal locking
+	start = time.time()
+	cycle_sets = get_cycle_sets(dep_ltss)
+	logging.info("cycle_sets: %s" % cycle_sets)
+	locks = get_minimal_hitting_set(cycle_sets)
+	logging.info("locks: %s" % locks)
+	time_opt = time.time() - start
+	print("Optimal analysis took " + str(time_opt))
+	
 	return locks
 	
 	
@@ -144,33 +159,43 @@ def get_dependency_ltss(lts):
 		locked = set()
 		if frozen_signature not in dep_ltss:
 			dep_ltss[frozen_signature] = VarDependencyGraph(rw_list, locked)
+		
+		# get locked sets (variable sets that require being locking together)
+		locked_sets = set()
+		for dep_lts in dep_ltss.values():
+			locked_sets |= (dep_lts.get_locked_sets())
+		
+		# flatten lock_set
+		flat_locked_sets = {x for locked_set in locked_sets for x in locked_set}
+		
+		locked = set(flat_locked_sets) | locked # merge locks
+		
+		# remove (to be) locked variables from the graphs
+		for dep_lts in dep_ltss.values():
+			dep_lts.remove_locked_labels_from_transitions(locked)
 	return (dep_ltss, locked)
 
 
 def get_race_conditions(dep_ltss, pre_locked):
-	locked_sets = set()
-	for dep_lts in dep_ltss.values():
-		locked_sets |= (dep_lts.get_locked_sets())
-		
-	# flatten lock_set
-	flat_locked_sets = {x for locked_set in locked_sets for x in locked_set}
-	
-	# calculate further locks
-	locked = set(flat_locked_sets) | pre_locked
+	locked = pre_locked
 	for dep_lts in dep_ltss.values():
 		# locked is both used as set of existing locks and as accumulator of locks
 		dep_lts.get_locked(locked)
-	
-	return locked_sets | {frozenset([x]) for x in locked if x not in flat_locked_sets}
+	return locked
 
 
 def get_cycle_sets(dep_ltss):
-	cycles = set()
+	cycles = list()
 	for dep_lts in dep_ltss.values():
-		cycles |= dep_lts.find_cycles()
-	cycles -= set()  # ensure empty set is not present
-	return cycles  # TODO: apply Hitting set problem algorithm to find smallest set of locks
+		cycles += dep_lts.find_cycles() #TODO: Geert: Implement find_cycles()
+	return cycles
 
+
+def get_minimal_hitting_set(sets):
+	mhs = set() # minimal hitting set
+	# TODO: Geert: apply Hitting set problem algorithm to find smallest set of locks
+	return mhs
+	
 	
 def LTS_remove_peek(my_lts):
 	temp_act = 'temp_tau'
@@ -231,21 +256,15 @@ def main():
 	locks = RCE_get_race_conditions_from_file(lts_path)
 	object_locks = {}
 	for lock in locks:
-		it = iter(lock)
-		x = next(it)
-		obj, _, var = x.partition('.')
-		combo_lock = [var]
-		for x in it:
-			_, _, var = x.partition('.')
-			combo_lock.append(var)
+		obj, _, var = lock.partition('.')
 		lock_list = object_locks.get(obj, [])
-		lock_list.append(combo_lock)
+		lock_list.append(var)
 		object_locks[obj] = lock_list
 	f = open(out_path, 'w')
 	for obj, locks in object_locks.items():
 		f.write(obj+":\n")
 		for lock in locks:
-			f.write("\t%s\n" % ",".join(lock))
+			f.write("\t%s\n" % lock)
 	f.close()
 	
 	logging.info('Finished, output written to %s', out_path)
