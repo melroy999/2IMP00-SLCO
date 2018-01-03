@@ -53,10 +53,40 @@ class Graph:
     The class represents a graph in the elementary circuit algorithm presented by Johnson.
     """
 
-    def __init__(self):
+    def __init__(self, dependency_graph):
         self.vertices = []
         self.edges_from = {}
         self.edges_to = {}
+
+        _vertices = {}
+
+        for src, outgoing in dependency_graph.items():
+            v = _vertices.get(src, Vertex(src))
+
+            if src not in _vertices:
+                # The source vertex is not yet defined, define it.
+                _vertices[src] = v
+                self.vertices.append(v)
+
+                # Initialize its edge collections.
+                self.edges_from[v] = []
+                self.edges_to[v] = []
+
+            for tgt, labels in outgoing.items():
+                w = _vertices.get(tgt, Vertex(tgt))
+
+                if tgt not in _vertices:
+                    # The target vertex is not yet defined, define it.
+                    _vertices[tgt] = w
+                    self.vertices.append(w)
+
+                    # Initialize its edge collections.
+                    self.edges_to[w] = []
+                    self.edges_from[w] = []
+
+                # Define the edge in the graph.
+                self.edges_from[v].append(w)
+                self.edges_to[w].append(v)
 
     def __len__(self):
         return len(self.vertices)
@@ -131,43 +161,6 @@ class Graph:
 
         return found_circuits
 
-    @staticmethod
-    def from_dependency_graph(dependency_graph):
-        """Initializes an instance of the `Graph' class from the provided dependency graph."""
-        graph = Graph()
-
-        vertices = {}
-
-        for src, outgoing in dependency_graph.items():
-            v = vertices.get(src, Vertex(src))
-
-            if src not in vertices:
-                # The source vertex is not yet defined, define it.
-                vertices[src] = v
-
-                # Initialize its edge collections.
-                graph.edges_from[v] = []
-                graph.edges_to[v] = []
-
-            for tgt, labels in outgoing.items():
-                w = vertices.get(tgt, Vertex(tgt))
-
-                if tgt not in vertices:
-                    # The target vertex is not yet defined, define it.
-                    vertices[tgt] = w
-
-                    # Initialize its edge collections.
-                    graph.edges_to[w] = []
-                    graph.edges_from[w] = []
-
-                # Define the edge in the graph.
-                graph.edges_from[v].append(w)
-                graph.edges_to[w].append(v)
-
-        # Put the collection of vertices in the graph.
-        graph.vertices = list(vertices.values())
-        return graph
-
 
 def findCircuits(dependency_graph):
     """
@@ -180,7 +173,7 @@ def findCircuits(dependency_graph):
     circuits = []
 
     # Construct a graph instance from the provided dependency graph.
-    graph = Graph.from_dependency_graph(dependency_graph)
+    graph = Graph(dependency_graph)
 
     while len(graph) > 0:
 
