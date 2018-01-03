@@ -1,12 +1,10 @@
 # The elementary circuit detection algorithm presented by Johnson.
 
-# TODO: excludes self loops. Is by definition also an elementary circuit.
-# TODO: excludes duplicate edges.
 
 class Vertex:
     """
     This class represents a vertex of a graph.
-    It can be blocked as defined by Johnson his algorithm to find the elementary circuits.
+    It can be blocked as defined by Johnson's algorithm to find the elementary circuits.
     """
 
     def __init__(self, id):
@@ -72,22 +70,22 @@ class Graph:
         for i in range(0, len(self)):
             self.vertices[i].reset_block()
 
+    def remove_vertex(self, v):
+        """Removes the vertex from the graph along with any edges from- and to that vertex."""
+        self.vertices.remove(v)
+
+        for w in self.edges_from[v]:
+            self.edges_to[w].remove(v)
+        del self.edges_from[v]
+
+        for w in self.edges_to[v]:
+            self.edges_from[w].remove(v)
+        del self.edges_to[v]
+
     def pop_start(self):
-        """
-        Removes the start vertex from the graph. Also removes any edges that go to/from this vertex.
-        The removed vertex is returned.
-        """
+        """Removes the start vertex from the graph and returns it."""
         s = self.start()
-        self.vertices.remove(s)
-
-        for v in self.edges_from[s]:
-            self.edges_to[v].remove(s)
-        del self.edges_from[s]
-
-        for v in self.edges_to[s]:
-            self.edges_from[v].remove(s)
-        del self.edges_to[s]
-
+        self.remove_vertex(s)
         return s
 
     def circuit(self):
@@ -141,28 +139,26 @@ class Graph:
         vertices = {}
 
         for src, outgoing in dependency_graph.items():
+            v = vertices.get(src, Vertex(src))
+
             if src not in vertices:
                 # The source vertex is not yet defined, define it.
-                v = Vertex(src)
                 vertices[src] = v
 
                 # Initialize its edge collections.
                 graph.edges_from[v] = []
                 graph.edges_to[v] = []
 
-            v = vertices[src]
-
             for tgt, labels in outgoing.items():
+                w = vertices.get(tgt, Vertex(tgt))
+
                 if tgt not in vertices:
                     # The target vertex is not yet defined, define it.
-                    w = Vertex(tgt)
                     vertices[tgt] = w
 
                     # Initialize its edge collections.
                     graph.edges_to[w] = []
                     graph.edges_from[w] = []
-
-                w = vertices[tgt]
 
                 # Define the edge in the graph.
                 graph.edges_from[v].append(w)
@@ -173,14 +169,20 @@ class Graph:
         return graph
 
 
-def findCycles(dependency_graph):
+def findCircuits(dependency_graph):
+    """
+    Finds and returns the collection of elementary circuits in the dependency_graph. An elementary circuit is a sequence
+    of vertices that together specify a sequential path through the dependency_graph such that the first and last vertex
+    are the same.
+    """
+
     # The collection of circuits that have been found.
     circuits = []
 
     # Construct a graph instance from the provided dependency graph.
     graph = Graph.from_dependency_graph(dependency_graph)
 
-    while len(graph) > 1:
+    while len(graph) > 0:
 
         # Remove the blockage of all the vertices in the graph.
         graph.reset_block()
@@ -191,5 +193,4 @@ def findCycles(dependency_graph):
         # Pop the start/lowest vertex from the graph and remove any edges to/from that vertex.
         _ = graph.pop_start()
 
-    # TODO: include or exclude the fact that first element = last element?
     return [[vertex.id for vertex in circuit] for circuit in circuits]
