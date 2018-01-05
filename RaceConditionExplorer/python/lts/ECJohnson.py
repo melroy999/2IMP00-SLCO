@@ -55,8 +55,8 @@ class Graph:
 
     def __init__(self, dependency_graph):
         self.vertices = []
-        self.edges_from = {}
-        self.edges_to = {}
+        self.edges_outgoing = {}
+        self.edges_incoming = {}
 
         _vertices = {}
 
@@ -69,8 +69,8 @@ class Graph:
                 self.vertices.append(v)
 
                 # Initialize its edge collections.
-                self.edges_from[v] = []
-                self.edges_to[v] = []
+                self.edges_outgoing[v] = []
+                self.edges_incoming[v] = []
 
             for tgt, labels in outgoing.items():
                 w = _vertices.get(tgt, Vertex(tgt))
@@ -81,12 +81,12 @@ class Graph:
                     self.vertices.append(w)
 
                     # Initialize its edge collections.
-                    self.edges_to[w] = []
-                    self.edges_from[w] = []
+                    self.edges_outgoing[w] = []
+                    self.edges_incoming[w] = []
 
                 # Define the edge in the graph.
-                self.edges_from[v].append(w)
-                self.edges_to[w].append(v)
+                self.edges_outgoing[v].append(w)
+                self.edges_incoming[w].append(v)
 
     def __len__(self):
         return len(self.vertices)
@@ -104,13 +104,13 @@ class Graph:
         """Removes the vertex from the graph along with any edges from- and to that vertex."""
         self.vertices.remove(v)
 
-        for w in self.edges_from[v]:
-            self.edges_to[w].remove(v)
-        del self.edges_from[v]
+        for w in self.edges_outgoing[v]:
+            self.edges_incoming[w].remove(v)
+        del self.edges_outgoing[v]
 
-        for w in self.edges_to[v]:
-            self.edges_from[w].remove(v)
-        del self.edges_to[v]
+        for w in self.edges_incoming[v]:
+            self.edges_outgoing[w].remove(v)
+        del self.edges_incoming[v]
 
     def pop_start(self):
         """Removes the start vertex from the graph and returns it."""
@@ -134,7 +134,7 @@ class Graph:
             v.block_self()
 
             # Check every vertex that can be reached directly from the current vertex.
-            for w in self.edges_from[v]:
+            for w in self.edges_outgoing[v]:
                 if w is self.start():
                     # A circuit has been found.
                     circuit = stack[:] + [self.start()]
@@ -150,7 +150,7 @@ class Graph:
             if has_circuit:
                 v.unblock()
             else:
-                for w in self.edges_from[v]:
+                for w in self.edges_outgoing[v]:
                     w.block_other(v)
 
             _ = stack.pop()
