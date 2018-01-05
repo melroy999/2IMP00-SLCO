@@ -40,7 +40,7 @@ class HyperGraph:
 
     def crit(self, subset, vertex):
         """Returns the list of edges that are critical for the provided vertex."""
-        return HyperGraph(filter(lambda edge: (edge & subset) is {vertex}, self.edges))
+        return HyperGraph(filter(lambda edge: (edge & subset) == {vertex}, self.edges))
 
     def update_crit_uncov(self, v, subset, crit, uncov):
         """Returns a new (crit, uncov) pair after updating them."""
