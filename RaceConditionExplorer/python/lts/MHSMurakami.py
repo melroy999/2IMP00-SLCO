@@ -7,6 +7,7 @@ def is_empty(collection):
 
 
 class HyperGraph:
+    """This class represents a hyper graph used by the MHS algorithms presented by Murakami and Uno."""
 
     def __init__(self, edges):
         self.index = -1
@@ -42,6 +43,7 @@ class HyperGraph:
         return HyperGraph(filter(lambda edge: (edge & subset) is {vertex}, self.edges))
 
     def update_crit_uncov(self, v, subset, crit, uncov):
+        """Returns a new (crit, uncov) pair after updating them."""
         _crit = {key: list(value) for key, value in crit.items()}
         _uncov = list(uncov)
 
@@ -57,6 +59,7 @@ class HyperGraph:
         return (_crit, _uncov)
 
     def mmcs(self):
+        """Runs the MMCS algorithm to find the collection of minimal hitting sets in this hyper graph."""
         mhss = []
 
         def _not_redundant(subset, v):
@@ -81,6 +84,7 @@ class HyperGraph:
                     _mmcs(mhs | {v}, cand, _crit, _uncov)
                     cand |= {v}
 
+        # Run the recursive MMCS algorithm with their initial values.
         _mmcs(
             mhs=set(),
             cand=set(self.vertices),
