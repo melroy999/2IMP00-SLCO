@@ -13,6 +13,7 @@ import re
 import sys
 from lts import *
 from VarDependencyGraph import VarDependencyGraph
+from lts.MHSMurakami import HyperGraph
 import time
 
 from help_on_error_argument_parser import HelpOnErrorArgumentParser
@@ -187,14 +188,42 @@ def get_race_conditions(dep_ltss, pre_locked):
 def get_cycle_sets(dep_ltss):
 	cycles = list()
 	for dep_lts in dep_ltss.values():
-		cycles += dep_lts.find_cycles() #TODO: Geert: Implement find_cycles()
+		# Find the cycles in the dependency LTS.
+		found_cycles = dep_lts.find_cycles()
+
+		# Construct the transition label sets from the cycles.
+		for cycle in found_cycles:
+			transition_cycle = set()
+
+			for i in range(1, len(cycle)):
+				transition_labels = dep_lts.get_labels_of_transition(cycle[i-1], cycle[i])
+
+				if len(transition_labels) == 0:
+					# TODO: Geert: no label? Should this cycle be ignored?
+					continue
+				elif len(transition_labels) == 1:
+					transition_cycle.add(transition_labels.pop())
+				else:
+					# TODO: Geert: what about the other labels? Should be split into multiple cycles?
+					transition_cycle.add(transition_labels.pop())
+
+			cycles.append(transition_cycle)
 	return cycles
 
 
 def get_minimal_hitting_set(sets):
-	mhs = set() # minimal hitting set
-	# TODO: Geert: apply Hitting set problem algorithm to find smallest set of locks
-	return mhs
+	if not sets:
+		return set()
+
+	graph = HyperGraph(sets)
+	mhss = graph.mmcs()
+
+	min = mhss[0]
+	for mhs in mhss:
+		if len(mhs) < len(min):
+			min = mhs
+
+	return min
 	
 	
 def LTS_remove_peek(my_lts):

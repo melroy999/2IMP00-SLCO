@@ -1,3 +1,4 @@
+from lts.ECJohnson import findCircuits
 from lts.SCCTarjan import identifySCCs
 from utils import stack
 
@@ -88,14 +89,12 @@ class VarDependencyGraph:
 			if scc[0] <= 1:
 				continue
 			_depth_first_break_cycles(scc[1], locked)
-		
+
+	def get_labels_of_transition(self, v_from, v_to):
+		return self.dependency_graph[v_from][v_to]
+
 	def find_cycles(self):
-		#TODO: Geert: implement Johnson
-		cycles = list()
-		for src, outgoing in self.dependency_graph.items():
-			for tgt, labels in outgoing.items():
-				print("Transition from %s to %s with the the set(!) of labels %s" % (src, tgt, labels))
-		return cycles
+		return findCircuits(self.dependency_graph)
 
 
 # @post: finds back-edges and removes all labels on this back-edge from other transitions
