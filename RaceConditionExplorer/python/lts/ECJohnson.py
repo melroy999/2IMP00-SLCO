@@ -112,14 +112,8 @@ class Graph:
             self.edges_outgoing[w].remove(v)
         del self.edges_incoming[v]
 
-    def pop_start(self):
-        """Removes the start vertex from the graph and returns it."""
-        s = self.start()
-        self.remove_vertex(s)
-        return s
-
-    def circuit(self):
-        """Returns the circuits of the graph that start at the `start' vertex."""
+    def circuit(self, s):
+        """Returns the circuits of the graph that start at the `s' vertex."""
 
         # Initializes the stack that keeps track of the currently traversed path.
         stack = []
@@ -135,11 +129,9 @@ class Graph:
 
             # Check every vertex that can be reached directly from the current vertex.
             for w in self.edges_outgoing[v]:
-                if w is self.start():
+                if w is s:
                     # A circuit has been found.
-                    circuit = stack[:] + [self.start()]
-                    found_circuits.append(circuit)
-
+                    found_circuits.append(stack[:] + [s])
                     has_circuit = True
                 elif not w.is_blocked:
                     # If the next vertex is not blocked, continue recursively.
@@ -157,16 +149,16 @@ class Graph:
             return has_circuit
 
         # Call the recursive function.
-        _ = _circuit(self.start())
+        _ = _circuit(s)
 
         return found_circuits
 
 
 def findCircuits(dependency_graph):
     """
-    Finds and returns the collection of elementary circuits in the dependency_graph. An elementary circuit is a sequence
-    of vertices that together specify a sequential path through the dependency_graph such that the first and last vertex
-    are the same.
+    Finds and returns the collection of elementary circuits in the strongly connected dependency_graph. An elementary
+    circuit is a sequence of vertices that together specify a sequential path through the dependency_graph such that the
+    first and last vertex are the same.
     """
 
     # The collection of circuits that have been found.
@@ -175,15 +167,17 @@ def findCircuits(dependency_graph):
     # Construct a graph instance from the provided dependency graph.
     graph = Graph(dependency_graph)
 
-    while len(graph) > 0:
+    while len(graph) > 1:
+        # Select a starting vertex.
+        s = graph.start()
 
         # Remove the blockage of all the vertices in the graph.
         graph.reset_block()
 
         # Get the circuits in the graph.
-        circuits += graph.circuit()
+        circuits += graph.circuit(s)
 
-        # Pop the start/lowest vertex from the graph and remove any edges to/from that vertex.
-        _ = graph.pop_start()
+        # Remove the vertex from the graph and remove any edges to/from that vertex.
+        graph.remove_vertex(s)
 
     return [[vertex.id for vertex in circuit] for circuit in circuits]
