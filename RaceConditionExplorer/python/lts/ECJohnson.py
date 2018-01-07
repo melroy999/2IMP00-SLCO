@@ -154,7 +154,7 @@ class Graph:
         return found_circuits
 
 
-def findCircuits(dependency_graph):
+def find_circuits(dependency_graph):
     """
     Finds and returns the collection of elementary circuits in the strongly connected dependency_graph. An elementary
     circuit is a sequence of vertices that together specify a sequential path through the dependency_graph such that the

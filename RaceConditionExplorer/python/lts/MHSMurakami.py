@@ -84,7 +84,7 @@ class HyperGraph:
                     _mmcs(mhs | {v}, cand, _crit, _uncov)
                     cand |= {v}
 
-        # Run the recursive MMCS algorithm with their initial values.
+        # Run the recursive MMCS algorithm with its initial values.
         _mmcs(
             mhs=set(),
             cand=set(self.vertices),
