@@ -215,15 +215,21 @@ def get_minimal_hitting_set(sets):
 	if not sets:
 		return set()
 
+	# Run the minimal hitting set algorithm.
 	graph = HyperGraph(sets)
 	mhss = graph.mmcs()
 
-	min = mhss[0]
-	for mhs in mhss:
-		if len(mhs) < len(min):
-			min = mhs
+	# No minimal hitting set has been found.
+	if not mhss:
+		return None
 
-	return min
+	# Select the minimal hitting set of the smallest length.
+	smallest = mhss[0]
+	for mhs in mhss:
+		if len(mhs) < len(smallest):
+			smallest = mhs
+
+	return smallest
 	
 	
 def LTS_remove_peek(my_lts):
