@@ -53,6 +53,12 @@ class VarDependencyGraph:
 				self.dependency_graph[src] = outgoing
 		self._locked = locked
 
+	def get_copy(self):
+		graph = VarDependencyGraph([])
+		graph.dependency_graph = {v: {w: set(L) for w, L in T.items()} for v, T in self.dependency_graph.items()}
+		graph._locked = set(self._locked)
+		return graph
+
 		
 	def get_locked_sets(self):
 		locked_sets = set()

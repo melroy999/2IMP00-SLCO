@@ -67,11 +67,12 @@ def RCE_get_race_conditions_from_file(path):
 	dep_ltss, locked = get_dependency_ltss(lts)
 	time_dep_ltss = time.time() - start
 	print("Calculating dependency LTSs took " + str(time_dep_ltss))
-	
+
 	# Quickly find un-optimal locks
+	dep_ltss_copy = {frozenset(key): dep_lts.get_copy() for key, dep_lts in dep_ltss.items()}
 	start = time.time()
-	locks = get_race_conditions(dep_ltss, locked)
-	logging.info("locks: %s" % locks)
+	locks = get_race_conditions(dep_ltss_copy, locked)
+	logging.info("Quick locks: %s" % locks)
 	time_quick = time.time() - start
 	print("Quick analysis took " + str(time_quick))
 	
@@ -80,7 +81,7 @@ def RCE_get_race_conditions_from_file(path):
 	cycle_sets = get_cycle_sets(dep_ltss)
 	logging.info("cycle_sets: %s" % cycle_sets)
 	locks = get_minimal_hitting_set(cycle_sets)
-	logging.info("locks: %s" % locks)
+	logging.info("MHS locks: %s" % locks)
 	time_opt = time.time() - start
 	print("Optimal analysis took " + str(time_opt))
 	
@@ -190,6 +191,7 @@ def get_cycle_sets(dep_ltss):
 	for dep_lts in dep_ltss.values():
 		# Find the cycles in the dependency LTS.
 		found_cycles = dep_lts.find_cycles()
+		logging.info("cycles: %s" % found_cycles)
 
 		# Construct the transition label sets from the cycles.
 		for cycle in found_cycles:
@@ -199,13 +201,13 @@ def get_cycle_sets(dep_ltss):
 				transition_labels = dep_lts.get_labels_of_transition(cycle[i-1], cycle[i])
 
 				if len(transition_labels) == 0:
-					# TODO: Geert: no label? Should this cycle be ignored?
+					print("No label found on transition from " + cycle[i-1] + "' to '" + cycle[i] + "'")
 					continue
 				elif len(transition_labels) == 1:
 					transition_cycle.add(transition_labels.pop())
 				else:
-					# TODO: Geert: what about the other labels? Should be split into multiple cycles?
-					transition_cycle.add(transition_labels.pop())
+					print("Multiple labels found on transition from " + cycle[i-1] + "' to '" + cycle[i] + "'")
+					transition_cycle += list(transition_labels)
 
 			cycles.append(transition_cycle)
 	return cycles
