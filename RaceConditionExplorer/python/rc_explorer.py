@@ -13,6 +13,7 @@ import re
 import sys
 from lts import *
 from VarDependencyGraph import VarDependencyGraph
+from lts.MHSMurakami import HyperGraph
 import time
 
 from help_on_error_argument_parser import HelpOnErrorArgumentParser
@@ -66,11 +67,12 @@ def RCE_get_race_conditions_from_file(path):
 	dep_ltss, locked = get_dependency_ltss(lts)
 	time_dep_ltss = time.time() - start
 	print("Calculating dependency LTSs took " + str(time_dep_ltss))
-	
+
 	# Quickly find un-optimal locks
+	dep_ltss_copy = {frozenset(key): dep_lts.get_copy() for key, dep_lts in dep_ltss.items()}
 	start = time.time()
-	locks = get_race_conditions(dep_ltss, locked)
-	logging.info("locks: %s" % locks)
+	locks = get_race_conditions(dep_ltss_copy, locked)
+	logging.info("Quick locks: %s" % locks)
 	time_quick = time.time() - start
 	print("Quick analysis took " + str(time_quick))
 	
@@ -79,7 +81,7 @@ def RCE_get_race_conditions_from_file(path):
 	cycle_sets = get_cycle_sets(dep_ltss)
 	logging.info("cycle_sets: %s" % cycle_sets)
 	locks = get_minimal_hitting_set(cycle_sets)
-	logging.info("locks: %s" % locks)
+	logging.info("MHS locks: %s" % locks)
 	time_opt = time.time() - start
 	print("Optimal analysis took " + str(time_opt))
 	
@@ -187,14 +189,49 @@ def get_race_conditions(dep_ltss, pre_locked):
 def get_cycle_sets(dep_ltss):
 	cycles = list()
 	for dep_lts in dep_ltss.values():
-		cycles += dep_lts.find_cycles() #TODO: Geert: Implement find_cycles()
+		# Find the cycles in the dependency LTS.
+		found_cycles = dep_lts.find_cycles()
+		logging.info("cycles: %s" % found_cycles)
+
+		# Construct the transition label sets from the cycles.
+		for cycle in found_cycles:
+			transition_cycle = set()
+
+			for i in range(1, len(cycle)):
+				transition_labels = dep_lts.get_labels_of_transition(cycle[i-1], cycle[i])
+
+				if len(transition_labels) == 0:
+					print("No label found on transition from " + cycle[i-1] + "' to '" + cycle[i] + "'")
+					continue
+				elif len(transition_labels) == 1:
+					transition_cycle.add(transition_labels.pop())
+				else:
+					print("Multiple labels found on transition from " + cycle[i-1] + "' to '" + cycle[i] + "'")
+					transition_cycle += list(transition_labels)
+
+			cycles.append(transition_cycle)
 	return cycles
 
 
 def get_minimal_hitting_set(sets):
-	mhs = set() # minimal hitting set
-	# TODO: Geert: apply Hitting set problem algorithm to find smallest set of locks
-	return mhs
+	if not sets:
+		return set()
+
+	# Run the minimal hitting set algorithm.
+	graph = HyperGraph(sets)
+	mhss = graph.mmcs()
+
+	# No minimal hitting set has been found.
+	if not mhss:
+		return None
+
+	# Select the minimal hitting set of the smallest length.
+	smallest = mhss[0]
+	for mhs in mhss:
+		if len(mhs) < len(smallest):
+			smallest = mhs
+
+	return smallest
 	
 	
 def LTS_remove_peek(my_lts):
