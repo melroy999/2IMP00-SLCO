@@ -1,5 +1,5 @@
 # The elementary circuit detection algorithm presented by Johnson.
-
+from lts.SCCTarjan import identifySCCs
 
 class Vertex:
     """
@@ -88,6 +88,8 @@ class Graph:
                 self.edges_outgoing[v].append(w)
                 self.edges_incoming[w].append(v)
 
+        self.vertices = sorted(self.vertices, key=lambda v: v.id)
+
     def __len__(self):
         return len(self.vertices)
 
@@ -164,20 +166,26 @@ def find_circuits(dependency_graph):
     # The collection of circuits that have been found.
     circuits = []
 
-    # Construct a graph instance from the provided dependency graph.
-    graph = Graph(dependency_graph)
+    sscs = []
+    identifySCCs(dependency_graph, {}, sscs)
 
-    while len(graph) > 1:
-        # Select a starting vertex.
-        s = graph.start()
+    for ssc in sscs:
+        if ssc[0] <= 1:
+            continue
 
-        # Remove the blockage of all the vertices in the graph.
-        graph.reset_block()
+        graph = Graph(ssc[1])
 
-        # Get the circuits in the graph.
-        circuits += graph.circuit(s)
+        while len(graph) > 1:
+            # Select a starting vertex.
+            s = graph.start()
 
-        # Remove the vertex from the graph and remove any edges to/from that vertex.
-        graph.remove_vertex(s)
+            # Remove the blockage of all the vertices in the graph.
+            graph.reset_block()
+
+            # Get the circuits in the graph.
+            circuits += graph.circuit(s)
+
+            # Remove the vertex from the graph and remove any edges to/from that vertex.
+            graph.remove_vertex(s)
 
     return [[vertex.id for vertex in circuit] for circuit in circuits]
