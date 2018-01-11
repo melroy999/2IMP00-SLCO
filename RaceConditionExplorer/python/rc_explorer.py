@@ -201,13 +201,13 @@ def get_cycle_sets(dep_ltss):
 				transition_labels = dep_lts.get_labels_of_transition(cycle[i-1], cycle[i])
 
 				if len(transition_labels) == 0:
-					print("No label found on transition from " + cycle[i-1] + "' to '" + cycle[i] + "'")
+					logging.warning("No label found on transition from " + cycle[i-1] + "' to '" + cycle[i] + "'")
 					continue
-				elif len(transition_labels) == 1:
-					transition_cycle.add(transition_labels.pop())
-				else:
-					print("Multiple labels found on transition from " + cycle[i-1] + "' to '" + cycle[i] + "'")
-					transition_cycle += list(transition_labels)
+				elif len(transition_labels) > 1:
+					logging.warning(
+						"Multiple labels found on transition from " + cycle[i - 1] + "' to '" + cycle[i] + "'")
+
+				transition_cycle |= transition_labels
 
 			cycles.append(transition_cycle)
 	return cycles
