@@ -148,7 +148,7 @@ class Graph:
         for scc in sccs:
             graph = self.shallow_copy()
 
-            for v in graph.vertices:
+            for v in list(graph.vertices):
                 # This vertex in the original graph is not part of the SCC. It must be removed.
                 if v.id not in scc:
                     graph.remove_vertex(v)
