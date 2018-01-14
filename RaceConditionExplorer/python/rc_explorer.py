@@ -187,7 +187,7 @@ def get_race_conditions(dep_ltss, pre_locked):
 
 
 def get_cycle_sets(dep_ltss):
-	cycles = list()
+	cycles = set()
 	for dep_lts in dep_ltss.values():
 		# Find the cycles in the dependency LTS.
 		found_cycles = dep_lts.find_cycles()
@@ -195,21 +195,20 @@ def get_cycle_sets(dep_ltss):
 
 		# Construct the transition label sets from the cycles.
 		for cycle in found_cycles:
-			transition_cycle = set()
+			transition_cycle = list()
 
 			for i in range(1, len(cycle)):
 				transition_labels = dep_lts.get_labels_of_transition(cycle[i-1], cycle[i])
 
 				if len(transition_labels) == 0:
 					logging.warning("No label found on transition from " + cycle[i-1] + "' to '" + cycle[i] + "'")
-					continue
 				elif len(transition_labels) > 1:
 					logging.warning(
 						"Multiple labels found on transition from " + cycle[i - 1] + "' to '" + cycle[i] + "'")
 
-				transition_cycle |= transition_labels
+				transition_cycle += transition_labels
 
-			cycles.append(transition_cycle)
+			cycles.add(frozenset(transition_cycle))
 	return cycles
 
 
@@ -224,6 +223,8 @@ def get_minimal_hitting_set(sets):
 	# No minimal hitting set has been found.
 	if not mhss:
 		return None
+
+	logging.info("MHSs: %s" % mhss)
 
 	# Select the minimal hitting set of the smallest length.
 	smallest = mhss[0]
