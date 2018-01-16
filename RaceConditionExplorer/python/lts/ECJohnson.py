@@ -1,6 +1,20 @@
 # The elementary circuit detection algorithm presented by Johnson.
 from lts.SCCTarjan import identifySCCs
 
+
+def find_sccs(dependency_graph):
+    sscs = []
+    identifySCCs(dependency_graph, {}, sscs)
+
+    result = []
+    for ssc in sscs:
+        if ssc[0] <= 1:
+            continue
+        else:
+            result.append(ssc[1])
+    return result
+
+
 class Vertex:
     """
     This class represents a vertex of a graph.
@@ -93,6 +107,18 @@ class Graph:
     def __len__(self):
         return len(self.vertices)
 
+    def as_dependency_graph(self):
+        """Returns this graph as a dependency graph structure. However, the transition labels are lost."""
+        return {v.id: {w.id: set() for w in self.edges_outgoing[v]} for v in self.vertices}
+
+    def shallow_copy(self):
+        """Returns a shallow copy of this graph. The references to the vertex instances are kept."""
+        graph = Graph({})
+        graph.vertices = list(self.vertices)
+        graph.edges_outgoing = {key: list(value) for key, value in self.edges_outgoing.items()}
+        graph.edges_incoming = {key: list(value) for key, value in self.edges_incoming.items()}
+        return graph
+
     def start(self):
         """Returns the start vertex (smallest index) of the graph."""
         return self.vertices[0] if len(self.vertices) > 0 else None
@@ -113,6 +139,22 @@ class Graph:
         for w in self.edges_incoming[v]:
             self.edges_outgoing[w].remove(v)
         del self.edges_incoming[v]
+
+    def get_sccs(self):
+        """Returns a collection of Graph instances that represent the strongly connected components of this graph."""
+        sccs = find_sccs(self.as_dependency_graph())
+
+        result = []
+        for scc in sccs:
+            graph = self.shallow_copy()
+
+            for v in list(graph.vertices):
+                # This vertex in the original graph is not part of the SCC. It must be removed.
+                if v.id not in scc:
+                    graph.remove_vertex(v)
+
+            result.append(graph)
+        return result
 
     def circuit(self, s):
         """Returns the circuits of the graph that start at the `s' vertex."""
@@ -163,29 +205,32 @@ def find_circuits(dependency_graph):
     first and last vertex are the same.
     """
 
-    # The collection of circuits that have been found.
-    circuits = []
+    def _find_circuits(graph):
+        # The collection of circuits that have been found.
+        found_circuits = []
 
-    sscs = []
-    identifySCCs(dependency_graph, {}, sscs)
+        for scc in graph.get_sccs():
+            if len(scc) <= 1:
+                continue
 
-    for ssc in sscs:
-        if ssc[0] <= 1:
-            continue
-
-        graph = Graph(ssc[1])
-
-        while len(graph) > 1:
             # Select a starting vertex.
-            s = graph.start()
+            s = scc.start()
 
             # Remove the blockage of all the vertices in the graph.
-            graph.reset_block()
+            scc.reset_block()
 
             # Get the circuits in the graph.
-            circuits += graph.circuit(s)
+            found_circuits += scc.circuit(s)
 
             # Remove the vertex from the graph and remove any edges to/from that vertex.
-            graph.remove_vertex(s)
+            scc.remove_vertex(s)
+
+            # Check the sub graph again after removing the starting vertex.
+            found_circuits += _find_circuits(scc)
+
+        return found_circuits
+
+    graph = Graph(dependency_graph)
+    circuits = _find_circuits(graph)
 
     return [[vertex.id for vertex in circuit] for circuit in circuits]
