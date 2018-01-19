@@ -54,7 +54,11 @@ class HyperGraph:
 
             if edge in _uncov:
                 _uncov.remove(edge)
-                _crit.get(v, []).append(edge)
+
+                if not v in _crit:
+                    _crit[v] = []
+
+                _crit[v].append(edge)
 
         return (_crit, _uncov)
 
@@ -64,7 +68,7 @@ class HyperGraph:
 
         def _not_redundant(subset, v):
             for vertex in subset:
-                if is_empty(self.crit(subset | {v}, vertex)):
+                if is_empty(self.crit(subset | {v}, vertex).edges):
                     return False
             return True
 
