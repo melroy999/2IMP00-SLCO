@@ -14,6 +14,7 @@ this_folder = dirname(__file__)
 
 check_variables = False
 check_sequences = False
+check_simple = False
 
 # set of actions in model
 actions = set([])
@@ -75,7 +76,7 @@ def printstatement(s):
 	elif s.__class__.__name__ == "Primary":
 		result += s.sign
 		if s.sign == "not":
-			result += "("
+			result += " "
 		if s.value != None:
 			newvalue = s.value
 			result += str(newvalue).lower()
@@ -85,8 +86,6 @@ def printstatement(s):
 				result += "[" + printstatement(s.ref.index) + "]"
 		else:
 			result += '(' + printstatement(s.body) + ')'
-		if s.sign == "not":
-			result += ")"
 	elif s.__class__.__name__ == "VariableRef":
 		result += s.var.name
 		if s.index != None:
@@ -113,9 +112,9 @@ def variabledeclarations(s, indent):
 		if s[i].defvalue != None or s[i].defvalues != []:
 			output += " := "
 			if s[i].defvalue != None:
-				output += s[i].defvalue
+				output += str(s[i].defvalue)
 			else:
-				output += s[i].defvalues
+				output += str(s[i].defvalues)
 	if output != "":
 		output += "\n"
 		for i in range (0,indent):
@@ -218,7 +217,7 @@ def check_vars(m):
 		for sm in c.statemachines:
 			newvars = []
 			for v in sm.variables:
-				if v in smvars_referenced[c][sm]:
+				if v.name in smvars_referenced[c][sm]:
 					newvars.append(v)
 			for v in newsmvars.get(sm,set([])):
 				newvars.append(v)
@@ -339,14 +338,156 @@ def combine_trans(m):
 	# 					removestates.add(transdict[s].target)
 	# 					transdict[s].target = transdict[transdict[s].target].target
 
+def make_simple(m):
+	"""Make the given SLCO model simple, i.e., up to one statement per transition"""
+	for c in m.classes:
+		for sm in c.statemachines:
+			newstatecount = 0
+			for tr in sm.transitions:
+				if len(tr.statements) > 1:
+					newtransitions = []
+					target = tr.target
+					snew1 = copy(tr.target)
+					snew1.name = "SimpleState" + str(newstatecount)
+					newstatecount += 1
+					sm.states.append(snew1)
+					tr.target = snew1
+					for i in range(1,len(tr.statements)):
+						trnew = copy(tr)
+						if i < len(tr.statements)-1:
+							snew2 = copy(tr.target)
+							snew2.name = "SimpleState" + str(newstatecount)
+							newstatecount += 1
+							sm.states.append(snew2)
+						else:
+							snew2 = target
+						trnew.source = snew1
+						trnew.target = snew2
+						trnew.statements = [tr.statements[i]]
+						trnew.priority = 0
+						newtransitions.append(trnew)
+						snew1 = snew2
+					# update statement list of tr
+					tr.statements = [tr.statements[0]]
+					# update transition list
+					sm.transitions += newtransitions
 
-def preprocess():
-	"""preprocessing method"""
+def fixvarreferences(s, stm, c, cvar, smvar):
+	"""Fix the variable references of the given statement s. c is the class owning s. stm is the statemachine owning s.
+	cvar and smvar are dictionaries of variables accessable from the statement"""
+	global actions, statemachine, tr
+
+	if s.__class__.__name__ == "Assignment":
+		fixvarreferences(s.left,stm,c,cvar,smvar)
+		fixvarreferences(s.right,stm,c,cvar,smvar)
+	elif s.__class__.__name__ == "Composite":
+		if s.guard != None:
+			fixvarreferences(s.guard,stm,c,cvar,smvar)
+		for a in s.assignments:
+			fixvarreferences(a,stm,c,cvar,smvar)
+	elif s.__class__.__name__ == "ReceiveSignal":
+		for p in s.params:
+			fixvarreferences(p,stm,c,cvar,smvar)
+		if s.guard != None:
+			fixvarreferences(s.guard,stm,c,cvar,smvar)
+	elif s.__class__.__name__ == "SendSignal":
+		for p in s.params:
+			fixvarreferences(p,stm,c,cvar,smvar)
+	elif s.__class__.__name__ == "VariableRef":
+		if s.var not in cvar[c]:
+			if s.var not in smvar[c][stm]:
+				found = False
+				for v in smvar[c][stm]:
+					if s.var.name == v.name:
+						s.var = v
+						found = True
+						break
+				if not found:
+					for v in cvar[c]:
+						if s.var.name == v.name:
+							s.var = v
+							found = True
+							break
+				if not found:
+					print("Error: reference to unknown variable!: " + s.var.name)
+					sys.exit(1)
+	elif s.__class__.__name__ == "Delay":
+		return
+	elif s.__class__.__name__ != "Primary":
+		fixvarreferences(s.left,stm,c,cvar,smvar)
+		if s.op != '':
+			fixvarreferences(s.right,stm,c,cvar,smvar)
+	else:
+		if s.ref != None:
+			if s.ref.ref not in actions:
+				found = False
+				for v in smvar[c][stm]:
+					if s.ref.ref == v.name:
+						found = True
+						break
+				if not found:
+					for v in cvar[c]:
+						if s.ref.ref == v.name:
+							found = True
+							break
+				if not found:
+					print("Error: reference found to unknown action or variable!: " + s.ref.ref)
+					sys.exit(1)
+
+def typecheck():
 	global model, actions, statemachine, tr
+	"""Type check (and fix) the given model"""
+	global model
+	# Class names are all unique
+	tmp = set([])
+	for c in model.classes:
+		if c.name in tmp:
+			print("Error: presence of multiple classes with the same name!")
+			sys.exit(1)
+		tmp.add(c.name)
+	# Object names are all unique
+	tmp = set([])
+	for o in model.objects:
+		if o.name in tmp:
+			print("Error: presence of multiple objects with the same name!")
+			sys.exit(1)
+		tmp.add(o.name)
+	# State machine names in the same class are all unique
+	for c in model.classes:
+		tmp = set([])
+		for sm in c.statemachines:
+			if sm.name in tmp:
+				print("Error: presence of multiple state machines with the same name in an object!")
+				sys.exit(1)
+			tmp.add(sm.name)
+	# Channel names are all unique
+	tmp = set([])
+	for ch in model.channels:
+		if ch.name in tmp:
+			print("Error: presence of multiple channels with the same name!")
+			sys.exit(1)
+		tmp.add(ch.name)
+	# Variable names in the same class are all unique
+	for c in model.classes:
+		tmp = set([])
+		for v in c.variables:
+			if v.name in tmp:
+				print("Error: presence of multiple variables with the same name in an object!")
+				sys.exit(1)
+			tmp.add(v.name)
+	# Variable names in the same statemachine are all unique
+	for c in model.classes:
+		for sm in c.statemachines:
+			tmp = set([])
+			for v in sm.variables:
+				if v.name in tmp:
+					print("Error: presence of multiple variables with the same name in a state machine!")
+					sys.exit(1)
+				tmp.add(v.name)
 	# build set of actions
 	actions = set([])
 	for a in model.actions:
-		actions.add(a)
+		actions.add(a.name)
 	# build dictionaries providing for a given statement the state machine and transition owning it
 	for c in model.classes:
 		for stm in c.statemachines:
@@ -354,6 +495,12 @@ def preprocess():
 				for stat in trn.statements:
 					statemachine[stat] = stm
 					tr[stat] = trn
+
+	# FIXES DUE TO LIMITATIONS OF TEXTX
+	# for each state machine, add the initial state to its list of states
+	for c in model.classes:
+		for stm in c.statemachines:
+			stm.states = [stm.initialstate] + stm.states
 	# fill in types of variables
 	for c in model.classes:
 		for i in range(0,len(c.variables)):
@@ -363,6 +510,51 @@ def preprocess():
 			for i in range(0,len(sm.variables)):
 				if sm.variables[i].type == None:
 					sm.variables[i].type = sm.variables[i-1].type
+	# fix wrong references from transitions to states (scope errors)
+	for c in model.classes:
+		for sm in c.statemachines:
+			sdict = {}
+			for s in sm.states:
+				sdict[s.name] = s
+			for tr in sm.transitions:
+				if tr.source != sdict[tr.source.name]:
+					tr.source = sdict[tr.source.name]
+				if tr.target != sdict[tr.target.name]:
+					tr.target = sdict[tr.target.name]
+	# fix wrong references of VariableRefs and Initialisations (in cases where multiple variables have the same name)
+	cvar = {}
+	smvars = {}
+	for c in model.classes:
+		cvar[c] = set([])
+		smvars[c] = {}
+		for v in c.variables:
+			cvar[c].add(v)
+		for sm in c.statemachines:
+			smvars[c][sm] = set([])
+			for v in sm.variables:
+				smvars[c][sm].add(v)
+	for o in model.objects:
+		for init in o.assignments:
+			if init.left not in cvar[o.type]:
+				found = False
+				for v in cvar[o.type]:
+					if init.left.name == v.name:
+						init.left = v
+						found = True
+						break
+				if not found:
+					print("Error: initialisation reference to unknown variable!: " + init.left.name)
+					sys.exit(1)
+	for c in model.classes:
+		for sm in c.statemachines:
+			varset = set([])
+			for v in c.variables:
+				varset.add(v)
+			for v in sm.variables:
+				varset.add(v)
+			for tr in sm.transitions:
+				for st in tr.statements:
+					fixvarreferences(st,sm,c,cvar,smvars)
 
 def translate():
 	"""The translation function"""
@@ -389,6 +581,8 @@ def translate():
 		check_vars(model)
 	if check_sequences:
 		combine_trans(model)
+	if check_simple:
+		make_simple(model)
 	# load the SLCO template
 	template = jinja_env.get_template('slco.jinja2template')
 	out = template.render(model=model)
@@ -398,7 +592,7 @@ def translate():
 
 def main(args):
 	"""The main function"""
-	global modelname, model, check_variables, check_sequences
+	global modelname, model, check_variables, check_sequences, check_simple
 	if len(args) == 0:
 		print("Missing argument: SLCO model")
 		sys.exit(1)
@@ -409,6 +603,7 @@ def main(args):
 			print("Transform an SLCO 2.0 model to an SLCO 2.0 model.")
 			print("")
 			print(" -v                    transform use of variables; remove non-referenced ones and make variables that are not used by multiple state machines state machine-local")
+			print(" -s                    transform an SLCO model to a 'simple' SLCO model (up to one statement per transition)")
 			print(" -c                    combine transitions that model a sequence of statements")
 			sys.exit(0)
 		else:
@@ -417,6 +612,8 @@ def main(args):
 					check_variables = True
 				elif args[i] == '-c':
 					check_sequences = True
+				elif args[i] == '-s':
+					check_simple = True
 				else:
 					modelname = args[i]
 
@@ -445,8 +642,8 @@ def main(args):
 		model = slco_mm.model_from_file(file)
 		print("processing model %s" % basename(file))
 		try:
-			# preprocess model
-			preprocess()
+			# type check
+			typecheck()
 			# translate
 			translate()
 		except Exception:
