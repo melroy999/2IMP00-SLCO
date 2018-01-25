@@ -5,7 +5,7 @@ def peek(stack):
 	return stack[len(stack) - 1]
 
 
-def identifySCCs(L, SCCdict, SCCs):
+def identifySCCs(L, initialstates, SCCdict, SCCs):
 	"""Identify the SCC in L, keep track for each state to which SCC it belongs in 'SCCdict', and store the SCCs in 'SCCs'"""
 	# list of all states
 	states = set(L.keys())
@@ -20,7 +20,7 @@ def identifySCCs(L, SCCdict, SCCs):
 	scc_index = 0
 	scc_count = 0
 	# iterate over all states
-	for s in states:
+	for s in initialstates:
 		if number.get(s) == None:
 			outgoing = L.get(s, {})
 			targets = outgoing.keys()
@@ -78,6 +78,8 @@ def identifySCCs(L, SCCdict, SCCs):
 			scc_newidcount += 1
 		SCCdict[s] = scc_newid
 	# construct the SCCs in 'SCCs'
+	if scc_count == 0:
+		scc_count = 1
 	for j in range(0, scc_count):
 		SCCs.append([0, {}])
 	for s in states:

@@ -793,7 +793,7 @@ def statementstatechanges(s,c):
 			vname = p.var.name
 			output += scopedvars[c.name + "'" + statemachine[s].name][vname]
 			if p.index != None:
-				output += "." + p.index
+				output += ".Int2Nat(" + expression(p.index,statemachine[s],c,{})
 			# in case we are updating a Byte, restrict the new value
 			type = porttypes[c.name + "'" + s.target.name]
 			output += "=x'" + str(pindex)
@@ -1393,6 +1393,17 @@ def preprocess():
 			for trn in stm.transitions:
 				if len(trn.statements) == 0:
 					trn.statements.append("tau'")
+	# fix wrong references from transitions to states (scope errors)
+	for c in model.classes:
+		for sm in c.statemachines:
+			sdict = {}
+			for s in sm.states:
+				sdict[s.name] = s
+			for tr in sm.transitions:
+				if tr.source != sdict[tr.source.name]:
+					tr.source = sdict[tr.source.name]
+				if tr.target != sdict[tr.target.name]:
+					tr.target = sdict[tr.target.name]
 	# build a set of used statemachine names
 	statemachinenames = set([])
 	for c in model.classes:

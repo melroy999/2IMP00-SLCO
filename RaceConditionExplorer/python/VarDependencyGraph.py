@@ -83,7 +83,10 @@ class VarDependencyGraph:
 	def add_scc_locks(self, locked):
 		# convert dependency graph format for Tarjan's SCC algorithm
 		SCCs = list()
-		identifySCCs(self.dependency_graph, dict(), SCCs)
+		L = self.dependency_graph
+		states = set(L.keys())
+		states |= {tgt for outgoing in L.values() for tgt in outgoing.keys()}
+		identifySCCs(L, states, dict(), SCCs)
 		for scc in SCCs:
 			if scc[0] <= 1:
 				continue
