@@ -800,7 +800,7 @@ def mcrl2_accesspattern(s, o, b):
 				else:
 					occurrences.add(v_splitted[0])
 	if found:
-		output += "sorted("
+		output += "sorted_array_accesses("
 	output += "["
 	first = True
 	for v in sorted_access:
@@ -825,7 +825,7 @@ def mcrl2_accesspattern(s, o, b):
 				else:
 					occurrences.add(v_splitted[0])
 	if found:
-		output += "sorted("
+		output += "sorted_array_accesses("
 	output += "["
 	first = True
 	for v in sorted_access:
