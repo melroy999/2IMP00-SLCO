@@ -400,9 +400,7 @@ def expression_usedvars_scan(s,stm,c):
 		if s.ref != None:
 			print(s.ref.ref)
 			if s.ref.ref not in actions:
-				print(scopedvars)
 				output.add(scopedvars[c.name + "'" + stm.name][s.ref.ref])
-				print(output)
 				if s.ref.index != None:
 					output |= expression_usedvars_scan(s.ref.index,stm,c)
 	return output
@@ -522,9 +520,7 @@ def statement_condition_varlist(s):
 			result += ", ch'size: Int, ch_max: Int"
 		if s.__class__.__name__ == "ReceiveSignal":
 			if s.guard != None:
-				print("here")
 				vlist = expression_usedvars(s.guard, statemachine[s], smclass[statemachine[s]], smclass[statemachine[s]])
-				print("output: " + str(vlist))
 				for v in vlist:
 					result += " # " + v + ": " + mcrl2type(vartypes[v]) 
 	elif s.__class__.__name__ == "Composite":
@@ -788,12 +784,12 @@ def mcrl2_accesspattern(s, o, b):
 	output = "AP'("
 	sorted_access = sorted(list(access[0]))
 	# if the list requires dynamic sorting (it contains more than one dynamic accesses to an array), indicate this
-	occcurrences = set([])
+	occurrences = set([])
 	found = False
 	for v in sorted_access:
-		v_splitted = v.split(".Int2Nat(")
+		v_splitted = v.split("(Int2Nat(")
 		if len(v_splitted) > 1:
-			if not RepresentsInt(v_splitted[1][:-1]):
+			if not RepresentsInt(v_splitted[1][:-2]):
 				if v_splitted[0] in occurrences:
 					found = True
 					break
@@ -814,11 +810,12 @@ def mcrl2_accesspattern(s, o, b):
 		output += ")"
 	output += ", "
 	sorted_access = sorted(list(access[1]))
+	occurrences = set([])
 	found = False
 	for v in sorted_access:
-		v_splitted = v.split(".Int2Nat(")
+		v_splitted = v.split("(Int2Nat(")
 		if len(v_splitted) > 1:
-			if not RepresentsInt(v_splitted[1][:-1]):
+			if not RepresentsInt(v_splitted[1][:-2]):
 				if v_splitted[0] in occurrences:
 					found = True
 					break
@@ -1000,10 +997,10 @@ def identify_safe_unsafe_statements(m):
 				imprecise_seen = set([])
 				for v in statement_access[o][st][i]:
 					varname = v
-					if v.find('.Int2Nat(') != -1:
-						varname, varindex = v.split('.Int2Nat(')
+					if v.find('(Int2Nat(') != -1:
+						varname, varindex = v.split('(Int2Nat(')
 						# get index
-						varindex = varindex[:-1]
+						varindex = varindex[:-2]
 						if RepresentsInt(varindex):
 							occset = newaccess[i][1].get(varname,set([]))
 							occset.add(varindex)
@@ -1140,8 +1137,29 @@ def identify_safe_unsafe_statements(m):
 				if o in classobjects:
 					ap = statement_access[o][st]
 					break
-			unsafe_variables |= ap[0]
-			unsafe_variables |= ap[1]
+			# add all elements of the read and write set, making sure to make dynamic array accesses static (to all cells in the array)
+			for i in range(0,2):
+				for v in ap[i]:
+					v_splitted = v.split("(Int2Nat(")
+					if len(v_splitted) > 1:
+						if not RepresentsInt(v_splitted[1][:-2]):
+							# look up array, and add all its cells
+							o1, v1 = v_splitted[0].split("'")
+							found = False
+							for o in model.objects:
+								if o.name == o1:
+									for v2 in o.type.variables:
+										if v2.name == v1:
+											for j in range(0,v2.type.size):
+												unsafe_variables.add(v_splitted[0] + "(Int2Nat(" + str(i) + "))")
+											found = True
+											break
+								if found:
+									break
+						else:
+							unsafe_variables.add(v)
+					else:
+						unsafe_variables.add(v)
 		# make unsafe_variables a sorted list
 		unsafe_variables = sorted(list(unsafe_variables))
 

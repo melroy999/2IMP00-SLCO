@@ -61,7 +61,7 @@ eqn (i >= #li) -> update(li,i,vi) = li;
 % *** VARIABLE NAMES ***
 
 sort Var;
-cons {% for v in sorted_variables|select("hasnoindex") %}{{', ' if not loop.first }}{{mcrl2varprefix}}{{v[1]}}{% endfor %}: Var;
+cons {% for v in sorted_variables|select("hasnoindex") %}{{', ' if not loop.first }}{{mcrl2varprefix}}{{v[1]}}{': Var;' if loop.last }{% endfor %}
 {% for v in sorted_variables|select("hasindex") %}{% if loop.first %}     {% else %}, {% endif %}{{mcrl2varprefix}}{{v[1]}}{% endfor %}: Nat -> Var;
 map var_index: Var -> Nat;
 var v1, v2: Var, n': Nat;
@@ -167,12 +167,12 @@ map smallerlist: Var # List(Var) -> List(Var);
 var v': Var, L': List(Var);
 eqn smallerlist(v', []) = [];
 (head(L') < v') -> smallerlist(v', L') = [head(L')] ++ smallerlist(v', tail(L'));
-(v' < head(L')) -> smallerlist(v', L') = smallerlist(v', tail(L'));
+(!(head(L') < v')) -> smallerlist(v', L') = smallerlist(v', tail(L'));
 
 map largerlist: Var # List(Var) -> List(Var);
 var v': Var, L': List(Var);
 eqn largerlist(v', []) = [];
-(head(L') < v') -> largerlist(v', L') = largerlist(v', tail(L'));
+(!(v' < head(L'))) -> largerlist(v', L') = largerlist(v', tail(L'));
 (v' < head(L')) -> largerlist(v', L') = [head(L')] ++ largerlist(v', tail(L'));
 
 % *** FUNCTION TO QUICKLY COMPARE LISTS OF VARIABLES FOR SPECIFIC CONDITIONS ***
