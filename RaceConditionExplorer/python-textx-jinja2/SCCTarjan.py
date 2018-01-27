@@ -76,9 +76,7 @@ def identifySCCs(L, initialstates, SCCdict, SCCs):
 			scc_newidcount += 1
 		SCCdict[s] = scc_newid
 	# construct the SCCs in 'SCCs'
-	if scc_count == 0:
-		scc_count = 1
-	for j in range(0, scc_count):
+	for j in range(0, scc_newidcount):
 		SCCs.append([0, {}])
 	for s in states:
 		sSCC = SCCdict.get(s)

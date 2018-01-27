@@ -585,7 +585,7 @@ def statementstatechanges(s,o):
 		varname = scopedvars[o.type.name + "'" + statemachine[s].name][s.left.var.name]
 		# an assignment to an array cell should be handled differently from other cases
 		if s.left.index != None:
-			output = ", " + o.name + "'" + varname + "=update(" + varname + ",Int2Nat(" + expression(s.left.index,statemachine[s],o.type,{},o) + "),"
+			output = ", " + o.name + "'" + varname + "=update(" + o.name + "'" + varname + ",Int2Nat(" + expression(s.left.index,statemachine[s],o.type,{},o) + "),"
 			# in case we are updating a Byte, restrict the new value
 			eright = expression(s.right,statemachine[s],o.type,{},o)
 			if s.left.var.type.base == 'Byte':
@@ -1110,7 +1110,7 @@ def identify_safe_unsafe_statements(m):
 		for sm in c.statemachines:
 			for tr in sm.transitions:
 				for st in tr.statements:
-					if st not in unsafe_statements:
+					if st not in safe_statements:
 						initialstatements.add(st)
 		identifySCCs(depgraph, initialstatements, {}, SCCs)
 		for scc in SCCs:

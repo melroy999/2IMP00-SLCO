@@ -1,4 +1,4 @@
-actions {% for a in model.actions %}{{a.name}}{{' ' if not loop.last }}{% endfor %}
+{% for a in model.actions %}{{'actions ' if loop.first }}{{a.name}}{{' ' if not loop.last }}{% endfor %}
 
 model {{model.name}} {
   {% for c in model.classes %}
@@ -9,7 +9,7 @@ model {{model.name}} {
     {% for s in c.statemachines %}
     {{'state machines' if loop.first }}
     {{s.name}} {
-      {{s.variables|variabledeclarations(6)}}initial {{s.initialstate.name}} {% for st in s.states %}{{'states' if loop.first }} {{st.name}}{% endfor %}
+      {{s.variables|variabledeclarations(6)}}initial {{s.initialstate.name}} {% for st in s.states %}{{'states' if loop.index0 == 1 }}{% if not loop.first %} {{st.name}}{% endif %}{% endfor %}
 
       {% for tr in s.transitions %}
       {{'transitions' if loop.first }}

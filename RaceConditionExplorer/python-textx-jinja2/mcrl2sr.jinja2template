@@ -61,7 +61,8 @@ eqn (i >= #li) -> update(li,i,vi) = li;
 % *** VARIABLE NAMES ***
 
 sort Var;
-cons {% for v in sorted_variables|select("hasnoindex") %}{{', ' if not loop.first }}{{mcrl2varprefix}}{{v[1]}}{': Var;' if loop.last }{% endfor %}
+cons {% for v in sorted_variables|select("hasnoindex") %}{{', ' if not loop.first }}{{mcrl2varprefix}}{{v[1]}}{{': Var;' if loop.last }}{% endfor %}
+
 {% for v in sorted_variables|select("hasindex") %}{% if loop.first %}     {% else %}, {% endif %}{{mcrl2varprefix}}{{v[1]}}{% endfor %}: Nat -> Var;
 map var_index: Var -> Nat;
 var v1, v2: Var, n': Nat;
