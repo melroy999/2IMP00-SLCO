@@ -59,6 +59,11 @@ safe_statements = set([])
 # unsafe variables are those referenced in unsafe statements
 unsafe_variables = []
 
+# safe statements for POR
+safe_por_statements = set([])
+# conditionally safe statements for POR
+conditionally_safe_por_statements = set([])
+
 # dictionary to look up channel linked to a given (object) statement
 ochannel = {}
 # set of pairs of communicating objects
@@ -1021,13 +1026,71 @@ def mcrl2_write_accesspattern(s, o, b):
 def statement_is_por_safe(s, b):
 	"""Indicate whether the given statement for use in an mCRL2 specification.
 	Boolean b indicates whether the statement should be considered as enabled or not."""
-	global statemachine, smclass
-	c = smclass[statemachine[s]]
+	global safe_por_statements, conditionally_safe_por_statements
 	if b:
-		access = statement_accesspattern(s, c)
+		return s in safe_por_statements
 	else:
-		access = statement_condition_accesspattern(s, c)
-	return (len(access[0]) == 0 and len(access[1]) == 0)
+		return s in conditionally_safe_por_statements
+
+def peek(stack):
+	"""Return but do not pop top element of stack"""
+	return stack[len(stack) - 1]
+
+def identify_por_safe_statements(model):
+	global statemachine, smclass, safe_por_statements, conditionally_safe_por_statements, trans
+
+	safe_por_statements = set([])
+	conditionally_safe_por_statements = set([])
+	for c in model.classes:
+		for sm in c.statemachines:
+			for tr in sm.transitions:
+				for st in tr.statements:
+					access = statement_accesspattern(st, c)
+					if len(access[0]) == 0 and len(access[1]) == 0:
+						safe_por_statements.add(st)
+					access = statement_condition_accesspattern(st, c)
+					if len(access[0]) == 0:
+						conditionally_safe_por_statements.add(st)
+
+	# explore each state machine, trying to detect cycles consisting of safe transitions. Each time such a cycle is found,
+	# we mark the final transition as 'sticky', by removing it from the set of safe transitions. This, in turn, ensures
+	# a cycle proviso when applying POR.
+	print(safe_por_statements)
+	for c in model.classes:
+		for sm in c.statemachines:
+			states = set([])
+			for s in sm.states:
+				states.add(s)
+			# call stack
+			callstack = []
+			callstack_set = set([])
+			# closed set
+			closed = set([])
+			for s in states:
+				if s not in closed:
+					callstack.append((s, [tr for tr in trans[c][sm][s] if (len(tr.statements) > 0 and tr.statements[0] in safe_por_statements)]))
+					callstack_set.add(s)
+					while len(callstack) > 0:
+						s, transitions = peek(callstack)
+						while len(transitions) > 0:
+							t = peek(transitions)
+							if t.target not in closed and t.target not in callstack_set:
+								# add target state to call stack
+								toutgoing = trans.get(tr.target, [])
+								toutgoing_filtered = [tr for tr in toutgoing if (len(tr.statements) > 0 and tr.statements[0] in safe_por_statements)]
+								callstack.append((tr.target, toutgoing_filtered))
+								callstack_set.add(tr.target)
+								break
+							elif t.target in callstack_set:
+								# we are closing a cycle. Mark this transition as unsafe (sticky)
+								if len(t.statements) > 0:
+									safe_por_statements.remove(t.statements[0])
+							transitions.pop()
+						if len(transitions) == 0:
+							callstack.pop()
+							callstack_set.remove(s)
+							closed.add(s)
+	print(safe_por_statements)
 
 def statement_is_safe(s):
 	"""Returns whether the given statement is safe (w.r.t. race conditions) or not"""
@@ -1576,6 +1639,8 @@ def translate():
 	statement_condition_access = compute_condition_accesspatterns(model)
 	# compute which statements are safe and unsafe
 	identify_safe_unsafe_statements(model)
+	# identify POR safe statements
+	identify_por_safe_statements(model)
 
 	# special case: if no unsafe statements are present, the result is that all variables can remain unlocked
 	if len(unsafe_statements) == 0:
