@@ -303,15 +303,18 @@ map issafe: STID -> Bool;
 {% endfor %}
 {% endfor %}
 
-% *** FUNCTION INDICATING WHETHER A STATEMENT IS UNCONDITIONALLY SAFE (FOR AMPLE-SET POR) OR NOT ***
+% *** FUNCTION INDICATING WHETHER A STATEMENT IS (UN)CONDITIONALLY SAFE (FOR AMPLE-SET POR) OR NOT ***
 
-map por_issafe: STID -> Bool;
-{% for c in model.classes %}
-{% set cloop = loop %}
-{% for stm in c.statemachines %}
+map por_issafe: Object # STID{{model|mcrl2_model_vartypes(True)}} -> Bool;
+var {{model|mcrl2_model_vars_with_types(False)}};
+{% for o in model.objects %}
+{% set oloop = loop %}
+{% for stm in o.type.statemachines %}
 {% set stmloop = loop %}
 {% for tr in stm.transitions %}
-{% if cloop.first and stmloop.first and loop.first %}eqn {% else %}    {% endif %}por_issafe(ST'{{tr._tx_position}}) = {{(tr in POR_safe_transitions)|lower}};
+{% if oloop.first and stmloop.first and loop.first %}eqn {% else %}    {% endif %}{% if tr.statements[0].__class__.__name__ == "Composite" and tr.statements[0].guard != None %}(isenabled({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}})) -> {% endif %}por_issafe({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}) = {{tr.statements[0]|statement_is_por_safe(True)|lower()}};
+{% if tr.statements[0].__class__.__name__ == "Composite" and tr.statements[0].guard != None %}    (!isenabled({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}})) -> por_issafe({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}) = {{tr.statements[0]|statement_is_por_safe(False)|lower()}};
+{% endif %}
 {% endfor %}
 {% endfor %}
 {% endfor %}
@@ -336,11 +339,11 @@ map outgoing: Class # Statemachine # State -> List(STID);
 % *** FUNCTION PROVIDING THE CURRENT LIST OF OUTGOING TRANSITIONS OF THE GIVEN STATEMACHINE ***
 
 map sm_outgoing: Object # Statemachine # OutgoingTransitions -> List(STID);
-var L: OutgoingTransitions;
+var L': OutgoingTransitions;
 {% for o in model.objects %}
 {% set oloop = loop %}
 {% for sm in o.type.statemachines %}
-{% if oloop.first and loop.first %}eqn {% else %}    {% endif %}sm_outgoing({{o.name}}, {{sm.name}}, L) = el'{{o.name}}'{{sm.name}}(L);
+{% if oloop.first and loop.first %}eqn {% else %}    {% endif %}sm_outgoing({{o.name}}, {{sm.name}}, L') = el'{{o.name}}'{{sm.name}}(L');
 {% endfor %}
 {% endfor %}
 
@@ -508,25 +511,26 @@ eqn apply_por(OT'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2
 map apply_por{{oloop.index}}_{{loop.index}}: OutgoingTransitions{{model|mcrl2_model_vartypes(True)}} -> OutgoingTransitions;
 var L': OutgoingTransitions{{model|mcrl2_model_vars_with_types(True)}};
 eqn apply_por{{oloop.index}}_{{loop.index}}(OT'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o2.type.statemachines %}{% set sm2loop = loop %}{{', ' if not (o2loop.first and sm2loop.first) }}[]{% endfor %}{% endfor %}){{model|mcrl2_model_vars(True)}}) = OT'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o2.type.statemachines %}{% set sm2loop = loop %}{{', ' if not (o2loop.first and sm2loop.first) }}[]{% endfor %}{% endfor %});
-    apply_por{{oloop.index}}_{{loop.index}}(L'{{model|mcrl2_model_vars(True)}}) = apply_por{{oloop.index}}_{{loop.index}}_1(L'{{model|mcrl2_model_vars(True)}}, sm_trans_are_ample({{o.name}}, el'{{o.name}}'{{sm.name}}(L'){{model|mcrl2_model_vars(True)}}));
+    apply_por{{oloop.index}}_{{loop.index}}(L'{{model|mcrl2_model_vars(True)}}) = apply_por{{oloop.index}}_{{loop.index}}_1(L'{{model|mcrl2_model_vars(True)}}, sm_trans_are_ample({{o.name}}, el'{{o.name}}'{{sm.name}}(L'){{model|mcrl2_model_vars(True)}}, []));
 
-map apply_por{{oloop.index}}_{{loop.index}}_1: OutgoingTransitions{{model|mcrl2_model_vartypes(True)}} # Bool -> OutgoingTransitions;
-var L': OutgoingTransitions{{model|mcrl2_model_vars_with_types(True)}}, b': Bool;
-eqn apply_por{{oloop.index}}_{{loop.index}}_1(OT'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o2.type.statemachines %}{% set sm2loop = loop %}{{', ' if not (o2loop.first and sm2loop.first) }}[]{% endfor %}{% endfor %}){{model|mcrl2_model_vars(True)}}, b') = OT'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o2.type.statemachines %}{% set sm2loop = loop %}{{', ' if not (o2loop.first and sm2loop.first) }}[]{% endfor %}{% endfor %});
-(el'{{o.name}}'{{sm.name}}(L') != []) -> apply_por{{oloop.index}}_{{loop.index}}_1(L'{{model|mcrl2_model_vars(True)}}, true) = OT'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o2.type.statemachines %}{% set sm2loop = loop %}{{', ' if not (o2loop.first and sm2loop.first) }}{% if o == o2 and sm == sm2 %}el'{{o.name}}'{{sm.name}}(L'){% else %}[]{% endif %}{% endfor %}{% endfor %});
+map apply_por{{oloop.index}}_{{loop.index}}_1: OutgoingTransitions{{model|mcrl2_model_vartypes(True)}} # List(STID) -> OutgoingTransitions;
+var L': OutgoingTransitions{{model|mcrl2_model_vars_with_types(True)}}, LS': List(STID);
+eqn apply_por{{oloop.index}}_{{loop.index}}_1(OT'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o2.type.statemachines %}{% set sm2loop = loop %}{{', ' if not (o2loop.first and sm2loop.first) }}[]{% endfor %}{% endfor %}){{model|mcrl2_model_vars(True)}}, LS') = OT'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o2.type.statemachines %}{% set sm2loop = loop %}{{', ' if not (o2loop.first and sm2loop.first) }}[]{% endfor %}{% endfor %});
+(LS' != []) -> apply_por{{oloop.index}}_{{loop.index}}_1(L'{{model|mcrl2_model_vars(True)}}, LS') = OT'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o2.type.statemachines %}{% set sm2loop = loop %}{{', ' if not (o2loop.first and sm2loop.first) }}{% if o == o2 and sm == sm2 %}LS'{% else %}[]{% endif %}{% endfor %}{% endfor %});
 {% if oloop.last and loop.last %}
-(el'{{o.name}}'{{sm.name}}(L') == [] || !b') -> apply_por{{oloop.index}}_{{loop.index}}_1(L'{{model|mcrl2_model_vars(True)}}, b') = L';
+(LS' == []) -> apply_por{{oloop.index}}_{{loop.index}}_1(L'{{model|mcrl2_model_vars(True)}}, LS') = L';
 {% else %}
-(el'{{o.name}}'{{sm.name}}(L') == [] || !b') -> apply_por{{oloop.index}}_{{loop.index}}_1(L'{{model|mcrl2_model_vars(True)}}, b') = apply_por{% if loop.last %}{{oloop.index+1}}_1{% else %}{{oloop.index}}_{{loop.index+1}}{% endif %}(L'{{model|mcrl2_model_vars(True)}});
+(LS' == []) -> apply_por{{oloop.index}}_{{loop.index}}_1(L'{{model|mcrl2_model_vars(True)}}, LS') = apply_por{% if loop.last %}{{oloop.index+1}}_1{% else %}{{oloop.index}}_{{loop.index+1}}{% endif %}(L'{{model|mcrl2_model_vars(True)}});
 {% endif %}
 
 {% endfor %}
 {% endfor %}
-map sm_trans_are_ample: Object # List(STID){{model|mcrl2_model_vartypes(True)}} -> Bool;
-var o': Object, L': List(STID){{model|mcrl2_model_vars_with_types(True)}};
-eqn sm_trans_are_ample(o', []{{model|mcrl2_model_vars(True)}}) = true;
-(L' != [] && !por_issafe(head(L')) && isenabled(o', head(L'){{model|mcrl2_model_vars(True)}})) -> sm_trans_are_ample(o', L'{{model|mcrl2_model_vars(True)}}) = false;
-(L' != [] && (por_issafe(head(L')) || !isenabled(o', head(L'){{model|mcrl2_model_vars(True)}}))) -> sm_trans_are_ample(o', L'{{model|mcrl2_model_vars(True)}}) = sm_trans_are_ample(o', tail(L'){{model|mcrl2_model_vars(True)}});
+map sm_trans_are_ample: Object # List(STID){{model|mcrl2_model_vartypes(True)}} # List(STID) -> List(STID);
+var o': Object, L1', L2': List(STID){{model|mcrl2_model_vars_with_types(True)}};
+eqn sm_trans_are_ample(o', []{{model|mcrl2_model_vars(True)}}, L2') = L2';
+(L1' != [] && por_issafe(o', head(L1'){{model|mcrl2_model_vars(True)}}) && isenabled(o', head(L1'){{model|mcrl2_model_vars(True)}})) -> sm_trans_are_ample(o', L1'{{model|mcrl2_model_vars(True)}}, L2') = sm_trans_are_ample(o', tail(L1'){{model|mcrl2_model_vars(True)}}, L2' ++ [head(L1')]);
+(L1' != [] && por_issafe(o', head(L1'){{model|mcrl2_model_vars(True)}}) && !isenabled(o', head(L1'){{model|mcrl2_model_vars(True)}})) -> sm_trans_are_ample(o', L1'{{model|mcrl2_model_vars(True)}}, L2') = sm_trans_are_ample(o', tail(L1'){{model|mcrl2_model_vars(True)}}, L2');
+(L1' != [] && !por_issafe(o', head(L1'){{model|mcrl2_model_vars(True)}})) -> sm_trans_are_ample(o', L1'{{model|mcrl2_model_vars(True)}}, L2') = [];
 
 % *** ACTIONS TO REPORT DATA ACCESS PATTERNS ***
 
@@ -577,4 +581,4 @@ proc {{model.name}}({% for o in model.objects %}{% set oloop = loop %}{% for stm
 (watchlist == []) -> lock_all . {{model.name}}();
 {% endif %}
 
-init {{model.name}}({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first) }}{{sm.initialstate.name}}{% endfor %}{% endfor %}{% for o in model.objects %}{% set oloop = loop %}{% for var in o.type.variables %}, {% for vinit in o.assignments %}{% if var.name == vinit.left.name %}{% if vinit.right == None %}[{% for v in vinit.rights %}{{v|mcrl2value}}{{',' if not loop.last }}{% endfor %}]{% else %}{{vinit.right|mcrl2value}}{% endif %}{% break %}{% endif %}{% if loop.last %}{{var|variabledefault}}{% endif %}{% endfor %}{% if o.assignments|length == 0 %}{{var|variabledefault}}{% endif %}{% endfor %}{% for sm in o.type.statemachines %}{% for var in sm.variables %}, {{var|variabledefault}}{% endfor %}{% endfor %}{% endfor %}{% for ch in model.channels %}{% if ch.synctype == 'async' %}, [], 0{% endif %}{% endfor %}, OT'({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first) }}outgoing({{o.type.name}}, {{sm.name}}, {{sm.initialstate.name}}){% endfor %}{% endfor %}), [{% for v in unsafe_variables %}{{', ' if not loop.first }}{{mcrl2varprefix}}{{v}}{% endfor %}], [], [], {% if check_onthefly %}false{% else %}true{% endif %});
+init {{model.name}}({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first) }}{{sm.initialstate.name}}{% endfor %}{% endfor %}{% for o in model.objects %}{% set oloop = loop %}{% for var in o.type.variables %}, {% for vinit in o.assignments %}{% if var.name == vinit.left.name %}{% if vinit.right == None %}[{% for v in vinit.rights %}{{v|mcrl2value}}{{',' if not loop.last }}{% endfor %}]{% else %}{{vinit.right|mcrl2value}}{% endif %}{% break %}{% endif %}{% if loop.last %}{{var|variabledefault}}{% endif %}{% endfor %}{% if o.assignments|length == 0 %}{{var|variabledefault}}{% endif %}{% endfor %}{% for sm in o.type.statemachines %}{% for var in sm.variables %}, {{var|variabledefault}}{% endfor %}{% endfor %}{% endfor %}{% for ch in model.channels %}{% if ch.synctype == 'async' %}, [], 0{% endif %}{% endfor %}, {% if apply_por %}apply_por({% endif %}OT'({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first) }}outgoing({{o.type.name}}, {{sm.name}}, {{sm.initialstate.name}}){% endfor %}{% endfor %}){% if apply_por %}{% for o in model.objects %}{% set oloop = loop %}{% for var in o.type.variables %}, {% for vinit in o.assignments %}{% if var.name == vinit.left.name %}{% if vinit.right == None %}[{% for v in vinit.rights %}{{v|mcrl2value}}{{',' if not loop.last }}{% endfor %}]{% else %}{{vinit.right|mcrl2value}}{% endif %}{% break %}{% endif %}{% if loop.last %}{{var|variabledefault}}{% endif %}{% endfor %}{% if o.assignments|length == 0 %}{{var|variabledefault}}{% endif %}{% endfor %}{% for sm in o.type.statemachines %}{% for var in sm.variables %}, {{var|variabledefault}}{% endfor %}{% endfor %}{% endfor %}{% for ch in model.channels %}{% if ch.synctype == 'async' %}, [], 0{% endif %}{% endfor %}){% endif %}, [{% for v in unsafe_variables %}{{', ' if not loop.first }}{{mcrl2varprefix}}{{v}}{% endfor %}], [], [], {% if check_onthefly %}false{% else %}true{% endif %});

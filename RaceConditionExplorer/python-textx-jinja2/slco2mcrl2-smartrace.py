@@ -56,9 +56,6 @@ synctypes = set([])
 unsafe_statements = set([])
 safe_statements = set([])
 
-# Safe statements for Ample-set POR
-POR_safe_transitions = set([])
-
 # unsafe variables are those referenced in unsafe statements
 unsafe_variables = []
 
@@ -1021,6 +1018,17 @@ def mcrl2_write_accesspattern(s, o, b):
 	output += "}"
 	return output
 
+def statement_is_por_safe(s, b):
+	"""Indicate whether the given statement for use in an mCRL2 specification.
+	Boolean b indicates whether the statement should be considered as enabled or not."""
+	global statemachine, smclass
+	c = smclass[statemachine[s]]
+	if b:
+		access = statement_accesspattern(s, c)
+	else:
+		access = statement_condition_accesspattern(s, c)
+	return (len(access[0]) == 0 and len(access[1]) == 0)
+
 def statement_is_safe(s):
 	"""Returns whether the given statement is safe (w.r.t. race conditions) or not"""
 	global safe_statements
@@ -1302,18 +1310,6 @@ def identify_safe_unsafe_statements(m):
 		# make unsafe_variables a sorted list
 		unsafe_variables = sorted(list(unsafe_variables))
 
-def identify_POR_safe_transitions(m):
-	"""Identify safe transitions of Ample-set POR"""
-	global POR_safe_transitions, statement_access
-
-	for c in m.classes:
-		for sm in c.statemachines:
-			for tr in sm.transitions:
-				for st in tr.statements:
-					ap = statement_accesspattern(st, c)
-					if len(ap[0]) == 0 and len(ap[1]) == 0:
-						POR_safe_transitions.add(tr)
-
 def preprocess():
 	"""preprocessing method"""
 	global model, statemachinenames, statemachine, trowner, smlocalvars, states, actions, class_sync_receives, class_sync_sends, trans, smclass, channeltypes, asynclosslesstypes, asynclossytypes, synctypes, porttypes, ochannel, vartypes, object_sync_commpairs, syncing_statements, sorted_variables
@@ -1531,7 +1527,7 @@ def preprocess():
 
 def translate():
 	"""The translation function"""
-	global model, modelname, statemachinenames, statemachine, tr, smlocalvars, states, actions, class_receives, class_sends, vartypes, mcrl2varprefix, channeltypes, asynclossytypes, asynclosslesstypes, synctypes, statement_access, statement_condition_access, unsafe_statements, object_sync_commpairs, syncing_statements, check_onthefly, lock_onthefly, apply_por, sorted_variables, unsafe_variables, POR_safe_transitions
+	global model, modelname, statemachinenames, statemachine, tr, smlocalvars, states, actions, class_receives, class_sends, vartypes, mcrl2varprefix, channeltypes, asynclossytypes, asynclosslesstypes, synctypes, statement_access, statement_condition_access, unsafe_statements, object_sync_commpairs, syncing_statements, check_onthefly, lock_onthefly, apply_por, sorted_variables, unsafe_variables
 	
 	path, name = split(modelname)
 	if name.endswith('.slco'):
@@ -1562,6 +1558,7 @@ def translate():
 	jinja_env.filters['hasobjectvariables'] = hasobjectvariables
 	jinja_env.filters['hascondition'] = hascondition
 	jinja_env.filters['statement_is_safe'] = statement_is_safe
+	jinja_env.filters['statement_is_por_safe'] = statement_is_por_safe
 	jinja_env.filters['mcrl2_accesspattern'] = mcrl2_accesspattern
 	jinja_env.filters['mcrl2_read_accesspattern'] = mcrl2_read_accesspattern
 	jinja_env.filters['mcrl2_write_accesspattern'] = mcrl2_write_accesspattern
@@ -1579,8 +1576,6 @@ def translate():
 	statement_condition_access = compute_condition_accesspatterns(model)
 	# compute which statements are safe and unsafe
 	identify_safe_unsafe_statements(model)
-	# identify unconditionally safe transitions for Ample-set POR
-	identify_POR_safe_transitions(model)
 
 	# special case: if no unsafe statements are present, the result is that all variables can remain unlocked
 	if len(unsafe_statements) == 0:
@@ -1591,7 +1586,7 @@ def translate():
 	# produce_summands(model)
 	# load the mCRL2 template
 	template = jinja_env.get_template('mcrl2sr.jinja2template')
-	out = template.render(model=model, statemachinenames=statemachinenames, states=states, vartypes=vartypes, mcrl2varprefix=mcrl2varprefix, channeltypes=channeltypes, asynclosslesstypes=asynclosslesstypes, asynclossytypes=asynclossytypes, synctypes=synctypes, trans=trans, ochannel=ochannel, object_sync_commpairs=object_sync_commpairs, syncing_statements=syncing_statements, transowner=trowner, statemachine=statemachine, check_onthefly=check_onthefly, lock_onthefly=lock_onthefly, apply_por=apply_por, sorted_variables=sorted_variables, unsafe_variables=unsafe_variables, POR_safe_transitions=POR_safe_transitions)
+	out = template.render(model=model, statemachinenames=statemachinenames, states=states, vartypes=vartypes, mcrl2varprefix=mcrl2varprefix, channeltypes=channeltypes, asynclosslesstypes=asynclosslesstypes, asynclossytypes=asynclossytypes, synctypes=synctypes, trans=trans, ochannel=ochannel, object_sync_commpairs=object_sync_commpairs, syncing_statements=syncing_statements, transowner=trowner, statemachine=statemachine, check_onthefly=check_onthefly, lock_onthefly=lock_onthefly, apply_por=apply_por, sorted_variables=sorted_variables, unsafe_variables=unsafe_variables)
 	# write mCRL2 spec
 	outFile.write(out)
 	outFile.close()
