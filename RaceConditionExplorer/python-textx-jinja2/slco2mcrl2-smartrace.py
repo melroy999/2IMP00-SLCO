@@ -56,6 +56,9 @@ synctypes = set([])
 unsafe_statements = set([])
 safe_statements = set([])
 
+# Safe statements for Ample-set POR
+POR_safe_transitions = set([])
+
 # unsafe variables are those referenced in unsafe statements
 unsafe_variables = []
 
@@ -668,6 +671,147 @@ def sync_statementstatechanges(s_rcv,o_rcv,s_snd,o_snd):
 		output += ", " + o_rcv.name + "'" + key + "=" + value
 	return output
 
+def complete_newstate(s, o):
+	"""Produce the complete new state after executing the given statement s, with owner o"""
+	global porttypes, vardict, scopedvars, statemachine, ochannel
+	# dictionary with changes
+	statechanges = {}
+	if s.__class__.__name__ == "Assignment":
+		varname = scopedvars[o.type.name + "'" + statemachine[s].name][s.left.var.name]
+		# an assignment to an array cell should be handled differently from other cases
+		if s.left.index != None:
+			output = "update(" + o.name + "'" + varname + ",Int2Nat(" + expression(s.left.index,statemachine[s],o.type,{},o) + "),"
+			# in case we are updating a Byte, restrict the new value
+			eright = expression(s.right,statemachine[s],o.type,{},o)
+			if s.left.var.type.base == 'Byte':
+				eright = "(" + eright + ") mod 256"
+			output += eright + ")"
+		else:
+			eright = expression(s.right,statemachine[s],o.type,{},o)
+			if s.left.var.type.base == 'Byte':
+				eright = "(" + eright + ") mod 256"
+			output = eright
+		statechanges[o.name + "'" + varname] = output
+	elif s.__class__.__name__ == "Composite":
+		# first build vardict for sequence of assignments
+		vardict = {}
+		for e in s.assignments:
+			newright = expression(e.right,statemachine[s],o.type,vardict,o)
+			# in case we are updating a Byte, restrict the new value
+			if e.left.var.type.base == 'Byte':
+				newright = "(" + newright + ") mod 256"
+			varname = scopedvars[o.type.name + "'" + statemachine[s].name][e.left.var.name]
+			if e.left.index != None:
+				vardict[varname] = "update(" + expression(e.left.var,statemachine[s],o.type,vardict,o) + ",Int2Nat(" + expression(e.left.index,statemachine[s],o.type,vardict,o) + ")," + newright + ")"
+			else:
+				vardict[varname] = "(" + newright + ")"
+		# add assignments to state changes
+		for key, value in vardict.items():
+			statechanges[o.name + "'" + key] = value
+	elif s.__class__.__name__ == "Delay":
+		statechanges = {}
+	elif s.__class__.__name__ == "SendSignal":
+		output = ochannel[o][s].name + "'buffer ++ [m'"
+		for t in mcrl2typetuple(ochannel[o][s].type):
+			output += datatypeacronym(t)
+		output += "(" + s.signal
+		for p in s.params:
+			output += ", "
+			output += expression(p,statemachine[s],o.type,{},o)
+		output += ")]"
+		statechanges[ochannel[o][s].name + "'buffer"] = output
+		statechanges[ochannel[o][s].name + "'size"] = ochannel[o][s].name + "'size+1"
+	elif s.__class__.__name__ == "ReceiveSignal":
+		vardict = {}
+		for i in range(0,len(s.params)):
+			p = s.params[i]
+			newright = "el'" + str(i+1) + "(head(" + ochannel[o][s].name + "'buffer))"
+			# in case we are updating a Byte, restrict the new value
+			if p.var.type.base == 'Byte':
+				newright = "(" + newright + ") mod 256"
+			varname = scopedvars[o.type.name + "'" + statemachine[s].name][p.var.name]
+			if p.index != None:
+				vardict[varname] = "update(" + expression(p.var,statemachine[s],o.type,vardict,o) + ",Int2Nat(" + expression(p.index,statemachine[s],o.type,vardict,o) + ")," + newright + ")"
+			else:
+				vardict[varname] = "(" + newright + ")"
+		# add assignments
+		for key, value in vardict.items():
+			statechanges[o.name + "'" + key] = value
+		statechanges[ochannel[o][s].name + "'buffer"] = "tail(" + ochannel[o][s].name + "'buffer)"
+		statechanges[ochannel[o][s].name + "'size"] = ochannel[o][s].name + "'size-1"
+	elif s.__class__.__name__ == "Expression":
+		statechanges = {}
+	# now return the complete new state
+	stateoutput = ""
+	for o2 in model.objects:
+		for v in o2.type.variables:
+			newvalue = statechanges.get(o2.name + "'" + v.name)
+			if newvalue == None:
+				stateoutput += ", " + o2.name + "'" + v.name
+			else:
+				stateoutput += ", " + newvalue
+		for sm in o.type.statemachines:
+			for v in sm.variables:
+				newvalue = statechanges.get(o2.name + "'" + sm.name + "'" + v.name)
+				if newvalue == None:
+					stateoutput += ", " + o2.name + "'" + sm.name + "'" + v.name
+				else:
+					stateoutput += ", " + newvalue
+	for c in model.channels:
+		newvalue = statechanges.get(c.name + "'buffer")
+		if newvalue == None:
+			stateoutput += ", " + c.name + "'buffer"
+		else:
+			stateoutput += ", " + newvalue
+		newvalue = statechanges.get(c.name + "'size")
+		if newvalue == None:
+			stateoutput += ", " + c.name + "'size"
+		else:
+			stateoutput += ", " + newvalue
+	return stateoutput
+
+def sync_complete_newstate(s_rcv,o_rcv,s_snd,o_snd):
+	"""Produces complete new state after sync of two statements"""
+	global porttypes, scopedvars, statemachine
+	pindex = 0
+	output = ""
+	vardict = {}
+	statechanges = {}
+	for i in range(0,len(s_rcv.params)):
+		p = s_rcv.params[i]
+		newright = expression(s_snd.params[i],statemachine[s_snd],o_snd.type,{},o_snd)
+		# in case we are updating a Byte, restrict the new value
+		if p.var.type.base == 'Byte':
+			newright = "(" + newright + ") mod 256"
+		varname = scopedvars[o_rcv.type.name + "'" + statemachine[s_rcv].name][p.var.name]
+		if p.index != None:
+			vardict[varname] = "update(" + expression(p.var,statemachine[s_rcv],o_rcv.type,vardict,o_rcv) + ",Int2Nat(" + expression(p.index,statemachine[s_rcv],o_rcv.type,vardict,o_rcv) + ")," + newright + ")"
+		else:
+			vardict[varname] = "(" + newright + ")"
+	# add assignments
+	for key, value in vardict.items():
+		statechanges[o_rcv.name + "'" + key] = value
+	# now return the complete new state
+	stateoutput = ""
+	for o2 in model.objects:
+		for v in o2.variables:
+			newvalue = statechanges.get(o2.name + "'" + v.name)
+			if newvalue == None:
+				stateoutput += ", " + o2.name + "'" + v.name
+			else:
+				stateoutput += ", " + newvalue
+		for sm in o.type.variables:
+			for v in sm.variables:
+				newvalue = statechanges.get(o2.name + "'" + sm.name + "'" + v.name)
+				if newvalue == None:
+					stateoutput += ", " + o2.name + "'" + sm.name + "'" + v.name
+				else:
+					stateoutput += ", " + newvalue
+	for c in model.channels:
+		stateoutput += ", " + c.name + "'buffer"
+		stateoutput += ", " + c.name + "'size"
+	return stateoutput
+
 def statement_accesspattern(s, o):
 	"""Provide the access pattern of the given statement. o is Object owning statement s."""
 	global statemachine, smclass
@@ -975,7 +1119,7 @@ def identify_safe_unsafe_statements(m):
 	safe_statements = set([])
 	unsafe_statements = set([])
 
-	# create list of object, one at most per class
+	# create list of objects, one at most per class
 	classobjects = []
 	represented_classes = set([])
 	for o in model.objects:
@@ -1013,7 +1157,6 @@ def identify_safe_unsafe_statements(m):
 					else:
 						newaccess[i][0].add(varname)
 			filtered_statement_access[o][st] = tuple(newaccess)
-
 	# create dictionary of statements and remove trivially safe transitions
 	sdict = {}
 	for o in classobjects:
@@ -1035,26 +1178,23 @@ def identify_safe_unsafe_statements(m):
 		c = o.type
 		for i in range(0,len(c.statemachines)):
 			stset1 = sdict[c][c.statemachines[i]]
-			removed1 = set([])
 			for j in range(i+1,len(c.statemachines)):
 				stset2 = sdict[c][c.statemachines[j]]
-				removed2 = set([])
+				removed = set([])
 				for st1 in stset1:
 					for st2 in stset2:
 						if compare_accesses2(filtered_statement_access[o][st1][1], filtered_statement_access[o][st2][0], 2) or compare_accesses2(filtered_statement_access[o][st1][0], filtered_statement_access[o][st2][1], 2):
-							removed1.add(st1)
-							removed2.add(st2)
+							removed.add(st1)
+							removed.add(st2)
 						elif compare_accesses2(filtered_statement_access[o][st1][1], filtered_statement_access[o][st2][1], 2):
-							removed1.add(st1)
-							removed2.add(st2)
+							removed.add(st1)
+							removed.add(st2)
 						elif compare_accesses3(filtered_statement_access[o][st1][0], filtered_statement_access[o][st1][1], filtered_statement_access[o][st2][1], 1) or compare_accesses3(filtered_statement_access[o][st2][0], filtered_statement_access[o][st2][1], filtered_statement_access[o][st1][1], 1):
-							removed1.add(st1)
-							removed2.add(st2)
-					stset2 -= removed2
-					unsafe_statements |= removed2
-				stset1 -= removed1
-				unsafe_statements |= removed1
-
+							removed.add(st1)
+							removed.add(st2)
+				#stset2 -= removed2
+				#stset1 -= removed1
+				unsafe_statements |= removed
 
 	# for each class, create dependency graph, detect non-trivial SCCs, and mark involved statements as unsafe
 	for o in classobjects:
@@ -1110,8 +1250,7 @@ def identify_safe_unsafe_statements(m):
 		for sm in c.statemachines:
 			for tr in sm.transitions:
 				for st in tr.statements:
-					if st not in safe_statements:
-						initialstatements.add(st)
+					initialstatements.add(st)
 		identifySCCs(depgraph, initialstatements, {}, SCCs)
 		for scc in SCCs:
 			if scc[0] > 1:
@@ -1162,6 +1301,18 @@ def identify_safe_unsafe_statements(m):
 						unsafe_variables.add(v)
 		# make unsafe_variables a sorted list
 		unsafe_variables = sorted(list(unsafe_variables))
+
+def identify_POR_safe_transitions(m):
+	"""Identify safe transitions of Ample-set POR"""
+	global POR_safe_transitions, statement_access
+
+	for c in m.classes:
+		for sm in c.statemachines:
+			for tr in sm.transitions:
+				for st in tr.statements:
+					ap = statement_accesspattern(st, c)
+					if len(ap[0]) == 0 and len(ap[1]) == 0:
+						POR_safe_transitions.add(tr)
 
 def preprocess():
 	"""preprocessing method"""
@@ -1380,7 +1531,7 @@ def preprocess():
 
 def translate():
 	"""The translation function"""
-	global model, modelname, statemachinenames, statemachine, tr, smlocalvars, states, actions, class_receives, class_sends, vartypes, mcrl2varprefix, channeltypes, asynclossytypes, asynclosslesstypes, synctypes, statement_access, statement_condition_access, unsafe_statements, object_sync_commpairs, syncing_statements, check_onthefly, lock_onthefly, apply_por, sorted_variables, unsafe_variables
+	global model, modelname, statemachinenames, statemachine, tr, smlocalvars, states, actions, class_receives, class_sends, vartypes, mcrl2varprefix, channeltypes, asynclossytypes, asynclosslesstypes, synctypes, statement_access, statement_condition_access, unsafe_statements, object_sync_commpairs, syncing_statements, check_onthefly, lock_onthefly, apply_por, sorted_variables, unsafe_variables, POR_safe_transitions
 	
 	path, name = split(modelname)
 	if name.endswith('.slco'):
@@ -1404,8 +1555,10 @@ def translate():
 	jinja_env.filters['statement_condition_varlist'] = statement_condition_varlist
 	jinja_env.filters['statement_condition'] = statement_condition
 	jinja_env.filters['statementstatechanges'] = statementstatechanges
+	jinja_env.filters['complete_newstate'] = complete_newstate
 	jinja_env.filters['sync_statement_condition'] = sync_statement_condition
 	jinja_env.filters['sync_statementstatechanges'] = sync_statementstatechanges
+	jinja_env.filters['sync_complete_newstate'] = sync_complete_newstate
 	jinja_env.filters['hasobjectvariables'] = hasobjectvariables
 	jinja_env.filters['hascondition'] = hascondition
 	jinja_env.filters['statement_is_safe'] = statement_is_safe
@@ -1426,6 +1579,8 @@ def translate():
 	statement_condition_access = compute_condition_accesspatterns(model)
 	# compute which statements are safe and unsafe
 	identify_safe_unsafe_statements(model)
+	# identify unconditionally safe transitions for Ample-set POR
+	identify_POR_safe_transitions(model)
 
 	# special case: if no unsafe statements are present, the result is that all variables can remain unlocked
 	if len(unsafe_statements) == 0:
@@ -1436,7 +1591,7 @@ def translate():
 	# produce_summands(model)
 	# load the mCRL2 template
 	template = jinja_env.get_template('mcrl2sr.jinja2template')
-	out = template.render(model=model, statemachinenames=statemachinenames, states=states, vartypes=vartypes, mcrl2varprefix=mcrl2varprefix, channeltypes=channeltypes, asynclosslesstypes=asynclosslesstypes, asynclossytypes=asynclossytypes, synctypes=synctypes, trans=trans, ochannel=ochannel, object_sync_commpairs=object_sync_commpairs, syncing_statements=syncing_statements, transowner=trowner, statemachine=statemachine, check_onthefly=check_onthefly, lock_onthefly=lock_onthefly, apply_por=apply_por, sorted_variables=sorted_variables, unsafe_variables=unsafe_variables)
+	out = template.render(model=model, statemachinenames=statemachinenames, states=states, vartypes=vartypes, mcrl2varprefix=mcrl2varprefix, channeltypes=channeltypes, asynclosslesstypes=asynclosslesstypes, asynclossytypes=asynclossytypes, synctypes=synctypes, trans=trans, ochannel=ochannel, object_sync_commpairs=object_sync_commpairs, syncing_statements=syncing_statements, transowner=trowner, statemachine=statemachine, check_onthefly=check_onthefly, lock_onthefly=lock_onthefly, apply_por=apply_por, sorted_variables=sorted_variables, unsafe_variables=unsafe_variables, POR_safe_transitions=POR_safe_transitions)
 	# write mCRL2 spec
 	outFile.write(out)
 	outFile.close()
