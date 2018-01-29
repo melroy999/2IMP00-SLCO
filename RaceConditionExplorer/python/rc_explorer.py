@@ -74,6 +74,7 @@ def RCE_get_race_conditions_from_file(path):
 		start = time.perf_counter()
 		in_type, locks, competing_statements = read_competing_statements(path)
 		time_read_data = time.perf_counter() - start
+		print(competing_statements)
 		print("Parsing input took " + str(time_read_data))
 		
 		if (in_type == InputType.LOCK_ALL):
@@ -314,6 +315,9 @@ class StatementType:
 	LOCK = 2
 	LOCK_ALL = 3
 
+
+report_remove_strings = {"AP'(" : "", "]))" : "]"}
+report_filter = re.compile('|'.join(re.escape(key) for key in report_remove_strings.keys()))
 def read_competing_statements(path):
 	f = open(path, 'r')
 	lines = f.readlines()
@@ -356,14 +360,12 @@ def read_competing_statements(path):
 		else:
 			statements = competing_statements.get(state, [])
 			if statement_type == StatementType.REPORT:
-				remove_strings = {"AP'(" : "", "]))" : "]"}
-				stripped_action = action.translate(remove_strings)
-				statement_list = stripped_action.split(", OA'")
+				stripped_action = report_filter.sub(lambda x: report_remove_strings[x.group()], action)
+				statement_list = stripped_action.split(", OA'(")
 				if len(statement_list) > 0:
-					statement_list[0] = statement_list[0][4:]
+					statement_list[0] = statement_list[0][5:]
 					statement_list[-1] = statement_list[-1][:-1]
-				
-				print(statement_list)
+				statements += statement_list
 			else:
 				statements.append(action)
 			competing_statements[state] = statements
