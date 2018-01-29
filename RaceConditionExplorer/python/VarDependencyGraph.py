@@ -8,7 +8,7 @@ class VarDependencyGraph:
 	_locked = set()
 	
 	# Expects a list consisting of tuples of the form (act, state_machine_id, set(read_vars), set(write_vars))
-	def __init__(self, rw_list, locked = set()):
+	def __init__(self, rw_list, locked = set(), do_checks = True):
 		# build dictionary mapping write variables to actions
 		write_dict = dict()
 		for a, sm_id, _, write_vars in rw_list:
@@ -22,9 +22,9 @@ class VarDependencyGraph:
 			
 			# a race condition may occur when two transitions both write to more than one common variable
 			# if |write_vars[i] cap write_vars[j]| > 1 then write_vars[i] cap write_vars[j] must be locked
-			if len(write_vars) > 1:
+			if do_checks and len(write_vars) > 1:
 				for j in range(i+1,len(rw_list)):
-					_, _, _ , write_vars2 = rw_list[j]
+					_, _, _, write_vars2 = rw_list[j]
 					w_intersect = write_vars & write_vars2
 					if len(w_intersect) > 1:
 						locked |= w_intersect
@@ -37,7 +37,7 @@ class VarDependencyGraph:
 				targets = write_dict.get(r, set())
 				# a race condition may occur when a transitions writes and reads a variable and another transition writes as well
 				# if read_vars cap write_vars cap write_vars_of_other_transition is not empty, then add result to locked
-				if r in write_vars and len(targets) > 1:
+				if do_checks and r in write_vars and len(targets) > 1:
 					locked.add(r)
 					continue
 				# for each action 'tgt', add 'r' to the labels of transition src --labels--> tgt
@@ -65,7 +65,7 @@ class VarDependencyGraph:
 		for outgoing in self.dependency_graph.values():
 			for labels in outgoing.values():
 				if len(labels) > 1:
-					locked_sets.add(frozenset(labels))
+					locked_sets |= labels
 		return locked_sets
 					
 	def get_locked(self, locked):

@@ -8,7 +8,6 @@
 import argparse
 import logging
 import logging.config
-import os
 import re
 import sys
 from lts import *
@@ -30,7 +29,7 @@ GROUP_SRC_STATE_MACHINE = 'src_sm'
 GROUP_TGT_STATE_MACHINE = 'tgt_sm'
 GROUP_SRC_PORT          = 'src_port'
 GROUP_TGT_PORT          = 'tgt_port'
-GROUP_MSG               = 'sg'
+GROUP_MSG               = 'msg'
 
 test_regex = None#"rw_globalObject(Frog,{var_a(10)},{var_a(9),var_a(10)})"
 #(?P<GROUP_LABEL>rw|send|receive|peek|comm)_(?P<GROUP_SRC_OBJECT>[a-zA-Z0-9]+)(_(?P<GROUP_SRC_PORT>[a-zA-Z0-9]+))?(_(?P<GROUP_TGT_OBJECT>[a-zA-Z0-9]+)_(?P<GROUP_TGT_PORT>[a-zA-Z0-9]+))?[(](?P<GROUP_SRC_STATE_MACHINE>\w+),[{](?P<GROUP_SRC_READ_VARS>(\w+([(]\d[)])?)?([,]\w+([(]\d[)])?)*)[}],[{](?P<GROUP_SRC_WRITE_VARS>(\w+([(]\d[)])?)?([,]\w+([(]\d[)])?)*)[}](,(?P<GROUP_TGT_STATE_MACHINE>\w+),[{](?P<GROUP_TGT_READ_VARS>(\w+([(]\d[)])?)?([,]\w+([(]\d[)])?)*)[}],[{](?P<GROUP_TGT_WRITE_VARS>(\w+([(]\d[)])?)?([,]\w+([(]\d[)])?)*)[}],(?P<GROUP_MSG>\w+).*[)])?
@@ -57,40 +56,88 @@ class ActionSyntaxException(Exception):
 		return repr(self.parameter)
 
 def RCE_get_race_conditions_from_file(path):
-	lts = LTS.create(path)
-	contains_tau, lts = LTS_remove_peek(lts)
-	if contains_tau:
-		lts = lts.minimise(LTS.Equivalence.BRANCHING_BISIM)
-	
-	# calculate dependency LTSs
-	start = time.time()
-	dep_ltss, initial_locks = get_dependency_ltss(lts)
-	time_dep_ltss = time.time() - start
-	logging.info("initial locks: %s" % initial_locks)
-	print("Calculating dependency LTSs took " + str(time_dep_ltss))
+	dep_ltss = initial_locks = None
+	if (path.endswith('.aut')):
+		lts = LTS.create(path)
+		contains_tau, lts = LTS_remove_peek(lts)
+		if contains_tau:
+			lts = lts.minimise(LTS.Equivalence.BRANCHING_BISIM)
+
+		# calculate dependency LTSs
+		start = time.perf_counter()
+		dep_ltss, initial_locks = get_dependency_ltss(lts)
+		time_dep_ltss = time.perf_counter() - start
+		logging.info("initial locks: %s" % initial_locks)
+		print("Calculating dependency LTSs took " + str(time_dep_ltss))
+		
+	else:
+		start = time.perf_counter()
+		in_type, locks, competing_statements = read_competing_statements(path)
+		time_read_data = time.perf_counter() - start
+		print("Parsing input took " + str(time_read_data))
+		
+		if (in_type == InputType.LOCK_ALL):
+			return {"var_all_objects'lock_all"}
+		
+		start = time.perf_counter()
+		dep_ltss, initial_locks = get_dependency_ltss_new(in_type, locks, competing_statements)
+		time_dep_ltss = time.perf_counter() - start
+		logging.info("initial locks: %s" % initial_locks)
+		print("Calculating dependency LTSs took " + str(time_dep_ltss))
 
 	# Quickly find un-optimal locks
 	dep_ltss_copy = {frozenset(key): dep_lts.get_copy() for key, dep_lts in dep_ltss.items()}
 	locked = {x for x in initial_locks}
-	start = time.time()
+	start = time.perf_counter()
 	locks = get_race_conditions(dep_ltss_copy, locked)
-	time_quick = time.time() - start
+	time_quick = time.perf_counter() - start
 	logging.info("Quick locks: %s" % locks)
 	print("Quick analysis took " + str(time_quick))
 	
 	# Find optimal locking
 	sets = {frozenset({x}) for x in initial_locks}
-	start = time.time()
+	start = time.perf_counter()
 	cycle_sets = get_cycle_sets(dep_ltss)
 	locks = get_minimal_hitting_set(sets | cycle_sets)
-	time_opt = time.time() - start
+	time_opt = time.perf_counter() - start
 	logging.info("cycle_sets: %s" % cycle_sets)
 	logging.info("MHS locks: %s" % locks)
 	print("Optimal analysis took " + str(time_opt))
 	
 	return locks
 	
+
+def get_dependency_ltss_new(in_type, locks, competing_statements):
+	dep_ltss = dict()
+	for statements in competing_statements.values():
+		signature = set(statements)  # a set of all outgoing edges that are relevant for race condition detection
+		frozen_signature = frozenset(signature)
+		if frozen_signature in dep_ltss:
+			continue
+			
+		rw_list = []
+		for statement in statements:
+			value = statement.split(', ')
+			#object = value[0]
+			state_machine = value[1]
+			reads = string_to_list(value[2])
+			writes = string_to_list(value[3])
+			rw_list.append((statement, state_machine, reads, writes))
 	
+		locked = locks
+		do_checks = in_type == InputType.RW
+		dep_ltss[frozen_signature] = VarDependencyGraph(rw_list, locked, do_checks)
+		if do_checks:
+			# get locked sets (variable sets that require being locking together)
+			for dep_lts in dep_ltss.values():
+				locked |= (dep_lts.get_locked_sets())
+			
+			# remove (to be) locked variables from the graphs
+			for dep_lts in dep_ltss.values():
+				dep_lts.remove_locked_labels_from_transitions(locked)
+
+	return (dep_ltss, locked)
+
 # precondition: peeks are removed from the LTS
 def get_dependency_ltss(lts):
 	### Begin switch "append_rw" ###
@@ -166,14 +213,8 @@ def get_dependency_ltss(lts):
 			dep_ltss[frozen_signature] = VarDependencyGraph(rw_list, locked)
 		
 		# get locked sets (variable sets that require being locking together)
-		locked_sets = set()
 		for dep_lts in dep_ltss.values():
-			locked_sets |= (dep_lts.get_locked_sets())
-		
-		# flatten lock_set
-		flat_locked_sets = {x for locked_set in locked_sets for x in locked_set}
-		
-		locked = set(flat_locked_sets) | locked # merge locks
+			locked |= (dep_lts.get_locked_sets())
 		
 		# remove (to be) locked variables from the graphs
 		for dep_lts in dep_ltss.values():
@@ -247,6 +288,83 @@ def LTS_remove_peek(my_lts):
 	my_lts.rename_action_labels({temp_act: 'tau'})
 	return (contains_tau, my_lts)
 
+GROUP_ACTION            = 'act'
+GROUP_STATE             = 'state'
+
+TYPE_RW                 = 'rw'
+TYPE_LOCK               = 'lock'
+TYPE_REPORT             = 'report'
+TYPE_LOCK_ALL           = 'lock_all'
+
+detected_action_matcher = \
+	re.compile(
+		"Detected action '(?P<"+GROUP_LABEL+">"+ TYPE_RW + "|" + TYPE_LOCK_ALL + "|" + TYPE_REPORT + "|" + TYPE_LOCK + ")" +
+		"(?P<"+GROUP_ACTION+">.*)' \(state index (?P<"+GROUP_STATE+">[0-9]+)\)"
+	)
+
+class InputType:
+	NONE = 0
+	RW = 1
+	LOCK_REPORT = 2
+	LOCK_ALL = 3
+	
+class StatementType:
+	REPORT = 0
+	RW = 1
+	LOCK = 2
+	LOCK_ALL = 3
+
+def read_competing_statements(path):
+	f = open(path, 'r')
+	lines = f.readlines()
+	f.close()
+	
+	locks = set()
+	competing_statements = {}
+	input_type = InputType.NONE
+	for line in lines:
+		m = detected_action_matcher.match(line)
+		if not m:
+			raise ActionSyntaxException('Line \"%s\" does not match the required format.' % line)
+		
+		label = m.group(GROUP_LABEL)
+		new_input_type = InputType.NONE
+		if label == TYPE_RW:
+			statement_type = StatementType.RW
+			new_input_type = InputType.RW
+		elif label == TYPE_REPORT:
+			statement_type = StatementType.REPORT
+			new_input_type = InputType.LOCK_REPORT
+		elif label == TYPE_LOCK:
+			statement_type = StatementType.LOCK
+			new_input_type = InputType.LOCK_REPORT
+		else:
+			return (InputType.LOCK_ALL, set(), {})
+		
+		if input_type != 0 and input_type != new_input_type:
+			raise ActionSyntaxException('Combination of types %s and %s is used' % (input_type, new_input_type))
+		
+		input_type = new_input_type
+		
+		action = m.group(GROUP_ACTION)
+		state  = m.group(GROUP_STATE)
+		
+		action = action[1:-1]
+		
+		if statement_type == StatementType.LOCK:
+			print(string_to_list(action))
+		else:
+			statements = competing_statements.get(state, [])
+			if statement_type == StatementType.REPORT:
+				print(string_to_list(action))
+			else:
+				statements.append(action)
+			competing_statements[state] = statements
+	return (input_type, locks, competing_statements)
+	
+splitter = re.compile('[^,]*\([^)]*\)|[^,]+')
+def string_to_list(txt):
+	return splitter.findall(txt[1:-1])
 
 def main():
 	if test_regex:
@@ -283,12 +401,12 @@ def main():
 		console_handler.setLevel(logging.CRITICAL + 1)
 	
 	lts_path = args['INPUT_LTS']
-	if not lts_path.endswith('.aut'):
-		lts_path = lts_path + ".aut"
+	#if not lts_path.endswith('.aut'):
+	#	lts_path = lts_path + ".aut"
 	
 	out_path = args['out']
 	if out_path == 'INPUT_LTS.rc':
-		out_path = lts_path[:-4] + '.rc'
+		out_path = lts_path + '.rc'
 	
 	logging.info('Starting Race Condition Explorer')
 	logging.info('Input LTS  : %s', lts_path)
@@ -297,7 +415,8 @@ def main():
 	locks = RCE_get_race_conditions_from_file(lts_path)
 	object_locks = {}
 	for lock in locks:
-		obj, _, var = lock.partition('.')
+		obj, _, var = lock.partition("'")
+		obj = obj[4:]
 		lock_list = object_locks.get(obj, [])
 		lock_list.append(var)
 		object_locks[obj] = lock_list
