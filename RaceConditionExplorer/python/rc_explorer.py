@@ -352,11 +352,18 @@ def read_competing_statements(path):
 		action = action[1:-1]
 		
 		if statement_type == StatementType.LOCK:
-			print(string_to_list(action))
+			locks |= {x for x in string_to_list(action)}
 		else:
 			statements = competing_statements.get(state, [])
 			if statement_type == StatementType.REPORT:
-				print(string_to_list(action))
+				remove_strings = {"AP'(" : "", "]))" : "]"}
+				stripped_action = action.translate(remove_strings)
+				statement_list = stripped_action.split(", OA'")
+				if len(statement_list) > 0:
+					statement_list[0] = statement_list[0][4:]
+					statement_list[-1] = statement_list[-1][:-1]
+				
+				print(statement_list)
 			else:
 				statements.append(action)
 			competing_statements[state] = statements
