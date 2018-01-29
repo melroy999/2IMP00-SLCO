@@ -4,7 +4,8 @@ from lts.SCCTarjan import identifySCCs
 
 def find_sccs(dependency_graph):
     sscs = []
-    identifySCCs(dependency_graph, {}, sscs)
+    states = set(dependency_graph.keys())
+    identifySCCs(dependency_graph, states, {}, sscs)
 
     result = []
     for ssc in sscs:

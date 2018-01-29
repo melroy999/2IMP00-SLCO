@@ -6,7 +6,7 @@ scanner=re.Scanner([
 	(r"des",							lambda scanner,token:("HEADER", token)),
 	(r"[0-9]+",							lambda scanner,token:("NAT", token)),
 	(r"[\s\(\),]+",                     None), # None == skip token.
-	(r"[A-Za-z0-9!\_\-?.\*]+\([A-Za-z0-9!\_\-?,.\*\(\)\{\}]+\)|[A-Za-z0-9!\_\-?.\*]+|[\"\'][A-Za-z0-9!?\_\-\#\s.,\*\(\)\{\}]+[\"\']",
+	(r"[A-Za-z0-9!\_\-?.\*]+\([A-Za-z0-9!\_\-?,.\*\(\)\{\[\}\]]+\)|[A-Za-z0-9!\_\-?.\*]+|[\"\'][A-Za-z0-9!?\_\-\#\s.,\*\(\)\{\}\[\]]+[\"\']",
 										lambda scanner,token:("ACTION", token)),
 ])
 	

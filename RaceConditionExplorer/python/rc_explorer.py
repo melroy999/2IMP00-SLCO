@@ -42,12 +42,12 @@ action_matcher = re.compile('(?P<'+GROUP_LABEL+'>rw|send|receive|peek|comm)'
 							'(_(?P<'+GROUP_TGT_OBJECT+'>[a-zA-Z0-9]+)_(?P<'+GROUP_TGT_PORT+'>[a-zA-Z0-9]+))?'
 
 							'[(](?P<'+GROUP_SRC_STATE_MACHINE+'>\w+),'
-							'[{](?P<'+GROUP_SRC_READ_VARS+'>(\w+([(]\d+[)])?)?([,]\w+([(]\d+[)])?)*)[}],'
-							'[{](?P<'+GROUP_SRC_WRITE_VARS+'>(\w+([(]\d+[)])?)?([,]\w+([(]\d+[)])?)*)[}]'
+							'[\{\[](?P<'+GROUP_SRC_READ_VARS+'>(\w+([(]\d+[)])?)?([,]\w+([(]\d+[)])?)*)[\]\}],'
+							'[\{\[](?P<'+GROUP_SRC_WRITE_VARS+'>(\w+([(]\d+[)])?)?([,]\w+([(]\d+[)])?)*)[\]\}]'
 
 							'(,(?P<'+GROUP_TGT_STATE_MACHINE+'>\w+),'
-							'[{](?P<'+GROUP_TGT_READ_VARS+'>(\w+([(]\d+[)])?)?([,]\w+([(]\d+[)])?)*)[}],'
-							'[{](?P<'+GROUP_TGT_WRITE_VARS+'>(\w+([(]\d+[)])?)?([,]\w+([(]\d+[)])?)*)[}],'
+							'[\{\[](?P<'+GROUP_TGT_READ_VARS+'>(\w+([(]\d+[)])?)?([,]\w+([(]\d+[)])?)*)[\]\}],'
+							'[\{\[](?P<'+GROUP_TGT_WRITE_VARS+'>(\w+([(]\d+[)])?)?([,]\w+([(]\d+[)])?)*)[\]\}],'
 							'(?P<'+GROUP_MSG+'>\w+).*[)])?')
 
 class ActionSyntaxException(Exception):
@@ -64,25 +64,28 @@ def RCE_get_race_conditions_from_file(path):
 	
 	# calculate dependency LTSs
 	start = time.time()
-	dep_ltss, locked = get_dependency_ltss(lts)
+	dep_ltss, initial_locks = get_dependency_ltss(lts)
 	time_dep_ltss = time.time() - start
+	logging.info("initial locks: %s" % initial_locks)
 	print("Calculating dependency LTSs took " + str(time_dep_ltss))
 
 	# Quickly find un-optimal locks
 	dep_ltss_copy = {frozenset(key): dep_lts.get_copy() for key, dep_lts in dep_ltss.items()}
+	locked = {x for x in initial_locks}
 	start = time.time()
 	locks = get_race_conditions(dep_ltss_copy, locked)
-	logging.info("Quick locks: %s" % locks)
 	time_quick = time.time() - start
+	logging.info("Quick locks: %s" % locks)
 	print("Quick analysis took " + str(time_quick))
 	
 	# Find optimal locking
+	sets = {frozenset({x}) for x in initial_locks}
 	start = time.time()
 	cycle_sets = get_cycle_sets(dep_ltss)
-	logging.info("cycle_sets: %s" % cycle_sets)
-	locks = get_minimal_hitting_set(cycle_sets)
-	logging.info("MHS locks: %s" % locks)
+	locks = get_minimal_hitting_set(sets | cycle_sets)
 	time_opt = time.time() - start
+	logging.info("cycle_sets: %s" % cycle_sets)
+	logging.info("MHS locks: %s" % locks)
 	print("Optimal analysis took " + str(time_opt))
 	
 	return locks
