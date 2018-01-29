@@ -14,8 +14,17 @@ numberofelemvariables = 0
 smlocalvars = set([])
 # dictionary providing lock ids (offset) for a given variable
 varids = {}
+# locking dictionary (provides variables to lock per object)
+lockingdict = {}
 
 this_folder = os.path.dirname(__file__)
+
+def RepresentsInt(s):
+    try: 
+        int(s)
+        return True
+    except ValueError:
+        return False
 
 def operator(s):
 	"""Provide characters to display given operator s"""
@@ -120,7 +129,12 @@ def getinstruction(s):
 		result += s.left.var.name
 		if s.left.index != None:
 			result += "[" + getinstruction(s.left.index) + "]"
-		result += " = " + getinstruction(s.right)
+		result += " = "
+		if s.left.var.type.base == 'Byte':
+			result += "(byte) ("
+		result += getinstruction(s.right)
+		if s.left.var.type.base == 'Byte':
+			result += ")"
 	elif s.__class__.__name__ == "Composite":
 		result += "["
 		if s.guard != None:
@@ -176,17 +190,23 @@ def javatype(s):
 		else:
 			return 'byte[]'
 
-def javastatement(s,nlocks,indent,nondet):
-	"""Translates SLCO statement s to Java code. indent indicates how much every line needs to be indented, nlocks indicates how many locks need to be acquired (optional). nondet indicates whether this statement is at the head of a statement block and in a non-deterministic choice; it affects how expressions are translated."""
+def javastatement(s,nlocks,indent,nondet,o):
+	"""Translates SLCO statement s to Java code. indent indicates how much every line needs to be indented, nlocks indicates how many locks need to be acquired (optional). nondet indicates whether this statement is at the head of a statement block and in a non-deterministic choice; it affects how expressions are translated.
+	o is Object owning s."""
 	output = ""
 	if s.__class__.__name__ == "Assignment":
 		output += getinstruction(s) + ";"
 	elif s.__class__.__name__ == "Expression":
 		if not nondet:
-			output += "while(!(" + getinstruction(s) + ")) { kp.unlock(lockIDs, "
-			output += str(nlocks)
-			output += "); try{ wait(100); } catch (InterruptedException e) { break; } kp.lock(lockIDs, "
-			output += str(nlocks) + ");}"
+			if statement_readsfromlocked(s, o):
+				output += "if(!(" + getinstruction(s) + ")) { kp.unlock(lockIDs, "
+				output += str(nlocks)
+				output += "); transcounter++; break; }"
+			else:
+				output += "while(!(" + getinstruction(s) + ") && transcounter < COUNTER_BOUND) { kp.unlock(lockIDs, "
+				output += str(nlocks)
+				output += "); transcounter++; try{ synchronized(SyncObject){SyncObject.wait(1);} } catch (InterruptedException e) { break; } kp.lock(lockIDs, "
+				output += str(nlocks) + ");}"
 		else:
 			output += "if (!(" + getinstruction(s) + ")) { kp.unlock(lockIDs, "
 			output += str(nlocks)
@@ -196,16 +216,16 @@ def javastatement(s,nlocks,indent,nondet):
 		for i in range(0,indent):
 			indentspace += " "
 		if s.guard != None:
-			output += javastatement(s.guard,nlocks,indent,nondet)
-		if len(s.assignments) > 0:
-			output += "\n"
+			output += javastatement(s.guard,nlocks,indent,nondet,o)
+			if len(s.assignments) > 0:
+				output += "\n" + indentspace
 		first = True
 		for e in s.assignments:
 			if not first:
-				output += "\n"
+				output += "\n" + indentspace
 			else:
 				first = False
-			output += indentspace + getinstruction(e) + ";"
+			output += getinstruction(e) + ";"
 	return output
 
 def expression(s,primmap):
@@ -243,7 +263,7 @@ def expression(s,primmap):
 			output += '(' + expression(s.body,primmap) + ')'
 	return output
 
-def statementvarids(s,primmap):
+def statement_varids(s,primmap):
 	"""Produce for the given statement a list of sorted lock ids to be acquired"""
 	global varids
 	output = []
@@ -257,22 +277,22 @@ def statementvarids(s,primmap):
 	elif s.__class__.__name__ == "Composite":
 		# update primmap
 		if s.guard != None:
-			output += statementvarids(s.guard,primmap)
+			output += statement_varids(s.guard,primmap)
 		for e in s.assignments:
-			output += statementvarids(e.left,primmap)
-			output += statementvarids(e.right,primmap)
+			output += statement_varids(e.left,primmap)
+			output += statement_varids(e.right,primmap)
 			newright = expression(e.right,primmap)
 			varname = e.left.var.name
 			if e.left.index != None:
 				varname += "[" + expression(e.left.index,primmap) + "]"
 			primmap[varname] = "(" + newright + ")"
 	elif s.__class__.__name__ == "Assignment":
-		output += statementvarids(s.left,primmap)
-		output += statementvarids(s.right,primmap)
+		output += statement_varids(s.left,primmap)
+		output += statement_varids(s.right,primmap)
 	elif s.__class__.__name__ != "Primary":
-		output += statementvarids(s.left,primmap)
+		output += statement_varids(s.left,primmap)
 		if s.op != '':
-			output += statementvarids(s.right,primmap)
+			output += statement_varids(s.right,primmap)
 	else:
 		if s.ref != None:
 			# IGNORE STATE MACHINE LOCAL VARS!
@@ -287,15 +307,110 @@ def statementvarids(s,primmap):
 	sortedoutput = sorted(output)
 	return sortedoutput
 
+def statement_writestolocked(s, o):
+	"""Indicate whether the given statement writes to shared variables that require locking. o is owner Object of statement s."""
+	global varids, lockingdict
+	output = []
+	if s.__class__.__name__ == "VariableRef":
+		# is the variable not local to state machine?
+		if varids.get(s.var.name) != None:
+			if s.var.name in set(lockingdict[o.name]):
+				return True
+			elif s.index != None:
+				index = expression(s.index,{})
+				varname = s.var.name + index
+				if varname in set(lockingdict[o.name]):
+					return True
+				elif not RepresentsInt(index):
+					for v in lockingdict[o.name]:
+						if s.var.name == (v.split("("))[0]:
+							return True
+					return False
+				else:
+					return False
+			else:
+				return False
+		else:
+			return False
+	elif s.__class__.__name__ == "Composite":
+		for e in s.assignments:
+			result = statement_writestolocked(e.left, o)
+			if result:
+				return result
+		return result
+	elif s.__class__.__name__ == "Assignment":
+		return statement_writestolocked(s.left, o)
+	else:
+		return False
+
+def statement_readsfromlocked(s, o):
+	"""Indicate whether the given statement reads for its guard from shared variables that require locking. o is owner Object of statement s."""
+	global varids, lockingdict
+	output = []
+	if s.__class__.__name__ == "VariableRef":
+		# is the variable not local to state machine?
+		if varids.get(s.var.name) != None:
+			if s.var.name in set(lockingdict[o.name]):
+				return True
+			elif s.index != None:
+				index = expression(s.index,{})
+				varname = s.var.name + index
+				if varname in set(lockingdict[o.name]):
+					return True
+				elif not RepresentsInt(index):
+					for v in lockingdict[o.name]:
+						if s.var.name == (v.split("("))[0]:
+							return True
+					return False
+				else:
+					return False
+			else:
+				return False
+		else:
+			return False
+	elif s.__class__.__name__ == "Composite":
+		if s.guard != None:
+			return statement_readsfromlocked(s.guard, o)
+		else:
+			return False
+	elif s.__class__.__name__ == "Assignment":
+		return False
+	elif s.__class__.__name__ != "Primary":
+		result = statement_readsfromlocked(s.left, o)
+		if result:
+			return True
+		elif s.op != '':
+			return statement_readsfromlocked(s.right, o)
+	else:
+		if s.ref != None:
+			# IGNORE STATE MACHINE LOCAL VARS!
+			if varids.get(s.ref.ref) != None:
+				if s.ref.ref in set(lockingdict[o.name]):
+					return True
+				elif s.ref.index != None:
+					index = expression(s.ref.index,{})
+					varname = s.ref.ref + index
+					if varname in set(lockingdict[o.name]):
+						return True
+					elif not RepresentsInt(index):
+						for v in lockingdict[o.name]:
+							if s.ref.ref == (v.split("("))[0]:
+								return True
+						return False
+					else:
+						return False
+				else:
+					return False
+
 def getvarids(s):
-	return statementvarids(s,{})
+	return statement_varids(s,{})
 
 def maxnumbervarids(s):
 	"""For the given state machine s, determine max number of varids required for a statement contained in it"""
 	maxnumber = 0
 	for tr in s.transitions:
 		for st in tr.statements:
-			varids = statementvarids(st,{})
+			varids = statement_varids(st,{})
 			if len(varids) > maxnumber:
 				maxnumber = len(varids)
 	return maxnumber
@@ -527,10 +642,10 @@ def read_locking_file(model,lockingfilename):
 			lockdict[o.name] = varlist
 	return lockdict
 
-def slco_to_java(modelfolder,modelname,model,lockingdict):
+def slco_to_java(modelfolder,modelname,model):
 	"""The translation function"""
-	global states, varids, numberofelemvariables
-	outFile = open(os.path.join(modelfolder,modelname[:-4] + "java"), 'w')
+	global states, varids, numberofelemvariables, lockingdict
+	outFile = open(os.path.join(modelfolder,model.name + ".java"), 'w')
 
 	# prepare lockingdict information for code generator
 	lockids = []
@@ -553,6 +668,8 @@ def slco_to_java(modelfolder,modelname,model,lockingdict):
 
 	# Register the filters
 	jinja_env.filters['getvarids'] = getvarids
+	jinja_env.filters['statement_writestolocked'] = statement_writestolocked
+	jinja_env.filters['statement_readsfromlocked'] = statement_readsfromlocked
 	jinja_env.filters['maxnumbervarids'] = maxnumbervarids
 	jinja_env.filters['getlabel'] = getlabel
 	jinja_env.filters['variabledefault'] = variabledefault
@@ -573,7 +690,7 @@ def slco_to_java(modelfolder,modelname,model,lockingdict):
 
 def main(args):
 	"""The main function"""
-	global numberofelemvariables
+	global numberofelemvariables, lockingdict
 	lockingfilename = ''
 	if len(args) == 0:
 		print("Missing argument: SLCO model")
@@ -607,7 +724,7 @@ def main(args):
 	# read locking file
 	lockingdict = read_locking_file(model,lockingfilename)
 	# translate
-	slco_to_java(modelfolder,modelname,model,lockingdict)
+	slco_to_java(modelfolder,modelname,model)
 
 	for o in model.objects:
 		lockedvars = lockingdict.get(o.name,[])
