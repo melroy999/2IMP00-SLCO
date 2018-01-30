@@ -20,6 +20,9 @@ public class {{model.name}} {
 
   }
 
+  // Object to wait-notify on
+  Object SyncObject;
+
   // Global variables
   {% for c in model.classes %}
   {% for v in c.variables %}
@@ -127,7 +130,7 @@ public class {{model.name}} {
 								//System.out.println("{{sm.name}}_{{s.name}}_{{i}}_stat");
 								{{st|javastatement(varids|length,16,True,o)}}
 								//System.out.println("{{sm.name}}_{{s.name}}_{{i}}_unlock");
-								kp.unlock(lockIDs, {{varids|length}});
+								kp.unlock(lockIDs, {{varids|length}});{{'\n                synchronized(SyncObject){SyncObject.notifyAll();}' if st|statement_writestolocked(o) }}
 								{% endfor %}
 								// Change state
 								//System.out.println("{{sm.name}}_{{s.name}}_{{i}}_changestate");
@@ -148,7 +151,7 @@ public class {{model.name}} {
 						Arrays.sort(lockIDs,0,{{varids|length}});
 						kp.lock(lockIDs, {{varids|length}});
 						{{st|javastatement(varids|length,12,False,o)}}
-						kp.unlock(lockIDs, {{varids|length}});
+						kp.unlock(lockIDs, {{varids|length}});{{'\n            synchronized(SyncObject){SyncObject.notifyAll();}' if st|statement_writestolocked(o) }}
 						{% endfor %}
 						// Change state
 						currentState = {{model.name}}.State.{{sout[0].target.name}};
@@ -188,6 +191,7 @@ public class {{model.name}} {
 	  {% for sm in c.statemachines %}
 		T_{{sm.name}} = new {{model.name}}.{{sm.name}}Thread(k);
 	  {% endfor %}
+	SyncObject = new Object();
   }
 
   // Start all threads

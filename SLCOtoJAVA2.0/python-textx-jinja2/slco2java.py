@@ -198,15 +198,15 @@ def javastatement(s,nlocks,indent,nondet,o):
 		output += getinstruction(s) + ";"
 	elif s.__class__.__name__ == "Expression":
 		if not nondet:
-			if statement_readsfromlocked(s, o):
-				output += "if(!(" + getinstruction(s) + ")) { kp.unlock(lockIDs, "
-				output += str(nlocks)
-				output += "); transcounter++; break; }"
-			else:
-				output += "while(!(" + getinstruction(s) + ") && transcounter < COUNTER_BOUND) { kp.unlock(lockIDs, "
-				output += str(nlocks)
-				output += "); transcounter++; try{ synchronized(SyncObject){SyncObject.wait(1);} } catch (InterruptedException e) { break; } kp.lock(lockIDs, "
-				output += str(nlocks) + ");}"
+#			if statement_readsfromlocked(s, o):
+			output += "if(!(" + getinstruction(s) + ")) { kp.unlock(lockIDs, "
+			output += str(nlocks)
+			output += "); transcounter++; break; }"
+			# else:
+			# 	output += "while(!(" + getinstruction(s) + ") && transcounter < COUNTER_BOUND) { kp.unlock(lockIDs, "
+			# 	output += str(nlocks)
+			# 	output += "); transcounter++; try{ synchronized(SyncObject){SyncObject.wait(1);} } catch (InterruptedException e) { break; } kp.lock(lockIDs, "
+			# 	output += str(nlocks) + ");}"
 		else:
 			output += "if (!(" + getinstruction(s) + ")) { kp.unlock(lockIDs, "
 			output += str(nlocks)
@@ -598,7 +598,7 @@ def preprocess(model):
 
 lockscanner=re.Scanner([
 	(r"[A-Za-z0-9]+:",											lambda scanner,token:("OBJECT", token)),
-	(r"var_[A-Za-z0-9]+(\([0-9]+\))?",			lambda scanner,token:("VARIABLE", token)),
+	(r"[A-Za-z0-9]+(\([0-9]+\))?",			lambda scanner,token:("VARIABLE", token)),
 	(r"[\s\(\),]+", None), # None == skip token.
 ])
 
@@ -624,7 +624,7 @@ def read_locking_file(model,lockingfilename):
 				varlist = []
 				for i in range(0,len(results)):
 					if results[i][0] == 'VARIABLE':
-						varlist.append(results[i][1][4:])
+						varlist.append(results[i][1])
 				oldlist = lockdict.get(key,[])
 				varlist += oldlist
 				lockdict[key] = varlist
@@ -642,12 +642,14 @@ def read_locking_file(model,lockingfilename):
 			lockdict[o.name] = varlist
 	return lockdict
 
-def slco_to_java(modelfolder,modelname,model):
+def slco_to_java(modelfolder,modelname,model,lockingfilename):
 	"""The translation function"""
 	global states, varids, numberofelemvariables, lockingdict
 	outFile = open(os.path.join(modelfolder,model.name + ".java"), 'w')
 
 	# prepare lockingdict information for code generator
+	# read locking file
+	lockingdict = read_locking_file(model,lockingfilename)
 	lockids = []
 	for o in model.objects:
 		locklist = lockingdict.get(o.name,[])
@@ -721,10 +723,8 @@ def main(args):
 	model = slco_mm.model_from_file(os.path.join(modelfolder,modelname))
 	# preprocess
 	model = preprocess(model)
-	# read locking file
-	lockingdict = read_locking_file(model,lockingfilename)
 	# translate
-	slco_to_java(modelfolder,modelname,model)
+	slco_to_java(modelfolder,modelname,model,lockingfilename)
 
 	for o in model.objects:
 		lockedvars = lockingdict.get(o.name,[])
