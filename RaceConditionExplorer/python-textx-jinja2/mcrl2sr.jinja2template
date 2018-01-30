@@ -416,22 +416,17 @@ var W1': List(Var), o1', o2': Object, sm1', sm2': Statemachine, rw1', rw2': Acce
 eqn check_simple_races2([],x1',x2') = [];
 (o1' != o2') -> check_simple_races2(W1',OA'(o1',sm1',rw1'),OA'(o2',sm2',rw2')) = [];
                 check_simple_races2(W1',OA'(o1',sm1',rw1'),OA'(o1',sm1',rw2')) = [];
-(sm1' != sm2') -> check_simple_races2(W1',OA'(o1',sm1',rw1'),OA'(o1',sm2',rw2')) = merge(merge(check_simple_races2_3(W1',rw1',rw2'), check_simple_races2_2(W1',rw1',rw2')), check_simple_races2_1(W1',rw1',rw2'));
+(sm1' != sm2') -> check_simple_races2(W1',OA'(o1',sm1',rw1'),OA'(o1',sm2',rw2')) = merge(check_simple_races2_2(W1',rw1',rw2'), check_simple_races2_1(W1',rw1',rw2'));
 
 map check_simple_races2_1: List(Var) # AccessPattern # AccessPattern -> List(Var);
 var W1': List(Var), rw1', rw2': AccessPattern;
 eqn check_simple_races2_1([],rw1',rw2') = [];
-    check_simple_races2_1(W1',rw1',rw2') = merge(intersection_of_at_least_two(W1', W'(rw2'), R'(rw1')), intersection_of_at_least_two(W1', W'(rw1'), R'(rw2')));
+    check_simple_races2_1(W1',rw1',rw2') = merge(intersection_of_at_least_two(W1', W'(rw2'), merge(R'(rw1'), W'(rw1'))), intersection_of_at_least_two(W1', W'(rw1'), merge(R'(rw2'), W'(rw2'))));
 
 map check_simple_races2_2: List(Var) # AccessPattern # AccessPattern -> List(Var);
 var W1': List(Var), rw1', rw2': AccessPattern;
 eqn check_simple_races2_2([],rw1',rw2') = [];
-    check_simple_races2_2(W1',rw1',rw2') = intersection_of_at_least_two(W1', W'(rw2'), W'(rw1'));
-
-map check_simple_races2_3: List(Var) # AccessPattern # AccessPattern -> List(Var);
-var W1': List(Var), rw1', rw2': AccessPattern;
-eqn check_simple_races2_3([],rw1',rw2') = [];
-    check_simple_races2_3(W1',rw1',rw2') = merge(intersection(W1', R'(rw2'), W'(rw2'), W'(rw1')), intersection(W1', R'(rw1'), W'(rw1'), W'(rw2')));
+    check_simple_races2_2(W1',rw1',rw2') = merge(intersection(W1', R'(rw2'), W'(rw2'), W'(rw1')), intersection(W1', R'(rw1'), W'(rw1'), W'(rw2')));
 
 map check_for_cyclic_races: List(Var) # OutgoingTransitions{{model|mcrl2_model_vartypes(True)}} -> List(Var);
 var W1': List(Var), L': OutgoingTransitions{{model|mcrl2_model_vars_with_types(True)}};
@@ -558,11 +553,11 @@ proc {{model.name}}({% for o in model.objects %}{% set oloop = loop %}{% for stm
 {% for tr in sm.transitions %}
 {% set trloop = loop %}
 {% if tr.statements[0].__class__.__name__ != "ReceiveSignal" or ochannel[o][tr.statements[0]].synctype == "async" %}
-  (ST'{{tr._tx_position}} in sm_outgoing({{o.name}}, {{sm.name}}, outtrans){% if tr.statements[0]|hascondition(o) %} && {{tr.statements[0]|statement_condition(o)}}{% endif %}) -> (
+  (ST'{{tr._tx_position}} in sm_outgoing({{o.name}}, {{sm.name}}, outtrans){% if tr.statements[0]|hascondition(o) %}) -> (({{tr.statements[0]|statement_condition(o)}}{% endif %}) -> (
     {% if syncing_statements[o][tr.statements[0]]|length == 0 %}    {% if tr.statements[0]|statement_is_safe or check_onthefly %}tau{% else %}rw({{o.name}}, {{sm.name}}, R'(rwpattern({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}})), W'(rwpattern({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}))){% endif %} . {{model.name}}({{o.name}}'{{sm.name}}_state={{tr.target.name}}{{tr.statements[0]|statementstatechanges(o)}}, outtrans={% if apply_por %}apply_por(OT'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o.type.statemachines %}{{', ' if not (o2loop.first and loop.first) }}outgoing({{o2.type.name}}, {{sm2.name}}, {% if o == o2 and sm == sm2 %}{{tr.target.name}}{% else %}{{o2.name}}'{{sm2.name}}_state{% endif %}){% endfor %}{% endfor %}){{tr.statements[0]|complete_newstate(o)}}){% else %}update_outgoing({{o.name}}, {{sm.name}}, {{tr.target.name}}, outtrans){% endif %}{% if check_onthefly %}, race_check_done=false{% endif %})
-  ){%else %}{% for sync in syncing_statements[o][tr.statements[0]] %}    (ST'{{transowner[sync[1]]._tx_position}} in sm_outgoing({{sync[0].name}}, {{statemachine[sync[1]].name}}, outtrans){% if sync[1]|hascondition(sync[0]) %} && {{sync[1]|sync_statement_condition(sync[0], tr.statements[0], o)}}{% endif %}) -> {% if tr.statements[0]|statement_is_safe and sync[1]|statement_is_safe or check_onthefly %}tau{% else %}rw({{o.name}}, {{sm.name}}, {{tr.statements[0]|mcrl2_read_accesspattern(o,True)}}, {{tr.statements[0]|mcrl2_write_accesspattern(o,True)}}, {{sync[0].name}}, {{statemachine[sync[1]].name}}, R'(rwpattern({{sync[0].name}}, ST'{{transowner[sync[1]]._tx_position}}{{model|mcrl2_model_vars(True)}}), W'(rwpattern({{sync[0].name}}, ST'{{transowner[sync[1]]._tx_position}}{{model|mcrl2_model_vars(True)}})))){% endif %} . {{model.name}}({{o.name}}'{{sm.name}}_state={{tr.target.name}}, {{sync[0].name}}'{{statemachine[sync[1]].name}}_state={{transowner[sync[1]].target.name}}{{sync[1]|sync_statementstatechanges(sync[0],tr.statements[0],o)}}, outtrans={% if apply_por %}apply_por(OT'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o.type.statemachines %}{{', ' if not (o2loop.first and loop.first) }}outgoing({{o2.type.name}}, {{sm2.name}}, {% if o == o2 and sm == sm2 %}{{tr.target.name}}{% elif sync[0] == o2 and statemachine[sync[1]] == sm2 %}{{transowner[sync[1]].target.name}}{% else %}{{o2.name}}'{{sm2.name}}_state{% endif %}){% endfor %}{% endfor %}){{tr.statements[0]|sync_complete_newstate(o)}}){% else %}update_outgoing({{sync[0].name}}, {{statemachine[sync[1]].name}}, {{transowner[sync[1]].target.name}}, update_outgoing({{o.name}}, {{sm.name}}, {{tr.target.name}}, outtrans)){% endif %}{% if check_onthefly %}, race_check_done=false{% endif %}){% if not loop.last %} +{% endif %}{% endfor %}
+  )){%else %}{% for sync in syncing_statements[o][tr.statements[0]] %}    (ST'{{transowner[sync[1]]._tx_position}} in sm_outgoing({{sync[0].name}}, {{statemachine[sync[1]].name}}, outtrans){% if sync[1]|hascondition(sync[0]) %} && {{sync[1]|sync_statement_condition(sync[0], tr.statements[0], o)}}{% endif %}) -> {% if tr.statements[0]|statement_is_safe and sync[1]|statement_is_safe or check_onthefly %}tau{% else %}rw({{o.name}}, {{sm.name}}, {{tr.statements[0]|mcrl2_read_accesspattern(o,True)}}, {{tr.statements[0]|mcrl2_write_accesspattern(o,True)}}, {{sync[0].name}}, {{statemachine[sync[1]].name}}, R'(rwpattern({{sync[0].name}}, ST'{{transowner[sync[1]]._tx_position}}{{model|mcrl2_model_vars(True)}}), W'(rwpattern({{sync[0].name}}, ST'{{transowner[sync[1]]._tx_position}}{{model|mcrl2_model_vars(True)}})))){% endif %} . {{model.name}}({{o.name}}'{{sm.name}}_state={{tr.target.name}}, {{sync[0].name}}'{{statemachine[sync[1]].name}}_state={{transowner[sync[1]].target.name}}{{sync[1]|sync_statementstatechanges(sync[0],tr.statements[0],o)}}, outtrans={% if apply_por %}apply_por(OT'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o.type.statemachines %}{{', ' if not (o2loop.first and loop.first) }}outgoing({{o2.type.name}}, {{sm2.name}}, {% if o == o2 and sm == sm2 %}{{tr.target.name}}{% elif sync[0] == o2 and statemachine[sync[1]] == sm2 %}{{transowner[sync[1]].target.name}}{% else %}{{o2.name}}'{{sm2.name}}_state{% endif %}){% endfor %}{% endfor %}){{tr.statements[0]|sync_complete_newstate(o)}}){% else %}update_outgoing({{sync[0].name}}, {{statemachine[sync[1]].name}}, {{transowner[sync[1]].target.name}}, update_outgoing({{o.name}}, {{sm.name}}, {{tr.target.name}}, outtrans)){% endif %}{% if check_onthefly %}, race_check_done=false{% endif %}){% if not loop.last %} +{% endif %}{% endfor %}
 
-  ){% endif %}{% if not (oloop.last and smloop.last and trloop.last and loop.last) %} +{% endif %}
+  )){% endif %}{% if not (oloop.last and smloop.last and trloop.last and loop.last) %} +{% endif %}
 
 {% endif %}
 {% endfor %}

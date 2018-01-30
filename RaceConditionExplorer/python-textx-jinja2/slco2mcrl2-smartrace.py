@@ -15,6 +15,8 @@ check_onthefly = False
 lock_onthefly = False
 # apply por
 apply_por = False
+# default search without static analysis
+default_search = False
 
 modelname = ""
 model = ""
@@ -408,6 +410,8 @@ def expression_usedvars_scan(s,stm,c):
 				output.add(scopedvars[c.name + "'" + stm.name][s.ref.ref])
 				if s.ref.index != None:
 					output |= expression_usedvars_scan(s.ref.index,stm,c)
+		if s.body != None:
+			output |= expression_varset(s.body,stm,c,primmap,owner)
 	return output
 
 def expression_varset(s,stm,c,primmap,owner):
@@ -437,6 +441,8 @@ def expression_varset(s,stm,c,primmap,owner):
 						varname += "(Int2Nat(" + expression(s.ref.index,stm,c,primmap,owner) + "))"
 						output |= expression_varset(s.ref.index,stm,c,primmap,owner)
 					output.add(varname)
+		if s.body != None:
+			output |= expression_varset(s.body,stm,c,primmap,owner)
 	return output
 
 def expression_is_actionref(s):
@@ -1037,8 +1043,9 @@ def peek(stack):
 	return stack[len(stack) - 1]
 
 def identify_por_safe_statements(model):
-	global statemachine, smclass, safe_por_statements, conditionally_safe_por_statements, trans
+	global statemachine, smclass, safe_por_statements, conditionally_safe_por_statements, trans, default_search
 
+	# in case of the default search, no statement is por safe
 	safe_por_statements = set([])
 	conditionally_safe_por_statements = set([])
 	for c in model.classes:
@@ -1046,6 +1053,7 @@ def identify_por_safe_statements(model):
 			for tr in sm.transitions:
 				for st in tr.statements:
 					access = statement_accesspattern(st, c)
+					print(str(st) + " " + str(access))
 					if len(access[0]) == 0 and len(access[1]) == 0:
 						safe_por_statements.add(st)
 					access = statement_condition_accesspattern(st, c)
@@ -1055,7 +1063,6 @@ def identify_por_safe_statements(model):
 	# explore each state machine, trying to detect cycles consisting of safe transitions. Each time such a cycle is found,
 	# we mark the final transition as 'sticky', by removing it from the set of safe transitions. This, in turn, ensures
 	# a cycle proviso when applying POR.
-	print(safe_por_statements)
 	for c in model.classes:
 		for sm in c.statemachines:
 			states = set([])
@@ -1069,6 +1076,7 @@ def identify_por_safe_statements(model):
 			for s in states:
 				if s not in closed:
 					callstack.append((s, [tr for tr in trans[c][sm][s] if (len(tr.statements) > 0 and tr.statements[0] in safe_por_statements)]))
+					print(callstack)
 					callstack_set.add(s)
 					while len(callstack) > 0:
 						s, transitions = peek(callstack)
@@ -1090,7 +1098,6 @@ def identify_por_safe_statements(model):
 							callstack.pop()
 							callstack_set.remove(s)
 							closed.add(s)
-	print(safe_por_statements)
 
 def statement_is_safe(s):
 	"""Returns whether the given statement is safe (w.r.t. race conditions) or not"""
@@ -1184,7 +1191,7 @@ def number_of_accesses(s):
 
 def identify_safe_unsafe_statements(m):
 	"""Partition the statements of the model into safe and unsafe statements"""
-	global safe_statements, unsafe_statements, statement_access, statemachine, smclass, unsafe_variables
+	global safe_statements, unsafe_statements, statement_access, statemachine, smclass, unsafe_variables, default_search
 
 	# Distribute statements over the sets safe and unsafe
 	safe_statements = set([])
@@ -1198,180 +1205,201 @@ def identify_safe_unsafe_statements(m):
 			classobjects.append(o)
 			represented_classes.add(o.type)
 
-	# filter statement_access to remove references to array cells that cannot be (or are hard to be) evaluated statically
-	# for each access set (read and write) we actually build a set and two dictionaries:
-	# - the first set consists of accesses to simple, i.e., not array, variables
-	# - the first dictionary produces per accessed array a set of concrete indices (integers)
-	# - the second dictionary produces per accessed array the number of accesses where the location (cell index) could not be determined statically.
-	filtered_statement_access = {}
-	for o in statement_access.keys():
-		filtered_statement_access[o] = {}
-		for st in statement_access[o].keys():
-			newaccess = [[set([]), {}, {}], [set([]), {}, {}]]
-			for i in range(0,2):
-				imprecise_seen = set([])
-				for v in statement_access[o][st][i]:
-					varname = v
-					if v.find('(Int2Nat(') != -1:
-						varname, varindex = v.split('(Int2Nat(')
-						# get index
-						varindex = varindex[:-2]
-						if RepresentsInt(varindex):
-							occset = newaccess[i][1].get(varname,set([]))
-							occset.add(varindex)
-							newaccess[i][1][varname] = occset
-						elif (varname + "[" + varindex + "]") not in imprecise_seen:
-							imprecise_seen.add(varname + "[" + varindex + "]")
-							counter = newaccess[i][2].get(varname,0)
-							counter += 1
-							newaccess[i][2][varname] = counter
-					else:
-						newaccess[i][0].add(varname)
-			filtered_statement_access[o][st] = tuple(newaccess)
-	# create dictionary of statements and remove trivially safe transitions
-	sdict = {}
-	for o in classobjects:
-		c = o.type
-		cdict = {}
-		for sm in c.statemachines:
-			stset = set([])
-			for tr in sm.transitions:
-				for st in tr.statements:
-					if number_of_accesses(filtered_statement_access[o][st][0]) <= 1 and number_of_accesses(filtered_statement_access[o][st][1]) == 0:
-						safe_statements.add(st)
-					else:
-						stset.add(st)
-			cdict[sm] = stset
-		sdict[c] = cdict
-
-	# check possibility for race conditions
-	for o in classobjects:
-		c = o.type
-		for i in range(0,len(c.statemachines)):
-			stset1 = sdict[c][c.statemachines[i]]
-			for j in range(i+1,len(c.statemachines)):
-				stset2 = sdict[c][c.statemachines[j]]
-				removed = set([])
-				for st1 in stset1:
-					for st2 in stset2:
-						if compare_accesses2(filtered_statement_access[o][st1][1], filtered_statement_access[o][st2][0], 2) or compare_accesses2(filtered_statement_access[o][st1][0], filtered_statement_access[o][st2][1], 2):
-							removed.add(st1)
-							removed.add(st2)
-						elif compare_accesses2(filtered_statement_access[o][st1][1], filtered_statement_access[o][st2][1], 2):
-							removed.add(st1)
-							removed.add(st2)
-						elif compare_accesses3(filtered_statement_access[o][st1][0], filtered_statement_access[o][st1][1], filtered_statement_access[o][st2][1], 1) or compare_accesses3(filtered_statement_access[o][st2][0], filtered_statement_access[o][st2][1], filtered_statement_access[o][st1][1], 1):
-							removed.add(st1)
-							removed.add(st2)
-				#stset2 -= removed2
-				#stset1 -= removed1
-				unsafe_statements |= removed
-
-	# for each class, create dependency graph, detect non-trivial SCCs, and mark involved statements as unsafe
-	for o in classobjects:
-		c = o.type
-		# create write dictionary
-		wdict = {}
-		for sm in c.statemachines:
-			for tr in sm.transitions:
-				for st in tr.statements:
-					for v in filtered_statement_access[o][st][1][0]:
-						wr = wdict.get(v,set([]))
-						wr.add(st)
-						wdict[v] = wr
-					for v in filtered_statement_access[o][st][1][1].keys():
-						v_indices = filtered_statement_access[o][st][1][1][v]
-						wr_arraydict = wdict.get(v + "_indexed", {})
-						for i in v_indices:
-							iset = wr_arraydict.get(i, set([]))
-							iset.add(st)
-							wr_arraydict[i] = iset
-						wdict[v] = wr_arraydict
-					for v in filtered_statement_access[o][st][1][2].keys():
-						wr = wdict.get(v,set([]))
-						wr.add(st)
-						wdict[v] = wr
-
-		depgraph = {}
-		for sm in c.statemachines:
-			for tr in sm.transitions:
-				for st in tr.statements:
-					stoutgoing = set([])
-					for v in filtered_statement_access[o][st][0][0]:
-						stoutgoing |= wdict.get(v,set([]))
-					# concrete array read accesses can be matched on other concrete write accesses and inconcrete write accesses to the same array
-					for v in filtered_statement_access[o][st][0][1].keys():
-						v_indices = filtered_statement_access[o][st][0][1][v]
-						wr_indices = wdict.get(v + "_indexed", {})
-						for i in v_indices:
-							iset = wr_indices.get(i, set([]))
-							stoutgoing |= iset
-						stoutgoing |= wdict.get(v,set([]))
-					# inconcrete array read accesses can be matched on all concrete write accesses and inconcrete write accesses to the same array
-					for v in filtered_statement_access[o][st][0][2].keys():
-						wr_indices = wdict.get(v + "_indexed", {})
-						for i in wr_indices.keys():
-							iset = wr_indices.get(i, set([]))
-							stoutgoing |= iset
-						stoutgoing |= wdict.get(v,set([]))
-					depgraph[st] = stoutgoing
-		# SCC detection
-		SCCs = list()
-		initialstatements = set([])
-		for sm in c.statemachines:
-			for tr in sm.transitions:
-				for st in tr.statements:
-					initialstatements.add(st)
-		identifySCCs(depgraph, initialstatements, {}, SCCs)
-		for scc in SCCs:
-			if scc[0] > 1:
-				for st in scc[1].keys():
-					unsafe_statements.add(st)
-		# finally, all remaining statements are safe
-		for sm in c.statemachines:
-			for tr in sm.transitions:
-				for st in tr.statements:
-					if st not in unsafe_statements:
-						safe_statements.add(st)
-		# now that we have identified the unsafe statements, build a list of unsafe variables
-		unsafe_variables = set([])
-		for st in unsafe_statements:
-			# get the class owning st, and then all objects of that type
-			c = smclass[statemachine[st]]
-			olist = []
-			for o in model.objects:
-				if o.type == c:
-					olist.append(o)
-			# use the representative object to obtain the access pattern of st
-			for o in olist:
-				if o in classobjects:
-					ap = statement_access[o][st]
-					break
-			# add all elements of the read and write set, making sure to make dynamic array accesses static (to all cells in the array)
-			for i in range(0,2):
-				for v in ap[i]:
-					v_splitted = v.split("(Int2Nat(")
-					if len(v_splitted) > 1:
-						if not RepresentsInt(v_splitted[1][:-2]):
-							# look up array, and add all its cells
-							o1, v1 = v_splitted[0].split("'")
-							found = False
-							for o in model.objects:
-								if o.name == o1:
-									for v2 in o.type.variables:
-										if v2.name == v1:
-											for j in range(0,v2.type.size):
-												unsafe_variables.add(v_splitted[0] + "(Int2Nat(" + str(i) + "))")
-											found = True
-											break
-								if found:
-									break
+	# do we create a list of unsafe statements and variables with simply all statements / variables?
+	if default_search:
+		for c in model.classes:
+			for sm in c.statemachines:
+				for tr in sm.transitions:
+					for st in tr.statements:
+						unsafe_statements.add(st)
+	else:
+		# filter statement_access to remove references to array cells that cannot be (or are hard to be) evaluated statically
+		# for each access set (read and write) we actually build a set and two dictionaries:
+		# - the first set consists of accesses to simple, i.e., not array, variables
+		# - the first dictionary produces per accessed array a set of concrete indices (integers)
+		# - the second dictionary produces per accessed array the number of accesses where the location (cell index) could not be determined statically.
+		filtered_statement_access = {}
+		for o in statement_access.keys():
+			filtered_statement_access[o] = {}
+			for st in statement_access[o].keys():
+				newaccess = [[set([]), {}, {}], [set([]), {}, {}]]
+				for i in range(0,2):
+					imprecise_seen = set([])
+					for v in statement_access[o][st][i]:
+						varname = v
+						if v.find('(Int2Nat(') != -1:
+							varname, varindex = v.split('(Int2Nat(')
+							# get index
+							varindex = varindex[:-2]
+							if RepresentsInt(varindex):
+								occset = newaccess[i][1].get(varname,set([]))
+								occset.add(varindex)
+								newaccess[i][1][varname] = occset
+							elif (varname + "[" + varindex + "]") not in imprecise_seen:
+								imprecise_seen.add(varname + "[" + varindex + "]")
+								counter = newaccess[i][2].get(varname,0)
+								counter += 1
+								newaccess[i][2][varname] = counter
 						else:
-							unsafe_variables.add(v)
+							newaccess[i][0].add(varname)
+				filtered_statement_access[o][st] = tuple(newaccess)
+		# create dictionary of statements and remove trivially safe transitions
+		sdict = {}
+		for o in classobjects:
+			c = o.type
+			cdict = {}
+			for sm in c.statemachines:
+				stset = set([])
+				for tr in sm.transitions:
+					for st in tr.statements:
+						if number_of_accesses(filtered_statement_access[o][st][0]) <= 1 and number_of_accesses(filtered_statement_access[o][st][1]) == 0:
+							safe_statements.add(st)
+						else:
+							stset.add(st)
+				cdict[sm] = stset
+			sdict[c] = cdict
+
+		# check possibility for race conditions
+		for o in classobjects:
+			c = o.type
+			for i in range(0,len(c.statemachines)):
+				stset1 = sdict[c][c.statemachines[i]]
+				for j in range(i+1,len(c.statemachines)):
+					stset2 = sdict[c][c.statemachines[j]]
+					removed = set([])
+					for st1 in stset1:
+						for st2 in stset2:
+							if compare_accesses2(filtered_statement_access[o][st1][1], filtered_statement_access[o][st2][0], 2) or compare_accesses2(filtered_statement_access[o][st1][0], filtered_statement_access[o][st2][1], 2):
+								removed.add(st1)
+								removed.add(st2)
+							elif compare_accesses2(filtered_statement_access[o][st1][1], filtered_statement_access[o][st2][1], 2):
+								removed.add(st1)
+								removed.add(st2)
+							elif compare_accesses3(filtered_statement_access[o][st1][0], filtered_statement_access[o][st1][1], filtered_statement_access[o][st2][1], 1) or compare_accesses3(filtered_statement_access[o][st2][0], filtered_statement_access[o][st2][1], filtered_statement_access[o][st1][1], 1):
+								removed.add(st1)
+								removed.add(st2)
+					#stset2 -= removed2
+					#stset1 -= removed1
+					unsafe_statements |= removed
+
+		# for each class, create dependency graph, detect non-trivial SCCs, and mark involved statements as unsafe
+		for o in classobjects:
+			c = o.type
+			# create write dictionary
+			wdict = {}
+			for sm in c.statemachines:
+				for tr in sm.transitions:
+					for st in tr.statements:
+						for v in filtered_statement_access[o][st][1][0]:
+							wr = wdict.get(v,set([]))
+							wr.add(st)
+							wdict[v] = wr
+						for v in filtered_statement_access[o][st][1][1].keys():
+							v_indices = filtered_statement_access[o][st][1][1][v]
+							wr_arraydict = wdict.get(v + "_indexed", {})
+							for i in v_indices:
+								iset = wr_arraydict.get(i, set([]))
+								iset.add(st)
+								wr_arraydict[i] = iset
+							wdict[v + "_indexed"] = wr_arraydict
+						for v in filtered_statement_access[o][st][1][2].keys():
+							wr = wdict.get(v,set([]))
+							wr.add(st)
+							wdict[v] = wr
+
+			depgraph = {}
+			for sm in c.statemachines:
+				for tr in sm.transitions:
+					for st in tr.statements:
+						stoutgoing = set([])
+						for v in filtered_statement_access[o][st][0][0]:
+							for st2 in wdict.get(v,set([])):
+								if statemachine[st] != statemachine[st2]:
+									stoutgoing.add(st2)
+						# concrete array read accesses can be matched on other concrete write accesses and inconcrete write accesses to the same array
+						for v in filtered_statement_access[o][st][0][1].keys():
+							v_indices = filtered_statement_access[o][st][0][1][v]
+							wr_indices = wdict.get(v + "_indexed", {})
+							for i in v_indices:
+								iset = wr_indices.get(i, set([]))
+								for st2 in iset:
+									if statemachine[st] != statemachine[st2]:
+										stoutgoing.add(st2)
+							stset = wdict.get(v,set([]))
+							for st2 in stset:
+								if statemachine[st] != statemachine[st2]:
+									stoutgoing.add(st2)
+						# inconcrete array read accesses can be matched on all concrete write accesses and inconcrete write accesses to the same array
+						for v in filtered_statement_access[o][st][0][2].keys():
+							wr_indices = wdict.get(v + "_indexed", {})
+							for i in wr_indices.keys():
+								iset = wr_indices.get(i, set([]))
+								for st2 in iset:
+									if statemachine[st] != statemachine[st2]:
+										stoutgoing.add(st2)
+							stset = wdict.get(v,set([]))
+							for st2 in stset:
+								if statemachine[st] != statemachine[st2]:
+									stoutgoing.add(st2)
+						depgraph[st] = stoutgoing
+
+			# SCC detection
+			SCCs = list()
+			initialstatements = set([])
+			for sm in c.statemachines:
+				for tr in sm.transitions:
+					for st in tr.statements:
+						initialstatements.add(st)
+			identifySCCs(depgraph, initialstatements, {}, SCCs)
+			for scc in SCCs:
+				if scc[0] > 1:
+					for st in scc[1].keys():
+						unsafe_statements.add(st)
+			# finally, all remaining statements are safe
+			for sm in c.statemachines:
+				for tr in sm.transitions:
+					for st in tr.statements:
+						if st not in unsafe_statements:
+							safe_statements.add(st)
+	# now that we have identified the unsafe statements, build a list of unsafe variables
+	unsafe_variables = set([])
+	for st in unsafe_statements:
+		# get the class owning st, and then all objects of that type
+		c = smclass[statemachine[st]]
+		olist = []
+		for o in model.objects:
+			if o.type == c:
+				olist.append(o)
+		# use the representative object to obtain the access pattern of st
+		for o in olist:
+			if o in classobjects:
+				ap = statement_access[o][st]
+				break
+		# add all elements of the read and write set, making sure to make dynamic array accesses static (to all cells in the array)
+		for i in range(0,2):
+			for v in ap[i]:
+				v_splitted = v.split("(Int2Nat(")
+				if len(v_splitted) > 1:
+					if not RepresentsInt(v_splitted[1][:-2]):
+						# look up array, and add all its cells
+						o1, v1 = v_splitted[0].split("'")
+						found = False
+						for o in model.objects:
+							if o.name == o1:
+								for v2 in o.type.variables:
+									if v2.name == v1:
+										for j in range(0,v2.type.size):
+											unsafe_variables.add(v_splitted[0] + "(Int2Nat(" + str(j) + "))")
+										found = True
+										break
+							if found:
+								break
 					else:
 						unsafe_variables.add(v)
-		# make unsafe_variables a sorted list
-		unsafe_variables = sorted(list(unsafe_variables))
+				else:
+					unsafe_variables.add(v)
+	# make unsafe_variables a sorted list
+	unsafe_variables = sorted(list(unsafe_variables))
 
 def preprocess():
 	"""preprocessing method"""
@@ -1639,13 +1667,14 @@ def translate():
 	statement_condition_access = compute_condition_accesspatterns(model)
 	# compute which statements are safe and unsafe
 	identify_safe_unsafe_statements(model)
-	# identify POR safe statements
-	identify_por_safe_statements(model)
 
 	# special case: if no unsafe statements are present, the result is that all variables can remain unlocked
 	if len(unsafe_statements) == 0:
 		print("No variables require locking!")
 		exit(0)
+
+	# identify POR safe statements
+	identify_por_safe_statements(model)
 
 	# Produce (guard, action, effect) tuples for the translation
 	# produce_summands(model)
@@ -1658,7 +1687,7 @@ def translate():
 
 def main(args):
 	"""The main function"""
-	global modelname, model, check_onthefly, apply_por, lock_onthefly
+	global modelname, model, check_onthefly, apply_por, lock_onthefly, default_search
 	if len(args) == 0:
 		print("Missing argument: SLCO model")
 		sys.exit(1)
@@ -1667,13 +1696,19 @@ def main(args):
 			print("Usage: pypy/python3 slco2mcrl2 [-rc]")
 			print("")
 			print("Transform an SLCO 2.0 model to an mCRL2 model for race condition checking (reduced state space).")
+			print(" -d                                    default search. do NOT apply static analysis")
 			print(" -o                                    apply on-the-fly race condition checking")
 			print(" -l                                    lock on-the-fly (applies checking on-the-fly and acts on result)")
 			print(" -r                                    apply partial-order reduction")
 			sys.exit(0)
 		else:
 			for i in range(0,len(args)):
-				if args[i] == '-o':
+				if args[i] == '-d':
+					default_search = True
+					check_onthefly = False
+					lock_onthefly = False
+					apply_por = False
+				elif args[i] == '-o':
 					check_onthefly = True
 				elif args[i] == '-r':
 					apply_por = True

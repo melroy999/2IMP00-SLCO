@@ -620,6 +620,10 @@ def read_locking_file(model,lockingfilename):
 				results, remainder = lockscanner.scan(remainder)
 			if results[0][0] == 'OBJECT':
 				key = results[0][1][:-1]
+				# lock all variables in case we see 'all_objects'
+				if key == "all_objects":
+					lockingfilename = '';
+					break
 			else:
 				varlist = []
 				for i in range(0,len(results)):
@@ -628,7 +632,7 @@ def read_locking_file(model,lockingfilename):
 				oldlist = lockdict.get(key,[])
 				varlist += oldlist
 				lockdict[key] = varlist
-	else:
+	if lockingfilename == '':
 		# fill lockdict with all variables in the system
 		for o in model.objects:
 			varlist = []
