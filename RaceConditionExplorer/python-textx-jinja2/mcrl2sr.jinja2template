@@ -64,6 +64,7 @@ sort Var;
 cons {% for v in sorted_variables|select("hasnoindex") %}{{', ' if not loop.first }}{{mcrl2varprefix}}{{v[1]}}{{': Var;' if loop.last }}{% endfor %}
 
 {% for v in sorted_variables|select("hasindex") %}{% if loop.first %}     {% else %}, {% endif %}{{mcrl2varprefix}}{{v[1]}}{% if loop.last %}: Nat -> Var;{% endif %}{% endfor %}
+
 map var_index: Var -> Nat;
 var v1, v2: Var, n': Nat;
 {% for v in sorted_variables %}
@@ -154,44 +155,44 @@ var {{model|mcrl2_model_vars_with_types(False)}};
 map sorted_array_accesses: List(Var) -> List(Var);
 var L': List(Var);
 eqn sorted_array_accesses([]) = [];
-(!is_array_access(head(L'))) -> sorted_array_accesses(L') = [head(L')] ++ sorted_array_accesses(tail(L'));
+(L' != [] && !is_array_access(head(L'))) -> sorted_array_accesses(L') = [head(L')] ++ sorted_array_accesses(tail(L'));
 (is_array_access(head(L'))) -> sorted_array_accesses(L') = sorted_array_accesses(smallerlist(head(L'), L')) ++ [head(L')] ++ sorted_array_accesses(largerlist(head(L'), L'));
 
 map smallerlist: Var # List(Var) -> List(Var);
 var v': Var, L': List(Var);
 eqn smallerlist(v', []) = [];
-(head(L') < v') -> smallerlist(v', L') = [head(L')] ++ smallerlist(v', tail(L'));
-(!(head(L') < v')) -> smallerlist(v', L') = smallerlist(v', tail(L'));
+(L' != [] && head(L') < v') -> smallerlist(v', L') = [head(L')] ++ smallerlist(v', tail(L'));
+(L' != [] && !(head(L') < v')) -> smallerlist(v', L') = smallerlist(v', tail(L'));
 
 map largerlist: Var # List(Var) -> List(Var);
 var v': Var, L': List(Var);
 eqn largerlist(v', []) = [];
-(!(v' < head(L'))) -> largerlist(v', L') = largerlist(v', tail(L'));
-(v' < head(L')) -> largerlist(v', L') = [head(L')] ++ largerlist(v', tail(L'));
+(L' != [] && !(v' < head(L'))) -> largerlist(v', L') = largerlist(v', tail(L'));
+(L' != [] && v' < head(L')) -> largerlist(v', L') = [head(L')] ++ largerlist(v', tail(L'));
 
 % *** FUNCTION TO QUICKLY COMPARE LISTS OF VARIABLES FOR SPECIFIC CONDITIONS ***
 
 map is_in: Var # List(Var) -> Bool;
-var v: Var, L: List(Var);
-eqn is_in(v, []) = false;
-(v == head(L)) -> is_in(v, L) = true;
-(v < head(L)) -> is_in(v, L) = is_in(v, tail(L));
-(v > head(L)) -> is_in(v, L) = false;
+var v': Var, L': List(Var);
+eqn is_in(v', []) = false;
+(v' == head(L')) -> is_in(v', L') = true;
+(L' != [] && v' < head(L')) -> is_in(v', L') = is_in(v', tail(L'));
+(v' > head(L')) -> is_in(v', L') = false;
 
 map has_at_least_two: List(Var) -> Bool;
-var L: List(Var), v: Var;
+var L': List(Var), v': Var;
 eqn has_at_least_two([]) = false;
-    has_at_least_two([v]) = false;
-    has_at_least_two(L) = has_at_least_two1(tail(L));
+    has_at_least_two([v']) = false;
+(L' != []) -> has_at_least_two(L') = has_at_least_two1(tail(L'));
 
 map has_at_least_two1: List(Var) -> Bool;
-var L: List(Var);
+var L': List(Var);
 eqn has_at_least_two1([]) = false;
-(L != []) -> has_at_least_two1(L) = true;
+(L' != []) -> has_at_least_two1(L') = true;
 
 map filter_on_two: List(Var) -> List(Var);
-var L1: List(Var);
-eqn filter_on_two(L1) = if(has_at_least_two(L1), L1, []);
+var L': List(Var);
+eqn filter_on_two(L') = if(has_at_least_two(L'), L', []);
 
 % *** FUNCTIONS TO CONSTRUCT INTERSECTION OF LISTS OF VARIABLES ***
 
@@ -200,16 +201,16 @@ var L1, L2, L3: List(Var);
 eqn intersection([], L2, L3) = [];
     intersection(L1, [], L3) = [];
     intersection(L1, L2, []) = [];
-((head(L1) == head(L2)) && (head(L1) == head(L3))) -> intersection(L1, L2, L3) = [head(L1)] ++ intersection(tail(L1), tail(L2), tail(L3));
-((head(L1) > head(L2)) && (head(L1) > head(L3))) -> intersection(L1, L2, L3) = intersection(L1, tail(L2), tail(L3));
-((head(L1) > head(L2)) && (head(L1) == head(L3))) -> intersection(L1, L2, L3) = intersection(L1, tail(L2), L3);
-((head(L1) == head(L2)) && (head(L1) > head(L3))) -> intersection(L1, L2, L3) = intersection(L1, L2, tail(L3));
-((head(L2) > head(L1)) && (head(L2) > head(L3))) -> intersection(L1, L2, L3) = intersection(tail(L1), L2, tail(L3));
-((head(L2) > head(L1)) && (head(L2) == head(L3))) -> intersection(L1, L2, L3) = intersection(tail(L1), L2, L3);
-((head(L2) == head(L1)) && (head(L2) > head(L3))) -> intersection(L1, L2, L3) = intersection(L1, L2, tail(L3));
-((head(L3) > head(L2)) && (head(L3) > head(L1))) -> intersection(L1, L2, L3) = intersection(tail(L1), tail(L2), L3);
-((head(L3) > head(L2)) && (head(L3) == head(L1))) -> intersection(L1, L2, L3) = intersection(L1, tail(L2), L3);
-((head(L3) == head(L2)) && (head(L3) > head(L1))) -> intersection(L1, L2, L3) = intersection(tail(L1), L2, L3);
+(L1 != [] && L2 != [] && L3 != [] && (head(L1) == head(L2)) && (head(L1) == head(L3))) -> intersection(L1, L2, L3) = [head(L1)] ++ intersection(tail(L1), tail(L2), tail(L3));
+(L2 != [] && L3 != [] && (head(L1) > head(L2)) && (head(L1) > head(L3))) -> intersection(L1, L2, L3) = intersection(L1, tail(L2), tail(L3));
+(L2 != [] && (head(L1) > head(L2)) && (head(L1) == head(L3))) -> intersection(L1, L2, L3) = intersection(L1, tail(L2), L3);
+(L3 != [] && (head(L1) == head(L2)) && (head(L1) > head(L3))) -> intersection(L1, L2, L3) = intersection(L1, L2, tail(L3));
+(L1 != [] && L3 != [] && (head(L2) > head(L1)) && (head(L2) > head(L3))) -> intersection(L1, L2, L3) = intersection(tail(L1), L2, tail(L3));
+(L1 != [] && (head(L2) > head(L1)) && (head(L2) == head(L3))) -> intersection(L1, L2, L3) = intersection(tail(L1), L2, L3);
+(L3 != [] && (head(L2) == head(L1)) && (head(L2) > head(L3))) -> intersection(L1, L2, L3) = intersection(L1, L2, tail(L3));
+(L1 != [] && L2 != [] && (head(L3) > head(L2)) && (head(L3) > head(L1))) -> intersection(L1, L2, L3) = intersection(tail(L1), tail(L2), L3);
+(L2 != [] && (head(L3) > head(L2)) && (head(L3) == head(L1))) -> intersection(L1, L2, L3) = intersection(L1, tail(L2), L3);
+(L1 != [] && (head(L3) == head(L2)) && (head(L3) > head(L1))) -> intersection(L1, L2, L3) = intersection(tail(L1), L2, L3);
 
 map has_nonempty_intersection: List(Var) # List(Var) # List(Var) -> Bool;
 var L1, L2, L3: List(Var);
@@ -217,15 +218,15 @@ eqn has_nonempty_intersection([], L2, L3) = false;
     has_nonempty_intersection(L1, [], L3) = false;
     has_nonempty_intersection(L1, L2, []) = false;
 ((head(L1) == head(L2)) && (head(L1) == head(L3))) -> has_nonempty_intersection(L1, L2, L3) = true;
-((head(L1) > head(L2)) && (head(L1) > head(L3))) -> has_nonempty_intersection(L1, L2, L3) = has_nonempty_intersection(L1, tail(L2), tail(L3));
-((head(L1) > head(L2)) && (head(L1) == head(L3))) -> has_nonempty_intersection(L1, L2, L3) = has_nonempty_intersection(L1, tail(L2), L3);
-((head(L1) == head(L2)) && (head(L1) > head(L3))) -> has_nonempty_intersection(L1, L2, L3) = has_nonempty_intersection(L1, L2, tail(L3));
-((head(L2) > head(L1)) && (head(L2) > head(L3))) -> has_nonempty_intersection(L1, L2, L3) = has_nonempty_intersection(tail(L1), L2, tail(L3));
-((head(L2) > head(L1)) && (head(L2) == head(L3))) -> has_nonempty_intersection(L1, L2, L3) = has_nonempty_intersection(tail(L1), L2, L3);
-((head(L2) == head(L1)) && (head(L2) > head(L3))) -> has_nonempty_intersection(L1, L2, L3) = has_nonempty_intersection(L1, L2, tail(L3));
-((head(L3) > head(L2)) && (head(L3) > head(L1))) -> has_nonempty_intersection(L1, L2, L3) = has_nonempty_intersection(tail(L1), tail(L2), L3);
-((head(L3) > head(L2)) && (head(L3) == head(L1))) -> has_nonempty_intersection(L1, L2, L3) = has_nonempty_intersection(L1, tail(L2), L3);
-((head(L3) == head(L2)) && (head(L3) > head(L1))) -> has_nonempty_intersection(L1, L2, L3) = has_nonempty_intersection(tail(L1), L2, L3);
+(L2 != [] && L3 != [] && (head(L1) > head(L2)) && (head(L1) > head(L3))) -> has_nonempty_intersection(L1, L2, L3) = has_nonempty_intersection(L1, tail(L2), tail(L3));
+(L2 != [] && (head(L1) > head(L2)) && (head(L1) == head(L3))) -> has_nonempty_intersection(L1, L2, L3) = has_nonempty_intersection(L1, tail(L2), L3);
+(L3 != [] && (head(L1) == head(L2)) && (head(L1) > head(L3))) -> has_nonempty_intersection(L1, L2, L3) = has_nonempty_intersection(L1, L2, tail(L3));
+(L1 != [] && L3 != [] && (head(L2) > head(L1)) && (head(L2) > head(L3))) -> has_nonempty_intersection(L1, L2, L3) = has_nonempty_intersection(tail(L1), L2, tail(L3));
+(L1 != [] && (head(L2) > head(L1)) && (head(L2) == head(L3))) -> has_nonempty_intersection(L1, L2, L3) = has_nonempty_intersection(tail(L1), L2, L3);
+(L3 != [] && (head(L2) == head(L1)) && (head(L2) > head(L3))) -> has_nonempty_intersection(L1, L2, L3) = has_nonempty_intersection(L1, L2, tail(L3));
+(L1 != [] && L2 != [] && (head(L3) > head(L2)) && (head(L3) > head(L1))) -> has_nonempty_intersection(L1, L2, L3) = has_nonempty_intersection(tail(L1), tail(L2), L3);
+(L2 != [] && (head(L3) > head(L2)) && (head(L3) == head(L1))) -> has_nonempty_intersection(L1, L2, L3) = has_nonempty_intersection(L1, tail(L2), L3);
+(L1 != [] && (head(L3) == head(L2)) && (head(L3) > head(L1))) -> has_nonempty_intersection(L1, L2, L3) = has_nonempty_intersection(tail(L1), L2, L3);
 
 map intersection_of_at_least_two: List(Var) # List(Var) # List(Var) -> List(Var);
 var L1, L2, L3: List(Var);
@@ -237,38 +238,38 @@ eqn intersection([], L2, L3, L4) = [];
     intersection(L1, [], L3, L4) = [];
     intersection(L1, L2, [], L4) = [];
     intersection(L1, L2, L3, []) = [];
-((head(L1) == head(L2)) && (head(L1) == head(L3)) && (head(L1) == head(L4))) -> intersection(L1, L2, L3, L4) = [head(L1)] ++ intersection(tail(L1), tail(L2), tail(L3), tail(L4));
-((head(L1) > head(L2)) && (head(L1) > head(L3)) && (head(L1) > head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, tail(L2), tail(L3), tail(L4));
-((head(L1) > head(L2)) && (head(L1) > head(L3)) && (head(L1) == head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, tail(L2), tail(L3), L4);
-((head(L1) > head(L2)) && (head(L1) == head(L3)) && (head(L1) > head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, tail(L2), L3, tail(L4));
-((head(L1) > head(L2)) && (head(L1) == head(L3)) && (head(L1) == head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, tail(L2), L3, L4);
-((head(L1) == head(L2)) && (head(L1) > head(L3)) && (head(L1) > head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, L2, tail(L3), tail(L4));
-((head(L1) == head(L2)) && (head(L1) > head(L3)) && (head(L1) == head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, L2, tail(L3), L4);
-((head(L1) == head(L2)) && (head(L1) == head(L3)) && (head(L1) > head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, L2, L3, tail(L4));
+(L1 != [] && L2 != [] && L3 != [] && L4 != [] && (head(L1) == head(L2)) && (head(L1) == head(L3)) && (head(L1) == head(L4))) -> intersection(L1, L2, L3, L4) = [head(L1)] ++ intersection(tail(L1), tail(L2), tail(L3), tail(L4));
+(L2 != [] && L3 != [] && L4 != [] && (head(L1) > head(L2)) && (head(L1) > head(L3)) && (head(L1) > head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, tail(L2), tail(L3), tail(L4));
+(L2 != [] && L3 != [] && (head(L1) > head(L2)) && (head(L1) > head(L3)) && (head(L1) == head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, tail(L2), tail(L3), L4);
+(L2 != [] && L4 != [] && (head(L1) > head(L2)) && (head(L1) == head(L3)) && (head(L1) > head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, tail(L2), L3, tail(L4));
+(L2 != [] && (head(L1) > head(L2)) && (head(L1) == head(L3)) && (head(L1) == head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, tail(L2), L3, L4);
+(L3 != [] && L4 != [] && (head(L1) == head(L2)) && (head(L1) > head(L3)) && (head(L1) > head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, L2, tail(L3), tail(L4));
+(L3 != [] && (head(L1) == head(L2)) && (head(L1) > head(L3)) && (head(L1) == head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, L2, tail(L3), L4);
+(L4 != [] && (head(L1) == head(L2)) && (head(L1) == head(L3)) && (head(L1) > head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, L2, L3, tail(L4));
 
-((head(L2) > head(L1)) && (head(L2) > head(L3)) && (head(L2) > head(L4))) -> intersection(L1, L2, L3, L4) = intersection(tail(L1), L2, tail(L3), tail(L4));
-((head(L2) > head(L1)) && (head(L2) > head(L3)) && (head(L2) == head(L4))) -> intersection(L1, L2, L3, L4) = intersection(tail(L1), L2, tail(L3), L4);
-((head(L2) > head(L1)) && (head(L2) == head(L3)) && (head(L2) > head(L4))) -> intersection(L1, L2, L3, L4) = intersection(tail(L1), L2, L3, tail(L4));
-((head(L2) > head(L1)) && (head(L2) == head(L3)) && (head(L2) == head(L4))) -> intersection(L1, L2, L3, L4) = intersection(tail(L1), L2, L3, L4);
-((head(L2) == head(L1)) && (head(L2) > head(L3)) && (head(L2) > head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, L2, tail(L3), tail(L4));
-((head(L2) == head(L1)) && (head(L2) > head(L3)) && (head(L2) == head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, L2, tail(L3), L4);
-((head(L2) == head(L1)) && (head(L2) == head(L3)) && (head(L2) > head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, L2, L3, tail(L4));
+(L1 != [] && L3 != [] && L4 != [] && (head(L2) > head(L1)) && (head(L2) > head(L3)) && (head(L2) > head(L4))) -> intersection(L1, L2, L3, L4) = intersection(tail(L1), L2, tail(L3), tail(L4));
+(L1 != [] && L3 != [] && (head(L2) > head(L1)) && (head(L2) > head(L3)) && (head(L2) == head(L4))) -> intersection(L1, L2, L3, L4) = intersection(tail(L1), L2, tail(L3), L4);
+(L1 != [] && L4 != [] && (head(L2) > head(L1)) && (head(L2) == head(L3)) && (head(L2) > head(L4))) -> intersection(L1, L2, L3, L4) = intersection(tail(L1), L2, L3, tail(L4));
+(L1 != [] && (head(L2) > head(L1)) && (head(L2) == head(L3)) && (head(L2) == head(L4))) -> intersection(L1, L2, L3, L4) = intersection(tail(L1), L2, L3, L4);
+(L3 != [] && L4 != [] && (head(L2) == head(L1)) && (head(L2) > head(L3)) && (head(L2) > head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, L2, tail(L3), tail(L4));
+(L3 != [] && (head(L2) == head(L1)) && (head(L2) > head(L3)) && (head(L2) == head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, L2, tail(L3), L4);
+(L4 != [] && (head(L2) == head(L1)) && (head(L2) == head(L3)) && (head(L2) > head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, L2, L3, tail(L4));
 
-((head(L3) > head(L1)) && (head(L3) > head(L2)) && (head(L3) > head(L4))) -> intersection(L1, L2, L3, L4) = intersection(tail(L1), tail(L2), L3, tail(L4));
-((head(L3) > head(L1)) && (head(L3) > head(L2)) && (head(L3) == head(L4))) -> intersection(L1, L2, L3, L4) = intersection(tail(L1), tail(L2), L3, L4);
-((head(L3) > head(L1)) && (head(L3) == head(L2)) && (head(L3) > head(L4))) -> intersection(L1, L2, L3, L4) = intersection(tail(L1), L2, L3, tail(L4));
-((head(L3) > head(L1)) && (head(L3) == head(L2)) && (head(L3) == head(L4))) -> intersection(L1, L2, L3, L4) = intersection(tail(L1), L2, L3, L4);
-((head(L3) == head(L1)) && (head(L3) > head(L2)) && (head(L3) > head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, tail(L2), L3, tail(L4));
-((head(L3) == head(L1)) && (head(L3) > head(L2)) && (head(L3) == head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, tail(L2), L3, L4);
-((head(L3) == head(L1)) && (head(L3) == head(L2)) && (head(L3) > head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, L2, L3, tail(L4));
+(L1 != [] && L2 != [] && L4 != [] && (head(L3) > head(L1)) && (head(L3) > head(L2)) && (head(L3) > head(L4))) -> intersection(L1, L2, L3, L4) = intersection(tail(L1), tail(L2), L3, tail(L4));
+(L1 != [] && L2 != [] && (head(L3) > head(L1)) && (head(L3) > head(L2)) && (head(L3) == head(L4))) -> intersection(L1, L2, L3, L4) = intersection(tail(L1), tail(L2), L3, L4);
+(L1 != [] && L4 != [] && (head(L3) > head(L1)) && (head(L3) == head(L2)) && (head(L3) > head(L4))) -> intersection(L1, L2, L3, L4) = intersection(tail(L1), L2, L3, tail(L4));
+(L1 != [] && (head(L3) > head(L1)) && (head(L3) == head(L2)) && (head(L3) == head(L4))) -> intersection(L1, L2, L3, L4) = intersection(tail(L1), L2, L3, L4);
+(L2 != [] && L4 != [] && (head(L3) == head(L1)) && (head(L3) > head(L2)) && (head(L3) > head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, tail(L2), L3, tail(L4));
+(L2 != [] && (head(L3) == head(L1)) && (head(L3) > head(L2)) && (head(L3) == head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, tail(L2), L3, L4);
+(L4 != [] && (head(L3) == head(L1)) && (head(L3) == head(L2)) && (head(L3) > head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, L2, L3, tail(L4));
 
-((head(L4) > head(L1)) && (head(L4) > head(L2)) && (head(L4) > head(L3))) -> intersection(L1, L2, L3, L4) = intersection(tail(L1), tail(L2), tail(L3), L4);
-((head(L4) > head(L1)) && (head(L4) > head(L2)) && (head(L4) == head(L3))) -> intersection(L1, L2, L3, L4) = intersection(tail(L1), tail(L2), L3, L4);
-((head(L4) > head(L1)) && (head(L4) == head(L2)) && (head(L4) > head(L3))) -> intersection(L1, L2, L3, L4) = intersection(tail(L1), L2, tail(L3), L4);
-((head(L4) > head(L1)) && (head(L4) == head(L2)) && (head(L4) == head(L3))) -> intersection(L1, L2, L3, L4) = intersection(tail(L1), L2, L3, L4);
-((head(L4) == head(L1)) && (head(L4) > head(L2)) && (head(L4) > head(L3))) -> intersection(L1, L2, L3, L4) = intersection(L1, tail(L2), tail(L3), L4);
-((head(L4) == head(L1)) && (head(L4) > head(L2)) && (head(L4) == head(L3))) -> intersection(L1, L2, L3, L4) = intersection(L1, tail(L2), L3, L4);
-((head(L4) == head(L1)) && (head(L4) == head(L2)) && (head(L4) > head(L3))) -> intersection(L1, L2, L3, L4) = intersection(L1, L2, tail(L3), L4);
+(L1 != [] && L2 != [] && L3 != [] && (head(L4) > head(L1)) && (head(L4) > head(L2)) && (head(L4) > head(L3))) -> intersection(L1, L2, L3, L4) = intersection(tail(L1), tail(L2), tail(L3), L4);
+(L1 != [] && L2 != [] && (head(L4) > head(L1)) && (head(L4) > head(L2)) && (head(L4) == head(L3))) -> intersection(L1, L2, L3, L4) = intersection(tail(L1), tail(L2), L3, L4);
+(L1 != [] && L3 != [] && (head(L4) > head(L1)) && (head(L4) == head(L2)) && (head(L4) > head(L3))) -> intersection(L1, L2, L3, L4) = intersection(tail(L1), L2, tail(L3), L4);
+(L1 != [] && (head(L4) > head(L1)) && (head(L4) == head(L2)) && (head(L4) == head(L3))) -> intersection(L1, L2, L3, L4) = intersection(tail(L1), L2, L3, L4);
+(L2 != [] && L3 != [] && (head(L4) == head(L1)) && (head(L4) > head(L2)) && (head(L4) > head(L3))) -> intersection(L1, L2, L3, L4) = intersection(L1, tail(L2), tail(L3), L4);
+(L2 != [] && (head(L4) == head(L1)) && (head(L4) > head(L2)) && (head(L4) == head(L3))) -> intersection(L1, L2, L3, L4) = intersection(L1, tail(L2), L3, L4);
+(L3 != [] && (head(L4) == head(L1)) && (head(L4) == head(L2)) && (head(L4) > head(L3))) -> intersection(L1, L2, L3, L4) = intersection(L1, L2, tail(L3), L4);
 
 % *** MERGE TWO LISTS OF VARIABLES ***
 
@@ -276,9 +277,9 @@ map merge: List(Var) # List(Var) -> List(Var);
 var L1, L2: List(Var);
 eqn merge([], L2) = L2;
     merge(L1, []) = L1;
-(head(L1) == head(L2)) -> merge(L1, L2) = [head(L1)] ++ merge(tail(L1), tail(L2));
-(head(L1) < head(L2))  -> merge(L1, L2) = [head(L1)] ++ merge(tail(L1), L2);
-(head(L1) > head(L2))  -> merge(L1, L2) = [head(L2)] ++ merge(L1, tail(L2));
+(L1 != [] && L2 != [] && head(L1) == head(L2)) -> merge(L1, L2) = [head(L1)] ++ merge(tail(L1), tail(L2));
+(L1 != [] && head(L1) < head(L2))  -> merge(L1, L2) = [head(L1)] ++ merge(tail(L1), L2);
+(L2 != [] && head(L1) > head(L2))  -> merge(L1, L2) = [head(L2)] ++ merge(L1, tail(L2));
 
 % *** EXTRACT ONE LIST OF VARIABLES FROM THE OTHER ***
 
@@ -286,9 +287,9 @@ map extract: List(Var) # List(Var) -> List(Var);
 var L1, L2: List(Var);
 eqn extract([], L2) = [];
     extract(L1, []) = L1;
-(head(L1) == head(L2)) -> extract(L1, L2) = extract(tail(L1), tail(L2));
-(head(L1) < head(L2)) -> extract(L1, L2) = [head(L1)] ++ extract(tail(L1), L2);
-(head(L1) > head(L2)) -> extract(L1, L2) = extract(L1, tail(L2));
+(L1 != [] && L2 != [] && head(L1) == head(L2)) -> extract(L1, L2) = extract(tail(L1), tail(L2));
+(L1 != [] && head(L1) < head(L2)) -> extract(L1, L2) = [head(L1)] ++ extract(tail(L1), L2);
+(L2 != [] && head(L1) > head(L2)) -> extract(L1, L2) = extract(L1, tail(L2));
 
 % *** FUNCTION INDICATING WHETHER A STATEMENT IS SAFE OR NOT ***
 
@@ -371,8 +372,8 @@ map object_outgoing_is_safe: List(STID) # Statemachine # Nat -> Bool;
 var L': List(STID), sm': Statemachine, n': Nat;
 eqn object_outgoing_is_safe(L',sm',2) = false;
 (n' < 2) -> object_outgoing_is_safe([],sm',n') = true;
-(n' < 2 && (sm_owner(head(L')) == sm' || issafe(head(L')))) -> object_outgoing_is_safe(L', sm', n') = object_outgoing_is_safe(tail(L'), sm', n');
-(n' < 2 && sm_owner(head(L')) != sm' && !issafe(head(L'))) -> object_outgoing_is_safe(L', sm', n') = object_outgoing_is_safe(tail(L'), sm_owner(head(L')), n'+1);
+(L' != [] && n' < 2 && (sm_owner(head(L')) == sm' || issafe(head(L')))) -> object_outgoing_is_safe(L', sm', n') = object_outgoing_is_safe(tail(L'), sm', n');
+(L' != [] && n' < 2 && sm_owner(head(L')) != sm' && !issafe(head(L'))) -> object_outgoing_is_safe(L', sm', n') = object_outgoing_is_safe(tail(L'), sm_owner(head(L')), n'+1);
 
 % *** PAIRS OF OBJECTS AND STATEMENT IDS ***
 
@@ -387,8 +388,8 @@ eqn get_access_patterns(OT'({% for o in model.objects %}{% set oloop = loop %}{%
 map get_access_patterns1: Object # Statemachine # List(STID){{model|mcrl2_model_vartypes(True)}} -> List(Object_SM_AccessPattern);
 var o': Object, sm': Statemachine, L': List(STID){{model|mcrl2_model_vars_with_types(True)}};
 eqn get_access_patterns1(o',sm',[]{{model|mcrl2_model_vars(True)}}) = [];
-(!issafe(head(L'))) -> get_access_patterns1(o',sm',L'{{model|mcrl2_model_vars(True)}}) = [OA'(o', sm', rwpattern(o',head(L'){{model|mcrl2_model_vars(True)}}))] ++ get_access_patterns1(o', sm', tail(L'){{model|mcrl2_model_vars(True)}});
-(issafe(head(L'))) -> get_access_patterns1(o', sm', L'{{model|mcrl2_model_vars(True)}}) = get_access_patterns1(o', sm', tail(L'){{model|mcrl2_model_vars(True)}});
+(L' != [] && !issafe(head(L'))) -> get_access_patterns1(o',sm',L'{{model|mcrl2_model_vars(True)}}) = [OA'(o', sm', rwpattern(o',head(L'){{model|mcrl2_model_vars(True)}}))] ++ get_access_patterns1(o', sm', tail(L'){{model|mcrl2_model_vars(True)}});
+(L' != [] && issafe(head(L'))) -> get_access_patterns1(o', sm', L'{{model|mcrl2_model_vars(True)}}) = get_access_patterns1(o', sm', tail(L'){{model|mcrl2_model_vars(True)}});
 
 % This function produces a list of variables that require locking
 map check_for_races: List(Var) # OutgoingTransitions{{model|mcrl2_model_vartypes(True)}} -> List(Var);
@@ -408,8 +409,8 @@ var W1': List(Var), o': Object, sm': Statemachine, rw': AccessPattern, L': List(
 eqn check_simple_races1([],x',L') = [];
     check_simple_races1(W1',x',[]) = [];
 (o' != O'(head(L'))) -> check_simple_races1(W1',OA'(o',sm',rw'),L') = [];
-((o' == O'(head(L'))) && (sm' != SM'(head(L')))) -> check_simple_races1(W1',OA'(o',sm',rw'),L') = merge(check_simple_races1(W1',OA'(o',sm',rw'),tail(L')), check_simple_races2(W1',OA'(o',sm',rw'),head(L')));
-((o' == O'(head(L'))) && (sm' == SM'(head(L')))) -> check_simple_races1(W1',OA'(o',sm',rw'),L') = check_simple_races1(W1',OA'(o',sm',rw'),tail(L'));
+(L' != [] && (o' == O'(head(L'))) && (sm' != SM'(head(L')))) -> check_simple_races1(W1',OA'(o',sm',rw'),L') = merge(check_simple_races1(W1',OA'(o',sm',rw'),tail(L')), check_simple_races2(W1',OA'(o',sm',rw'),head(L')));
+(L' != [] && (o' == O'(head(L'))) && (sm' == SM'(head(L')))) -> check_simple_races1(W1',OA'(o',sm',rw'),L') = check_simple_races1(W1',OA'(o',sm',rw'),tail(L'));
 
 map check_simple_races2: List(Var) # Object_SM_AccessPattern # Object_SM_AccessPattern -> List(Var);
 var W1': List(Var), o1', o2': Object, sm1', sm2': Statemachine, rw1', rw2': AccessPattern, x1', x2': Object_SM_AccessPattern;
@@ -555,9 +556,9 @@ proc {{model.name}}({% for o in model.objects %}{% set oloop = loop %}{% for stm
 {% if tr.statements[0].__class__.__name__ != "ReceiveSignal" or ochannel[o][tr.statements[0]].synctype == "async" %}
   (ST'{{tr._tx_position}} in sm_outgoing({{o.name}}, {{sm.name}}, outtrans){% if tr.statements[0]|hascondition(o) %}) -> (({{tr.statements[0]|statement_condition(o)}}{% endif %}) -> (
     {% if syncing_statements[o][tr.statements[0]]|length == 0 %}    {% if tr.statements[0]|statement_is_safe or check_onthefly %}tau{% else %}rw({{o.name}}, {{sm.name}}, R'(rwpattern({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}})), W'(rwpattern({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}))){% endif %} . {{model.name}}({{o.name}}'{{sm.name}}_state={{tr.target.name}}{{tr.statements[0]|statementstatechanges(o)}}, outtrans={% if apply_por %}apply_por(OT'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o.type.statemachines %}{{', ' if not (o2loop.first and loop.first) }}outgoing({{o2.type.name}}, {{sm2.name}}, {% if o == o2 and sm == sm2 %}{{tr.target.name}}{% else %}{{o2.name}}'{{sm2.name}}_state{% endif %}){% endfor %}{% endfor %}){{tr.statements[0]|complete_newstate(o)}}){% else %}update_outgoing({{o.name}}, {{sm.name}}, {{tr.target.name}}, outtrans){% endif %}{% if check_onthefly %}, race_check_done=false{% endif %})
-  )){%else %}{% for sync in syncing_statements[o][tr.statements[0]] %}    (ST'{{transowner[sync[1]]._tx_position}} in sm_outgoing({{sync[0].name}}, {{statemachine[sync[1]].name}}, outtrans){% if sync[1]|hascondition(sync[0]) %} && {{sync[1]|sync_statement_condition(sync[0], tr.statements[0], o)}}{% endif %}) -> {% if tr.statements[0]|statement_is_safe and sync[1]|statement_is_safe or check_onthefly %}tau{% else %}rw({{o.name}}, {{sm.name}}, {{tr.statements[0]|mcrl2_read_accesspattern(o,True)}}, {{tr.statements[0]|mcrl2_write_accesspattern(o,True)}}, {{sync[0].name}}, {{statemachine[sync[1]].name}}, R'(rwpattern({{sync[0].name}}, ST'{{transowner[sync[1]]._tx_position}}{{model|mcrl2_model_vars(True)}}), W'(rwpattern({{sync[0].name}}, ST'{{transowner[sync[1]]._tx_position}}{{model|mcrl2_model_vars(True)}})))){% endif %} . {{model.name}}({{o.name}}'{{sm.name}}_state={{tr.target.name}}, {{sync[0].name}}'{{statemachine[sync[1]].name}}_state={{transowner[sync[1]].target.name}}{{sync[1]|sync_statementstatechanges(sync[0],tr.statements[0],o)}}, outtrans={% if apply_por %}apply_por(OT'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o.type.statemachines %}{{', ' if not (o2loop.first and loop.first) }}outgoing({{o2.type.name}}, {{sm2.name}}, {% if o == o2 and sm == sm2 %}{{tr.target.name}}{% elif sync[0] == o2 and statemachine[sync[1]] == sm2 %}{{transowner[sync[1]].target.name}}{% else %}{{o2.name}}'{{sm2.name}}_state{% endif %}){% endfor %}{% endfor %}){{tr.statements[0]|sync_complete_newstate(o)}}){% else %}update_outgoing({{sync[0].name}}, {{statemachine[sync[1]].name}}, {{transowner[sync[1]].target.name}}, update_outgoing({{o.name}}, {{sm.name}}, {{tr.target.name}}, outtrans)){% endif %}{% if check_onthefly %}, race_check_done=false{% endif %}){% if not loop.last %} +{% endif %}{% endfor %}
+  ){% if tr.statements[0]|hascondition(o) %}){% endif %}{%else %}{% for sync in syncing_statements[o][tr.statements[0]] %}    (ST'{{transowner[sync[1]]._tx_position}} in sm_outgoing({{sync[0].name}}, {{statemachine[sync[1]].name}}, outtrans){% if sync[1]|hascondition(sync[0]) %}) -> (({{sync[1]|sync_statement_condition(sync[0], tr.statements[0], o)}}{% endif %}) -> ({% if tr.statements[0]|statement_is_safe and sync[1]|statement_is_safe or check_onthefly %}tau{% else %}rw({{o.name}}, {{sm.name}}, {{tr.statements[0]|mcrl2_read_accesspattern(o,True)}}, {{tr.statements[0]|mcrl2_write_accesspattern(o,True)}}, {{sync[0].name}}, {{statemachine[sync[1]].name}}, R'(rwpattern({{sync[0].name}}, ST'{{transowner[sync[1]]._tx_position}}{{model|mcrl2_model_vars(True)}}), W'(rwpattern({{sync[0].name}}, ST'{{transowner[sync[1]]._tx_position}}{{model|mcrl2_model_vars(True)}})))){% endif %} . {{model.name}}({{o.name}}'{{sm.name}}_state={{tr.target.name}}, {{sync[0].name}}'{{statemachine[sync[1]].name}}_state={{transowner[sync[1]].target.name}}{{sync[1]|sync_statementstatechanges(sync[0],tr.statements[0],o)}}, outtrans={% if apply_por %}apply_por(OT'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o.type.statemachines %}{{', ' if not (o2loop.first and loop.first) }}outgoing({{o2.type.name}}, {{sm2.name}}, {% if o == o2 and sm == sm2 %}{{tr.target.name}}{% elif sync[0] == o2 and statemachine[sync[1]] == sm2 %}{{transowner[sync[1]].target.name}}{% else %}{{o2.name}}'{{sm2.name}}_state{% endif %}){% endfor %}{% endfor %}){{tr.statements[0]|sync_complete_newstate(o)}}){% else %}update_outgoing({{sync[0].name}}, {{statemachine[sync[1]].name}}, {{transowner[sync[1]].target.name}}, update_outgoing({{o.name}}, {{sm.name}}, {{tr.target.name}}, outtrans)){% endif %}{% if check_onthefly %}, race_check_done=false{% endif %}){% if not loop.last %} +{% endif %}{% endfor %}
 
-  )){% endif %}{% if not (oloop.last and smloop.last and trloop.last and loop.last) %} +{% endif %}
+  ){% if sync[1]|hascondition(sync[0]) %}){% endif %}{% endif %}{% if not (oloop.last and smloop.last and trloop.last and loop.last) %} +{% endif %}
 
 {% endif %}
 {% endfor %}

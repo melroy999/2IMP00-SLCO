@@ -12,7 +12,7 @@ public class {{model.name}} {
   {% endfor %}
 
   // Upperbound for transition counter
-  public static final long COUNTER_BOUND = 999999999L;
+  public static final long COUNTER_BOUND = 300000000L;
 
   // Enum type for state machine states
   public enum State {
@@ -23,7 +23,7 @@ public class {{model.name}} {
   // Global variables
   {% for c in model.classes %}
   {% for v in c.variables %}
-  public {{v.type|javatype}} {{v.name}};
+  public volatile {{v.type|javatype}} {{v.name}};
   {% endfor %}
 
 	// Lock class to handle locks of global variables

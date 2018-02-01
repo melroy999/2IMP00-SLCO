@@ -414,9 +414,9 @@ def expression_usedvars_scan(s,stm,c):
 			output |= expression_varset(s.body,stm,c,primmap,owner)
 	return output
 
-def expression_varset(s,stm,c,primmap,owner):
+def expression_varset(s,stm,c,primmap,owner,ignore_indices):
 	"""Produces set of variables referenced in given SLCO expression or variableref. Statemachine stm and Class c owning the statement are also given. Primmap is a dictionary for rewriting primaries, which is relevant when array indices are used.
-	The owner of the statement is also given."""
+	The owner of the statement is also given. ignore_indices is a Boolean flag indicating whether array indices should be ignored or not."""
 	global actions, scopedvars, smlocalvars
 	output = set([])
 	if s.__class__.__name__ == "VariableRef":
@@ -425,12 +425,13 @@ def expression_varset(s,stm,c,primmap,owner):
 			varname = owner.name + "'" + s.var.name
 			if s.index != None:
 				varname += "(Int2Nat(" + expression(s.index,stm,c,primmap,owner) + "))"
-				output |= expression_varset(s.index,stm,c,primmap,owner)
+				if not ignore_indices:
+					output |= expression_varset(s.index,stm,c,primmap,owner,ignore_indices)
 			output.add(varname)
 	elif s.__class__.__name__ != "Primary":
-		output |= expression_varset(s.left,stm,c,primmap,owner)
+		output |= expression_varset(s.left,stm,c,primmap,owner,ignore_indices)
 		if s.op != '':
-			output |= expression_varset(s.right,stm,c,primmap,owner)
+			output |= expression_varset(s.right,stm,c,primmap,owner,ignore_indices)
 	else:
 		if s.ref != None:
 			if s.ref.ref not in actions:
@@ -439,10 +440,11 @@ def expression_varset(s,stm,c,primmap,owner):
 					varname = owner.name + "'" + s.ref.ref
 					if s.ref.index != None:
 						varname += "(Int2Nat(" + expression(s.ref.index,stm,c,primmap,owner) + "))"
-						output |= expression_varset(s.ref.index,stm,c,primmap,owner)
+						if not ignore_indices:
+							output |= expression_varset(s.ref.index,stm,c,primmap,owner,ignore_indices)
 					output.add(varname)
 		if s.body != None:
-			output |= expression_varset(s.body,stm,c,primmap,owner)
+			output |= expression_varset(s.body,stm,c,primmap,owner,ignore_indices)
 	return output
 
 def expression_is_actionref(s):
@@ -825,18 +827,22 @@ def statement_accesspattern(s, o):
 	global statemachine, smclass
 
 	if s.__class__.__name__ == "Assignment":
-		readset = expression_varset(s.right,statemachine[s],smclass[statemachine[s]],{},o)
-		writeset = expression_varset(s.left,statemachine[s],smclass[statemachine[s]],{},o)
+		readset = expression_varset(s.right,statemachine[s],smclass[statemachine[s]],{},o,False)
+		if s.left.index != None:
+			readset |= expression_varset(s.left.index,statemachine[s],smclass[statemachine[s]],{},o,False)
+		writeset = expression_varset(s.left,statemachine[s],smclass[statemachine[s]],{},o,True)
 		return tuple([readset, writeset])
 	elif s.__class__.__name__ == "Composite":
 		vardict = {}
 		readset = set([])
 		writeset = set([])
 		if s.guard != None:
-			readset |= expression_varset(s.guard,statemachine[s],smclass[statemachine[s]],vardict,o)
+			readset |= expression_varset(s.guard,statemachine[s],smclass[statemachine[s]],vardict,o,False)
 		for st in s.assignments:
-			readset |= expression_varset(st.right,statemachine[s],smclass[statemachine[s]],vardict,o)
-			writeset |= expression_varset(st.left,statemachine[s],smclass[statemachine[s]],vardict,o)
+			readset |= expression_varset(st.right,statemachine[s],smclass[statemachine[s]],vardict,o,False)
+			if st.left.index != None:
+				readset |= expression_varset(st.left.index,statemachine[s],smclass[statemachine[s]],vardict,o,False)
+			writeset |= expression_varset(st.left,statemachine[s],smclass[statemachine[s]],vardict,o,True)
 			# update vardict (to correctly handle possible array index use in subsequent assignments)
 			newright = expression(st.right,statemachine[s],smclass[statemachine[s]],vardict,o)
 			varname = scopedvars[smclass[statemachine[s]].name + "'" + statemachine[s].name][st.left.var.name]
@@ -850,15 +856,15 @@ def statement_accesspattern(s, o):
 	elif s.__class__.__name__ == "SendSignal":
 		readset = set([])
 		for st in s.params:
-			readset |= expression_varset(st,statemachine[s],smclass[statemachine[s]],{},o)
+			readset |= expression_varset(st,statemachine[s],smclass[statemachine[s]],{},o,False)
 		return tuple([readset, set([])])
 	elif s.__class__.__name__ == "ReceiveSignal":
 		writeset = set([])
 		for st in s.params:
-			writeset |= expression_varset(st,statemachine[s],smclass[statemachine[s]],{},o)
+			writeset |= expression_varset(st,statemachine[s],smclass[statemachine[s]],{},o,True)
 		readset = set([])
 		if s.guard != None:
-			readset = expression_varset(s.guard,statemachine[s],smclass[statemachine[s]],{},o)
+			readset = expression_varset(s.guard,statemachine[s],smclass[statemachine[s]],{},o,False)
 		# in SLCO ReceiveSignal, it is not possible to refer to the old value of a variable to which you are reading. Hence, reading AND writing to the same variable cannot occur
 		readset = readset - writeset
 		return tuple([readset, writeset])
@@ -866,7 +872,7 @@ def statement_accesspattern(s, o):
 		if expression_is_actionref(s):
 			return tuple([set([]), set([])])
 		else:
-			readset = expression_varset(s,statemachine[s],smclass[statemachine[s]],{},o)
+			readset = expression_varset(s,statemachine[s],smclass[statemachine[s]],{},o,False)
 			return tuple([readset, set([])])
 
 def statement_condition_accesspattern(s, o):
@@ -878,7 +884,7 @@ def statement_condition_accesspattern(s, o):
 	elif s.__class__.__name__ == "Composite":
 		readset = set([])
 		if s.guard != None:
-			readset |= expression_varset(s.guard,statemachine[s],smclass[statemachine[s]],{},o)
+			readset |= expression_varset(s.guard,statemachine[s],smclass[statemachine[s]],{},o,False)
 		return tuple([readset, set([])])
 	elif s.__class__.__name__ == "Delay":
 		return tuple([set([]),set([])])
@@ -887,10 +893,10 @@ def statement_condition_accesspattern(s, o):
 	elif s.__class__.__name__ == "ReceiveSignal":
 		writeset = set([])
 		for st in s.params:
-			writeset |= expression_varset(st,statemachine[s],smclass[statemachine[s]],{},o)
+			writeset |= expression_varset(st,statemachine[s],smclass[statemachine[s]],{},o,False)
 		readset = set([])
 		if s.guard != None:
-			readset = expression_varset(s.guard,statemachine[s],smclass[statemachine[s]],{},o)
+			readset = expression_varset(s.guard,statemachine[s],smclass[statemachine[s]],{},o,False)
 		# in SLCO ReceiveSignal, it is not possible to refer to the old value of a variable to which you are reading. Hence, reading AND writing to the same variable cannot occur
 		readset = readset - writeset
 		return tuple([readset, set([])])
@@ -898,7 +904,7 @@ def statement_condition_accesspattern(s, o):
 		if expression_is_actionref(s):
 			return tuple([set([]), set([])])
 		else:
-			readset = expression_varset(s,statemachine[s],smclass[statemachine[s]],{},o)
+			readset = expression_varset(s,statemachine[s],smclass[statemachine[s]],{},o,False)
 			return tuple([readset, set([])])
 
 def compute_accesspatterns(m):
@@ -1053,7 +1059,6 @@ def identify_por_safe_statements(model):
 			for tr in sm.transitions:
 				for st in tr.statements:
 					access = statement_accesspattern(st, c)
-					print(str(st) + " " + str(access))
 					if len(access[0]) == 0 and len(access[1]) == 0:
 						safe_por_statements.add(st)
 					access = statement_condition_accesspattern(st, c)
@@ -1075,8 +1080,12 @@ def identify_por_safe_statements(model):
 			closed = set([])
 			for s in states:
 				if s not in closed:
-					callstack.append((s, [tr for tr in trans[c][sm][s] if (len(tr.statements) > 0 and tr.statements[0] in safe_por_statements)]))
-					print(callstack)
+					toutgoing = trans.get(s, [])
+					toutgoing_filtered = []
+					for tr in toutgoing:
+						if tr.statements == None or tr.statements[0] in safe_por_statements:
+							toutgoing_filtered.append(tr) 
+					callstack.append((s, toutgoing_filtered))
 					callstack_set.add(s)
 					while len(callstack) > 0:
 						s, transitions = peek(callstack)
@@ -1085,7 +1094,10 @@ def identify_por_safe_statements(model):
 							if t.target not in closed and t.target not in callstack_set:
 								# add target state to call stack
 								toutgoing = trans.get(tr.target, [])
-								toutgoing_filtered = [tr for tr in toutgoing if (len(tr.statements) > 0 and tr.statements[0] in safe_por_statements)]
+								toutgoing_filtered = []
+								for tr in toutgoing:
+									if tr.statements == None or tr.statements[0] in safe_por_statements:
+										toutgoing_filtered.append(tr)
 								callstack.append((tr.target, toutgoing_filtered))
 								callstack_set.add(tr.target)
 								break
@@ -1105,7 +1117,8 @@ def statement_is_safe(s):
 	return s in safe_statements
 
 def compare_accesses2(s1, s2, limit):
-	"""Compare two access patterns. Both consist of a set and a dictionary, one providing all simple accesses and exact (statically clear) array accesses. The other with representations of all imprecise array accesses.
+	"""Compare two access patterns. Both consist of a set and two dictionaries, the set providing all simple accesses and one dictionary providing exact (statically clear) array accesses.
+	The other provides representations of all imprecise array accesses.
 	The question is whether at least 'limit' access matches can be made. As soon as this limit is reached, True is returned, otherwise False."""
 	# first count size of intersection of the first sets
 	count = len(s1[0] & s2[0])
@@ -1400,6 +1413,7 @@ def identify_safe_unsafe_statements(m):
 					unsafe_variables.add(v)
 	# make unsafe_variables a sorted list
 	unsafe_variables = sorted(list(unsafe_variables))
+	print(unsafe_variables)
 
 def preprocess():
 	"""preprocessing method"""
