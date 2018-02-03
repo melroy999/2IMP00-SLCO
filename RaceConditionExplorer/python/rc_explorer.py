@@ -411,12 +411,17 @@ def main():
 	parser.add_argument("INPUT_LTS", type=str, help="LTS file in aut format")
 	parser.add_argument("-o", "--out", type=str, default="INPUT_LTS", help="Output file name")
 	parser.add_argument("-q", "--quiet", action='store_true', help="Quiet mode, print no messages to screen")
+	parser.add_argument("-m", "--mute", action='store_true', help="Mute mode, no messages are printed or logged")
 	
 	args = vars(parser.parse_args())
-	
+
 	# set options
 	if args['quiet']:
 		console_handler.setLevel(logging.CRITICAL + 1)
+
+	if args['mute']:
+		console_handler.setLevel(logging.CRITICAL + 1)
+		file_handler.setLevel(logging.CRITICAL + 1)
 	
 	lts_path = args['INPUT_LTS']
 	#if not lts_path.endswith('.aut'):
