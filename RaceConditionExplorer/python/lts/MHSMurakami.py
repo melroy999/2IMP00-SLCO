@@ -86,7 +86,8 @@ class HyperGraph:
 
                 if _not_redundant(mhs, v):
                     _mmcs(mhs | {v}, cand, _crit, _uncov)
-                    cand |= {v}
+
+                cand |= {v}
 
         # Run the recursive MMCS algorithm with its initial values.
         _mmcs(
