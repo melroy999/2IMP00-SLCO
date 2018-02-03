@@ -68,13 +68,12 @@ def RCE_get_race_conditions_from_file(path):
 		dep_ltss, initial_locks = get_dependency_ltss(lts)
 		time_dep_ltss = time.perf_counter() - start
 		logging.info("initial locks: %s" % initial_locks)
-		print("Calculating dependency LTSs took " + str(time_dep_ltss))
-		
+		logging.info("#locks: %s" % len(initial_locks))
+		logging.info("Calculating dependency LTSs took " + str(time_dep_ltss))
 	else:
 		start = time.perf_counter()
 		in_type, locks, competing_statements = read_competing_statements(path)
 		time_read_data = time.perf_counter() - start
-		print(competing_statements)
 		print("Parsing input took " + str(time_read_data))
 		
 		if (in_type == InputType.LOCK_ALL):
@@ -84,28 +83,38 @@ def RCE_get_race_conditions_from_file(path):
 		dep_ltss, initial_locks = get_dependency_ltss_new(in_type, locks, competing_statements)
 		time_dep_ltss = time.perf_counter() - start
 		logging.info("initial locks: %s" % initial_locks)
-		print("Calculating dependency LTSs took " + str(time_dep_ltss))
+		logging.info("Calculating dependency LTSs took " + str(time_dep_ltss))
+
+	cnt = 0
+	for lts in dep_ltss.values():
+		cnt += 1
+		dep_lts = lts.dependency_graph
+		logging.info("Dependency Graph : %i", cnt)
+		logging.info("# Vertices : %i", len(dep_lts.keys()))
+		logging.info("# Edges    : %i", sum(map(lambda edges: len(edges), dep_lts.values())))
 
 	# Quickly find un-optimal locks
 	dep_ltss_copy = {frozenset(key): dep_lts.get_copy() for key, dep_lts in dep_ltss.items()}
 	locked = {x for x in initial_locks}
 	start = time.perf_counter()
-	locks = get_race_conditions(dep_ltss_copy, locked)
+	quick_locks = get_race_conditions(dep_ltss_copy, locked)
 	time_quick = time.perf_counter() - start
-	logging.info("Quick locks: %s" % locks)
-	print("Quick analysis took " + str(time_quick))
-	
+	logging.info("Quick locks: %s" % quick_locks)
+	logging.info("#locks: %s" % len(quick_locks))
+	logging.info("Quick analysis took " + str(time_quick))
+
 	# Find optimal locking
 	sets = {frozenset({x}) for x in initial_locks}
 	start = time.perf_counter()
 	cycle_sets = get_cycle_sets(dep_ltss)
-	locks = get_minimal_hitting_set(sets | cycle_sets)
+	minimal_locks = get_minimal_hitting_set(sets | cycle_sets)
 	time_opt = time.perf_counter() - start
 	logging.info("cycle_sets: %s" % cycle_sets)
-	logging.info("MHS locks: %s" % locks)
-	print("Optimal analysis took " + str(time_opt))
+	logging.info("MHS locks: %s" % minimal_locks)
+	logging.info("#locks: %s" % len(minimal_locks))
+	logging.info("Optimal analysis took " + str(time_opt))
 	
-	return locks
+	return quick_locks, minimal_locks
 	
 
 def get_dependency_ltss_new(in_type, locks, competing_statements):
@@ -211,7 +220,7 @@ def get_dependency_ltss(lts):
 		frozen_signature = frozenset(signature)
 		locked = set()
 		if frozen_signature not in dep_ltss:
-			dep_ltss[frozen_signature] = VarDependencyGraph(rw_list, locked)
+			dep_ltss[frozen_signature] = VarDependencyGraph(rw_list, locked, True)
 		
 		# get locked sets (variable sets that require being locking together)
 		for dep_lts in dep_ltss.values():
@@ -400,7 +409,7 @@ def main():
 		formatter_class=argparse.ArgumentDefaultsHelpFormatter
 	)
 	parser.add_argument("INPUT_LTS", type=str, help="LTS file in aut format")
-	parser.add_argument("-o", "--out", type=str, default="INPUT_LTS.rc", help="Output file name")
+	parser.add_argument("-o", "--out", type=str, default="INPUT_LTS", help="Output file name")
 	parser.add_argument("-q", "--quiet", action='store_true', help="Quiet mode, print no messages to screen")
 	
 	args = vars(parser.parse_args())
@@ -414,14 +423,22 @@ def main():
 	#	lts_path = lts_path + ".aut"
 	
 	out_path = args['out']
-	if out_path == 'INPUT_LTS.rc':
-		out_path = lts_path + '.rc'
+	if out_path == 'INPUT_LTS':
+		out_path = lts_path
 	
 	logging.info('Starting Race Condition Explorer')
 	logging.info('Input LTS  : %s', lts_path)
-	logging.info('Output File: %s', out_path)
+	logging.info('Output File: %s', out_path + '_[quick/minimal].rc')
 	
-	locks = RCE_get_race_conditions_from_file(lts_path)
+	quick_locks, minial_locks = RCE_get_race_conditions_from_file(lts_path)
+	write_locks(quick_locks, out_path + '_quick.rc')
+	write_locks(minial_locks, out_path+ '_minimal.rc')
+	
+	logging.info('Finished, output written to %s', out_path + '_[quick/minimal].rc')
+	logging.shutdown()
+
+
+def write_locks(locks, out_path):
 	object_locks = {}
 	for lock in locks:
 		obj, _, var = lock.partition("'")
@@ -431,14 +448,10 @@ def main():
 		object_locks[obj] = lock_list
 	f = open(out_path, 'w')
 	for obj, locks in object_locks.items():
-		f.write(obj+":\n")
+		f.write(obj + ":\n")
 		for lock in locks:
 			f.write("\t%s\n" % lock)
 	f.close()
-	
-	logging.info('Finished, output written to %s', out_path)
-	logging.shutdown()
-
 
 if __name__ == '__main__':
 	main()
