@@ -16,6 +16,8 @@ smlocalvars = set([])
 varids = {}
 # locking dictionary (provides variables to lock per object)
 lockingdict = {}
+# should a transition counter be added to the code? (to make program executions finite)
+add_counter = False
 
 this_folder = os.path.dirname(__file__)
 
@@ -193,24 +195,32 @@ def javatype(s):
 def javastatement(s,nlocks,indent,nondet,o):
 	"""Translates SLCO statement s to Java code. indent indicates how much every line needs to be indented, nlocks indicates how many locks need to be acquired (optional). nondet indicates whether this statement is at the head of a statement block and in a non-deterministic choice; it affects how expressions are translated.
 	o is Object owning s."""
+	global add_counter
+
 	output = ""
 	if s.__class__.__name__ == "Assignment":
 		output += getinstruction(s) + ";"
 	elif s.__class__.__name__ == "Expression":
 		if not nondet:
 #			if statement_readsfromlocked(s, o):
-			output += "if(!(" + getinstruction(s) + ")) { kp.unlock(lockIDs, "
+			output += "if(!(" + getinstruction(s) + ")) { java_kp.unlock(java_lockIDs, "
 			output += str(nlocks)
-			output += "); transcounter++; break; }"
+			output += ");"
+			if add_counter:
+				output += " java_transcounter++;"
+			output += " break; }"
 			# else:
-			# 	output += "while(!(" + getinstruction(s) + ") && transcounter < COUNTER_BOUND) { kp.unlock(lockIDs, "
+			# 	output += "while(!(" + getinstruction(s) + ") && java_transcounter < COUNTER_BOUND) { java_kp.unlock(java_lockIDs, "
 			# 	output += str(nlocks)
-			# 	output += "); transcounter++; try{ synchronized(SyncObject){SyncObject.wait(1);} } catch (InterruptedException e) { break; } kp.lock(lockIDs, "
+			# 	output += "); java_transcounter++; try{ synchronized(SyncObject){SyncObject.wait(1);} } catch (InterruptedException e) { break; } java_kp.lock(java_lockIDs, "
 			# 	output += str(nlocks) + ");}"
 		else:
-			output += "if (!(" + getinstruction(s) + ")) { kp.unlock(lockIDs, "
+			output += "if (!(" + getinstruction(s) + ")) { java_kp.unlock(java_lockIDs, "
 			output += str(nlocks)
-			output += "); transcounter++; break; }"
+			output += "); "
+			if add_counter:
+				output += "java_transcounter++; "
+			output += "break; }"
 	elif s.__class__.__name__ == "Composite":
 		indentspace = ""
 		for i in range(0,indent):
@@ -648,7 +658,7 @@ def read_locking_file(model,lockingfilename):
 
 def slco_to_java(modelfolder,modelname,model,lockingfilename):
 	"""The translation function"""
-	global states, varids, numberofelemvariables, lockingdict
+	global states, varids, numberofelemvariables, lockingdict, add_counter
 	outFile = open(os.path.join(modelfolder,model.name + ".java"), 'w')
 
 	# prepare lockingdict information for code generator
@@ -691,12 +701,12 @@ def slco_to_java(modelfolder,modelname,model,lockingfilename):
 	template = jinja_env.get_template('java.jinja2template')
 
 	# write the program
-	outFile.write(template.render(model=model,states=states,numberofelemvariables=numberofelemvariables,lockneeded=lockneeded))
+	outFile.write(template.render(model=model,states=states,numberofelemvariables=numberofelemvariables,lockneeded=lockneeded,add_counter=add_counter))
 	outFile.close()
 
 def main(args):
 	"""The main function"""
-	global numberofelemvariables, lockingdict
+	global numberofelemvariables, lockingdict, add_counter
 	lockingfilename = ''
 	if len(args) == 0:
 		print("Missing argument: SLCO model")
@@ -706,7 +716,8 @@ def main(args):
 			print("Usage: pypy/python3 slco2java")
 			print("")
 			print("Transform an SLCO 2.0 model to a Java program.")
-			print("-l <file>							provide locking file for smart locking")
+			print("-l <file>                            provide locking file for smart locking")
+			print("-c                                   produce a transition counter in the code, to make program executions finite")
 			sys.exit(0)
 		else:
 			i = 0
@@ -717,6 +728,8 @@ def main(args):
 						print("ERROR: lock file name missing!")
 						exit(1);
 					lockingfilename = args[i];
+				elif args[i] == '-c':
+					add_counter = True
 				else:
 					modelfolder, modelname = os.path.split(args[i])
 				i += 1
