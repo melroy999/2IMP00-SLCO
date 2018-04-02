@@ -266,6 +266,16 @@ eqn setminus(L1',[]) = L1';
 (L1' != [] && L2' != [] && head(L2') < head(L1')) -> setminus(L1',L2') = setminus(L1',tail(L2'));
 (L1' != [] && L2' != [] && head(L1') == head(L2')) -> setminus(L1',L2') = setminus(tail(L1'),tail(L2'));
 
+% *** ONLY KEEP VARIABLES IN THE FIRST LIST THAT APPEAR IN THE SECOND ***
+
+map filter': List(Var') # List(Var') -> List(Var');
+var L1', L2': List(Var');
+eqn filter'(L1',[]) = [];
+    filter'([],L2') = [];
+(L1' != [] && L2' != [] && head(L1') < head(L2')) -> filter'(L1',L2') = filter'(tail(L1'),L2');
+(L1' != [] && L2' != [] && head(L2') < head(L1')) -> filter'(L1',L2') = filter'(L1',tail(L2'));
+(L1' != [] && L2' != [] && head(L1') == head(L2')) -> filter'(L1',L2') = [head(L1')] ++ filter'(tail(L1'),tail(L2'));
+
 % *** UNION OF TWO LISTS OF VARIABLES ***
 
 map union': List(Var') # List(Var') -> List(Var');
@@ -471,10 +481,15 @@ map union': AccessPattern' # AccessPattern' -> AccessPattern';
 var a1', a2': AccessPattern';
 eqn union'(a1', a2') = A'(union'(R'(a1'),R'(a2')), union'(W'(a1'),W'(a2')));
 
-map extract: AccessPattern' # List(Var') -> AccessPattern';
+map union': List(AccessPattern') -> AccessPattern';
+var L': List(AccessPattern');
+eqn union'([]) = A'([],[]);
+(L' != []) -> union'(L') = union'(head(L'), union'(tail(L')));
+
+map filter': AccessPattern' # List(Var') -> AccessPattern';
 var a1': AccessPattern';
     L': List(Var');
-eqn extract(a1',L') = A'(setminus(R'(a1'),L'), setminus(W'(a1'),L'));
+eqn filter'(a1',L') = A'(filter'(R'(a1'),L'), filter'(W'(a1'),L'));
 
 map setminus: AccessPattern' # AccessPattern' -> AccessPattern';
 var a1', a2': AccessPattern';
@@ -564,12 +579,12 @@ eqn (O'(OSM'(n1')) == O'(OSM'(n2')) && SM'(OSM'(n1')) != SM'(OSM'(n2'))) -> are_
 
 % *** FUNCTION TO REMOVE ACCESSES FROM A GIVEN OBJECT/STATE MACHINE PAIR ***
 
-map filter_osm': DPNode' # Object_SM' -> DPNode';
+map extract_osm': DPNode' # Object_SM' -> DPNode';
 var n': DPNode';
 {% for o in model.objects %}
 {% set oloop = loop %}
 {% for sm in o.type.statemachines %}
-{% if (oloop.first and loop.first) %}eqn {% else %}    {% endif %}filter_osm'(n',O'SM'({{o.name}},{{sm.name}})) = N'(OSM'(n'), ST'(n'), P'(n'), HIS'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o2.type.statemachines %}{{', ' if not (o2loop.first and loop.first)}}{% if o == o2 and sm == sm2 %}A'([],[]){% else %}el'{{o2.name}}'{{sm2.name}}(H'(n')){% endif %}{% endfor %}{% endfor %}), d'(n'), c'(n'), remove(owner'(n'),O'SM'({{o.name}},{{sm.name}})));
+{% if (oloop.first and loop.first) %}eqn {% else %}    {% endif %}extract_osm'(n',O'SM'({{o.name}},{{sm.name}})) = N'(OSM'(n'), ST'(n'), P'(n'), HIS'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o2.type.statemachines %}{{', ' if not (o2loop.first and loop.first)}}{% if o == o2 and sm == sm2 %}A'([],[]){% else %}el'{{o2.name}}'{{sm2.name}}(H'(n')){% endif %}{% endfor %}{% endfor %}), d'(n'), c'(n'), remove(owner'(n'),O'SM'({{o.name}},{{sm.name}})));
 {% endfor %}
 {% endfor %}
 
@@ -614,16 +629,16 @@ eqn get_dpnode1'(o1',sm1',st',[]) = DPEmptynode';
 (L' != [] && OSM'(head(L')) == O'SM'(o1',sm1') && ST'(head(L')) == st') -> get_dpnode1'(o1',sm1',st',L') = head(L');
 (L' != [] && (OSM'(head(L')) != O'SM'(o1',sm1') || ST'(head(L')) != st')) -> get_dpnode1'(o1',sm1',st',L') = get_dpnode1'(o1',sm1',st',tail(L'));
 
-% *** FILTER TO REMOVE DPNODES FROM LIST BELONGING TO PARTICULAR OBJECT/STATEMACHINE PAIR ***
+% *** EXTRACT DPNODES FROM LIST BELONGING TO PARTICULAR OBJECT/STATEMACHINE PAIR ***
 
-map filter': Object' # Statemachine' # List(DPNode') -> List(DPNode');
+map extract': Object' # Statemachine' # List(DPNode') -> List(DPNode');
 var o1': Object';
     sm1': Statemachine';
     L': List(DPNode');
-eqn filter'(o1',sm1',[]) = [];
-(L' != [] && lt'(O'SM'(o1',sm1'), OSM'(head(L')))) -> filter'(o1',sm1',L') = L';
-(L' != [] && gt'(O'SM'(o1',sm1'), OSM'(head(L')))) -> filter'(o1',sm1',L') = [head(L')] ++ filter'(o1',sm1',tail(L'));
-(L' != [] && eq'(O'SM'(o1',sm1'), OSM'(head(L')))) -> filter'(o1',sm1',L') = filter'(o1',sm1',tail(L'));
+eqn extract'(o1',sm1',[]) = [];
+(L' != [] && lt'(O'SM'(o1',sm1'), OSM'(head(L')))) -> extract'(o1',sm1',L') = L';
+(L' != [] && gt'(O'SM'(o1',sm1'), OSM'(head(L')))) -> extract'(o1',sm1',L') = [head(L')] ++ extract'(o1',sm1',tail(L'));
+(L' != [] && eq'(O'SM'(o1',sm1'), OSM'(head(L')))) -> extract'(o1',sm1',L') = extract'(o1',sm1',tail(L'));
 
 % *** DEP_V FUNCTIONS TO OBTAIN SUBSET OF SECOND SET OF ACCESSES ON WHICH FIRST SET OF ACCESSES DEPENDS ***
 % *** two versions: one to compare AccessPatterns, second to compare AccessPattern with history ***
@@ -683,7 +698,7 @@ var d1': D_map';
     sm': Statemachine';
     a': AccessPattern';
     L': List(Var');
-eqn d_set1'(d1',o',sm',a',L') = extract(union'(d_set2'(d1',o',sm',R'(a'),false), d_set2'(d1',o',sm',W'(a'),true)),L');
+eqn d_set1'(d1',o',sm',a',L') = filter'(union'(d_set2'(d1',o',sm',R'(a'),false), d_set2'(d1',o',sm',W'(a'),true)),L');
 
 map d_set2': D_map' # Object' # Statemachine' # List(Var') # Bool -> AccessPattern';
 var d1': D_map';
@@ -696,16 +711,16 @@ eqn d_set2'(d1',o',sm',[],b') = A'([],[]);
 
 map c_set': DPNode' # List(Object_SM') # List(Var') -> AccessPattern';
 var n1': DPNode';
-    LO': List(Object_SM');
+    Lo': List(Object_SM');
     L': List(Var');
 eqn c_set'(n1',[],L') = A'([],[]);
-(LO' != []) -> c_set'(n1',LO',L') = extract(c_set1'(c'(n1'),LO'), L');
+(Lo' != []) -> c_set'(n1',Lo',L') = filter'(c_set1'(c'(n1'),Lo'), L');
 
 map c_set1': C_map' # List(Object_SM') -> AccessPattern';
 var c1': C_map';
-    LO': List(Object_SM');
+    Lo': List(Object_SM');
 eqn c_set1'(c1',[]) = A'([],[]);
-(LO' != []) -> c_set1'(c1',LO') = union'(c1'(head(LO')), c_set1'(c1',tail(LO')));
+(Lo' != []) -> c_set1'(c1',Lo') = union'(c1'(head(Lo')), c_set1'(c1',tail(Lo')));
 
 % *** UPDATE FUNCTIONS FOR c' AND d' FUNCTIONS ***
 
@@ -774,7 +789,7 @@ var st': STID';
 {% for o in model.objects %}
 {% set oloop = loop %}
 {% for sm in o.type.statemachines %}
-{% if oloop.first and loop.first %}eqn {% else %}    {% endif %}process_transaction1'({{o.name}},{{sm.name}},st',g',n1',L',has_disabled_flag') = DG'({% for o2 in model.objects %}{{', ' if not loop.first }}{% if o2 != o %}el'{{o2.name}}(g'){% else %}process_transaction2'(n1', filter'({{o2.name}}, {{sm.name}}, el'{{o2.name}}(g')), L'){% endif %}{% endfor %}, store_selected_pattern'(n1', has_disabled_flag'));
+{% if oloop.first and loop.first %}eqn {% else %}    {% endif %}process_transaction1'({{o.name}},{{sm.name}},st',g',n1',L',has_disabled_flag') = DG'({% for o2 in model.objects %}{{', ' if not loop.first }}{% if o2 != o %}el'{{o2.name}}(g'){% else %}process_transaction2'(n1', extract'({{o2.name}}, {{sm.name}}, el'{{o2.name}}(g')), L'){% endif %}{% endfor %}, store_selected_pattern'(n1', has_disabled_flag',L'));
 {% endfor %}
 {% endfor %}
 
@@ -784,25 +799,17 @@ var n1': DPNode';
     L2': List(Var');
 eqn process_transaction2'(n1',[],L2') = [];
     process_transaction2'(n1',L1',[]) = [];
-(L1' != [] && L2' != []) -> process_transaction2'(n1',L1',L2') = [perform_U'(n1', head(L1'), L2')] ++ process_transaction2'(n1', tail(L1'), L2');
+(L1' != [] && L2' != [] && filter'(P'(n1'),L2') == A'([],[])) -> process_transaction2'(n1',L1',L2') = L1';
+(L1' != [] && L2' != [] && filter'(P'(n1'),L2') != A'([],[])) -> process_transaction2'(n1',L1',L2') = [perform_U'(n1', head(L1'), L2')] ++ process_transaction2'(n1', tail(L1'), L2');
 
-map store_selected_pattern': DPNode' # Bool -> DPNode';
+map store_selected_pattern': DPNode' # Bool # List(Var') -> DPNode';
 var n1': DPNode';
-eqn store_selected_pattern'(n1', false) = empty_DPNode';
-    store_selected_pattern'(n1', true) = N'(OSM'(n1'), ST'(n1'), P'(n1'), empty_History', d_init', c_init', []);
-
-% *** SIMPLE VERSION OF PROCESS TRANSACTION PROCEDURE (FOR SAFE TRANSACTIONS) ***
-
-map process_transaction_simple': Object' # Statemachine' # DPGraph' -> DPGraph';
-var o1': Object';
-    sm1': Statemachine';
-    g': DPGraph';
-{% for o in model.objects %}
-{% set oloop = loop %}
-{% for sm in o.type.statemachines %}
-{% if oloop.first and loop.first %}eqn {% else %}    {% endif %}process_transaction_simple'({{o.name}},{{sm.name}},g') = DG'({% for o2 in model.objects %}{{', ' if not loop.first }}{% if o2 != o %}el'{{o2.name}}(g'){% else %}filter'({{o2.name}}, {{sm.name}}, el'{{o2.name}}(g')){% endif %}{% endfor %}, empty_DPNode');
-{% endfor %}
-{% endfor %}
+    b': Bool;
+    L': List(Var');
+eqn store_selected_pattern'(n1',false,L') = empty_DPNode';
+    store_selected_pattern'(n1',b',[]) = empty_DPNode';
+(filter'(P'(n1'),L') == A'([],[])) -> store_selected_pattern'(n1',b',L') = empty_DPNode';
+(filter'(P'(n1'),L') != A'([],[])) -> store_selected_pattern'(n1',true,L') = N'(OSM'(n1'), ST'(n1'), P'(n1'), empty_History', d_init', c_init', []);
 
 % *** STATEMACHINE/STID PAIR ***
 
@@ -828,7 +835,7 @@ var o1': Object';
     LN': List(DPNode');
     {{model|mcrl2_model_vars_with_types(False)}};
 eqn update_blocks1'(o1',[],LN'{{model|mcrl2_model_vars(True)}}) = [];
-(L' != []) -> update_blocks1'(o1',L',LN'{{model|mcrl2_model_vars(True)}}) = [create_new_block'(o1', head(L'){{model|mcrl2_model_vars(True)}})] ++ update_blocks1'(o1',tail(L'),LN'{{model|mcrl2_model_vars(True)}});
+(L' != []) -> update_blocks1'(o1',L',[]{{model|mcrl2_model_vars(True)}}) = [create_new_block'(o1', head(L'){{model|mcrl2_model_vars(True)}})] ++ update_blocks1'(o1',tail(L'),[]{{model|mcrl2_model_vars(True)}});
 (L' != [] && LN' != [] && lt'(O'SM'(o1',SM'(head(L'))), OSM'(head(LN')))) -> update_blocks1'(o1',L',LN'{{model|mcrl2_model_vars(True)}}) = [create_new_block'(o1', head(L'){{model|mcrl2_model_vars(True)}})] ++ update_blocks1'(o1',tail(L'),LN'{{model|mcrl2_model_vars(True)}});
 (L' != [] && LN' != [] && gt'(O'SM'(o1',SM'(head(L'))), OSM'(head(LN')))) -> update_blocks1'(o1',L',LN'{{model|mcrl2_model_vars(True)}}) = update_blocks1'(o1',L',tail(LN'){{model|mcrl2_model_vars(True)}});
 (L' != [] && LN' != [] && eq'(O'SM'(o1',SM'(head(L'))), OSM'(head(LN')))) -> update_blocks1'(o1',L',LN'{{model|mcrl2_model_vars(True)}}) = [N'(OSM'(head(LN')), ST'(head(LN')), rwpattern(o1', ST'(head(LN')){{model|mcrl2_model_vars(True)}}), H'(head(LN')), d'(head(LN')), c'(head(LN')), owner'(head(LN')))] ++ update_blocks1'(o1',tail(L'),tail(LN'){{model|mcrl2_model_vars(True)}});
@@ -841,13 +848,13 @@ eqn create_new_block'(o1',s'{{model|mcrl2_model_vars(True)}}) = N'(O'SM'(o1',SM'
 
 % *** DETECT VIOLATIONS PROCEDURE ***
 
-map detect_violations': Object' # Statemachine' # STID' # DPGraph' # List(Var') -> Advice';
+map detect_violations': Object' # Statemachine' # STID' # DPGraph' # List(Var') -> O'SM'ST'Advice';
 var o1': Object';
     sm1': Statemachine';
     st': STID';
     g': DPGraph';
     L': List(Var');
-eqn detect_violations'(o1',sm1',st',g',L') = detect_violations1'(o1', g', get_dpnode'(g',o1',sm1',st'), L');
+eqn detect_violations'(o1',sm1',st',g',L') = detect_violations3'(o1',sm1',st',detect_violations1'(o1', g', get_dpnode'(g',o1',sm1',st'), L'));
 
 map detect_violations1': Object' # DPGraph' # DPNode' # List(Var') -> Advice';
 var g': DPGraph';
@@ -864,6 +871,14 @@ var n1': DPNode';
 eqn detect_violations2'(n1',[],L2') = empty_Advice';
     detect_violations2'(n1',L1',[]) = empty_Advice';
 (L1' != [] && L2' != []) -> detect_violations2'(n1',L1',L2') = combine'(perform_C'(n1', head(L1'), L2'), detect_violations2'(n1', tail(L1'), L2'));
+
+map detect_violations3': Object' # Statemachine' # STID' # Advice' -> O'SM'ST'Advice';
+var o1': Object';
+    sm1': Statemachine';
+    st': STID';
+    ad': Advice';
+eqn (ad' == empty_Advice') -> detect_violations3'(o1',sm1',st',ad') = empty_O'SM'ST'Advice';
+(ad' != empty_Advice') -> detect_violations3'(o1',sm1',st',ad') = O'SM'ST'AD'(o1',sm1',st',ad');
 
 % *** OVERALL CHECKING AND PERFORMING OF UPDATE FOR PAIR OF NODES ***
 
@@ -883,7 +898,7 @@ map perform_U1_1': DPNode' # DPNode' # AccessPattern' ->DPNode';
 var n1', n2': DPNode';
     a': AccessPattern';
 eqn (!not_empty(a')) -> perform_U1_1'(n1',n2',a') = n2';
-(not_empty(a')) -> perform_U1_1'(n1',n2',a') = perform_U1_2'(n1', n2', a', add_osm'(OSM'(n1'), P'(n1'), H'(filter_osm'(n1', OSM'(n2')))), setminus(union'([OSM'(n1')],owner'(n1')), [OSM'(n2')]));
+(not_empty(a')) -> perform_U1_1'(n1',n2',a') = perform_U1_2'(n1', n2', a', add_osm'(OSM'(n1'), P'(n1'), H'(extract_osm'(n1', OSM'(n2')))), setminus(union'([OSM'(n1')],owner'(n1')), [OSM'(n2')]));
 
 map perform_U1_2': DPNode' # DPNode' # AccessPattern' # History' # List(Object_SM') -> DPNode';
 var n1', n2': DPNode';
@@ -919,13 +934,89 @@ eqn perform_U2_2'(n1',n2',[],L2',L3') = n2';
 
 % *** SPECIFICATION OF ATOMICITY VIOLATION RESOLUTION ADVICE ***
 
-sort Advice' = struct AD'(LK': AccessPattern', SB': AccessPattern', SA': AccessPattern');
+sort Advice' = struct AD'(LK': AccessPattern', LO': List(AccessPattern'));
 map empty_Advice': Advice';
-eqn empty_Advice' = AD'(A'([],[]),A'([],[]),A'([],[]));
+eqn empty_Advice' = AD'(A'([],[]),[]);
+
+% *** SPECIFICATION OF ADVICE FOR SPECIFIC OBJECT/STATEMACHINE/STID ***
+
+sort O'SM'ST'Advice' = struct O'SM'ST'AD'(O': Object', SM': Statemachine', ST': STID', AD': Advice');
+map empty_O'SM'ST'Advice': O'SM'ST'Advice';
+eqn empty_O'SM'ST'Advice' = O'SM'ST'AD'(o_, sm_, st_, empty_Advice');
 
 map combine': Advice' # Advice' -> Advice';
 var ad1', ad2': Advice';
-eqn combine'(ad1',ad2') = AD'(union'(union'(union'(LK'(ad1'), LK'(ad2')), intersection(SB'(ad1'), SA'(ad2'))), intersection(SA'(ad1'), SB'(ad2'))), setminus(union'(SB'(ad1'), SB'(ad2')), union'(union'(LK'(ad1'), LK'(ad2')), union'(SA'(ad1'), SA'(ad2')))), setminus(union'(SA'(ad1'), SA'(ad2')), union'(union'(LK'(ad1'), LK'(ad2')), union'(SB'(ad1'), SB'(ad2')))));
+eqn combine'(ad1',ad2') = combine1'(LO'(ad1'),LO'(ad2'),compute_lockset'(ad1',ad2'));
+
+map combine1': List(AccessPattern') # List(AccessPattern') # AccessPattern' -> Advice';
+var lo1',lo2': List(AccessPattern');
+    al': AccessPattern';
+eqn combine1'(lo1',lo2',al') = AD'(al', combine2'(setminus(union'(lo1'), al'), setminus(union'(lo2'), al'), lo1', lo2'));
+
+map combine2': AccessPattern' # AccessPattern' # List(AccessPattern') # List(AccessPattern') -> List(AccessPattern');
+var a1',a2': AccessPattern';
+    lo1',lo2': List(AccessPattern');
+eqn (a1' == A'([],[]) && a2' == A'([],[])) -> combine2'(a1',a2',lo1',lo2') = [];
+(a1' != A'([],[]) || a2' != A'([],[])) -> combine2'(a1',a2',lo1',lo2') = combine3'(a1',a2', ac_pre'(a1',lo1'), ac_pre'(a2',lo2'),lo1',lo2');
+
+map combine3': AccessPattern' # AccessPattern' # AccessPattern' # AccessPattern' # List(AccessPattern') # List(AccessPattern') -> List(AccessPattern');
+var a1',a2',ap1',ap2': AccessPattern';
+    lo1',lo2': List(AccessPattern');
+eqn combine3'(a1',a2',ap1',ap2',lo1',lo2') = combine4'(a1', a2', setminus(ap1', setminus(a2', ap2')), setminus(ap2', setminus(a1', ap1')), lo1', lo2');
+
+map combine4': AccessPattern' # AccessPattern' # AccessPattern' # AccessPattern' # List(AccessPattern') # List(AccessPattern') -> List(AccessPattern');
+var a1',a2',an1',an2': AccessPattern';
+    lo1',lo2': List(AccessPattern');
+eqn combine4'(a1',a2',an1',an2',lo1',lo2') = combine5'(union'(an1',an2')) ++ combine2'(setminus(a1',an1'), setminus(a2',an2'), lo1', lo2');
+
+map combine5': AccessPattern' -> List(AccessPattern');
+var a': AccessPattern';
+eqn (a' == A'([],[])) -> combine5'(a') = [];
+(a' != A'([],[])) -> combine5'(a') = [a'];
+
+% identify which accesses need to be protected
+map compute_lockset': Advice' # Advice' -> AccessPattern';
+var ad1', ad2': Advice';
+eqn (LO'(ad1') == [] || LO'(ad2') == []) -> compute_lockset'(ad1',ad2') = union'(LK'(ad1'), LK'(ad2'));
+(LO'(ad1') != [] && LO'(ad2') != []) -> compute_lockset'(ad1',ad2') = union'(LK'(ad1'), union'(LK'(ad2'), compute_lockset1'(LO'(ad1'), LO'(ad2'), A'([],[]), setminus(union'(LO'(ad1')), head(LO'(ad1'))), A'([],[]), setminus(union'(LO'(ad2')), head(LO'(ad2'))))));
+
+map compute_lockset1': List(AccessPattern') # List(AccessPattern') # AccessPattern' # AccessPattern' # AccessPattern' # AccessPattern' -> AccessPattern';
+var pre_ad1',post_ad1',pre_ad2',post_ad2': AccessPattern';
+    load1',load2': List(AccessPattern');
+eqn compute_lockset1'([],load2',pre_ad1',post_ad1',pre_ad2',post_ad2') = A'([],[]);
+(load1' != [] && tail(load1') != []) -> compute_lockset1'(load1',load2',pre_ad1',post_ad1',pre_ad2',post_ad2') = union'(compute_lockset2'(head(load1'),load2',pre_ad1',post_ad1',pre_ad2',post_ad2'), compute_lockset1'(tail(load1'),load2',union'(pre_ad1', head(load1')),setminus(post_ad1', head(tail(load1'))),pre_ad2',post_ad2'));
+(load1' != [] && tail(load1') == []) -> compute_lockset1'(load1',load2',pre_ad1',post_ad1',pre_ad2',post_ad2') = union'(compute_lockset2'(head(load1'),load2',pre_ad1',post_ad1',pre_ad2',post_ad2'), compute_lockset1'(tail(load1'),load2',union'(pre_ad1', head(load1')),A'([],[]),pre_ad2',post_ad2'));
+
+map compute_lockset2': AccessPattern' # List(AccessPattern') # AccessPattern' # AccessPattern' # AccessPattern' # AccessPattern' -> AccessPattern';
+var lohad1',pre_ad1',post_ad1',pre_ad2',post_ad2': AccessPattern';
+    load2': List(AccessPattern');
+eqn compute_lockset2'(lohad1',[],pre_ad1',post_ad1',pre_ad2',post_ad2') = A'([],[]);
+(load2' != [] && tail(load2') != []) -> compute_lockset2'(lohad1',load2',pre_ad1',post_ad1',pre_ad2',post_ad2') = union'(compute_lockset3'(lohad1',head(load2'),pre_ad1',post_ad1',pre_ad2',post_ad2'), compute_lockset2'(lohad1',tail(load2'),pre_ad1',post_ad1',union'(pre_ad2', head(load2')), setminus(post_ad2', head(tail(load2')))));
+(load2' != [] && tail(load2') == []) -> compute_lockset2'(lohad1',load2',pre_ad1',post_ad1',pre_ad2',post_ad2') = union'(compute_lockset3'(lohad1',head(load2'),pre_ad1',post_ad1',pre_ad2',post_ad2'), compute_lockset2'(lohad1',tail(load2'),pre_ad1',post_ad1',union'(pre_ad2', head(load2')), A'([],[])));
+
+map compute_lockset3': AccessPattern' # AccessPattern' # AccessPattern' # AccessPattern' # AccessPattern' # AccessPattern' -> AccessPattern';
+var lohad1',lohad2',pre_ad1',post_ad1',pre_ad2',post_ad2': AccessPattern';
+eqn (intersection(lohad1',lohad2') == A'([],[])) -> compute_lockset3'(lohad1',lohad2',pre_ad1',post_ad1',pre_ad2',post_ad2') = A'([],[]);
+(intersection(lohad1',lohad2') != A'([],[])) -> compute_lockset3'(lohad1',lohad2',pre_ad1',post_ad1',pre_ad2',post_ad2') = compute_lockset4'(intersection(lohad1',lohad2'), union'(intersection(post_ad2', union'(pre_ad1',lohad1')), intersection(post_ad1', union'(pre_ad2',lohad2'))));
+
+map compute_lockset4': AccessPattern' # AccessPattern' -> AccessPattern';
+var a1',a2': AccessPattern';
+eqn compute_lockset4'(a1',A'([],[])) = A'([],[]);
+(a2' != A'([],[])) -> compute_lockset4'(a1',a2') = union'(a1',a2');
+
+map ac_pre': AccessPattern' # List(AccessPattern') -> AccessPattern';
+var a': AccessPattern';
+    L': List(AccessPattern');
+eqn ac_pre'(a',[]) = a';
+(a' == A'([],[])) -> ac_pre'(a',[]) = A'([],[]);
+(a' != A'([],[]) && L' != []) -> ac_pre'(a',L') = ac_pre1'(a',L',intersection(a',head(L')));
+
+map ac_pre1': AccessPattern' # List(AccessPattern') # AccessPattern' -> AccessPattern';
+var a1',a2': AccessPattern';
+    L': List(AccessPattern');
+eqn ac_pre1'(a1',[],a2') = A'([],[]);
+(a2' != A'([],[])) -> ac_pre1'(a1',L',a2') = a2';
+(a2' == A'([],[])) -> ac_pre1'(a1',L',a2') = ac_pre'(a1',tail(L'));
 
 % *** OVERALL ATOMICITY VIOLATION CHECK FOR PAIR OF NODES ***
 
@@ -952,7 +1043,7 @@ eqn perform_C1'(n1',n2',b1',L') = perform_C1_1'(union'(b1', d_set'(n1', dep_v_h'
 map perform_C1_1': AccessPattern' -> Advice';
 var b': AccessPattern';
 eqn (!has_at_least_two(b')) -> perform_C1_1'(b') = empty_Advice';
-(has_at_least_two(b')) -> perform_C1_1'(b') = AD'(b', A'([],[]), A'([],[]));
+(has_at_least_two(b')) -> perform_C1_1'(b') = AD'(b', []);
 
 % *** ATOMICITY VIOLATION CHECK 2 ***
 
@@ -969,7 +1060,7 @@ eqn (!has_at_least_two(union'(b1', cb'))) -> perform_C2_1'(b1',cb') = empty_Advi
 
 map perform_C2_2': AccessPattern' # AccessPattern' # AccessPattern' -> Advice';
 var b1', cb', L': AccessPattern';
-eqn perform_C2_2'(b1',cb',L') = AD'(L', setminus(b1',L'), setminus(cb',L'));
+eqn perform_C2_2'(b1',cb',L') = AD'(L', [setminus(b1',L'), setminus(cb',L')]);
 
 % ----- END ATOMICITY VIOLATION CHECKING ALGORITHM -----
 
@@ -1030,8 +1121,8 @@ eqn sm_trans_are_ample(o', []{{model|mcrl2_model_vars(True)}}, L2') = L2';
 
 % ***  SPECIFICATION OF BEHAVIOUR ***
 
-proc {{model.name}}({% for o in model.objects %}{% set oloop = loop %}{% for stm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first) }}{{o.name}}'{{stm.name}}_state: State'{% endfor %}{% endfor %}{{model|mcrl2_model_vars_with_types(True)}}, outtrans: OutgoingTransitions, depgraph': DPGraph', watchlist': List(Var'), prev_o': Object', prev_sm': Statemachine', prev_st': STID', violations': Advice', atomicity_check_done: Bool) =
-(watchlist' != [] && violations' == empty_Advice' && !atomicity_check_done) -> (
+proc {{model.name}}({% for o in model.objects %}{% set oloop = loop %}{% for stm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first) }}{{o.name}}'{{stm.name}}_state: State'{% endfor %}{% endfor %}{{model|mcrl2_model_vars_with_types(True)}}, outtrans: OutgoingTransitions, depgraph': DPGraph', watchlist': List(Var'), violations': O'SM'ST'Advice', atomicity_check_done: Bool) =
+(watchlist' != [] && violations' == empty_O'SM'ST'Advice' && !atomicity_check_done) -> (
 {% for o in model.objects %}
 {% set oloop = loop %}
 {% for sm in o.type.statemachines %}
@@ -1040,8 +1131,8 @@ proc {{model.name}}({% for o in model.objects %}{% set oloop = loop %}{% for stm
 {% set trloop = loop %}
 {% if tr.statements[0].__class__.__name__ != "ReceiveSignal" or ochannel[o][tr.statements[0]].synctype == "async" %}
   (ST'{{tr._tx_position}} in sm_outgoing({{o.name}}, {{sm.name}}, outtrans){% if tr.statements[0]|hascondition(o) %}) -> (({{tr.statements[0]|statement_condition(o)}}{% endif %}) -> (
-    {% if syncing_statements[o][tr.statements[0]]|length == 0 %}    {% if check_onthefly %}tau{% else %}rw({{o.name}}, {{sm.name}}, R'(rwpattern({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}})), W'(rwpattern({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}))){% endif %} . {{model.name}}({{o.name}}'{{sm.name}}_state={{tr.target.name}}{{tr.statements[0]|statementstatechanges(o)}}, outtrans={% if apply_por %}apply_por(OT'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o.type.statemachines %}{{', ' if not (o2loop.first and loop.first) }}outgoing({{o2.type.name}}, {{sm2.name}}, {% if o == o2 and sm == sm2 %}{{tr.target.name}}{% else %}{{o2.name}}'{{sm2.name}}_state{% endif %}){% endfor %}{% endfor %}){{tr.statements[0]|complete_newstate(o)}}){% else %}update_outgoing({{o.name}}, {{sm.name}}, {{tr.target.name}}, outtrans){% endif %}{% if check_onthefly %}, depgraph'=if(!issafe({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}), process_transaction'({{o.name}}, {{sm.name}}, ST'{{tr._tx_position}}, depgraph', watchlist', has_disabled'({{o.name}}, {{sm.name}}, outtrans{{model|mcrl2_model_vars(True)}})), process_transaction_simple'({{o.name}}, {{sm.name}}, depgraph')), prev_o'=if(!issafe({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}), {{o.name}}, o_), prev_sm'=if(!issafe({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}), {{sm.name}}, sm_), prev_st'=if(!issafe({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}), ST'{{tr._tx_position}}, st_), violations'=if(!issafe({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}), detect_violations'({{o.name}}, {{sm.name}}, ST'{{tr._tx_position}}, depgraph', watchlist'), empty_Advice'), atomicity_check_done=true{% endif %})
-  ){% if tr.statements[0]|hascondition(o) %}){% endif %}{%else %}{% for sync in syncing_statements[o][tr.statements[0]] %}    (ST'{{transowner[sync[1]]._tx_position}} in sm_outgoing({{sync[0].name}}, {{statemachine[sync[1]].name}}, outtrans){% if sync[1]|hascondition(sync[0]) %}) -> (({{sync[1]|sync_statement_condition(sync[0], tr.statements[0], o)}}{% endif %}) -> ({% if check_onthefly %}tau{% else %}rw({{o.name}}, {{sm.name}}, {{tr.statements[0]|mcrl2_read_accesspattern(o,True)}}, {{tr.statements[0]|mcrl2_write_accesspattern(o,True)}}, {{sync[0].name}}, {{statemachine[sync[1]].name}}, R'(rwpattern({{sync[0].name}}, ST'{{transowner[sync[1]]._tx_position}}{{model|mcrl2_model_vars(True)}}), W'(rwpattern({{sync[0].name}}, ST'{{transowner[sync[1]]._tx_position}}{{model|mcrl2_model_vars(True)}})))){% endif %} . {{model.name}}({{o.name}}'{{sm.name}}_state={{tr.target.name}}, {{sync[0].name}}'{{statemachine[sync[1]].name}}_state={{transowner[sync[1]].target.name}}{{sync[1]|sync_statementstatechanges(sync[0],tr.statements[0],o)}}, outtrans={% if apply_por %}apply_por(OT'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o.type.statemachines %}{{', ' if not (o2loop.first and loop.first) }}outgoing({{o2.type.name}}, {{sm2.name}}, {% if o == o2 and sm == sm2 %}{{tr.target.name}}{% elif sync[0] == o2 and statemachine[sync[1]] == sm2 %}{{transowner[sync[1]].target.name}}{% else %}{{o2.name}}'{{sm2.name}}_state{% endif %}){% endfor %}{% endfor %}){{tr.statements[0]|sync_complete_newstate(o)}}){% else %}update_outgoing({{sync[0].name}}, {{statemachine[sync[1]].name}}, {{transowner[sync[1]].target.name}}, update_outgoing({{o.name}}, {{sm.name}}, {{tr.target.name}}, outtrans)){% endif %}{% if check_onthefly %}, depgraph'=if(!issafe({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}), process_transaction'({{o.name}}, {{sm.name}}, ST'{{tr._tx_position}}, depgraph', watchlist', has_disabled'({{o.name}}, {{sm.name}}, outtrans{{model|mcrl2_model_vars(True)}})), process_transaction_simple'({{o.name}}, {{sm.name}}, depgraph')), prev_o'=if(!issafe({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}), {{o.name}}, o_), prev_sm'=if(!issafe({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}), {{sm.name}}, sm_), prev_st'=if(!issafe({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}), ST'{{tr._tx_position}}, st_), violations'=if(!issafe({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}), detect_violations'({{o.name}}, {{sm.name}}, ST'{{tr._tx_position}}, depgraph', watchlist'), empty_Advice'), atomicity_check_done=true{% endif %}){% if not loop.last %} +{% endif %}{% endfor %} +
+    {% if syncing_statements[o][tr.statements[0]]|length == 0 %}    {% if check_onthefly %}tau{% else %}rw({{o.name}}, {{sm.name}}, R'(rwpattern({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}})), W'(rwpattern({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}))){% endif %} . {{model.name}}({{o.name}}'{{sm.name}}_state={{tr.target.name}}{{tr.statements[0]|statementstatechanges(o)}}, outtrans={% if apply_por %}apply_por(OT'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o.type.statemachines %}{{', ' if not (o2loop.first and loop.first) }}outgoing({{o2.type.name}}, {{sm2.name}}, {% if o == o2 and sm == sm2 %}{{tr.target.name}}{% else %}{{o2.name}}'{{sm2.name}}_state{% endif %}){% endfor %}{% endfor %}){{tr.statements[0]|complete_newstate(o)}}){% else %}update_outgoing({{o.name}}, {{sm.name}}, {{tr.target.name}}, outtrans){% endif %}{% if check_onthefly %}, depgraph'=process_transaction'({{o.name}}, {{sm.name}}, ST'{{tr._tx_position}}, depgraph', watchlist', has_disabled'({{o.name}}, {{sm.name}}, outtrans{{model|mcrl2_model_vars(True)}})), violations'=if(!issafe({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}), detect_violations'({{o.name}}, {{sm.name}}, ST'{{tr._tx_position}}, depgraph', watchlist'), empty_O'SM'ST'Advice'), atomicity_check_done=true{% endif %})
+  ){% if tr.statements[0]|hascondition(o) %}){% endif %}{%else %}{% for sync in syncing_statements[o][tr.statements[0]] %}    (ST'{{transowner[sync[1]]._tx_position}} in sm_outgoing({{sync[0].name}}, {{statemachine[sync[1]].name}}, outtrans){% if sync[1]|hascondition(sync[0]) %}) -> (({{sync[1]|sync_statement_condition(sync[0], tr.statements[0], o)}}{% endif %}) -> ({% if check_onthefly %}tau{% else %}rw({{o.name}}, {{sm.name}}, {{tr.statements[0]|mcrl2_read_accesspattern(o,True)}}, {{tr.statements[0]|mcrl2_write_accesspattern(o,True)}}, {{sync[0].name}}, {{statemachine[sync[1]].name}}, R'(rwpattern({{sync[0].name}}, ST'{{transowner[sync[1]]._tx_position}}{{model|mcrl2_model_vars(True)}}), W'(rwpattern({{sync[0].name}}, ST'{{transowner[sync[1]]._tx_position}}{{model|mcrl2_model_vars(True)}})))){% endif %} . {{model.name}}({{o.name}}'{{sm.name}}_state={{tr.target.name}}, {{sync[0].name}}'{{statemachine[sync[1]].name}}_state={{transowner[sync[1]].target.name}}{{sync[1]|sync_statementstatechanges(sync[0],tr.statements[0],o)}}, outtrans={% if apply_por %}apply_por(OT'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o.type.statemachines %}{{', ' if not (o2loop.first and loop.first) }}outgoing({{o2.type.name}}, {{sm2.name}}, {% if o == o2 and sm == sm2 %}{{tr.target.name}}{% elif sync[0] == o2 and statemachine[sync[1]] == sm2 %}{{transowner[sync[1]].target.name}}{% else %}{{o2.name}}'{{sm2.name}}_state{% endif %}){% endfor %}{% endfor %}){{tr.statements[0]|sync_complete_newstate(o)}}){% else %}update_outgoing({{sync[0].name}}, {{statemachine[sync[1]].name}}, {{transowner[sync[1]].target.name}}, update_outgoing({{o.name}}, {{sm.name}}, {{tr.target.name}}, outtrans)){% endif %}{% if check_onthefly %}, depgraph'=process_transaction'({{o.name}}, {{sm.name}}, ST'{{tr._tx_position}}, depgraph', watchlist', has_disabled'({{o.name}}, {{sm.name}}, outtrans{{model|mcrl2_model_vars(True)}})), violations'=if(!issafe({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}), detect_violations'({{o.name}}, {{sm.name}}, ST'{{tr._tx_position}}, depgraph', watchlist'), empty_O'SM'ST'Advice'), atomicity_check_done=true{% endif %}){% if not loop.last %} +{% endif %}{% endfor %} +
 
   ){% if sync[1]|hascondition(sync[0]) %}){% endif %}{% endif %}{% if not (oloop.last and smloop.last and trloop.last and loop.last) %} +{% endif %}
 
@@ -1052,9 +1143,9 @@ proc {{model.name}}({% for o in model.objects %}{% set oloop = loop %}{% for stm
 ){% if check_onthefly %} +{% else %};{% endif %}
 
 {% if check_onthefly %}
-(atomicity_check_done && violations' == empty_Advice') -> tau . {{model.name}}(depgraph'=update_blocks'(outtrans, depgraph'{{model|mcrl2_model_vars(True)}}), prev_o'=o_, prev_sm'=sm_, prev_st'=st_, atomicity_check_done=false) +
-(atomicity_check_done && violations' != empty_Advice') -> report(prev_o', prev_sm', prev_st', violations') . {{model.name}}(depgraph'=update_blocks'(outtrans, depgraph'{{model|mcrl2_model_vars(True)}}){% if lock_onthefly %}, watchlist'=setminus(watchlist',LK'(violations')){% endif %}, prev_o'=o_, prev_sm'=sm_, prev_st'=st_, violations'=empty_Advice', atomicity_check_done=false) +
+(atomicity_check_done && violations' == empty_O'SM'ST'Advice') -> tau . {{model.name}}(depgraph'=update_blocks'(outtrans, depgraph'{{model|mcrl2_model_vars(True)}}), atomicity_check_done=false) +
+(atomicity_check_done && violations' != empty_O'SM'ST'Advice') -> report(O'(violations'), SM'(violations'), ST'(violations'), AD'(violations')) . {{model.name}}(depgraph'=update_blocks'(outtrans, depgraph'{{model|mcrl2_model_vars(True)}}){% if lock_onthefly %}, watchlist'=setminus(watchlist',get_vars'(LK'(AD'(violations')))){% endif %}, violations'=empty_O'SM'ST'Advice', atomicity_check_done=false) +
 (watchlist' == []) -> lock_all . {{model.name}}();
 {% endif %}
 
-init {{model.name}}({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first) }}{{sm.initialstate.name}}{% endfor %}{% endfor %}{% for o in model.objects %}{% set oloop = loop %}{% for var in o.type.variables %}, {% for vinit in o.assignments %}{% if var.name == vinit.left.name %}{% if vinit.right == None %}[{% for v in vinit.rights %}{{v|mcrl2value}}{{',' if not loop.last }}{% endfor %}]{% else %}{{vinit.right|mcrl2value}}{% endif %}{% break %}{% endif %}{% if loop.last %}{{var|variabledefault}}{% endif %}{% endfor %}{% if o.assignments|length == 0 %}{{var|variabledefault}}{% endif %}{% endfor %}{% for sm in o.type.statemachines %}{% for var in sm.variables %}, {{var|variabledefault}}{% endfor %}{% endfor %}{% endfor %}{% for ch in model.channels %}{% if ch.synctype == 'async' %}, [], 0{% endif %}{% endfor %}, {% if apply_por %}apply_por({% endif %}OT'({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first) }}outgoing({{o.type.name}}, {{sm.name}}, {{sm.initialstate.name}}){% endfor %}{% endfor %}){% if apply_por %}{% for o in model.objects %}{% set oloop = loop %}{% for var in o.type.variables %}, {% for vinit in o.assignments %}{% if var.name == vinit.left.name %}{% if vinit.right == None %}[{% for v in vinit.rights %}{{v|mcrl2value}}{{',' if not loop.last }}{% endfor %}]{% else %}{{vinit.right|mcrl2value}}{% endif %}{% break %}{% endif %}{% if loop.last %}{{var|variabledefault}}{% endif %}{% endfor %}{% if o.assignments|length == 0 %}{{var|variabledefault}}{% endif %}{% endfor %}{% for sm in o.type.statemachines %}{% for var in sm.variables %}, {{var|variabledefault}}{% endfor %}{% endfor %}{% endfor %}{% for ch in model.channels %}{% if ch.synctype == 'async' %}, [], 0{% endif %}{% endfor %}){% endif %}, update_blocks'(OT'({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first) }}outgoing({{o.type.name}}, {{sm.name}}, {{sm.initialstate.name}}){% endfor %}{% endfor %}), DG'({% for o in model.objects %}{{', ' if not loop.first }}[]{% endfor %}, empty_DPNode'){% for o in model.objects %}{% set oloop = loop %}{% for var in o.type.variables %}, {% for vinit in o.assignments %}{% if var.name == vinit.left.name %}{% if vinit.right == None %}[{% for v in vinit.rights %}{{v|mcrl2value}}{{',' if not loop.last }}{% endfor %}]{% else %}{{vinit.right|mcrl2value}}{% endif %}{% break %}{% endif %}{% if loop.last %}{{var|variabledefault}}{% endif %}{% endfor %}{% if o.assignments|length == 0 %}{{var|variabledefault}}{% endif %}{% endfor %}{% for sm in o.type.statemachines %}{% for var in sm.variables %}, {{var|variabledefault}}{% endfor %}{% endfor %}{% endfor %}{% for ch in model.channels %}{% if ch.synctype == 'async' %}, [], 0{% endif %}{% endfor %}), [{% for v in unsafe_variables %}{{', ' if not loop.first }}{{mcrl2varprefix}}{{v}}{% endfor %}], o_, sm_, st_, empty_Advice', false);
+init {{model.name}}({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first) }}{{sm.initialstate.name}}{% endfor %}{% endfor %}{% for o in model.objects %}{% set oloop = loop %}{% for var in o.type.variables %}, {% for vinit in o.assignments %}{% if var.name == vinit.left.name %}{% if vinit.right == None %}[{% for v in vinit.rights %}{{v|mcrl2value}}{{',' if not loop.last }}{% endfor %}]{% else %}{{vinit.right|mcrl2value}}{% endif %}{% break %}{% endif %}{% if loop.last %}{{var|variabledefault}}{% endif %}{% endfor %}{% if o.assignments|length == 0 %}{{var|variabledefault}}{% endif %}{% endfor %}{% for sm in o.type.statemachines %}{% for var in sm.variables %}, {{var|variabledefault}}{% endfor %}{% endfor %}{% endfor %}{% for ch in model.channels %}{% if ch.synctype == 'async' %}, [], 0{% endif %}{% endfor %}, {% if apply_por %}apply_por({% endif %}OT'({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first) }}outgoing({{o.type.name}}, {{sm.name}}, {{sm.initialstate.name}}){% endfor %}{% endfor %}){% if apply_por %}{% for o in model.objects %}{% set oloop = loop %}{% for var in o.type.variables %}, {% for vinit in o.assignments %}{% if var.name == vinit.left.name %}{% if vinit.right == None %}[{% for v in vinit.rights %}{{v|mcrl2value}}{{',' if not loop.last }}{% endfor %}]{% else %}{{vinit.right|mcrl2value}}{% endif %}{% break %}{% endif %}{% if loop.last %}{{var|variabledefault}}{% endif %}{% endfor %}{% if o.assignments|length == 0 %}{{var|variabledefault}}{% endif %}{% endfor %}{% for sm in o.type.statemachines %}{% for var in sm.variables %}, {{var|variabledefault}}{% endfor %}{% endfor %}{% endfor %}{% for ch in model.channels %}{% if ch.synctype == 'async' %}, [], 0{% endif %}{% endfor %}){% endif %}, update_blocks'(OT'({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first) }}outgoing({{o.type.name}}, {{sm.name}}, {{sm.initialstate.name}}){% endfor %}{% endfor %}), DG'({% for o in model.objects %}{{', ' if not loop.first }}[]{% endfor %}, empty_DPNode'){% for o in model.objects %}{% set oloop = loop %}{% for var in o.type.variables %}, {% for vinit in o.assignments %}{% if var.name == vinit.left.name %}{% if vinit.right == None %}[{% for v in vinit.rights %}{{v|mcrl2value}}{{',' if not loop.last }}{% endfor %}]{% else %}{{vinit.right|mcrl2value}}{% endif %}{% break %}{% endif %}{% if loop.last %}{{var|variabledefault}}{% endif %}{% endfor %}{% if o.assignments|length == 0 %}{{var|variabledefault}}{% endif %}{% endfor %}{% for sm in o.type.statemachines %}{% for var in sm.variables %}, {{var|variabledefault}}{% endfor %}{% endfor %}{% endfor %}{% for ch in model.channels %}{% if ch.synctype == 'async' %}, [], 0{% endif %}{% endfor %}), [{% for v in unsafe_variables %}{{', ' if not loop.first }}{{mcrl2varprefix}}{{v}}{% endfor %}], empty_O'SM'ST'Advice', false);
