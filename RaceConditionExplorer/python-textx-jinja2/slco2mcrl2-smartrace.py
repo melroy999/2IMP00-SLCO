@@ -1120,7 +1120,7 @@ def statement_is_safe(s):
 	global safe_statements
 	return s in safe_statements
 
-def compare_accesses2(s1, s2, limit):
+def count_conflicts2(s1, s2, limit):
 	"""Compare two access patterns. Both consist of a set and two dictionaries, the set providing all simple accesses and one dictionary providing exact (statically clear) array accesses.
 	The other provides representations of all imprecise array accesses.
 	The question is whether at least 'limit' access matches can be made from s1 to s2. As soon as this limit is reached, the limit is returned, otherwise the number of matches."""
@@ -1153,6 +1153,28 @@ def compare_accesses2(s1, s2, limit):
 		if count >= limit:
 			return limit
 	return count
+
+def compare_accesses2(s1, s2):
+	"""Compare two access patterns. Both consist of a set and two dictionaries, the set providing all simple accesses and one dictionary providing exact (statically clear) array accesses.
+	The other provides representations of all imprecise array accesses.
+	The question is which accesses in s2 conflict with s1. This subset of s2 is returned."""
+	conf_accesses = [set([]), {}, {}]
+	conf_accesses[0] = s1[0] & s2[0]
+	# first compare precise array accesses
+	for a in s1[1].keys():
+		# first compare precise array accesses
+		if s2[1].get(a) != None:
+			conf_accesses[1][a] = s1[1][a] & s2[1][a]
+		# compare with imprecise array accesses
+		if s2[2].get(a) != None:
+			conf_accesses[2][a] = 1
+	# next compare imprecise array accesses
+	for a in s1[2].keys():
+		if s2[1].get(a) != None:
+			conf_accesses[1][a] = s2[1][a]
+		if s2[2].get(a) != None:
+			conf_accesses[2][a] = 1
+	return conf_accesses
 
 def number_of_accesses(s):
 	"""Count the number of accesses in the given filtered_access"""
@@ -1276,6 +1298,9 @@ def identify_safe_unsafe_statements(m):
 	safe_statements = set([])
 	unsafe_statements = set([])
 
+	# unsafe accesses
+	unsafe_filtered_accesses = list()
+
 	# create list of objects, one at most per class
 	classobjects = []
 	represented_classes = set([])
@@ -1376,60 +1401,115 @@ def identify_safe_unsafe_statements(m):
 						marked_unsafe = False
 						for fa in SCC_filtered_accesses:
 							count = 0
-							count += compare_accesses2(fa[1], filtered_statement_access[o][st1][0], 2)
+							count += count_conflicts2(fa[1], filtered_statement_access[o][st1][0], 2)
 							if count >= 2:
 								unsafe_statements.add(st1)
+								unsafe_filtered_accesses.append(fa)
 								marked_unsafe = True
-								break
-							count += compare_accesses2(fa[0], filtered_statement_access[o][st1][1], 2)
+							else:
+								count += count_conflicts2(fa[0], filtered_statement_access[o][st1][1], 2)
+								if count >= 2:
+									unsafe_statements.add(st1)
+									unsafe_filtered_accesses.append(fa)
+									marked_unsafe = True
+								else:
+									count += count_conflicts2(fa[1], filtered_statement_access[o][st1][1], 2)
+									if count >= 2:
+										unsafe_statements.add(st1)
+										unsafe_filtered_accesses.append(fa)
+										marked_unsafe = True
 							if count >= 2:
-								unsafe_statements.add(st1)
-								marked_unsafe = True
-								break
-							count += compare_accesses2(fa[1], filtered_statement_access[o][st1][1], 2)
-							if count >= 2:
-								unsafe_statements.add(st1)
-								marked_unsafe = True
-								break
+								conflict = [[],[]]
+								conflict[0] = compare_accesses2(fa[1], filtered_statement_access[o][st1][0])
+								tmp_conflict1 = compare_accesses2(fa[0], filtered_statement_access[o][st1][1])
+								tmp_conflict2 = compare_accesses2(fa[1], filtered_statement_access[o][st1][1])
+								tmp_conflict1[0] |= tmp_conflict2[0]
+								for a in tmp_conflict2[1].keys():
+									aset = tmp_conflict1[1].get(a,set([]))
+									tmp_conflict1[1][a] = aset | tmp_conflict2[1][a]
+								for a in tmp_conflict2[2].keys():
+									anumber = tmp_conflict1[2].get(a,0)
+									tmp_conflict1[2][a] = anumber + tmp_conflict2[2][a]
+								conflict[1] = tmp_conflict1
+								unsafe_filtered_accesses.append(conflict)
 						if not marked_unsafe:
 							safe_statements.add(st1)
 	# now that we have identified the unsafe statements, build a list of unsafe variables
 	unsafe_variables = set([])
-	for st in unsafe_statements:
-		# get the class owning st, and then all objects of that type
-		c = smclass[statemachine[st]]
-		olist = []
-		for o in model.objects:
-			if o.type == c:
-				olist.append(o)
-		# use the representative object to obtain the access pattern of st
-		for o in olist:
-			if o in classobjects:
-				ap = statement_access[o][st]
-				break
-		# add all elements of the read and write set, making sure to make dynamic array accesses static (to all cells in the array)
-		for i in range(0,2):
-			for v in ap[i]:
-				v_splitted = v.split("(Int2Nat(")
-				if len(v_splitted) > 1:
-					if not RepresentsInt(v_splitted[1][:-2]):
-						# look up array, and add all its cells
-						o1, v1 = v_splitted[0].split("'")
-						found = False
-						for o in model.objects:
-							if o.name == o1:
-								for v2 in o.type.variables:
-									if v2.name == v1:
-										for j in range(0,v2.type.size):
-											unsafe_variables.add(v_splitted[0] + "(Int2Nat(" + str(j) + "))")
-										found = True
-										break
-							if found:
-								break
-					else:
-						unsafe_variables.add(v)
-				else:
-					unsafe_variables.add(v)
+	# for st in unsafe_statements:
+	# 	# get the class owning st, and then all objects of that type
+	# 	c = smclass[statemachine[st]]
+	# 	olist = []
+	# 	for o in model.objects:
+	# 		if o.type == c:
+	# 			olist.append(o)
+	# 	# use the representative object to obtain the access pattern of st
+	# 	for o in olist:
+	# 		if o in classobjects:
+	# 			ap = statement_access[o][st]
+	# 			break
+	# 	# add all elements of the read and write set, making sure to make dynamic array accesses static (to all cells in the array)
+	# 	for i in range(0,2):
+	# 		for v in ap[i]:
+	# 			v_splitted = v.split("(Int2Nat(")
+	# 			if len(v_splitted) > 1:
+	# 				if not RepresentsInt(v_splitted[1][:-2]):
+	# 					# look up array, and add all its cells
+	# 					o1, v1 = v_splitted[0].split("'")
+	# 					found = False
+	# 					for o in model.objects:
+	# 						if o.name == o1:
+	# 							for v2 in o.type.variables:
+	# 								if v2.name == v1:
+	# 									for j in range(0,v2.type.size):
+	# 										unsafe_variables.add(v_splitted[0] + "(Int2Nat(" + str(j) + "))")
+	# 									found = True
+	# 									break
+	# 						if found:
+	# 							break
+	# 				else:
+	# 					unsafe_variables.add(v)
+	# 			else:
+	# 				unsafe_variables.add(v)
+	for ac in unsafe_filtered_accesses:
+		for a in ac[0][0]:
+			unsafe_variables.add(a)
+		for a in ac[1][0]:
+			unsafe_variables.add(a)
+		for a in ac[0][1].keys():
+			for i in ac[0][1][a]:
+				unsafe_variables.add(a + "(Int2Nat(" + str(i) + "))")
+		for a in ac[1][1].keys():
+			for i in ac[1][1][a]:
+				unsafe_variables.add(a + "(Int2Nat(" + str(i) + "))")		
+		for a in ac[0][2].keys():
+			# look up array, and add all its cells
+			o1, v1 = a.split("'")
+			found = False
+			for o in model.objects:
+				if o.name == o1:
+					for v2 in o.type.variables:
+						if v2.name == v1:
+							for j in range(0,v2.type.size):
+								unsafe_variables.add(a + "(Int2Nat(" + str(j) + "))")
+							found = True
+							break
+				if found:
+					break
+		for a in ac[1][2].keys():
+			# look up array, and add all its cells
+			o1, v1 = a.split("'")
+			found = False
+			for o in model.objects:
+				if o.name == o1:
+					for v2 in o.type.variables:
+						if v2.name == v1:
+							for j in range(0,v2.type.size):
+								unsafe_variables.add(a + "(Int2Nat(" + str(j) + "))")
+							found = True
+							break
+				if found:
+					break
 	# make unsafe_variables a sorted list
 	unsafe_variables = sorted(list(unsafe_variables))
 	print(unsafe_variables)
