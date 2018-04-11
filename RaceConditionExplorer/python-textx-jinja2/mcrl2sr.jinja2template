@@ -769,7 +769,7 @@ eqn update_c'(c1',[],a') = c1';
 % ----- START ATOMICITY VIOLATION CHECKING ALGORITHM -----
 
 % *** PROCESS TRANSACTION PROCEDURE ***
-% hasdisabled flag is present to determine whether or not to keep the selected AccessPattern as part of the graph. It indicates whether there are currently disabled transitions in the set of outgoing transitions
+% has_disabled_flag is present to determine whether or not to keep the selected AccessPattern as part of the graph. It indicates whether there are currently disabled transitions in the set of outgoing transitions
 
 map process_transaction': Object' # Statemachine' # STID' # DPGraph' # List(Var') # Bool -> DPGraph';
 var o1': Object';
@@ -934,9 +934,23 @@ eqn perform_U2_2'(n1',n2',[],L2',L3') = n2';
 
 % *** SPECIFICATION OF ATOMICITY VIOLATION RESOLUTION ADVICE ***
 
-sort Advice' = struct AD'(LK': AccessPattern', LO': List(AccessPattern'));
+sort Advice' = struct AD'(LK': AccessPattern', LO': List(Shuffle'));
 map empty_Advice': Advice';
 eqn empty_Advice' = AD'(A'([],[]),[]);
+
+% *** SPECIFICATION OF SHUFFLE ORDER ***
+
+sort Shuffle' = struct SH'(SB': AccessPattern', SA': AccessPattern');
+map empty_Shuffle': Shuffle';
+eqn empty_Shuffle' = SH'(A'([],[]),A'([],[]));
+
+map union': List(Shuffle') # List(Shuffle') -> List(Shuffle');
+var L1',L2': List(Shuffle');
+eqn union'(L1',[]) = L1';
+    union'([],L2') = L2';
+(L1' != [] && L2' != [] && head(L1') < head(L2')) -> union'(L1',L2') = [head(L1')] ++ union'(tail(L1'),L2');
+(L1' != [] && L2' != [] && head(L1') > head(L2')) -> union'(L1',L2') = [head(L2')] ++ union'(L1',tail(L2'));
+(L1' != [] && L2' != [] && head(L1') == head(L2')) -> union'(L1',L2') = [head(L1')] ++ union'(tail(L1'),tail(L2'));
 
 % *** SPECIFICATION OF ADVICE FOR SPECIFIC OBJECT/STATEMACHINE/STID ***
 
@@ -948,75 +962,45 @@ map combine': Advice' # Advice' -> Advice';
 var ad1', ad2': Advice';
 eqn combine'(ad1',ad2') = combine1'(LO'(ad1'),LO'(ad2'),compute_lockset'(ad1',ad2'));
 
-map combine1': List(AccessPattern') # List(AccessPattern') # AccessPattern' -> Advice';
-var lo1',lo2': List(AccessPattern');
+map combine1': List(Shuffle') # List(Shuffle') # AccessPattern' -> Advice';
+var lo1',lo2': List(Shuffle');
     al': AccessPattern';
-eqn combine1'(lo1',lo2',al') = AD'(al', combine2'(setminus(union'(lo1'), al'), setminus(union'(lo2'), al'), lo1', lo2'));
+eqn combine1'(lo1',lo2',al') = AD'(al', combine2'(union'(lo1',lo2'),al'));
 
-map combine2': AccessPattern' # AccessPattern' # List(AccessPattern') # List(AccessPattern') -> List(AccessPattern');
-var a1',a2': AccessPattern';
-    lo1',lo2': List(AccessPattern');
-eqn (a1' == A'([],[]) && a2' == A'([],[])) -> combine2'(a1',a2',lo1',lo2') = [];
-(a1' != A'([],[]) || a2' != A'([],[])) -> combine2'(a1',a2',lo1',lo2') = combine3'(a1',a2', ac_pre'(a1',lo1'), ac_pre'(a2',lo2'),lo1',lo2');
+map combine2': List(Shuffle') # AccessPattern' -> List(Shuffle');
+var L': List(Shuffle');
+    a': AccessPattern';
+eqn combine2'([],a') = [];
+(L' != []) -> combine2'(L',a') = combine3'(union'([SH'(setminus(SB'(head(L')), a'), setminus(SA'(head(L')), a'))], combine2'(tail(L'), a')));
 
-map combine3': AccessPattern' # AccessPattern' # AccessPattern' # AccessPattern' # List(AccessPattern') # List(AccessPattern') -> List(AccessPattern');
-var a1',a2',ap1',ap2': AccessPattern';
-    lo1',lo2': List(AccessPattern');
-eqn combine3'(a1',a2',ap1',ap2',lo1',lo2') = combine4'(a1', a2', setminus(ap1', setminus(a2', ap2')), setminus(ap2', setminus(a1', ap1')), lo1', lo2');
-
-map combine4': AccessPattern' # AccessPattern' # AccessPattern' # AccessPattern' # List(AccessPattern') # List(AccessPattern') -> List(AccessPattern');
-var a1',a2',an1',an2': AccessPattern';
-    lo1',lo2': List(AccessPattern');
-eqn combine4'(a1',a2',an1',an2',lo1',lo2') = combine5'(union'(an1',an2')) ++ combine2'(setminus(a1',an1'), setminus(a2',an2'), lo1', lo2');
-
-map combine5': AccessPattern' -> List(AccessPattern');
-var a': AccessPattern';
-eqn (a' == A'([],[])) -> combine5'(a') = [];
-(a' != A'([],[])) -> combine5'(a') = [a'];
+map combine3': List(Shuffle') -> List(Shuffle');
+var L': List(Shuffle');
+eqn (L' == [empty_Shuffle']) -> combine3'(L') = [];
+(L' != [empty_Shuffle']) -> combine3'(L') = L';
 
 % identify which accesses need to be protected
 map compute_lockset': Advice' # Advice' -> AccessPattern';
 var ad1', ad2': Advice';
 eqn (LO'(ad1') == [] || LO'(ad2') == []) -> compute_lockset'(ad1',ad2') = union'(LK'(ad1'), LK'(ad2'));
-(LO'(ad1') != [] && LO'(ad2') != []) -> compute_lockset'(ad1',ad2') = union'(LK'(ad1'), union'(LK'(ad2'), compute_lockset1'(LO'(ad1'), LO'(ad2'), A'([],[]), setminus(union'(LO'(ad1')), head(LO'(ad1'))), A'([],[]), setminus(union'(LO'(ad2')), head(LO'(ad2'))))));
+(LO'(ad1') != [] && LO'(ad2') != []) -> compute_lockset'(ad1',ad2') = union'(LK'(ad1'), union'(LK'(ad2'), compute_lockset1'(LO'(ad1'), LO'(ad2'))));
 
-map compute_lockset1': List(AccessPattern') # List(AccessPattern') # AccessPattern' # AccessPattern' # AccessPattern' # AccessPattern' -> AccessPattern';
-var pre_ad1',post_ad1',pre_ad2',post_ad2': AccessPattern';
-    load1',load2': List(AccessPattern');
-eqn compute_lockset1'([],load2',pre_ad1',post_ad1',pre_ad2',post_ad2') = A'([],[]);
-(load1' != [] && tail(load1') != []) -> compute_lockset1'(load1',load2',pre_ad1',post_ad1',pre_ad2',post_ad2') = union'(compute_lockset2'(head(load1'),load2',pre_ad1',post_ad1',pre_ad2',post_ad2'), compute_lockset1'(tail(load1'),load2',union'(pre_ad1', head(load1')),setminus(post_ad1', head(tail(load1'))),pre_ad2',post_ad2'));
-(load1' != [] && tail(load1') == []) -> compute_lockset1'(load1',load2',pre_ad1',post_ad1',pre_ad2',post_ad2') = union'(compute_lockset2'(head(load1'),load2',pre_ad1',post_ad1',pre_ad2',post_ad2'), compute_lockset1'(tail(load1'),load2',union'(pre_ad1', head(load1')),A'([],[]),pre_ad2',post_ad2'));
+map compute_lockset1': List(Shuffle') # List(Shuffle') -> AccessPattern';
+var L1',L2': List(Shuffle');
+eqn compute_lockset1'(L1',[]) = A'([],[]);
+    compute_lockset1'([],L2') = A'([],[]);
+(L1' != [] && L2' != []) -> compute_lockset1'(L1',L2') = union'(compute_lockset2'(head(L1'),L2'), compute_lockset1'(tail(L1'), L2'));
 
-map compute_lockset2': AccessPattern' # List(AccessPattern') # AccessPattern' # AccessPattern' # AccessPattern' # AccessPattern' -> AccessPattern';
-var lohad1',pre_ad1',post_ad1',pre_ad2',post_ad2': AccessPattern';
-    load2': List(AccessPattern');
-eqn compute_lockset2'(lohad1',[],pre_ad1',post_ad1',pre_ad2',post_ad2') = A'([],[]);
-(load2' != [] && tail(load2') != []) -> compute_lockset2'(lohad1',load2',pre_ad1',post_ad1',pre_ad2',post_ad2') = union'(compute_lockset3'(lohad1',head(load2'),pre_ad1',post_ad1',pre_ad2',post_ad2'), compute_lockset2'(lohad1',tail(load2'),pre_ad1',post_ad1',union'(pre_ad2', head(load2')), setminus(post_ad2', head(tail(load2')))));
-(load2' != [] && tail(load2') == []) -> compute_lockset2'(lohad1',load2',pre_ad1',post_ad1',pre_ad2',post_ad2') = union'(compute_lockset3'(lohad1',head(load2'),pre_ad1',post_ad1',pre_ad2',post_ad2'), compute_lockset2'(lohad1',tail(load2'),pre_ad1',post_ad1',union'(pre_ad2', head(load2')), A'([],[])));
+map compute_lockset2': Shuffle' # List(Shuffle') -> AccessPattern';
+var sh': Shuffle';
+    L': List(Shuffle');
+eqn compute_lockset2'(sh',[]) = A'([],[]);
+(L' != []) -> compute_lockset2'(sh',L') = union'(compute_lockset3'(sh', head(L'), intersection(SB'(sh'), SA'(head(L'))), intersection(SB'(head(L')), SA'(sh'))), compute_lockset2'(sh', tail(L')));
 
-map compute_lockset3': AccessPattern' # AccessPattern' # AccessPattern' # AccessPattern' # AccessPattern' # AccessPattern' -> AccessPattern';
-var lohad1',lohad2',pre_ad1',post_ad1',pre_ad2',post_ad2': AccessPattern';
-eqn (intersection(lohad1',lohad2') == A'([],[])) -> compute_lockset3'(lohad1',lohad2',pre_ad1',post_ad1',pre_ad2',post_ad2') = A'([],[]);
-(intersection(lohad1',lohad2') != A'([],[])) -> compute_lockset3'(lohad1',lohad2',pre_ad1',post_ad1',pre_ad2',post_ad2') = compute_lockset4'(intersection(lohad1',lohad2'), union'(intersection(post_ad2', union'(pre_ad1',lohad1')), intersection(post_ad1', union'(pre_ad2',lohad2'))));
-
-map compute_lockset4': AccessPattern' # AccessPattern' -> AccessPattern';
-var a1',a2': AccessPattern';
-eqn compute_lockset4'(a1',A'([],[])) = A'([],[]);
-(a2' != A'([],[])) -> compute_lockset4'(a1',a2') = union'(a1',a2');
-
-map ac_pre': AccessPattern' # List(AccessPattern') -> AccessPattern';
-var a': AccessPattern';
-    L': List(AccessPattern');
-eqn ac_pre'(a',[]) = a';
-(a' == A'([],[])) -> ac_pre'(a',[]) = A'([],[]);
-(a' != A'([],[]) && L' != []) -> ac_pre'(a',L') = ac_pre1'(a',L',intersection(a',head(L')));
-
-map ac_pre1': AccessPattern' # List(AccessPattern') # AccessPattern' -> AccessPattern';
-var a1',a2': AccessPattern';
-    L': List(AccessPattern');
-eqn ac_pre1'(a1',[],a2') = A'([],[]);
-(a2' != A'([],[])) -> ac_pre1'(a1',L',a2') = a2';
-(a2' == A'([],[])) -> ac_pre1'(a1',L',a2') = ac_pre'(a1',tail(L'));
+map compute_lockset3': Shuffle' # Shuffle' # AccessPattern' # AccessPattern' -> AccessPattern';
+var sh1',sh2': Shuffle';
+    a1',a2': AccessPattern';
+eqn (a1' == A'([],[]) || a2' == A'([],[])) -> compute_lockset3'(sh1',sh2',a1',a2') = A'([],[]);
+(a1' != A'([],[]) || a2' != A'([],[])) -> compute_lockset3'(sh1',sh2',a1',a2') = union'(a1',a2');
 
 % *** OVERALL ATOMICITY VIOLATION CHECK FOR PAIR OF NODES ***
 
@@ -1060,7 +1044,7 @@ eqn (!has_at_least_two(union'(b1', cb'))) -> perform_C2_1'(b1',cb') = empty_Advi
 
 map perform_C2_2': AccessPattern' # AccessPattern' # AccessPattern' -> Advice';
 var b1', cb', L': AccessPattern';
-eqn perform_C2_2'(b1',cb',L') = AD'(L', [setminus(b1',L'), setminus(cb',L')]);
+eqn perform_C2_2'(b1',cb',L') = AD'(L', [SH'(setminus(b1',L'), setminus(cb',L'))]);
 
 % ----- END ATOMICITY VIOLATION CHECKING ALGORITHM -----
 
