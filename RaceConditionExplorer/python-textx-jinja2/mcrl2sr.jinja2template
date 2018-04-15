@@ -677,7 +677,7 @@ var a1': AccessPattern';
 map dep_o_b': DPNode' # DPNode' -> List(Object_SM');
 var n1', n2': DPNode';
 eqn (!are_competing(n1',n2')) -> dep_o_b'(n1',n2') = [];
-    (are_competing(n1',n2')) -> dep_o_b'(n1',n2') = intersection([OSM'(n1')], owner'(n2'));
+    (are_competing(n1',n2')) -> dep_o_b'(n1',n2') = intersection(union'([OSM'(n1')], owner'(n1')), owner'(n2'));
 
 map dep_o_h': DPNode' # DPNode' -> List(Object_SM');
 var n1', n2': DPNode';
@@ -768,16 +768,6 @@ eqn update_c'(c1',[],a') = c1';
 
 % ----- START ATOMICITY VIOLATION CHECKING ALGORITHM -----
 
-% *** SPECIFICATION OF INTERMEDIATE PROCESSING RESULT ***
-
-sort PTResult' = struct PT'(LD': List(DPNode'), UN': List(DPNode'), UT': List(Object_SM'));
-map empty_PTResult': PTResult';
-eqn empty_PTResult' = PT'([],[],[]);
-
-map combine': PTResult' # PTResult' -> PTResult';
-var p1', p2': PTResult';
-eqn combine'(p1',p2') = PT'(LD'(p1') ++ LD'(p2'), UN'(p1') ++ UN'(p2'), union'(UT'(p1'), UT'(p2')));
-
 % *** PROCESS TRANSACTION PROCEDURE ***
 % has_disabled_flag is present to determine whether or not to keep the selected AccessPattern as part of the graph. It indicates whether there are currently disabled transitions in the set of outgoing transitions
 
@@ -799,37 +789,18 @@ var st': STID';
 {% for o in model.objects %}
 {% set oloop = loop %}
 {% for sm in o.type.statemachines %}
-{% if oloop.first and loop.first %}eqn {% else %}    {% endif %}process_transaction1'({{o.name}},{{sm.name}},st',g',n1',L',has_disabled_flag') = DG'({% for o2 in model.objects %}{{', ' if not loop.first }}{% if o2 != o %}el'{{o2.name}}(g'){% else %}process_transaction3'(n1', process_transaction2'(n1', extract'({{o2.name}}, {{sm.name}}, el'{{o2.name}}(g')), L')){% endif %}{% endfor %}, store_selected_pattern'(n1', has_disabled_flag',L'));
+{% if oloop.first and loop.first %}eqn {% else %}    {% endif %}process_transaction1'({{o.name}},{{sm.name}},st',g',n1',L',has_disabled_flag') = DG'({% for o2 in model.objects %}{{', ' if not loop.first }}{% if o2 != o %}el'{{o2.name}}(g'){% else %}process_transaction2'(n1', extract'({{o2.name}}, {{sm.name}}, el'{{o2.name}}(g')), L'){% endif %}{% endfor %}, store_selected_pattern'(n1', has_disabled_flag',L'));
 {% endfor %}
 {% endfor %}
 
-map process_transaction2': DPNode' # List(DPNode') # List(Var') -> PTResult';
+map process_transaction2': DPNode' # List(DPNode') # List(Var') -> List(DPNode');
 var n1': DPNode';
     L1': List(DPNode');
     L2': List(Var');
-eqn process_transaction2'(n1',[],L2') = empty_PTResult';
-    process_transaction2'(n1',L1',[]) = empty_PTResult';
-(L1' != [] && L2' != [] && filter'(P'(n1'),L2') == A'([],[])) -> process_transaction2'(n1',L1',L2') = PT'(L1',[],[]);
-(L1' != [] && L2' != [] && filter'(P'(n1'),L2') != A'([],[])) -> process_transaction2'(n1',L1',L2') = combine'(perform_U'(n1', head(L1'), L2'), process_transaction2'(n1', tail(L1'), L2'));
-
-map process_transaction3': DPNode' # PTResult' -> List(DPNode');
-var n1': DPNode';
-    pt': PTResult';
-eqn process_transaction3'(n1',pt') = process_transaction4'(n1', LD'(pt'), UN'(pt'), UT'(pt'));
-
-map process_transaction4': DPNode' # List(DPNode') # List(DPNode') # List(Object_SM') -> List(DPNode');
-var n1': DPNode';
-    L1', L2': List(DPNode');
-    Lo': List(Object_SM');
-eqn process_transaction4'(n1',[],L2',Lo') = [];
-    process_transaction4'(n1',L1',[],Lo') = L1';
-    process_transaction4'(n1',L1',L2',[]) = L1';
-(L1' != [] && L2' != [] && Lo' != [] && OSM'(head(L1')) < OSM'(head(L2'))) -> process_transaction4'(n1',L1',L2',Lo') = [head(L1')] ++ process_transaction4'(n1',tail(L1'),L2',Lo');
-(L1' != [] && L2' != [] && Lo' != [] && OSM'(head(L2')) < OSM'(head(L1'))) -> process_transaction4'(n1',L1',L2',Lo') = process_transaction4'(n1',L1',tail(L2'),Lo');
-(L1' != [] && L2' != [] && Lo' != [] && OSM'(head(L1')) == OSM'(head(L2'))) -> process_transaction4'(n1',L1',L2',Lo') = [N'(OSM'(head(L1')), ST'(head(L1')), P'(head(L1')), H'(head(L1')), d'(head(L1')), c'(head(L1')), union'(owner'(n1'),owner'(head(L1'))))] ++ process_transaction4'(n1',tail(L1'),tail(L2'),Lo');
-
-% update_c'(c'(head(L1')), TSet', c'(head(L1'))(OSM'(n1')))
-% TSet' = union'(owner'(n1'), setminus(Lo', [OSM'(head(L1'))]))
+eqn process_transaction2'(n1',[],L2') = [];
+    process_transaction2'(n1',L1',[]) = [];
+(L1' != [] && L2' != [] && filter'(P'(n1'),L2') == A'([],[])) -> process_transaction2'(n1',L1',L2') = L1';
+(L1' != [] && L2' != [] && filter'(P'(n1'),L2') != A'([],[])) -> process_transaction2'(n1',L1',L2') = [perform_U'(n1', head(L1'), L2')] ++ process_transaction2'(n1', tail(L1'), L2');
 
 map store_selected_pattern': DPNode' # Bool # List(Var') -> DPNode';
 var n1': DPNode';
@@ -911,67 +882,55 @@ eqn (ad' == empty_Advice') -> detect_violations3'(o1',sm1',st',ad') = empty_O'SM
 
 % *** OVERALL CHECKING AND PERFORMING OF UPDATE FOR PAIR OF NODES ***
 
-map perform_U': DPNode' # DPNode' # List(Var') -> PTResult';
+map perform_U': DPNode' # DPNode' # List(Var') -> DPNode';
 var n1', n2': DPNode';
     L': List(Var');
 eqn perform_U'(n1',n2',L') = perform_U2'(n1', perform_U1'(n1',n2',L'), L');
 
 % *** CHECK AND PERFORM UPDATE 1 ***
 
-map perform_U1': DPNode' # DPNode' # List(Var') -> PTResult';
+map perform_U1': DPNode' # DPNode' # List(Var') -> DPNode';
 var n1', n2': DPNode';
     L': List(Var');
 eqn perform_U1'(n1',n2',L') = perform_U1_1'(n1',n2', union'(dep_v_b'(n1', n2', L'), d_set'(n2', dep_v_h'(n1', n2', L'), L')));
 
-map perform_U1_1': DPNode' # DPNode' # AccessPattern' -> PTResult';
+map perform_U1_1': DPNode' # DPNode' # AccessPattern' ->DPNode';
 var n1', n2': DPNode';
     a': AccessPattern';
-eqn (!not_empty(a')) -> perform_U1_1'(n1',n2',a') = PT'([n2'], [], []);
-(not_empty(a')) -> perform_U1_1'(n1',n2',a') = PT'([perform_U1_2'(n1', n2', a', add_osm'(OSM'(n1'), P'(n1'), H'(extract_osm'(n1', OSM'(n2')))))], [n2'], union'([OSM'(n2')],owner'(n2')));
+eqn (!not_empty(a')) -> perform_U1_1'(n1',n2',a') = n2';
+(not_empty(a')) -> perform_U1_1'(n1',n2',a') = perform_U1_2'(n1', n2', a', add_osm'(OSM'(n1'), P'(n1'), H'(extract_osm'(n1', OSM'(n2')))), setminus(union'([OSM'(n1')],owner'(n1')), [OSM'(n2')]));
 
-map perform_U1_2': DPNode' # DPNode' # AccessPattern' # History' -> DPNode';
+map perform_U1_2': DPNode' # DPNode' # AccessPattern' # History' # List(Object_SM') -> DPNode';
 var n1', n2': DPNode';
     a': AccessPattern';
     h1': History';
-eqn perform_U1_2'(n1',n2',a',h1') = N'(OSM'(n2'), ST'(n2'), P'(n2'), union'(H'(n2'), h1'), update_d'(d'(n2'), h1', a'), update_c'(c'(n2'),[OSM'(n1')], a'), union'([OSM'(n1')], owner'(n2')));
+    L': List(Object_SM');
+eqn perform_U1_2'(n1',n2',a',h1',L') = N'(OSM'(n2'), ST'(n2'), P'(n2'), union'(H'(n2'), h1'), update_d'(d'(n2'), h1', a'), update_c'(c'(n2'), L', a'), union'(L', owner'(n2')));
 
 % *** CHECK AND PERFORM UPDATE 2 ***
 
-map perform_U2': DPNode' # PTResult' # List(Var') -> PTResult';
-var n1': DPNode';
-    pt': PTResult';
+map perform_U2': DPNode' # DPNode' # List(Var') -> DPNode';
+var n1', n2': DPNode';
     L': List(Var');
-eqn (LD'(pt') == []) -> perform_U2'(n1',pt',L') = pt';
-(LD'(pt') != [] && !are_competing(n1',head(LD'(pt')))) -> perform_U2'(n1',pt',L') = pt';
-(LD'(pt') != [] && are_competing(n1',head(LD'(pt')))) -> perform_U2'(n1',pt',L') = perform_U2_1'(n1', pt', dep_o_h'(n1',head(LD'(pt'))),L');
+eqn (!are_competing(n1',n2')) -> perform_U2'(n1',n2',L') = n2';
+(are_competing(n1',n2')) -> perform_U2'(n1',n2',L') = perform_U2_1'(n1', n2', dep_o_h'(n1',n2'),L');
 
-map perform_U2_1': DPNode' # PTResult' # List(Object_SM') # List(Var') -> PTResult';
-var n1': DPNode';
-    pt': PTResult';
+map perform_U2_1': DPNode' # DPNode' # List(Object_SM') # List(Var') -> DPNode';
+var n1', n2': DPNode';
     L1': List(Object_SM');
     L2': List(Var');
-eqn (LD'(pt') == []) -> perform_U2_1'(n1',pt',L1',L2') = pt';
-  perform_U2_1'(n1',pt',[],L2') = pt';
-  perform_U2_1'(n1',pt',L1',[]) = pt';
-(LD'(pt') != [] && L1' != [] && L2' != []) -> perform_U2_1'(n1',pt',L1',L2') = perform_U2_2'(n1', pt', L1', c_set'(head(LD'(pt')), L1', L2'));
+eqn perform_U2_1'(n1',n2',[],L2') = n2';
+    perform_U2_1'(n1',n2',L1',[]) = n2';
+(L1' != [] && L2' != []) -> perform_U2_1'(n1',n2',L1',L2') = perform_U2_2'(n1', n2', L1', remove(union'([OSM'(n1')], owner'(n1')), OSM'(n2')), L2');
 
-map perform_U2_2': DPNode' # PTResult' # List(Object_SM') # AccessPattern' -> PTResult';
-var n1': DPNode';
-    pt': PTResult';
-    L': List(Object_SM');
-    a': AccessPattern';
-eqn perform_U2_2'(n1',pt',[],a') = pt';
-(a' == A'([],[])) -> perform_U2_2'(n1',pt',L',a') = pt';
-(LD'(pt') == []) -> perform_U2_2'(n1',pt',L',a') = pt';
-(L' != [] && a' != A'([],[]) && LD'(pt') != []) -> perform_U2_2'(n1',pt',L',a') = PT'([perform_U2_3'(n1', head(LD'(pt')), L', a')], LD'(pt'), union'([OSM'(head(LD'(pt')))], owner'(head(LD'(pt')))));
-
-map perform_U2_3': DPNode' # DPNode' # List(Object_SM') # AccessPattern' -> DPNode';
+map perform_U2_2': DPNode' # DPNode' # List(Object_SM') # List(Object_SM') # List(Var') -> DPNode';
 var n1', n2': DPNode';
-    L': List(Object_SM');
-    a': AccessPattern';
-eqn perform_U2_3'(n1',n2',[],a') = n2';
-(a' == A'([],[])) -> perform_U2_3'(n1',n2',L',a') = n2';
-(L' != [] && a' != A'([],[])) -> perform_U2_3'(n1',n2',L',a') = N'(OSM'(n2'), ST'(n2'), P'(n2'), H'(n2'), d'(n2'), update_c'(c'(n2'), [OSM'(n1')], a'), union'([OSM'(n1')],owner'(n2')));
+    L1',L2': List(Object_SM');
+    L3': List(Var');
+eqn perform_U2_2'(n1',n2',[],L2',L3') = n2';
+    perform_U2_2'(n1',n2',L1',[],L3') = n2';
+    perform_U2_2'(n1',n2',L1',L2',[]) = n2';
+(L1' != [] && L2' != [] && L3' != []) -> perform_U2_2'(n1',n2',L1',L2',L3') = N'(OSM'(n2'), ST'(n2'), P'(n2'), H'(n2'), d'(n2'), update_c'(c'(n2'), L2', c_set'(n2', L1', L3')), union'(L2',owner'(n2')));
 
 % *** SPECIFICATION OF ATOMICITY VIOLATION RESOLUTION ADVICE ***
 
