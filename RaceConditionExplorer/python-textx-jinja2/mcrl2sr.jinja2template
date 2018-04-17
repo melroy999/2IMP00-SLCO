@@ -677,7 +677,7 @@ var a1': AccessPattern';
 map dep_o_b': DPNode' # DPNode' -> List(Object_SM');
 var n1', n2': DPNode';
 eqn (!are_competing(n1',n2')) -> dep_o_b'(n1',n2') = [];
-    (are_competing(n1',n2')) -> dep_o_b'(n1',n2') = intersection([OSM'(n1')], owner'(n2'));
+    (are_competing(n1',n2')) -> dep_o_b'(n1',n2') = intersection(union'([OSM'(n1')], owner'(n1')), owner'(n2'));
 
 map dep_o_h': DPNode' # DPNode' -> List(Object_SM');
 var n1', n2': DPNode';
