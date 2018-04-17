@@ -379,7 +379,7 @@ def graph_to_slco(g, sm_idx):
 	sm_name = "StateMachine_%s" % sm_idx
 	local_vars = "Boolean var_%s" % local_var_idx
 	init_state = "S0"
-	states = " ".join(["S" + str(i) for i in range(0, g.vcount())])
+	states = " ".join(["S" + str(i) for i in range(1, g.vcount())])
 	transitions = ""
 	for e in g.es:
 		transitions += "\n\t\t\t\t\tfrom S%s to S%s { %s }" % (e.source, e.target, e["statement"])
