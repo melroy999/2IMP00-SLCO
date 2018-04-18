@@ -11,14 +11,86 @@ import logging.config
 import re
 import sys
 from os.path import dirname, join
-from lts import *
-from VarDependencyGraph import VarDependencyGraph
 from textx.metamodel import metamodel_from_file
 
 from help_on_error_argument_parser import HelpOnErrorArgumentParser
 
 this_folder = dirname(__file__)
 slco_mm = metamodel_from_file(join(this_folder,'slco2.tx'))
+
+class AccessPattern:
+	r = set()
+	w = set()
+
+	def __init__(self, r, w):
+		self.r = r
+		self.w = w
+
+class AD():
+	atomics = set()
+	shuffles = set()
+
+	def __init__(self, atomics, shuffles):
+		self.atomics = atomics
+		self.shuffles = shuffles
+
+
+def get_and_remove_up_to_first(string, sub, skip):
+	idx = string.find(sub)
+	ret1 = string[:idx]
+	ret2 = string[idx + skip:]
+	return ret1, ret2
+
+
+def parse_A(text):
+	text = text[3:]
+	splt = text.split('], [')
+	rtxt = splt[0][1:]
+	wtxt = splt[1][:-1]
+	return AccessPattern(set(rtxt.split(', ')), set(wtxt.split(', ')))
+
+
+def parse_AD(text):
+	text = text[4:-1]
+	print(text)
+	# TODO, what are the two elements of AD?
+	alist = []
+	#while text.startswith("A'("):
+	#	a, text = get_and_remove_up_to_first(text, ')', 3)
+	#	alist.append(parse_A(a))
+
+	return AD([], [])
+
+
+def parse_SH():
+	return ""
+
+
+def parse_suggestions(sugg_path):
+	file = open(sugg_path, 'r')
+	lines = file.readlines()
+	file.close()
+
+	atomics = []
+	shuffles = []
+	for line in lines:
+		start = line.find(",") + 2
+		end = line.rfind("'") - 1
+		line = line[start:end]
+		sm, line = get_and_remove_up_to_first(line, ',', 2)
+		statement, line = get_and_remove_up_to_first(line, ',', 2)
+
+		if line.startswith('AD'):
+			atomics.append(parse_AD(line))
+		elif line.startswith('SH'):
+			shuffles.append(parse_SH(line))
+	print(atomics)
+	print(shuffles)
+	return atomics, shuffles
+
+def translate(model, suggestions):
+
+	return ""
 
 def main():
 	# setup logging
@@ -66,10 +138,11 @@ def main():
 	logging.info('Input suggestions : %s', sugg_path)
 	logging.info('Output File       : %s', out_path)
 
-	# read model
+	# read models
 	model = slco_mm.model_from_file(slco_path)
+	suggestions = parse_suggestions(sugg_path)
 	# translate
-	out_model = translate(model, )
+	out_model = translate(model, suggestions)
 
 	outFile = open(out_path, 'w')
 	outFile.write(out_model)
