@@ -31,9 +31,15 @@ class MinMax:
 		self.max = max
 
 	def randint_cap(self, low, high):
-		return random.randint(max(self.min, low), min(self.max, high))
+		mi = max(self.min, low)
+		ma = min(self.max, high)
+		if (ma <= mi+1):
+			return mi
+		return random.randint(mi, ma)
 
 	def randint(self):
+		if (self.max <= self.min+1):
+			return self.min
 		return random.randint(self.min, self.max)
 
 	def randuniform(self):
@@ -149,6 +155,9 @@ class GraphGenerator_Connected(GraphGenerator_DegreeSequenceSpanningTree):
 			edges_in = defaultdict(list)
 			selection = Counter()
 			n = 0
+			
+			def count(self):
+				len(selection)
 
 			def __init__(innerSelf, n):
 				innerSelf.n = n
@@ -192,8 +201,11 @@ class GraphGenerator_Connected(GraphGenerator_DegreeSequenceSpanningTree):
 				d = g.degree(v, loops=False)
 				selection.extend([v.index] * d)
 			# add edges until the desired number of edges is reached
-			while actual_n_edges < n_edges:
-				source, target = selection.select2()
+			while actual_n_edges < n_edges: # also stop when selection is empty (IndexError)
+				try:
+					source, target = selection.select2()
+				except IndexError:
+					break
 				selection.add_edge(g, source, target)
 				actual_n_edges += 1
 		return g
@@ -367,7 +379,7 @@ def graph_to_slco(g, sm_idx):
 	sm_name = "StateMachine_%s" % sm_idx
 	local_vars = "Boolean var_%s" % local_var_idx
 	init_state = "S0"
-	states = " ".join(["S" + str(i) for i in range(0, g.vcount())])
+	states = " ".join(["S" + str(i) for i in range(1, g.vcount())])
 	transitions = ""
 	for e in g.es:
 		transitions += "\n\t\t\t\t\tfrom S%s to S%s { %s }" % (e.source, e.target, e["statement"])
@@ -389,7 +401,7 @@ def generate_model(config, name):
 		num_shared_vars = config.num_vars_shared_by_more_than_two_sms.randint()
 		for x in range(0, num_shared_vars):
 			var_count += 1
-			num_shared = random.randint(3, num_sm-1)
+			num_shared = random.randint(2, num_sm-1)
 			selected_edges = random.sample(list(sm_network.es), num_shared)
 			for e in selected_edges:
 				e["vars"].append(var_count)
@@ -415,7 +427,7 @@ def generate_model(config, name):
 
 def generate_models(config, gen_folder):
 	for i in range(0, config.num_models_to_generate):
-		name = config.model_name + str(i)
+		name = config.model_name + "_model_" + str(i)
 		outFile = open(join(gen_folder, name + ".slco"), 'w')
 		out_model = generate_model(config, name)
 		outFile.write(out_model)
@@ -443,7 +455,9 @@ def main(args):
 	config_file = args[0]
 	config = Config.fromFile(config_file)
 
-	gen_dir = "generated_slco"
+	if config_file.endswith(".cfg"):
+		config_file = config_file[:-4]
+	gen_dir = config_file
 	gen_folder = join(this_folder, gen_dir)
 	if not exists(gen_folder):
 		mkdir(gen_folder)

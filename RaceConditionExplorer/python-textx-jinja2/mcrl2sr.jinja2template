@@ -8,13 +8,13 @@ eqn xor(a,b) = (a || b) && !(a && b);
 
 map update: List(Int) # Nat # Int -> List(Int);
     updatestep: List(Int) # Nat # Int # Nat -> List(Int);
-		update: List(Bool) # Nat # Bool -> List(Bool);
-		updatestep: List(Bool) # Nat # Bool # Nat -> List(Bool);
+    update: List(Bool) # Nat # Bool -> List(Bool);
+    updatestep: List(Bool) # Nat # Bool # Nat -> List(Bool);
 var li: List(Int);
-		lb: List(Bool);
+    lb: List(Bool);
     i,j: Nat;
-	  vi: Int;
-	  vb: Bool;
+    vi: Int;
+    vb: Bool;
 eqn (i >= #li) -> update(li,i,vi) = li;
     (i < #li) -> update(li,i,vi) = updatestep(li,i,vi,0);
     (j == i) -> updatestep(li,i,vi,j) = [vi] ++ tail(li);
@@ -23,6 +23,10 @@ eqn (i >= #li) -> update(li,i,vi) = li;
     (i < #lb) -> update(lb,i,vb) = updatestep(lb,i,vb,0);
     (j == i) -> updatestep(lb,i,vb,j) = [vb] ++ tail(lb);
     (j < i)  -> updatestep(lb,i,vb,j) = [head(lb)] ++ updatestep(tail(lb),i,vb,j+1);
+
+
+
+% ----- START DEFINITIONS OF BASIC MODEL ASPECTS -----
 
 % *** CHANNEL SIZE CONSTANTS ***
 
@@ -40,59 +44,56 @@ eqn (i >= #li) -> update(li,i,vi) = li;
 
 % *** OBJECT NAMES ***
 
-{% for o in model.objects %}{% if loop.first %}sort Object = struct {% else %} | {% endif %}{{o.name}}{{';' if loop.last }}{% endfor %}
-
+sort Object';
+cons {% for o in model.objects %}{{o.name}}, {% endfor %}o_: Object';
+map object_index: Object' -> Nat;
+var o1', o2': Object';
+eqn object_index(o_) = 0;
+{%for oo in sorted_objects %}
+    object_index({{oo}}) = {{loop.index}};
+{% endfor %}
+    o1' < o2' = (object_index(o1') < object_index(o2'));
+    o1' > o2' = (object_index(o1') > object_index(o2'));
+    o1' == o2' = (object_index(o1') == object_index(o2'));
 
 % *** STATEMACHINE NAMES ***
 
-{% for stm in statemachinenames %}{% if loop.first %}sort Statemachine = struct {% else %} | {% endif %}{{stm}}{{' | _;' if loop.last }}{% endfor %}
-
+sort Statemachine';
+cons {% for stm in statemachinenames %}{{stm}}, {% endfor %}sm_: Statemachine';
+map sm_index: Statemachine' -> Nat;
+var sm1', sm2': Statemachine';
+eqn sm_index(sm_) = 0;
+{%for sm in sorted_statemachines %}
+    sm_index({{sm}}) = {{loop.index}};
+{% endfor %}
+    sm1' < sm2' = (sm_index(sm1') < sm_index(sm2'));
+    sm1' > sm2' = (sm_index(sm1') > sm_index(sm2'));
+    sm1' == sm2' = (sm_index(sm1') == sm_index(sm2'));
 
 % *** STATE NAMES ***
 
-{% for s in states %}{% if loop.first %}sort State = struct {% else %}| {% endif %}{{s}}{% if loop.last %};{% else %} {% endif %}{% endfor %}
+{% for s in states %}{% if loop.first %}sort State' = struct {% else %}| {% endif %}{{s}}{% if loop.last %};{% else %} {% endif %}{% endfor %}
 
 
 % *** STATEMENT IDS ***
 
-{% for c in model.classes %}{% set cloop = loop %}{% for stm in c.statemachines %}{% set stmloop = loop %}{% for tr in stm.transitions %}{% if cloop.first and stmloop.first and loop.first %}sort STID = struct {% else %}| {% endif %}ST'{{tr._tx_position}}{% if cloop.last and stmloop.last and loop.last %};{% else %} {% endif %}{% endfor %}{% endfor %}{% endfor %}
+{% for c in model.classes %}{% set cloop = loop %}{% for stm in c.statemachines %}{% set stmloop = loop %}{% for tr in stm.transitions %}{% if cloop.first and stmloop.first and loop.first %}sort STID' = struct {% else %}| {% endif %}ST'{{tr._tx_position}}{% if cloop.last and stmloop.last and loop.last %}| st_;{% else %} {% endif %}{% endfor %}{% endfor %}{% endfor %}
 
 
 % *** VARIABLE NAMES ***
 
-sort Var;
-cons {% for v in sorted_variables|select("hasnoindex") %}{{', ' if not loop.first }}{{mcrl2varprefix}}{{v[1]}}{{': Var;' if loop.last }}{% endfor %}
+sort Var';
+cons {% for v in sorted_variables|select("hasnoindex") %}{{', ' if not loop.first }}{{mcrl2varprefix}}{{v[1]}}{{': Var\';' if loop.last }}{% endfor %}
 
-{% for v in sorted_variables|select("hasindex") %}{% if loop.first %}     {% else %}, {% endif %}{{mcrl2varprefix}}{{v[1]}}{% if loop.last %}: Nat -> Var;{% endif %}{% endfor %}
+{% for v in sorted_variables|select("hasindex") %}{% if loop.first %}     {% else %}, {% endif %}{{mcrl2varprefix}}{{v[1]}}{% if loop.last %}: Nat -> Var';{% endif %}{% endfor %}
 
-map var_index: Var -> Nat;
-var v1, v2: Var, n': Nat;
+map var_index: Var' -> Nat;
+var v1, v2: Var', n': Nat;
 {% for v in sorted_variables %}
 {% if loop.first %}eqn {% else %}    {% endif %}var_index({{mcrl2varprefix}}{{v[1]}}{{'(n\')' if v is hasindex}}) = {{v[2]}}{{' + n\'' if v is hasindex }};
 {% endfor %}
     v1 < v2 = (var_index(v1) < var_index(v2));
     v1 > v2 = (var_index(v1) > var_index(v2));
-
-% *** FUNCTION TO IDENTIFY ARRAY ACCESSES ***
-
-map is_array_access: Var -> Bool;
-var n': Nat;
-{% for v in sorted_variables %}
-{% if loop.first %}eqn {% else %}    {% endif %}is_array_access({{mcrl2varprefix}}{{v[1]}}{{'(n\')' if v is hasindex}}) = {{v is hasindex|lower}};
-{% endfor %}
-
-% *** FUNCTION PROVIDING THE STATE MACHINE OWNING THE GIVEN STATEMENT ***
-
-map sm_owner: STID -> Statemachine;
-{% for c in model.classes %}
-{% set cloop = loop %}
-{% for sm in c.statemachines %}
-{% set smloop = loop %}
-{% for tr in sm.transitions %}
-{% if cloop.first and smloop.first and loop.first %}eqn {% else %}    {% endif %}sm_owner(ST'{{tr._tx_position}}) = {{sm.name}};
-{% endfor %}
-{% endfor %}
-{% endfor %}
 
 {% if channeltypes|length > 0 %}
 % *** SPECIFICATION OF SIGNALS ***
@@ -112,92 +113,76 @@ sort M'{% for d in ct %}{{d|datatypeacronym}}{% endfor %} = struct m'{% for d in
 {% endfor %}
 {% endif %}
 
-% *** FUNCTION INDICATING WHETHER A TRANSITION IS ENABLED OR NOT ***
+% ----- END DEFINITIONS OF BASIC MODEL ASPECTS -----
 
-map isenabled: Object # STID{{model|mcrl2_model_vartypes(True)}} -> Bool;
-var {{model|mcrl2_model_vars_with_types(False)}};
-{% for o in model.objects %}
-{% set oloop = loop %}
-{% for sm in o.type.statemachines %}
-{% set smloop = loop %}
-{% for tr in sm.transitions %}
-{% if oloop.first and smloop.first and loop.first %}eqn {% else %}    {% endif %}isenabled({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}) = {% if tr.statements[0]|hascondition(o) %}{{tr.statements[0]|statement_condition(o)}}{% else %}true{% endif %};
-{% endfor %}
-{% endfor %}
-{% endfor %}
 
-% *** SPECIFICATION OF ACCESS PATTERN ***
 
-sort AccessPattern = struct AP'(R': List(Var), W': List(Var));
+% ----- START FUNCTIONS TO WORK WITH LISTS OF VARIABLES -----
 
-% *** SPECIFICATION OF OBJECT/STATE MACHINE/ACCESS PATTERN PAIR ***
+% *** FUNCTION TO IDENTIFY ARRAY ACCESSES ***
 
-sort Object_SM_AccessPattern = struct OA'(O': Object, SM': Statemachine, A':AccessPattern);
-
-% *** FUNCTION PROVIDING ACCESS PATTERNS OF STATEMENTS ***
-
-map rwpattern: Object # STID{{model|mcrl2_model_vartypes(True)}} -> AccessPattern;
-var {{model|mcrl2_model_vars_with_types(False)}};
-{% for o in model.objects %}
-{% set oloop = loop %}
-{% for stm in o.type.statemachines %}
-{% set stmloop = loop %}
-{% for tr in stm.transitions %}
-{% if oloop.first and stmloop.first and loop.first %}eqn {% else %}    {% endif %}{% if tr.statements[0].__class__.__name__ == "Composite" and tr.statements[0].guard != None %}(isenabled({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}})) -> {% endif %}rwpattern({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}) = {{tr.statements[0]|mcrl2_accesspattern(o,True)}};
-{% if tr.statements[0].__class__.__name__ == "Composite" and tr.statements[0].guard != None %}    (!isenabled({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}})) -> rwpattern({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}) = {{tr.statements[0]|mcrl2_accesspattern(o,False)}};
-{% endif %}
-{% endfor %}
-{% endfor %}
+map is_array_access: Var' -> Bool;
+var n': Nat;
+{% for v in sorted_variables %}
+{% if loop.first %}eqn {% else %}    {% endif %}is_array_access({{mcrl2varprefix}}{{v[1]}}{{'(n\')' if v is hasindex}}) = {{v is hasindex|lower}};
 {% endfor %}
 
 % *** FUNCTION (WITH AUXILIARY FUNCTIONS) TO SORT ARRAY ACCESSES IN LIST OF VARIABLES ***
 
-map sorted_array_accesses: List(Var) -> List(Var);
-var L': List(Var);
+map sorted_array_accesses: List(Var') -> List(Var');
+var L': List(Var');
 eqn sorted_array_accesses([]) = [];
 (L' != [] && !is_array_access(head(L'))) -> sorted_array_accesses(L') = [head(L')] ++ sorted_array_accesses(tail(L'));
 (is_array_access(head(L'))) -> sorted_array_accesses(L') = sorted_array_accesses(smallerlist(head(L'), L')) ++ [head(L')] ++ sorted_array_accesses(largerlist(head(L'), L'));
 
-map smallerlist: Var # List(Var) -> List(Var);
-var v': Var, L': List(Var);
+map smallerlist: Var' # List(Var') -> List(Var');
+var v': Var', L': List(Var');
 eqn smallerlist(v', []) = [];
 (L' != [] && head(L') < v') -> smallerlist(v', L') = [head(L')] ++ smallerlist(v', tail(L'));
 (L' != [] && !(head(L') < v')) -> smallerlist(v', L') = smallerlist(v', tail(L'));
 
-map largerlist: Var # List(Var) -> List(Var);
-var v': Var, L': List(Var);
+map largerlist: Var' # List(Var') -> List(Var');
+var v': Var', L': List(Var');
 eqn largerlist(v', []) = [];
 (L' != [] && !(v' < head(L'))) -> largerlist(v', L') = largerlist(v', tail(L'));
 (L' != [] && v' < head(L')) -> largerlist(v', L') = [head(L')] ++ largerlist(v', tail(L'));
 
 % *** FUNCTION TO QUICKLY COMPARE LISTS OF VARIABLES FOR SPECIFIC CONDITIONS ***
 
-map is_in: Var # List(Var) -> Bool;
-var v': Var, L': List(Var);
+map is_in: Var' # List(Var') -> Bool;
+var v': Var', L': List(Var');
 eqn is_in(v', []) = false;
 (v' == head(L')) -> is_in(v', L') = true;
 (L' != [] && v' < head(L')) -> is_in(v', L') = is_in(v', tail(L'));
 (v' > head(L')) -> is_in(v', L') = false;
 
-map has_at_least_two: List(Var) -> Bool;
-var L': List(Var), v': Var;
+map has_at_least_two: List(Var') -> Bool;
+var L': List(Var'), v': Var';
 eqn has_at_least_two([]) = false;
     has_at_least_two([v']) = false;
 (L' != []) -> has_at_least_two(L') = has_at_least_two1(tail(L'));
 
-map has_at_least_two1: List(Var) -> Bool;
-var L': List(Var);
+map has_at_least_two1: List(Var') -> Bool;
+var L': List(Var');
 eqn has_at_least_two1([]) = false;
 (L' != []) -> has_at_least_two1(L') = true;
 
-map filter_on_two: List(Var) -> List(Var);
-var L': List(Var);
+map filter_on_two: List(Var') -> List(Var');
+var L': List(Var');
 eqn filter_on_two(L') = if(has_at_least_two(L'), L', []);
 
 % *** FUNCTIONS TO CONSTRUCT INTERSECTION OF LISTS OF VARIABLES ***
 
-map intersection: List(Var) # List(Var) # List(Var) -> List(Var);
-var L1, L2, L3: List(Var);
+map intersection: List(Var') # List(Var') -> List(Var');
+var L1, L2: List(Var');
+eqn intersection([], L2) = [];
+    intersection(L1, []) = [];
+(L1 != [] && L2 != [] && (head(L1) == head(L2))) -> intersection(L1, L2) = [head(L1)] ++ intersection(tail(L1), tail(L2));
+(L1 != [] && L2 != [] && (head(L1) > head(L2))) -> intersection(L1, L2) = intersection(L1, tail(L2));
+(L1 != [] && L2 != [] && (head(L2) > head(L1))) -> intersection(L1, L2) = intersection(tail(L1), L2);
+
+map intersection: List(Var') # List(Var') # List(Var') -> List(Var');
+var L1, L2, L3: List(Var');
 eqn intersection([], L2, L3) = [];
     intersection(L1, [], L3) = [];
     intersection(L1, L2, []) = [];
@@ -212,101 +197,155 @@ eqn intersection([], L2, L3) = [];
 (L2 != [] && (head(L3) > head(L2)) && (head(L3) == head(L1))) -> intersection(L1, L2, L3) = intersection(L1, tail(L2), L3);
 (L1 != [] && (head(L3) == head(L2)) && (head(L3) > head(L1))) -> intersection(L1, L2, L3) = intersection(tail(L1), L2, L3);
 
-map has_nonempty_intersection: List(Var) # List(Var) # List(Var) -> Bool;
-var L1, L2, L3: List(Var);
-eqn has_nonempty_intersection([], L2, L3) = false;
-    has_nonempty_intersection(L1, [], L3) = false;
-    has_nonempty_intersection(L1, L2, []) = false;
-((head(L1) == head(L2)) && (head(L1) == head(L3))) -> has_nonempty_intersection(L1, L2, L3) = true;
-(L2 != [] && L3 != [] && (head(L1) > head(L2)) && (head(L1) > head(L3))) -> has_nonempty_intersection(L1, L2, L3) = has_nonempty_intersection(L1, tail(L2), tail(L3));
-(L2 != [] && (head(L1) > head(L2)) && (head(L1) == head(L3))) -> has_nonempty_intersection(L1, L2, L3) = has_nonempty_intersection(L1, tail(L2), L3);
-(L3 != [] && (head(L1) == head(L2)) && (head(L1) > head(L3))) -> has_nonempty_intersection(L1, L2, L3) = has_nonempty_intersection(L1, L2, tail(L3));
-(L1 != [] && L3 != [] && (head(L2) > head(L1)) && (head(L2) > head(L3))) -> has_nonempty_intersection(L1, L2, L3) = has_nonempty_intersection(tail(L1), L2, tail(L3));
-(L1 != [] && (head(L2) > head(L1)) && (head(L2) == head(L3))) -> has_nonempty_intersection(L1, L2, L3) = has_nonempty_intersection(tail(L1), L2, L3);
-(L3 != [] && (head(L2) == head(L1)) && (head(L2) > head(L3))) -> has_nonempty_intersection(L1, L2, L3) = has_nonempty_intersection(L1, L2, tail(L3));
-(L1 != [] && L2 != [] && (head(L3) > head(L2)) && (head(L3) > head(L1))) -> has_nonempty_intersection(L1, L2, L3) = has_nonempty_intersection(tail(L1), tail(L2), L3);
-(L2 != [] && (head(L3) > head(L2)) && (head(L3) == head(L1))) -> has_nonempty_intersection(L1, L2, L3) = has_nonempty_intersection(L1, tail(L2), L3);
-(L1 != [] && (head(L3) == head(L2)) && (head(L3) > head(L1))) -> has_nonempty_intersection(L1, L2, L3) = has_nonempty_intersection(tail(L1), L2, L3);
-
-map intersection_of_at_least_two: List(Var) # List(Var) # List(Var) -> List(Var);
-var L1, L2, L3: List(Var);
-eqn intersection_of_at_least_two(L1, L2, L3) = filter_on_two(intersection(L1, L2, L3));
-
-map intersection: List(Var) # List(Var) # List(Var) # List(Var) -> List(Var);
-var L1, L2, L3, L4: List(Var);
-eqn intersection([], L2, L3, L4) = [];
-    intersection(L1, [], L3, L4) = [];
-    intersection(L1, L2, [], L4) = [];
-    intersection(L1, L2, L3, []) = [];
-(L1 != [] && L2 != [] && L3 != [] && L4 != [] && (head(L1) == head(L2)) && (head(L1) == head(L3)) && (head(L1) == head(L4))) -> intersection(L1, L2, L3, L4) = [head(L1)] ++ intersection(tail(L1), tail(L2), tail(L3), tail(L4));
-(L2 != [] && L3 != [] && L4 != [] && (head(L1) > head(L2)) && (head(L1) > head(L3)) && (head(L1) > head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, tail(L2), tail(L3), tail(L4));
-(L2 != [] && L3 != [] && (head(L1) > head(L2)) && (head(L1) > head(L3)) && (head(L1) == head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, tail(L2), tail(L3), L4);
-(L2 != [] && L4 != [] && (head(L1) > head(L2)) && (head(L1) == head(L3)) && (head(L1) > head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, tail(L2), L3, tail(L4));
-(L2 != [] && (head(L1) > head(L2)) && (head(L1) == head(L3)) && (head(L1) == head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, tail(L2), L3, L4);
-(L3 != [] && L4 != [] && (head(L1) == head(L2)) && (head(L1) > head(L3)) && (head(L1) > head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, L2, tail(L3), tail(L4));
-(L3 != [] && (head(L1) == head(L2)) && (head(L1) > head(L3)) && (head(L1) == head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, L2, tail(L3), L4);
-(L4 != [] && (head(L1) == head(L2)) && (head(L1) == head(L3)) && (head(L1) > head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, L2, L3, tail(L4));
-
-(L1 != [] && L3 != [] && L4 != [] && (head(L2) > head(L1)) && (head(L2) > head(L3)) && (head(L2) > head(L4))) -> intersection(L1, L2, L3, L4) = intersection(tail(L1), L2, tail(L3), tail(L4));
-(L1 != [] && L3 != [] && (head(L2) > head(L1)) && (head(L2) > head(L3)) && (head(L2) == head(L4))) -> intersection(L1, L2, L3, L4) = intersection(tail(L1), L2, tail(L3), L4);
-(L1 != [] && L4 != [] && (head(L2) > head(L1)) && (head(L2) == head(L3)) && (head(L2) > head(L4))) -> intersection(L1, L2, L3, L4) = intersection(tail(L1), L2, L3, tail(L4));
-(L1 != [] && (head(L2) > head(L1)) && (head(L2) == head(L3)) && (head(L2) == head(L4))) -> intersection(L1, L2, L3, L4) = intersection(tail(L1), L2, L3, L4);
-(L3 != [] && L4 != [] && (head(L2) == head(L1)) && (head(L2) > head(L3)) && (head(L2) > head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, L2, tail(L3), tail(L4));
-(L3 != [] && (head(L2) == head(L1)) && (head(L2) > head(L3)) && (head(L2) == head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, L2, tail(L3), L4);
-(L4 != [] && (head(L2) == head(L1)) && (head(L2) == head(L3)) && (head(L2) > head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, L2, L3, tail(L4));
-
-(L1 != [] && L2 != [] && L4 != [] && (head(L3) > head(L1)) && (head(L3) > head(L2)) && (head(L3) > head(L4))) -> intersection(L1, L2, L3, L4) = intersection(tail(L1), tail(L2), L3, tail(L4));
-(L1 != [] && L2 != [] && (head(L3) > head(L1)) && (head(L3) > head(L2)) && (head(L3) == head(L4))) -> intersection(L1, L2, L3, L4) = intersection(tail(L1), tail(L2), L3, L4);
-(L1 != [] && L4 != [] && (head(L3) > head(L1)) && (head(L3) == head(L2)) && (head(L3) > head(L4))) -> intersection(L1, L2, L3, L4) = intersection(tail(L1), L2, L3, tail(L4));
-(L1 != [] && (head(L3) > head(L1)) && (head(L3) == head(L2)) && (head(L3) == head(L4))) -> intersection(L1, L2, L3, L4) = intersection(tail(L1), L2, L3, L4);
-(L2 != [] && L4 != [] && (head(L3) == head(L1)) && (head(L3) > head(L2)) && (head(L3) > head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, tail(L2), L3, tail(L4));
-(L2 != [] && (head(L3) == head(L1)) && (head(L3) > head(L2)) && (head(L3) == head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, tail(L2), L3, L4);
-(L4 != [] && (head(L3) == head(L1)) && (head(L3) == head(L2)) && (head(L3) > head(L4))) -> intersection(L1, L2, L3, L4) = intersection(L1, L2, L3, tail(L4));
-
-(L1 != [] && L2 != [] && L3 != [] && (head(L4) > head(L1)) && (head(L4) > head(L2)) && (head(L4) > head(L3))) -> intersection(L1, L2, L3, L4) = intersection(tail(L1), tail(L2), tail(L3), L4);
-(L1 != [] && L2 != [] && (head(L4) > head(L1)) && (head(L4) > head(L2)) && (head(L4) == head(L3))) -> intersection(L1, L2, L3, L4) = intersection(tail(L1), tail(L2), L3, L4);
-(L1 != [] && L3 != [] && (head(L4) > head(L1)) && (head(L4) == head(L2)) && (head(L4) > head(L3))) -> intersection(L1, L2, L3, L4) = intersection(tail(L1), L2, tail(L3), L4);
-(L1 != [] && (head(L4) > head(L1)) && (head(L4) == head(L2)) && (head(L4) == head(L3))) -> intersection(L1, L2, L3, L4) = intersection(tail(L1), L2, L3, L4);
-(L2 != [] && L3 != [] && (head(L4) == head(L1)) && (head(L4) > head(L2)) && (head(L4) > head(L3))) -> intersection(L1, L2, L3, L4) = intersection(L1, tail(L2), tail(L3), L4);
-(L2 != [] && (head(L4) == head(L1)) && (head(L4) > head(L2)) && (head(L4) == head(L3))) -> intersection(L1, L2, L3, L4) = intersection(L1, tail(L2), L3, L4);
-(L3 != [] && (head(L4) == head(L1)) && (head(L4) == head(L2)) && (head(L4) > head(L3))) -> intersection(L1, L2, L3, L4) = intersection(L1, L2, tail(L3), L4);
-
-% *** MERGE TWO LISTS OF VARIABLES ***
-
-map merge: List(Var) # List(Var) -> List(Var);
-var L1, L2: List(Var);
-eqn merge([], L2) = L2;
-    merge(L1, []) = L1;
-(L1 != [] && L2 != [] && head(L1) == head(L2)) -> merge(L1, L2) = [head(L1)] ++ merge(tail(L1), tail(L2));
-(L1 != [] && head(L1) < head(L2))  -> merge(L1, L2) = [head(L1)] ++ merge(tail(L1), L2);
-(L2 != [] && head(L1) > head(L2))  -> merge(L1, L2) = [head(L2)] ++ merge(L1, tail(L2));
-
 % *** EXTRACT ONE LIST OF VARIABLES FROM THE OTHER ***
 
-map extract: List(Var) # List(Var) -> List(Var);
-var L1, L2: List(Var);
-eqn extract([], L2) = [];
-    extract(L1, []) = L1;
-(L1 != [] && L2 != [] && head(L1) == head(L2)) -> extract(L1, L2) = extract(tail(L1), tail(L2));
-(L1 != [] && head(L1) < head(L2)) -> extract(L1, L2) = [head(L1)] ++ extract(tail(L1), L2);
-(L2 != [] && head(L1) > head(L2)) -> extract(L1, L2) = extract(L1, tail(L2));
+map setminus: List(Var') # List(Var') -> List(Var');
+var L1', L2': List(Var');
+eqn setminus(L1',[]) = L1';
+    setminus([],L2') = [];
+(L1' != [] && L2' != [] && head(L1') < head(L2')) -> setminus(L1',L2') = [head(L1')] ++ setminus(tail(L1'),L2');
+(L1' != [] && L2' != [] && head(L2') < head(L1')) -> setminus(L1',L2') = setminus(L1',tail(L2'));
+(L1' != [] && L2' != [] && head(L1') == head(L2')) -> setminus(L1',L2') = setminus(tail(L1'),tail(L2'));
+
+% *** ONLY KEEP VARIABLES IN THE FIRST LIST THAT APPEAR IN THE SECOND ***
+
+map filter': List(Var') # List(Var') -> List(Var');
+var L1', L2': List(Var');
+eqn filter'(L1',[]) = [];
+    filter'([],L2') = [];
+(L1' != [] && L2' != [] && head(L1') < head(L2')) -> filter'(L1',L2') = filter'(tail(L1'),L2');
+(L1' != [] && L2' != [] && head(L2') < head(L1')) -> filter'(L1',L2') = filter'(L1',tail(L2'));
+(L1' != [] && L2' != [] && head(L1') == head(L2')) -> filter'(L1',L2') = [head(L1')] ++ filter'(tail(L1'),tail(L2'));
+
+% *** UNION OF TWO LISTS OF VARIABLES ***
+
+map union': List(Var') # List(Var') -> List(Var');
+var L1, L2: List(Var');
+eqn union'([], L2) = L2;
+    union'(L1, []) = L1;
+(L1 != [] && L2 != [] && head(L1) == head(L2)) -> union'(L1, L2) = [head(L1)] ++ union'(tail(L1), tail(L2));
+(L1 != [] && head(L1) < head(L2))  -> union'(L1, L2) = [head(L1)] ++ union'(tail(L1), L2);
+(L2 != [] && head(L1) > head(L2))  -> union'(L1, L2) = [head(L2)] ++ union'(L1, tail(L2));
+
+% ----- END FUNCTIONS TO WORK WITH LISTS OF VARIABLES -----
+
+
+
+% ----- START SPECIFICATIONS AND FUNCTIONS TO REASON ABOUT MODEL STRUCTURE -----
+
+% *** SPECIFICATION OF OBJECT/STATE MACHINE PAIR, WITH FUNCTIONS ***
+
+sort Object_SM' = struct O'SM'(O': Object', SM': Statemachine');
+map lt', gt', eq': Object_SM' # Object_SM' -> Bool;
+var osm1', osm2': Object_SM';
+eqn lt'(osm1', osm2') = ((O'(osm1') < O'(osm2')) || ((O'(osm1') == O'(osm2')) && (SM'(osm1') < SM'(osm2'))));
+    gt'(osm1', osm2') = ((O'(osm1') > O'(osm2')) || ((O'(osm1') == O'(osm2')) && (SM'(osm1') > SM'(osm2'))));
+    eq'(osm1', osm2') = ((O'(osm1') == O'(osm2')) && (SM'(osm1') == SM'(osm2')));
+
+map is_in: Object_SM' # List(Object_SM') -> Bool;
+var osm1': Object_SM', L': List(Object_SM');
+eqn is_in(osm1', []) = false;
+(eq'(osm1', head(L'))) -> is_in(osm1', L') = true;
+(L' != [] && lt'(osm1', head(L'))) -> is_in(osm1', L') = is_in(osm1', tail(L'));
+(gt'(osm1', head(L'))) -> is_in(osm1', L') = false;
+
+map remove: List(Object_SM') # Object_SM' -> List(Object_SM');
+var osm': Object_SM';
+    L': List(Object_SM');
+eqn remove([], osm') = [];
+(L' != [] && (eq'(osm', head(L')))) -> remove(L', osm') = tail(L');
+(L' != [] && (lt'(osm', head(L')))) -> remove(L', osm') = L';
+(L' != [] && (gt'(osm', head(L')))) -> remove(L', osm') = [head(L')] ++ remove(tail(L'),osm');
+
+map intersection: List(Object_SM') # List(Object_SM') -> List(Object_SM');
+var L1, L2: List(Object_SM');
+eqn intersection([], L2) = [];
+    intersection(L1, []) = [];
+(L1 != [] && L2 != [] && (eq'(head(L1), head(L2)))) -> intersection(L1, L2) = [head(L1)] ++ intersection(tail(L1), tail(L2));
+(L1 != [] && L2 != [] && (gt'(head(L1), head(L2)))) -> intersection(L1, L2) = intersection(L1, tail(L2));
+(L1 != [] && L2 != [] && (lt'(head(L1), head(L2)))) -> intersection(L1, L2) = intersection(tail(L1), L2);
+
+map union': List(Object_SM') # List(Object_SM') -> List(Object_SM');
+var L1, L2: List(Object_SM');
+eqn union'([], L2) = L2;
+    union'(L1, []) = L1;
+(L1 != [] && L2 != [] && eq'(head(L1), head(L2))) -> union'(L1, L2) = [head(L1)] ++ union'(tail(L1), tail(L2));
+(L1 != [] && lt'(head(L1), head(L2)))  -> union'(L1, L2) = [head(L1)] ++ union'(tail(L1), L2);
+(L2 != [] && gt'(head(L1), head(L2)))  -> union'(L1, L2) = [head(L2)] ++ union'(L1, tail(L2));
+
+map setminus: List(Object_SM') # List(Object_SM') -> List(Object_SM');
+var L1', L2': List(Object_SM');
+eqn setminus(L1',[]) = L1';
+    setminus([],L2') = [];
+(L1' != [] && L2' != [] && head(L1') < head(L2')) -> setminus(L1',L2') = [head(L1')] ++ setminus(tail(L1'),L2');
+(L1' != [] && L2' != [] && head(L2') < head(L1')) -> setminus(L1',L2') = setminus(L1',tail(L2'));
+(L1' != [] && L2' != [] && head(L1') == head(L2')) -> setminus(L1',L2') = setminus(tail(L1'),tail(L2'));
+
+% *** SPECIFICATION OF TUPLE OF OUTGOING TRANSITIONS OF THE WHOLE SYSTEM ***
+
+sort OutgoingTransitions = struct OT'({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first)}}el'{{o.name}}'{{sm.name}}: List(STID'){% endfor %}{% endfor %});
+
+% *** FUNCTION INDICATING WHETHER A TRANSITION IS ENABLED OR NOT ***
+
+map isenabled: Object' # STID'{{model|mcrl2_model_vartypes(True)}} -> Bool;
+var {{model|mcrl2_model_vars_with_types(False)}};
+{% for o in model.objects %}
+{% set oloop = loop %}
+{% for sm in o.type.statemachines %}
+{% set smloop = loop %}
+{% for tr in sm.transitions %}
+{% if oloop.first and smloop.first and loop.first %}eqn {% else %}    {% endif %}isenabled({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}) = {% if tr.statements[0]|hascondition(o) %}{{tr.statements[0]|statement_condition(o)}}{% else %}true{% endif %};
+{% endfor %}
+{% endfor %}
+{% endfor %}
+
+% *** FUNCTION INDICATING WHETHER THE LIST OF OUTGOING TRANSITIONS CONTAINS DISABLED TRANSITIONS IN THE GIVEN OBJECT, BUT OF A DIFFERENT STATE MACHINE THAN THE GIVEN ONE ***
+
+map has_disabled': Object' # Statemachine' # OutgoingTransitions{{model|mcrl2_model_vartypes(True)}} -> Bool;
+var o1': Object';
+    sm1': Statemachine';
+    out': OutgoingTransitions;
+    {{model|mcrl2_model_vars_with_types(False)}};
+{% for o in model.objects %}
+{% set oloop = loop %}
+{% for sm in o.type.statemachines %}
+{% if oloop.first and loop.first %}eqn {% else %}    {% endif %}has_disabled'({{o.name}},{{sm.name}},out'{{model|mcrl2_model_vars(True)}}) = false{% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o.type.statemachines %}{% if o2 == o and sm2 != sm %} || has_disabled1'({{o2.name}},el'{{o2.name}}'{{sm2.name}}(out'){{model|mcrl2_model_vars(True)}}){% endif %}{% endfor %}{% endfor %};
+{% endfor %}
+{% endfor %}
+
+map has_disabled1': Object' # List(STID'){{model|mcrl2_model_vartypes(True)}} -> Bool;
+var o1': Object';
+    L': List(STID');
+    {{model|mcrl2_model_vars_with_types(False)}};
+eqn has_disabled1'(o1',[]{{model|mcrl2_model_vars(True)}}) = false;
+(L' != []) -> has_disabled1'(o1',L'{{model|mcrl2_model_vars(True)}}) = has_disabled2'(o1',L',isenabled(o1',head(L'){{model|mcrl2_model_vars(True)}}){{model|mcrl2_model_vars(True)}});
+
+map has_disabled2': Object' # List(STID') # Bool{{model|mcrl2_model_vartypes(True)}} -> Bool;
+var o1': Object';
+    L': List(STID');
+    b': Bool;
+    {{model|mcrl2_model_vars_with_types(False)}};
+eqn has_disabled2'(o1',L',false{{model|mcrl2_model_vars(True)}}) = true;
+(L' != []) -> has_disabled2'(o1',L',true{{model|mcrl2_model_vars(True)}}) = has_disabled1'(o1',tail(L'){{model|mcrl2_model_vars(True)}});
 
 % *** FUNCTION INDICATING WHETHER A STATEMENT IS SAFE OR NOT ***
 
-map issafe: STID -> Bool;
+map issafe: Object' # STID'{{model|mcrl2_model_vartypes(True)}} -> Bool;
+var o1': Object';
+    {{model|mcrl2_model_vars_with_types(False)}};
 {% for c in model.classes %}
 {% set cloop = loop %}
-{% for stm in c.statemachines %}
-{% set stmloop = loop %}
-{% for tr in stm.transitions %}
-{% if cloop.first and stmloop.first and loop.first %}eqn {% else %}    {% endif %}issafe(ST'{{tr._tx_position}}) = {{tr.statements[0]|statement_is_safe|lower}};
+{% for sm in c.statemachines %}
+{% set smloop = loop %}
+{% for tr in sm.transitions %}
+{% if cloop.first and smloop.first and loop.first %}eqn {% else %}    {% endif %}issafe(o1', ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}) = {% if tr.statements[0]|statement_is_safe %}true{% else %}!has_at_least_two(rwpattern(o1', ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}})){% endif %};
 {% endfor %}
 {% endfor %}
 {% endfor %}
 
 % *** FUNCTION INDICATING WHETHER A STATEMENT IS (UN)CONDITIONALLY SAFE (FOR AMPLE-SET POR) OR NOT ***
 
-map por_issafe: Object # STID{{model|mcrl2_model_vartypes(True)}} -> Bool;
+map por_issafe: Object' # STID'{{model|mcrl2_model_vartypes(True)}} -> Bool;
 var {{model|mcrl2_model_vars_with_types(False)}};
 {% for o in model.objects %}
 {% set oloop = loop %}
@@ -320,13 +359,9 @@ var {{model|mcrl2_model_vars_with_types(False)}};
 {% endfor %}
 {% endfor %}
 
-% *** SPECIFICATION OF TUPLE OF OUTGOING TRANSITIONS OF THE WHOLE SYSTEM ***
-
-sort OutgoingTransitions = struct OT'({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first)}}el'{{o.name}}'{{sm.name}}: List(STID){% endfor %}{% endfor %});
-
 % *** FUNCTION PROVIDING OUTGOING TRANSITIONS PER CLASS/STATEMACHINE/STATE PAIR ***
 
-map outgoing: Class # Statemachine # State -> List(STID);
+map outgoing: Class # Statemachine' # State' -> List(STID');
 {% for c in model.classes %}
 {% set cloop = loop %}
 {% for stm in c.statemachines %}
@@ -339,7 +374,7 @@ map outgoing: Class # Statemachine # State -> List(STID);
 
 % *** FUNCTION PROVIDING THE CURRENT LIST OF OUTGOING TRANSITIONS OF THE GIVEN STATEMACHINE ***
 
-map sm_outgoing: Object # Statemachine # OutgoingTransitions -> List(STID);
+map sm_outgoing: Object' # Statemachine' # OutgoingTransitions -> List(STID');
 var L': OutgoingTransitions;
 {% for o in model.objects %}
 {% set oloop = loop %}
@@ -350,9 +385,9 @@ var L': OutgoingTransitions;
 
 % *** FUNCTION TO UPDATE THE LIST OF OUTGOING TRANSITIONS ***
 
-map update_outgoing: Object # Statemachine # State # OutgoingTransitions -> OutgoingTransitions;
+map update_outgoing: Object' # Statemachine' # State' # OutgoingTransitions -> OutgoingTransitions;
 var L': OutgoingTransitions;
-    s': State;
+    s': State';
 {% for o in model.objects %}
 {% set oloop = loop %}
 {% for sm in o.type.statemachines %}
@@ -361,138 +396,637 @@ var L': OutgoingTransitions;
 {% endfor %}
 {% endfor %}
 
-% *** FUNCTION TO CHECK FOR THE PRESENCE OF MULTIPLE (POSSIBLY RACY) UNSAFE STATEMENTS IN THE LIST OF OUTGOING TRANSITIONS OF AT LEAST ONE OBJECT ***
+% ----- END SPECIFICATIONS AND FUNCTIONS TO REASON ABOUT MODEL STRUCTURE -----
 
-map outgoing_is_safe: OutgoingTransitions -> Bool;
-var L': OutgoingTransitions;
-eqn outgoing_is_safe(OT'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o2.type.statemachines %}{% set sm2loop = loop %}{{', ' if not (o2loop.first and sm2loop.first) }}[]{% endfor %}{% endfor %})) = true;
-    outgoing_is_safe(L') = {% for o in model.objects %}{% set oloop = loop %}{{' && ' if not oloop.first }}object_outgoing_is_safe({% for sm in o.type.statemachines %}{{' ++ ' if not loop.first }}el'{{o.name}}'{{sm.name}}(L'){% endfor %}, _, 0){% endfor %};
 
-map object_outgoing_is_safe: List(STID) # Statemachine # Nat -> Bool;
-var L': List(STID), sm': Statemachine, n': Nat;
-eqn object_outgoing_is_safe(L',sm',2) = false;
-(n' < 2) -> object_outgoing_is_safe([],sm',n') = true;
-(L' != [] && n' < 2 && (sm_owner(head(L')) == sm' || issafe(head(L')))) -> object_outgoing_is_safe(L', sm', n') = object_outgoing_is_safe(tail(L'), sm', n');
-(L' != [] && n' < 2 && sm_owner(head(L')) != sm' && !issafe(head(L'))) -> object_outgoing_is_safe(L', sm', n') = object_outgoing_is_safe(tail(L'), sm_owner(head(L')), n'+1);
+
+% ----- START ACCESS PATTERNS -----
+
+% *** SPECIFICATION OF ACCESS PATTERN ***
+
+sort AccessPattern' = struct A'(R': List(Var'), W': List(Var'));
+map union': AccessPattern' # AccessPattern' -> AccessPattern';
+var a1', a2': AccessPattern';
+eqn union'(a1', a2') = A'(union'(R'(a1'),R'(a2')), union'(W'(a1'),W'(a2')));
+
+map union': List(AccessPattern') -> AccessPattern';
+var L': List(AccessPattern');
+eqn union'([]) = A'([],[]);
+(L' != []) -> union'(L') = union'(head(L'), union'(tail(L')));
+
+map filter': AccessPattern' # List(Var') -> AccessPattern';
+var a1': AccessPattern';
+    L': List(Var');
+eqn filter'(a1',L') = A'(filter'(R'(a1'),L'), filter'(W'(a1'),L'));
+
+map setminus: AccessPattern' # AccessPattern' -> AccessPattern';
+var a1', a2': AccessPattern';
+eqn setminus(a1',a2') = A'(setminus(R'(a1'),R'(a2')), setminus(W'(a1'),W'(a2')));
+
+map intersection: AccessPattern' # AccessPattern' -> AccessPattern';
+var a1', a2': AccessPattern';
+eqn intersection(a1', a2') = A'(intersection(R'(a1'),R'(a2')), intersection(W'(a1'),W'(a2')));
+
+map has_at_least_two: AccessPattern' -> Bool;
+var a': AccessPattern';
+eqn has_at_least_two(a') = has_at_least_two(R'(a') ++ W'(a'));
+
+map not_empty: AccessPattern' -> Bool;
+var a': AccessPattern';
+eqn not_empty(a') = (R'(a') != [] || W'(a') != []);
+
+map get_vars': AccessPattern' -> List(Var');
+var a': AccessPattern';
+eqn get_vars'(a') = union'(R'(a'), W'(a'));
+
+% *** SPECIFICATION OF OBJECT/STATE MACHINE/ACCESS PATTERN PAIR ***
+
+sort Object_SM_AccessPattern' = struct O'SM'A'(O': Object', SM': Statemachine', A':AccessPattern');
+
+% *** SPECIFICATION OBJECT/STATE MACHINE/ACCESS PAIR ***
+
+sort Object_SM_Access' = struct O'SM'AC'(O': Object', SM': Statemachine', RW': Bool, V':Var');
 
 % *** PAIRS OF OBJECTS AND STATEMENT IDS ***
 
-sort Object_Statement = struct OS'(O': Object, ST': STID);
+sort Object_Statement = struct O'S'(O': Object', ST': STID');
 
-% *** FUNCTIONS TO CHECK FOR RACE CONDITIONS ***
+% *** FUNCTION PROVIDING ACCESS PATTERNS OF STATEMENTS ***
 
-map get_access_patterns: OutgoingTransitions{{model|mcrl2_model_vartypes(True)}} -> List(Object_SM_AccessPattern);
-var {% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first )}}L'{{o.name}}'{{sm.name}}: List(STID){% endfor %}{% endfor %}{{model|mcrl2_model_vars_with_types(True)}};
-eqn get_access_patterns(OT'({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first) }}L'{{o.name}}'{{sm.name}}{% endfor %}{% endfor %}){{model|mcrl2_model_vars(True)}}) = {% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{' ++ ' if not (oloop.first and loop.first )}}get_access_patterns1({{o.name}}, {{sm.name}}, L'{{o.name}}'{{sm.name}}{{model|mcrl2_model_vars(True)}}){% endfor %}{% endfor %};
+map rwpattern: Object' # STID'{{model|mcrl2_model_vartypes(True)}} -> AccessPattern';
+var {{model|mcrl2_model_vars_with_types(False)}};
+{% for o in model.objects %}
+{% set oloop = loop %}
+{% for stm in o.type.statemachines %}
+{% set stmloop = loop %}
+{% for tr in stm.transitions %}
+{% if oloop.first and stmloop.first and loop.first %}eqn {% else %}    {% endif %}{% if tr.statements[0].__class__.__name__ == "Composite" and tr.statements[0].guard != None %}(isenabled({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}})) -> {% endif %}rwpattern({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}) = {{tr.statements[0]|mcrl2_accesspattern(o,True)}};
+{% if tr.statements[0].__class__.__name__ == "Composite" and tr.statements[0].guard != None %}    (!isenabled({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}})) -> rwpattern({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}) = {{tr.statements[0]|mcrl2_accesspattern(o,False)}};
+{% endif %}
+{% endfor %}
+{% endfor %}
+{% endfor %}
 
-map get_access_patterns1: Object # Statemachine # List(STID){{model|mcrl2_model_vartypes(True)}} -> List(Object_SM_AccessPattern);
-var o': Object, sm': Statemachine, L': List(STID){{model|mcrl2_model_vars_with_types(True)}};
-eqn get_access_patterns1(o',sm',[]{{model|mcrl2_model_vars(True)}}) = [];
-(L' != [] && !issafe(head(L'))) -> get_access_patterns1(o',sm',L'{{model|mcrl2_model_vars(True)}}) = [OA'(o', sm', rwpattern(o',head(L'){{model|mcrl2_model_vars(True)}}))] ++ get_access_patterns1(o', sm', tail(L'){{model|mcrl2_model_vars(True)}});
-(L' != [] && issafe(head(L'))) -> get_access_patterns1(o', sm', L'{{model|mcrl2_model_vars(True)}}) = get_access_patterns1(o', sm', tail(L'){{model|mcrl2_model_vars(True)}});
+% ----- END ACCESS PATTERNS -----
 
-% This function produces a list of variables that require locking
-map check_for_races: List(Var) # OutgoingTransitions{{model|mcrl2_model_vartypes(True)}} -> List(Var);
-var W1': List(Var), L': OutgoingTransitions{{model|mcrl2_model_vars_with_types(True)}};
-eqn check_for_races([], L'{{model|mcrl2_model_vars(True)}}) = [];
-    check_for_races(W1', OT'({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first) }}[]{% endfor %}{% endfor %}){{model|mcrl2_model_vars(True)}}) = [];
-    check_for_races(W1', L'{{model|mcrl2_model_vars(True)}}) = check_simple_races(W1', get_access_patterns(L'{{model|mcrl2_model_vars(True)}}));
 
-map check_simple_races: List(Var) # List(Object_SM_AccessPattern) -> List(Var);
-var W1': List(Var), L': List(Object_SM_AccessPattern);
-eqn check_simple_races([], L') = [];
-    check_simple_races(W1',[]) = [];
-(L' != []) -> check_simple_races(W1',L') = merge(check_simple_races(W1',tail(L')), check_simple_races1(W1',head(L'),tail(L')));
 
-map check_simple_races1: List(Var) # Object_SM_AccessPattern # List(Object_SM_AccessPattern) -> List(Var);
-var W1': List(Var), o': Object, sm': Statemachine, rw': AccessPattern, L': List(Object_SM_AccessPattern), x': Object_SM_AccessPattern;
-eqn check_simple_races1([],x',L') = [];
-    check_simple_races1(W1',x',[]) = [];
-(o' != O'(head(L'))) -> check_simple_races1(W1',OA'(o',sm',rw'),L') = [];
-(L' != [] && (o' == O'(head(L'))) && (sm' != SM'(head(L')))) -> check_simple_races1(W1',OA'(o',sm',rw'),L') = merge(check_simple_races1(W1',OA'(o',sm',rw'),tail(L')), check_simple_races2(W1',OA'(o',sm',rw'),head(L')));
-(L' != [] && (o' == O'(head(L'))) && (sm' == SM'(head(L')))) -> check_simple_races1(W1',OA'(o',sm',rw'),L') = check_simple_races1(W1',OA'(o',sm',rw'),tail(L'));
+% ----- START DEPENDENCY GRAPH STRUCTURE AND BASIC FUNCTIONS -----
 
-map check_simple_races2: List(Var) # Object_SM_AccessPattern # Object_SM_AccessPattern -> List(Var);
-var W1': List(Var), o1', o2': Object, sm1', sm2': Statemachine, rw1', rw2': AccessPattern, x1', x2': Object_SM_AccessPattern;
-eqn check_simple_races2([],x1',x2') = [];
-(o1' != o2') -> check_simple_races2(W1',OA'(o1',sm1',rw1'),OA'(o2',sm2',rw2')) = [];
-                check_simple_races2(W1',OA'(o1',sm1',rw1'),OA'(o1',sm1',rw2')) = [];
-(sm1' != sm2') -> check_simple_races2(W1',OA'(o1',sm1',rw1'),OA'(o1',sm2',rw2')) = merge(check_simple_races2_2(W1',rw1',rw2'), check_simple_races2_1(W1',rw1',rw2'));
+% *** HISTORY OF ONE NODE ***
 
-map check_simple_races2_1: List(Var) # AccessPattern # AccessPattern -> List(Var);
-var W1': List(Var), rw1', rw2': AccessPattern;
-eqn check_simple_races2_1([],rw1',rw2') = [];
-    check_simple_races2_1(W1',rw1',rw2') = merge(intersection_of_at_least_two(W1', W'(rw2'), merge(R'(rw1'), W'(rw1'))), intersection_of_at_least_two(W1', W'(rw1'), merge(R'(rw2'), W'(rw2'))));
+sort History' = struct HIS'({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first)}}el'{{o.name}}'{{sm.name}}: AccessPattern'{% endfor %}{% endfor %});
+map empty_History': History';
+eqn empty_History' = HIS'({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first)}}A'([],[]){% endfor %}{% endfor %});
 
-map check_simple_races2_2: List(Var) # AccessPattern # AccessPattern -> List(Var);
-var W1': List(Var), rw1', rw2': AccessPattern;
-eqn check_simple_races2_2([],rw1',rw2') = [];
-    check_simple_races2_2(W1',rw1',rw2') = merge(intersection(W1', R'(rw2'), W'(rw2'), W'(rw1')), intersection(W1', R'(rw1'), W'(rw1'), W'(rw2')));
+% *** ACCESS DEPENDENCY AND THREAD DEPENDENCY FUNCTIONS, IMPLEMENTED AS LISTS, WITH INITIAL VALUES ***
 
-map check_for_cyclic_races: List(Var) # OutgoingTransitions{{model|mcrl2_model_vartypes(True)}} -> List(Var);
-var W1': List(Var), L': OutgoingTransitions{{model|mcrl2_model_vars_with_types(True)}};
-eqn check_for_cyclic_races([], L'{{model|mcrl2_model_vars(True)}}) = [];
-    check_for_cyclic_races(W1', OT'({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first) }}[]{% endfor %}{% endfor %}){{model|mcrl2_model_vars(True)}}) = [];
-    check_for_cyclic_races(W1', L'{{model|mcrl2_model_vars(True)}}) = check_for_cyclic_races1(W1', get_access_patterns(L'{{model|mcrl2_model_vars(True)}}));
+sort D_map' = struct DMAP'({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{% set smloop = loop %}{% for v in csharedvars[o.type] %}{{', ' if not (oloop.first and smloop.first and loop.first) }}r'{{o.name}}'{{sm.name}}'{{v}}: AccessPattern', w'{{o.name}}'{{sm.name}}'{{v}}: AccessPattern'{% endfor %}{% endfor %}{% endfor %});
+map D_init': D_map';
+eqn D_init' = DMAP'({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{% set smloop = loop %}{% for v in csharedvars[o.type] %}{{', ' if not (oloop.first and smloop.first and loop.first) }}A'([],[]), A'([],[]){% endfor %}{% endfor %}{% endfor %});
 
-map check_for_cyclic_races1: List(Var) # List(Object_SM_AccessPattern) -> List(Var);
-var W1': List(Var), L': List(Object_SM_AccessPattern);
-eqn check_for_cyclic_races1([], L') = [];
-    check_for_cyclic_races1(W1', []) = [];
-    check_for_cyclic_races1(W1', L') = check_for_cyclic_races2(W1', iteratively_reduce_access_pattern_list(W1', L', reduce_access_pattern_list(W1', L')));
+sort C_map' = struct CMAP'({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first)}}c'{{o.name}}'{{sm.name}}: AccessPattern'{% endfor %}{% endfor %});
+map C_init': C_map';
+eqn C_init' = CMAP'({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first)}}A'([],[]){% endfor %}{% endfor %});
 
-map check_for_cyclic_races2: List(Var) # List(Object_SM_AccessPattern) -> List(Var);
-var W1': List(Var), L': List(Object_SM_AccessPattern);
-eqn check_for_cyclic_races2([], L') = [];
-    check_for_cyclic_races2(W1', []) = [];
-    check_for_cyclic_races2(W1', L') = check_for_cyclic_races3(W1', L', select_lock_variables(W1', L'));
+% *** FUNCTIONS TO RETRIEVE AND UPDATE SINGLE VALUES OF DEPENDENCY FUNCTIONS
 
-map check_for_cyclic_races3: List(Var) # List(Object_SM_AccessPattern) # List(Var) -> List(Var);
-var W1': List(Var), W2': List(Var), L': List(Object_SM_AccessPattern);
-eqn check_for_cyclic_races3([], L', W2') = [];
-    check_for_cyclic_races3(W1', [], W2') = [];
-(L' != []) -> check_for_cyclic_races3(W1', L', W2') = merge(W2', check_for_cyclic_races1(extract(W1', W2'), tail(L')));
+map get_d': Object_SM' # Var' # Bool # D_map' -> AccessPattern';
+var dm': D_map';
+{% for o in model.objects %}
+{% set oloop = loop %}
+{% for sm in o.type.statemachines %}
+{% set smloop = loop %}
+{% for v in csharedvars[o.type] %}
+{% if oloop.first and smloop.first and loop.first %}eqn {% else %}    {% endif %}get_d'(O'SM'({{o.name}},{{sm.name}}), {{mcrl2varprefix}}{{o.name}}'{{v}}, false, dm') = r'{{o.name}}'{{sm.name}}'{{v}}(dm');
+    get_d'(O'SM'({{o.name}},{{sm.name}}), {{mcrl2varprefix}}{{o.name}}'{{v}}, true, dm') = w'{{o.name}}'{{sm.name}}'{{v}}(dm');
+{% endfor %}
+{% endfor %}
+{% endfor %}
 
-map select_lock_variables: List(Var) # List(Object_SM_AccessPattern) -> List(Var);
-var W1': List(Var), L': List(Object_SM_AccessPattern);
-eqn select_lock_variables([], L') = [];
-    select_lock_variables(W1', []) = [];
-(L' != []) -> select_lock_variables(W1', L') = select_lock_variables1(W1', head(L'), tail(L'));
+map get_c': Object_SM' # C_map' -> AccessPattern';
+var cm': C_map';
+{% for o in model.objects %}
+{% set oloop = loop %}
+{% for sm in o.type.statemachines %}
+{% if oloop.first and loop.first %}eqn {% else %}    {% endif %}get_c'(O'SM'({{o.name}},{{sm.name}}), cm') = c'{{o.name}}'{{sm.name}}(cm');
+{% endfor %}
+{% endfor %}
 
-map select_lock_variables1: List(Var) # Object_SM_AccessPattern # List(Object_SM_AccessPattern) -> List(Var);
-var W1': List(Var), p': Object_SM_AccessPattern, L': List(Object_SM_AccessPattern);
-eqn select_lock_variables1([], p', L') = [];
-    select_lock_variables1(W1', p', []) = [];
-(L' != []) -> select_lock_variables1(W1', p', L') = merge(intersection(W1', R'(A'(p')), W'(A'(head(L')))), select_lock_variables1(W1', p', tail(L')));
+map up_d': Object_SM' # Var' # Bool # AccessPattern' # D_map' -> D_map';
+var a': AccessPattern';
+    dm': D_map';
+{% for o in model.objects %}
+{% set oloop = loop %}
+{% for sm in o.type.statemachines %}
+{% set smloop = loop %}
+{% for v in csharedvars[o.type] %}
+{% if oloop.first and smloop.first and loop.first %}eqn {% else %}    {% endif %}up_d'(O'SM'({{o.name}},{{sm.name}}), {{mcrl2varprefix}}{{o.name}}'{{v}}, false, a', dm') = DMAP'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o2.type.statemachines %}{% set sm2loop = loop %}{% for v2 in csharedvars[o2.type] %}{{', ' if not (o2loop.first and sm2loop.first and loop.first) }}{% if o == o2 and sm == sm2 and v == v2 %}union'(r'{{o2.name}}'{{sm2.name}}'{{v2}}(dm'),a'){% else %}r'{{o2.name}}'{{sm2.name}}'{{v2}}(dm'){% endif %}, w'{{o2.name}}'{{sm2.name}}'{{v2}}(dm'){% endfor %}{% endfor %}{% endfor %});
+    up_d'(O'SM'({{o.name}},{{sm.name}}), {{mcrl2varprefix}}{{o.name}}'{{v}}, true, a', dm') = DMAP'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o2.type.statemachines %}{% set sm2loop = loop %}{% for v2 in csharedvars[o2.type] %}{{', ' if not (o2loop.first and sm2loop.first and loop.first) }}r'{{o2.name}}'{{sm2.name}}'{{v2}}(dm'), {% if o == o2 and sm == sm2 and v == v2 %}union'(w'{{o2.name}}'{{sm2.name}}'{{v2}}(dm'),a'){% else %}w'{{o2.name}}'{{sm2.name}}'{{v2}}(dm'){% endif %}{% endfor %}{% endfor %}{% endfor %});
+{% endfor %}
+{% endfor %}
+{% endfor %}
 
-map iteratively_reduce_access_pattern_list: List(Var) # List(Object_SM_AccessPattern) # List(Object_SM_AccessPattern) -> List(Object_SM_AccessPattern);
-var W1': List(Var), L1', L2': List(Object_SM_AccessPattern);
-eqn iteratively_reduce_access_pattern_list([], L1', L2') = [];
-    iteratively_reduce_access_pattern_list(W1', L1', L1') = L1';
-(L1' != L2') -> iteratively_reduce_access_pattern_list(W1', L1', L2') = iteratively_reduce_access_pattern_list(W1', L2', reduce_access_pattern_list(W1', L2'));
+map up_c': Object_SM' # AccessPattern' # C_map' -> C_map';
+var a': AccessPattern';
+    cm': C_map';
+{% for o in model.objects %}
+{% set oloop = loop %}
+{% for sm in o.type.statemachines %}
+{% if oloop.first and loop.first %}eqn {% else %}    {% endif %}up_c'(O'SM'({{o.name}},{{sm.name}}), a', cm') = CMAP'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o.type.statemachines %}{{', ' if not (o2loop.first and loop.first)}}{% if o == o2 and sm == sm2 %}union'(c'{{o.name}}'{{sm.name}}(cm'),a'){% else %}c'{{o.name}}'{{sm.name}}(cm'){% endif %}{% endfor %}{% endfor %});
+{% endfor %}
+{% endfor %}
 
-map reduce_access_pattern_list: List(Var) # List(Object_SM_AccessPattern) -> List(Object_SM_AccessPattern);
-var W1': List(Var), L': List(Object_SM_AccessPattern);
-eqn reduce_access_pattern_list([], L') = [];
-    reduce_access_pattern_list(W1', []) = [];
-(L' != []) -> reduce_access_pattern_list(W1', L') = reduce_access_pattern_list1(W1', head(L'), tail(L'), tail(L'), L');
+% *** SET-BASED VERSIONS OF c' AND d' FUNCTIONS ***
 
-map reduce_access_pattern_list1: List(Var) # Object_SM_AccessPattern # List(Object_SM_AccessPattern) # List(Object_SM_AccessPattern) # List(Object_SM_AccessPattern) -> List(Object_SM_AccessPattern);
-var W1': List(Var), p': Object_SM_AccessPattern, L1', L2', L3': List(Object_SM_AccessPattern);
-eqn reduce_access_pattern_list1([], p', L1', L2', L3') = [];
-	reduce_access_pattern_list1(W1', p', [], [], L3') = [];
-(L2' != []) -> reduce_access_pattern_list1(W1', p', [], L2', L3') = reduce_access_pattern_list1(W1', head(L2'), L3', tail(L2'), L3');
-(L1' != [] && ((O'(p') != O'(head(L1'))) || (O'(p') == O'(head(L1')) && SM'(p') == SM'(head(L1'))))) -> reduce_access_pattern_list1(W1', p', L1', L2', L3') = reduce_access_pattern_list1(W1', p', tail(L1'), L2', L3');
-(O'(p') == O'(head(L1')) && SM'(p') != SM'(head(L1'))) -> reduce_access_pattern_list1(W1', p', L1', L2', L3') = evaluate_reduction_step(W1', p', L1', L2', L3', has_nonempty_intersection(W1', R'(A'(p')), W'(A'(head(L1')))));
+map d_set': DPNode' # History' # List(Var') -> AccessPattern';
+var n1': DPNode';
+    h': History';
+    L': List(Var');
+eqn d_set'(n1',h',L') = {% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{% if oloop.last and loop.last %}, {% else %}{{', ' if not (oloop.first and loop.first)}}union'({% endif %}d_set1'(d'(n1'),{{o.name}},{{sm.name}},el'{{o.name}}'{{sm.name}}(h'),L'){% endfor %}{% endfor %}{% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{')' if not (oloop.last and loop.last )}}{% endfor %}{% endfor %};
 
-map evaluate_reduction_step: List(Var) # Object_SM_AccessPattern # List(Object_SM_AccessPattern) # List(Object_SM_AccessPattern) # List(Object_SM_AccessPattern) # Bool -> List(Object_SM_AccessPattern);
-var W1': List(Var), p': Object_SM_AccessPattern, L1', L2', L3': List(Object_SM_AccessPattern), b': Bool;
-eqn evaluate_reduction_step([], p', L1', L2', L3', b') = [];
-    evaluate_reduction_step(W1', p', [], [], L3', b') = [];
-(L2' == []) -> evaluate_reduction_step(W1', p', L1', L2', L3', true) = [p'];
-(L2' != []) -> evaluate_reduction_step(W1', p', L1', L2', L3', true) = [p'] ++ reduce_access_pattern_list1(W1', head(L2'), L3', tail(L2'), L3');
-(L2' != []) -> evaluate_reduction_step(W1', p', [], L2', L3', false) = reduce_access_pattern_list1(W1', head(L2'), L3', tail(L2'), L3');
-(L1' != []) -> evaluate_reduction_step(W1', p', L1', L2', L3', false) = reduce_access_pattern_list1(W1', p', tail(L1'), L2', L3');
+map d_set1': D_map' # Object' # Statemachine' # AccessPattern' # List(Var') -> AccessPattern';
+var d1': D_map';
+    o': Object';
+    sm': Statemachine';
+    a': AccessPattern';
+    L': List(Var');
+eqn d_set1'(d1',o',sm',a',L') = filter'(union'(d_set2'(d1',o',sm',R'(a'),false), d_set2'(d1',o',sm',W'(a'),true)),L');
+
+map d_set2': D_map' # Object' # Statemachine' # List(Var') # Bool -> AccessPattern';
+var d1': D_map';
+    o': Object';
+    sm': Statemachine';
+    L': List(Var');
+    b': Bool;
+eqn d_set2'(d1',o',sm',[],b') = A'([],[]);
+(L' != []) -> d_set2'(d1',o',sm',L',b') = union'(get_d'(O'SM'(o',sm'), head(L'), b', d1'), d_set2'(d1',o',sm',tail(L'),b'));
+
+map c_set': DPNode' # List(Object_SM') # List(Var') -> AccessPattern';
+var n1': DPNode';
+    Lo': List(Object_SM');
+    L': List(Var');
+eqn c_set'(n1',[],L') = A'([],[]);
+(Lo' != []) -> c_set'(n1',Lo',L') = filter'(c_set1'(c'(n1'),Lo'), L');
+
+map c_set1': C_map' # List(Object_SM') -> AccessPattern';
+var c1': C_map';
+    Lo': List(Object_SM');
+eqn c_set1'(c1',[]) = A'([],[]);
+(Lo' != []) -> c_set1'(c1',Lo') = union'(get_c'(head(Lo'), c1'), c_set1'(c1',tail(Lo')));
+
+% *** UPDATE FUNCTIONS FOR c' AND d' FUNCTIONS ***
+
+map update_d': D_map' # History' # AccessPattern' -> D_map';
+var d1': D_map';
+    h1': History';
+    a': AccessPattern';
+eqn update_d'(d1',h1',a') = update_d1'(d1', get_access_list'(h1'), a');
+
+map update_d1': D_map' # List(Object_SM_Access') # AccessPattern' -> D_map';
+var d1': D_map';
+    L1': List(Object_SM_Access');
+    a': AccessPattern';
+eqn update_d1'(d1',[],a') = d1';
+(L1' != []) -> update_d1'(d1',L1',a') = update_d1'(up_d'(O'SM'(O'(head(L1')),SM'(head(L1'))), V'(head(L1')), RW'(head(L1')), a', d1'), tail(L1'), a');
+
+map get_access_list': History' -> List(Object_SM_Access');
+var h1': History';
+eqn get_access_list'(h1') = {% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{' ++ ' if not (oloop.first and loop.first)}}get_access_list1'({{o.name}},{{sm.name}},el'{{o.name}}'{{sm.name}}(h1')){% endfor %}{% endfor %};
+
+map get_access_list1': Object' # Statemachine' # AccessPattern' -> List(Object_SM_Access');
+var o1': Object';
+    sm1': Statemachine';
+    a1': AccessPattern';
+eqn get_access_list1'(o1',sm1',a1') = get_access_list2'(o1',sm1',R'(a1'),false) ++ get_access_list2'(o1',sm1',W'(a1'),true);
+
+map get_access_list2': Object' # Statemachine' # List(Var') # Bool -> List(Object_SM_Access');
+var o1': Object';
+    sm1': Statemachine';
+    L1': List(Var');
+    b': Bool;
+eqn get_access_list2'(o1',sm1',[],b') = [];
+(L1' != []) -> get_access_list2'(o1',sm1',L1',b') = [O'SM'AC'(o1',sm1',b',head(L1'))] ++ get_access_list2'(o1',sm1',tail(L1'),b');
+
+map update_c': C_map' # List(Object_SM') # AccessPattern' -> C_map';
+var c1': C_map';
+    L1': List(Object_SM');
+    a': AccessPattern';
+eqn update_c'(c1',[],a') = c1';
+(L1' != []) -> update_c'(c1',L1',a') = update_c'(up_c'(head(L1'), a', c1'), tail(L1'), a');
+
+% *** DEPENDENCY GRAPH NODE ***
+
+sort DPNode' = struct N'(OSM': Object_SM', ST': STID', P': AccessPattern', H': History', d': D_map', c': C_map', owner': List(Object_SM')) | DPEmptynode';
+map lt', gt', eq': DPNode' # DPNode' -> Bool;
+    empty_DPNode': DPNode';
+var n1', n2': DPNode';
+eqn lt'(n1',n2') = lt'(OSM'(n1'), OSM'(n2'));
+    gt'(n1',n2') = gt'(OSM'(n1'), OSM'(n2'));
+    eq'(n1', n2') = eq'(OSM'(n1'), OSM'(n2'));
+    empty_DPNode' = N'(O'SM'(o_,sm_), st_, A'([],[]), empty_History', D_init', C_init', []);
+
+map are_competing: DPNode' # DPNode' -> Bool;
+var n1', n2': DPNode';
+eqn (O'(OSM'(n1')) == O'(OSM'(n2')) && SM'(OSM'(n1')) != SM'(OSM'(n2'))) -> are_competing(n1',n2') = true;
+(O'(OSM'(n1')) != O'(OSM'(n2')) || SM'(OSM'(n1')) == SM'(OSM'(n2'))) -> are_competing(n1',n2') = false;
+
+% *** FUNCTION TO REMOVE ACCESSES FROM A GIVEN OBJECT/STATE MACHINE PAIR ***
+
+map extract_osm': DPNode' # Object_SM' -> DPNode';
+var n': DPNode';
+{% for o in model.objects %}
+{% set oloop = loop %}
+{% for sm in o.type.statemachines %}
+{% if (oloop.first and loop.first) %}eqn {% else %}    {% endif %}extract_osm'(n',O'SM'({{o.name}},{{sm.name}})) = N'(OSM'(n'), ST'(n'), P'(n'), HIS'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o2.type.statemachines %}{{', ' if not (o2loop.first and loop.first)}}{% if o == o2 and sm == sm2 %}A'([],[]){% else %}el'{{o2.name}}'{{sm2.name}}(H'(n')){% endif %}{% endfor %}{% endfor %}), d'(n'), c'(n'), remove(owner'(n'),O'SM'({{o.name}},{{sm.name}})));
+{% endfor %}
+{% endfor %}
+
+% *** FUNCTION TO ADD A GIVEN ACCESSPATTERN OF A GIVEN OBJECT/STATE MACHINE PAIR TO A HISTORY ***
+
+map add_osm': Object_SM' # AccessPattern' # History' -> History';
+var h': History';
+    a1': AccessPattern';
+{% for o in model.objects %}
+{% set oloop = loop %}
+{% for sm in o.type.statemachines %}
+{% if (oloop.first and loop.first) %}eqn {% else %}    {% endif %}add_osm'(O'SM'({{o.name}},{{sm.name}}),a1',h') = HIS'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o2.type.statemachines %}{{', ' if not (o2loop.first and loop.first)}}{% if o == o2 and sm == sm2 %}union'(el'{{o2.name}}'{{sm2.name}}(h'), a1'){% else %}el'{{o2.name}}'{{sm2.name}}(h'){% endif %}{% endfor %}{% endfor %});
+{% endfor %}
+{% endfor %}
+
+% *** THE UNION OF TWO HISTORIES ***
+
+map union': History' # History' -> History';
+var h1',h2': History';
+eqn union'(h1',h2') = HIS'({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first)}}union'(el'{{o.name}}'{{sm.name}}(h1'),el'{{o.name}}'{{sm.name}}(h2')){% endfor %}{% endfor %});
+
+% *** LIST OF LISTS OF DPNODES TO REPRESENT DPGRAPH ***
+
+sort DPGraph' = struct DG'({% for o in model.objects %}{{', ' if not loop.first}}el'{{o.name}}: List(DPNode'){% endfor %}, PREV': DPNode');
+
+% *** FUNCTION TO RETURN NODE FOR A GIVEN OBJECT/STATE MACHINE/STATEMENT ***
+
+map get_dpnode': DPGraph' # Object' # Statemachine' # STID' -> DPNode';
+var g': DPGraph';
+    sm1': Statemachine';
+    st': STID';
+{% for o in model.objects %}
+{% if loop.first %}eqn {% else %}    {% endif %}get_dpnode'(g',{{o.name}},sm1',st') = get_dpnode1'({{o.name}}, sm1', st', el'{{o.name}}(g'));
+{% endfor %}
+
+map get_dpnode1': Object' # Statemachine' # STID' # List(DPNode') -> DPNode';
+var o1': Object';
+    sm1': Statemachine';
+    st': STID';
+    L': List(DPNode');
+eqn get_dpnode1'(o1',sm1',st',[]) = DPEmptynode';
+(L' != [] && OSM'(head(L')) == O'SM'(o1',sm1') && ST'(head(L')) == st') -> get_dpnode1'(o1',sm1',st',L') = head(L');
+(L' != [] && (OSM'(head(L')) != O'SM'(o1',sm1') || ST'(head(L')) != st')) -> get_dpnode1'(o1',sm1',st',L') = get_dpnode1'(o1',sm1',st',tail(L'));
+
+% *** EXTRACT DPNODES FROM LIST BELONGING TO PARTICULAR OBJECT/STATEMACHINE PAIR ***
+
+map extract': Object' # Statemachine' # List(DPNode') -> List(DPNode');
+var o1': Object';
+    sm1': Statemachine';
+    L': List(DPNode');
+eqn extract'(o1',sm1',[]) = [];
+(L' != [] && lt'(O'SM'(o1',sm1'), OSM'(head(L')))) -> extract'(o1',sm1',L') = L';
+(L' != [] && gt'(O'SM'(o1',sm1'), OSM'(head(L')))) -> extract'(o1',sm1',L') = [head(L')] ++ extract'(o1',sm1',tail(L'));
+(L' != [] && eq'(O'SM'(o1',sm1'), OSM'(head(L')))) -> extract'(o1',sm1',L') = extract'(o1',sm1',tail(L'));
+
+% *** DEP_V FUNCTIONS TO OBTAIN SUBSET OF SECOND SET OF ACCESSES ON WHICH FIRST SET OF ACCESSES DEPENDS ***
+% *** two versions: one to compare AccessPatterns, second to compare AccessPattern with history ***
+
+map dep_v_b': DPNode' # DPNode' # List(Var') -> AccessPattern';
+var n1', n2': DPNode';
+    L': List(Var');
+eqn (!are_competing(n1',n2')) -> dep_v_b'(n1',n2',L') = A'([],[]);
+    (are_competing(n1',n2')) -> dep_v_b'(n1',n2',L') = dep_v_b1'(P'(n1'),P'(n2'),L');    
+
+map dep_v_b1': AccessPattern' # AccessPattern' # List(Var') -> AccessPattern';
+var l1', l2', l3', l4', L': List(Var');
+eqn dep_v_b1'(A'(l1',l2'), A'(l3',l3'), []) = A'([],[]);
+    (L' != []) -> dep_v_b1'(A'(l1',[]), A'(l3',[]), L') = A'([],[]);
+    (L' != [] && (l2' != [] || l4' != [])) -> dep_v_b1'(A'(l1',l2'), A'(l3',l4'), L') = A'(intersection(l2',l3',L'), union'(intersection(l1',l4',L'), intersection(l2',l4',L')));
+
+map dep_v_h': DPNode' # DPNode' # List(Var') -> History';
+var n1', n2': DPNode';
+    L': List(Var');
+eqn dep_v_h'(n1',n2',L') = dep_v_h1'(OSM'(n1'), P'(n1'), H'(n2'), L');
+
+map dep_v_h1': Object_SM' # AccessPattern' # History' # List(Var') -> History';
+var a1': AccessPattern';
+    h': History';
+    L': List(Var');
+{% for o in model.objects %}
+{% set oloop = loop %}
+{% for sm in o.type.statemachines %}
+{% if oloop.first and loop.first %}eqn {% else %}    {% endif %}dep_v_h1'(O'SM'({{o.name}},{{sm.name}}),a1',h',L') = HIS'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o.type.statemachines %}{{', ' if not (o2loop.first and loop.first)}}{% if o2 == o and sm2 == sm %}A'([],[]){% else %}dep_v_b1'(a1',el'{{o2.name}}'{{sm2.name}}(h'),L'){% endif %}{% endfor %}{% endfor %});
+{% endfor %}
+{% endfor %}
+
+% *** DEP_O FUNCTIONS TO COMPARE OWNERS OF ACCESSPATTERNS AND HISTORIES ***
+% *** two versions: one to compare AccessPattern and history, another to compare histories ***
+
+map dep_o_b': DPNode' # DPNode' -> List(Object_SM');
+var n1', n2': DPNode';
+eqn (!are_competing(n1',n2')) -> dep_o_b'(n1',n2') = [];
+    (are_competing(n1',n2')) -> dep_o_b'(n1',n2') = intersection(union'([OSM'(n1')], owner'(n1')), owner'(n2'));
+
+map dep_o_h': DPNode' # DPNode' -> List(Object_SM');
+var n1', n2': DPNode';
+eqn (!are_competing(n1',n2')) -> dep_o_h'(n1',n2') = [];
+    (are_competing(n1',n2')) -> dep_o_h'(n1',n2') = intersection(owner'(n1'), owner'(n2'));
+
+% ----- END DEPENDENCY GRAPH STRUCTURE AND BASIC FUNCTIONS -----
+
+
+
+% ----- START ATOMICITY VIOLATION CHECKING ALGORITHM -----
+
+% *** PROCESS TRANSACTION PROCEDURE ***
+% has_disabled_flag is present to determine whether or not to keep the selected AccessPattern as part of the graph. It indicates whether there are currently disabled transitions in the set of outgoing transitions
+
+map process_transaction': Object' # Statemachine' # STID' # DPGraph' # List(Var') # Bool -> DPGraph';
+var o1': Object';
+    sm1': Statemachine';
+    st': STID';
+    g': DPGraph';
+    L': List(Var');
+    has_disabled_flag': Bool;
+eqn process_transaction'(o1',sm1',st',g',L',has_disabled_flag') = process_transaction1'(o1', sm1', st', g', get_dpnode'(g',o1',sm1',st'), L', has_disabled_flag');
+
+map process_transaction1': Object' # Statemachine' # STID' # DPGraph' # DPNode' # List(Var') # Bool -> DPGraph';
+var st': STID';
+    g': DPGraph';
+    n1': DPNode';
+    L': List(Var');
+    has_disabled_flag': Bool;
+{% for o in model.objects %}
+{% set oloop = loop %}
+{% for sm in o.type.statemachines %}
+{% if oloop.first and loop.first %}eqn {% else %}    {% endif %}process_transaction1'({{o.name}},{{sm.name}},st',g',n1',L',has_disabled_flag') = DG'({% for o2 in model.objects %}{{', ' if not loop.first }}{% if o2 != o %}el'{{o2.name}}(g'){% else %}process_transaction2'(n1', extract'({{o2.name}}, {{sm.name}}, el'{{o2.name}}(g')), L'){% endif %}{% endfor %}, store_selected_pattern'(n1', has_disabled_flag',L'));
+{% endfor %}
+{% endfor %}
+
+map process_transaction2': DPNode' # List(DPNode') # List(Var') -> List(DPNode');
+var n1': DPNode';
+    L1': List(DPNode');
+    L2': List(Var');
+eqn process_transaction2'(n1',[],L2') = [];
+    process_transaction2'(n1',L1',[]) = [];
+(L1' != [] && L2' != [] && filter'(P'(n1'),L2') == A'([],[])) -> process_transaction2'(n1',L1',L2') = L1';
+(L1' != [] && L2' != [] && filter'(P'(n1'),L2') != A'([],[])) -> process_transaction2'(n1',L1',L2') = [perform_U'(n1', head(L1'), L2')] ++ process_transaction2'(n1', tail(L1'), L2');
+
+map store_selected_pattern': DPNode' # Bool # List(Var') -> DPNode';
+var n1': DPNode';
+    b': Bool;
+    L': List(Var');
+eqn store_selected_pattern'(n1',false,L') = empty_DPNode';
+    store_selected_pattern'(n1',b',[]) = empty_DPNode';
+(filter'(P'(n1'),L') == A'([],[])) -> store_selected_pattern'(n1',b',L') = empty_DPNode';
+(filter'(P'(n1'),L') != A'([],[])) -> store_selected_pattern'(n1',true,L') = N'(OSM'(n1'), ST'(n1'), P'(n1'), empty_History', D_init', C_init', []);
+
+% *** STATEMACHINE/STID PAIR ***
+
+sort SM_STID' = struct SM'S'(SM': Statemachine', ST': STID');
+
+% *** UPDATE BLOCKS (ACCESS PATTERNS) PROCEDURE ***
+
+map update_blocks': OutgoingTransitions # DPGraph'{{model|mcrl2_model_vartypes(True)}} -> DPGraph';
+var out': OutgoingTransitions;
+    g': DPGraph';
+    {{model|mcrl2_model_vars_with_types(False)}};
+eqn update_blocks'(out',g'{{model|mcrl2_model_vars(True)}}) = DG'({% for o in model.objects %}{{', ' if not loop.first }}update_blocks1'({{o.name}}, []{% for sm in o.type.statemachines %} ++ get_SM_STIDs'({{sm.name}}, el'{{o.name}}'{{sm.name}}(out')){% endfor %}, el'{{o.name}}(g'){% endfor %}{{model|mcrl2_model_vars(True)}}), PREV'(g'));
+
+map get_SM_STIDs': Statemachine' # List(STID') -> List(SM_STID');
+var sm1': Statemachine';
+    L': List(STID');
+eqn get_SM_STIDs'(sm1',[]) = [];
+(L' != []) -> get_SM_STIDs'(sm1',L') = [SM'S'(sm1',head(L'))] ++ get_SM_STIDs'(sm1',tail(L'));
+
+map update_blocks1': Object' # List(SM_STID') # List(DPNode'){{model|mcrl2_model_vartypes(True)}} -> List(DPNode');
+var o1': Object';
+    L': List(SM_STID');
+    LN': List(DPNode');
+    {{model|mcrl2_model_vars_with_types(False)}};
+eqn update_blocks1'(o1',[],LN'{{model|mcrl2_model_vars(True)}}) = [];
+(L' != []) -> update_blocks1'(o1',L',[]{{model|mcrl2_model_vars(True)}}) = [create_new_block'(o1', head(L'){{model|mcrl2_model_vars(True)}})] ++ update_blocks1'(o1',tail(L'),[]{{model|mcrl2_model_vars(True)}});
+(L' != [] && LN' != [] && lt'(O'SM'(o1',SM'(head(L'))), OSM'(head(LN')))) -> update_blocks1'(o1',L',LN'{{model|mcrl2_model_vars(True)}}) = [create_new_block'(o1', head(L'){{model|mcrl2_model_vars(True)}})] ++ update_blocks1'(o1',tail(L'),LN'{{model|mcrl2_model_vars(True)}});
+(L' != [] && LN' != [] && gt'(O'SM'(o1',SM'(head(L'))), OSM'(head(LN')))) -> update_blocks1'(o1',L',LN'{{model|mcrl2_model_vars(True)}}) = update_blocks1'(o1',L',tail(LN'){{model|mcrl2_model_vars(True)}});
+(L' != [] && LN' != [] && eq'(O'SM'(o1',SM'(head(L'))), OSM'(head(LN')))) -> update_blocks1'(o1',L',LN'{{model|mcrl2_model_vars(True)}}) = [N'(OSM'(head(LN')), ST'(head(LN')), rwpattern(o1', ST'(head(LN')){{model|mcrl2_model_vars(True)}}), H'(head(LN')), d'(head(LN')), c'(head(LN')), owner'(head(LN')))] ++ update_blocks1'(o1',tail(L'),tail(LN'){{model|mcrl2_model_vars(True)}});
+
+map create_new_block': Object' # SM_STID'{{model|mcrl2_model_vartypes(True)}} -> DPNode';
+var o1': Object';
+    s': SM_STID';
+    {{model|mcrl2_model_vars_with_types(False)}};
+eqn create_new_block'(o1',s'{{model|mcrl2_model_vars(True)}}) = N'(O'SM'(o1',SM'(s')), ST'(s'), rwpattern(o1', ST'(s'){{model|mcrl2_model_vars(True)}}), empty_History', D_init', C_init', []);
+
+% *** DETECT VIOLATIONS PROCEDURE ***
+
+map detect_violations': Object' # Statemachine' # STID' # DPGraph' # List(Var') -> O'SM'ST'Advice';
+var o1': Object';
+    sm1': Statemachine';
+    st': STID';
+    g': DPGraph';
+    L': List(Var');
+eqn detect_violations'(o1',sm1',st',g',L') = detect_violations3'(o1',sm1',st',detect_violations1'(o1', g', get_dpnode'(g',o1',sm1',st'), L'));
+
+map detect_violations1': Object' # DPGraph' # DPNode' # List(Var') -> Advice';
+var g': DPGraph';
+    n1': DPNode';
+    L': List(Var');
+{% for o in model.objects %}
+{% if loop.first %}eqn {% else %}    {% endif %}detect_violations1'({{o.name}}, g',n1',L') = detect_violations2'(n1', el'{{o.name}}(g') ++ [PREV'(g')], L');
+{% endfor %}
+
+map detect_violations2': DPNode' # List(DPNode') # List(Var') -> Advice';
+var n1': DPNode';
+    L1': List(DPNode');
+    L2': List(Var');
+eqn detect_violations2'(n1',[],L2') = empty_Advice';
+    detect_violations2'(n1',L1',[]) = empty_Advice';
+(L1' != [] && L2' != []) -> detect_violations2'(n1',L1',L2') = combine'(perform_C'(n1', head(L1'), L2'), detect_violations2'(n1', tail(L1'), L2'));
+
+map detect_violations3': Object' # Statemachine' # STID' # Advice' -> O'SM'ST'Advice';
+var o1': Object';
+    sm1': Statemachine';
+    st': STID';
+    ad': Advice';
+eqn (ad' == empty_Advice') -> detect_violations3'(o1',sm1',st',ad') = empty_O'SM'ST'Advice';
+(ad' != empty_Advice') -> detect_violations3'(o1',sm1',st',ad') = O'SM'ST'AD'(o1',sm1',st',ad');
+
+% *** OVERALL CHECKING AND PERFORMING OF UPDATE FOR PAIR OF NODES ***
+
+map perform_U': DPNode' # DPNode' # List(Var') -> DPNode';
+var n1', n2': DPNode';
+    L': List(Var');
+eqn perform_U'(n1',n2',L') = perform_U2'(n1', perform_U1'(n1',n2',L'), L');
+
+% *** CHECK AND PERFORM UPDATE 1 ***
+
+map perform_U1': DPNode' # DPNode' # List(Var') -> DPNode';
+var n1', n2': DPNode';
+    L': List(Var');
+eqn perform_U1'(n1',n2',L') = perform_U1_1'(n1',n2', union'(dep_v_b'(n1', n2', L'), d_set'(n2', dep_v_h'(n1', n2', L'), L')));
+
+map perform_U1_1': DPNode' # DPNode' # AccessPattern' ->DPNode';
+var n1', n2': DPNode';
+    a': AccessPattern';
+eqn (!not_empty(a')) -> perform_U1_1'(n1',n2',a') = n2';
+(not_empty(a')) -> perform_U1_1'(n1',n2',a') = perform_U1_2'(n1', n2', a', add_osm'(OSM'(n1'), P'(n1'), H'(extract_osm'(n1', OSM'(n2')))), setminus(union'([OSM'(n1')],owner'(n1')), [OSM'(n2')]));
+
+map perform_U1_2': DPNode' # DPNode' # AccessPattern' # History' # List(Object_SM') -> DPNode';
+var n1', n2': DPNode';
+    a': AccessPattern';
+    h1': History';
+    L': List(Object_SM');
+eqn perform_U1_2'(n1',n2',a',h1',L') = N'(OSM'(n2'), ST'(n2'), P'(n2'), union'(H'(n2'), h1'), update_d'(d'(n2'), h1', a'), update_c'(c'(n2'), L', a'), union'(L', owner'(n2')));
+
+% *** CHECK AND PERFORM UPDATE 2 ***
+
+map perform_U2': DPNode' # DPNode' # List(Var') -> DPNode';
+var n1', n2': DPNode';
+    L': List(Var');
+eqn (!are_competing(n1',n2')) -> perform_U2'(n1',n2',L') = n2';
+(are_competing(n1',n2')) -> perform_U2'(n1',n2',L') = perform_U2_1'(n1', n2', dep_o_h'(n1',n2'),L');
+
+map perform_U2_1': DPNode' # DPNode' # List(Object_SM') # List(Var') -> DPNode';
+var n1', n2': DPNode';
+    L1': List(Object_SM');
+    L2': List(Var');
+eqn perform_U2_1'(n1',n2',[],L2') = n2';
+    perform_U2_1'(n1',n2',L1',[]) = n2';
+(L1' != [] && L2' != []) -> perform_U2_1'(n1',n2',L1',L2') = perform_U2_2'(n1', n2', L1', remove(union'([OSM'(n1')], owner'(n1')), OSM'(n2')), L2');
+
+map perform_U2_2': DPNode' # DPNode' # List(Object_SM') # List(Object_SM') # List(Var') -> DPNode';
+var n1', n2': DPNode';
+    L1',L2': List(Object_SM');
+    L3': List(Var');
+eqn perform_U2_2'(n1',n2',[],L2',L3') = n2';
+    perform_U2_2'(n1',n2',L1',[],L3') = n2';
+    perform_U2_2'(n1',n2',L1',L2',[]) = n2';
+(L1' != [] && L2' != [] && L3' != []) -> perform_U2_2'(n1',n2',L1',L2',L3') = N'(OSM'(n2'), ST'(n2'), P'(n2'), H'(n2'), d'(n2'), update_c'(c'(n2'), L2', c_set'(n2', L1', L3')), union'(L2',owner'(n2')));
+
+% *** SPECIFICATION OF ATOMICITY VIOLATION RESOLUTION ADVICE ***
+
+sort Advice' = struct AD'(LK': AccessPattern', LO': List(Shuffle'));
+map empty_Advice': Advice';
+eqn empty_Advice' = AD'(A'([],[]),[]);
+
+% *** SPECIFICATION OF SHUFFLE ORDER ***
+
+sort Shuffle' = struct SH'(SB': AccessPattern', SA': AccessPattern');
+map empty_Shuffle': Shuffle';
+eqn empty_Shuffle' = SH'(A'([],[]),A'([],[]));
+
+map union': List(Shuffle') # List(Shuffle') -> List(Shuffle');
+var L1',L2': List(Shuffle');
+eqn union'(L1',[]) = L1';
+    union'([],L2') = L2';
+(L1' != [] && L2' != [] && head(L1') < head(L2')) -> union'(L1',L2') = [head(L1')] ++ union'(tail(L1'),L2');
+(L1' != [] && L2' != [] && head(L1') > head(L2')) -> union'(L1',L2') = [head(L2')] ++ union'(L1',tail(L2'));
+(L1' != [] && L2' != [] && head(L1') == head(L2')) -> union'(L1',L2') = [head(L1')] ++ union'(tail(L1'),tail(L2'));
+
+% *** SPECIFICATION OF ADVICE FOR SPECIFIC OBJECT/STATEMACHINE/STID ***
+
+sort O'SM'ST'Advice' = struct O'SM'ST'AD'(O': Object', SM': Statemachine', ST': STID', AD': Advice');
+map empty_O'SM'ST'Advice': O'SM'ST'Advice';
+eqn empty_O'SM'ST'Advice' = O'SM'ST'AD'(o_, sm_, st_, empty_Advice');
+
+map combine': Advice' # Advice' -> Advice';
+var ad1', ad2': Advice';
+eqn combine'(ad1',ad2') = combine1'(LO'(ad1'),LO'(ad2'),compute_lockset'(ad1',ad2'));
+
+map combine1': List(Shuffle') # List(Shuffle') # AccessPattern' -> Advice';
+var lo1',lo2': List(Shuffle');
+    al': AccessPattern';
+eqn combine1'(lo1',lo2',al') = AD'(al', combine2'(union'(lo1',lo2'),al'));
+
+map combine2': List(Shuffle') # AccessPattern' -> List(Shuffle');
+var L': List(Shuffle');
+    a': AccessPattern';
+eqn combine2'([],a') = [];
+(L' != []) -> combine2'(L',a') = combine3'(union'([SH'(setminus(SB'(head(L')), a'), setminus(SA'(head(L')), a'))], combine2'(tail(L'), a')));
+
+map combine3': List(Shuffle') -> List(Shuffle');
+var L': List(Shuffle');
+eqn (L' == [empty_Shuffle']) -> combine3'(L') = [];
+(L' != [empty_Shuffle']) -> combine3'(L') = L';
+
+% identify which accesses need to be protected
+map compute_lockset': Advice' # Advice' -> AccessPattern';
+var ad1', ad2': Advice';
+eqn (LO'(ad1') == [] || LO'(ad2') == []) -> compute_lockset'(ad1',ad2') = union'(LK'(ad1'), LK'(ad2'));
+(LO'(ad1') != [] && LO'(ad2') != []) -> compute_lockset'(ad1',ad2') = union'(LK'(ad1'), union'(LK'(ad2'), compute_lockset1'(LO'(ad1'), LO'(ad2'))));
+
+map compute_lockset1': List(Shuffle') # List(Shuffle') -> AccessPattern';
+var L1',L2': List(Shuffle');
+eqn compute_lockset1'(L1',[]) = A'([],[]);
+    compute_lockset1'([],L2') = A'([],[]);
+(L1' != [] && L2' != []) -> compute_lockset1'(L1',L2') = union'(compute_lockset2'(head(L1'),L2'), compute_lockset1'(tail(L1'), L2'));
+
+map compute_lockset2': Shuffle' # List(Shuffle') -> AccessPattern';
+var sh': Shuffle';
+    L': List(Shuffle');
+eqn compute_lockset2'(sh',[]) = A'([],[]);
+(L' != []) -> compute_lockset2'(sh',L') = union'(compute_lockset3'(sh', head(L'), intersection(SB'(sh'), SA'(head(L'))), intersection(SB'(head(L')), SA'(sh'))), compute_lockset2'(sh', tail(L')));
+
+map compute_lockset3': Shuffle' # Shuffle' # AccessPattern' # AccessPattern' -> AccessPattern';
+var sh1',sh2': Shuffle';
+    a1',a2': AccessPattern';
+eqn (a1' == A'([],[]) || a2' == A'([],[])) -> compute_lockset3'(sh1',sh2',a1',a2') = A'([],[]);
+(a1' != A'([],[]) || a2' != A'([],[])) -> compute_lockset3'(sh1',sh2',a1',a2') = union'(a1',a2');
+
+% *** OVERALL ATOMICITY VIOLATION CHECK FOR PAIR OF NODES ***
+
+map perform_C': DPNode' # DPNode' # List(Var') -> Advice';
+var n1', n2': DPNode';
+    L': List(Var');
+eqn perform_C'(n1',n2',L') = perform_C_1'(n1', n2', dep_v_b'(n2', n1', L'), L');
+
+map perform_C_1': DPNode' # DPNode' # AccessPattern' # List(Var') -> Advice';
+var n1', n2': DPNode';
+    b1': AccessPattern';
+    L': List(Var');
+eqn (!not_empty(b1')) -> perform_C_1'(n1',n2',b1',L') = empty_Advice';
+    (not_empty(b1')) -> perform_C_1'(n1',n2',b1',L') = combine'(perform_C1'(n1',n2',b1',L'), perform_C2'(n1',n2',b1',L'));
+
+% *** ATOMICITY VIOLATION CHECK 1 ***
+
+map perform_C1': DPNode' # DPNode' # AccessPattern' # List(Var') -> Advice';
+var n1', n2': DPNode';
+    b1': AccessPattern';
+    L': List(Var');
+eqn perform_C1'(n1',n2',b1',L') = perform_C1_1'(union'(b1', d_set'(n1', dep_v_h'(n2', n1', L'), L')));
+
+map perform_C1_1': AccessPattern' -> Advice';
+var b': AccessPattern';
+eqn (!has_at_least_two(b')) -> perform_C1_1'(b') = empty_Advice';
+(has_at_least_two(b')) -> perform_C1_1'(b') = AD'(b', []);
+
+% *** ATOMICITY VIOLATION CHECK 2 ***
+
+map perform_C2': DPNode' # DPNode' # AccessPattern' # List(Var') -> Advice';
+var n1', n2': DPNode';
+    b1': AccessPattern';
+    L': List(Var');
+eqn perform_C2'(n1',n2',b1',L') = perform_C2_1'(b1', c_set'(n1', dep_o_b'(n2', n1'), L'));
+
+map perform_C2_1': AccessPattern' # AccessPattern' -> Advice';
+var b1', cb': AccessPattern';
+eqn (!has_at_least_two(union'(b1', cb'))) -> perform_C2_1'(b1',cb') = empty_Advice';
+(has_at_least_two(union'(b1', cb'))) -> perform_C2_1'(b1',cb') = perform_C2_2'(b1', cb', intersection(b1', cb'));
+
+map perform_C2_2': AccessPattern' # AccessPattern' # AccessPattern' -> Advice';
+var b1', cb', L': AccessPattern';
+eqn perform_C2_2'(b1',cb',L') = AD'(L', [SH'(setminus(b1',L'), setminus(cb',L'))]);
+
+% ----- END ATOMICITY VIOLATION CHECKING ALGORITHM -----
+
+
+
+% ----- START POR -----
 
 % *** FUNCTION TO PERFORM (AMPLE-SET BASED) POR ***
 
@@ -509,8 +1043,8 @@ var L': OutgoingTransitions{{model|mcrl2_model_vars_with_types(True)}};
 eqn apply_por{{oloop.index}}_{{loop.index}}(OT'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o2.type.statemachines %}{% set sm2loop = loop %}{{', ' if not (o2loop.first and sm2loop.first) }}[]{% endfor %}{% endfor %}){{model|mcrl2_model_vars(True)}}) = OT'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o2.type.statemachines %}{% set sm2loop = loop %}{{', ' if not (o2loop.first and sm2loop.first) }}[]{% endfor %}{% endfor %});
     apply_por{{oloop.index}}_{{loop.index}}(L'{{model|mcrl2_model_vars(True)}}) = apply_por{{oloop.index}}_{{loop.index}}_1(L'{{model|mcrl2_model_vars(True)}}, sm_trans_are_ample({{o.name}}, el'{{o.name}}'{{sm.name}}(L'){{model|mcrl2_model_vars(True)}}, []));
 
-map apply_por{{oloop.index}}_{{loop.index}}_1: OutgoingTransitions{{model|mcrl2_model_vartypes(True)}} # List(STID) -> OutgoingTransitions;
-var L': OutgoingTransitions{{model|mcrl2_model_vars_with_types(True)}}, LS': List(STID);
+map apply_por{{oloop.index}}_{{loop.index}}_1: OutgoingTransitions{{model|mcrl2_model_vartypes(True)}} # List(STID') -> OutgoingTransitions;
+var L': OutgoingTransitions{{model|mcrl2_model_vars_with_types(True)}}, LS': List(STID');
 eqn apply_por{{oloop.index}}_{{loop.index}}_1(OT'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o2.type.statemachines %}{% set sm2loop = loop %}{{', ' if not (o2loop.first and sm2loop.first) }}[]{% endfor %}{% endfor %}){{model|mcrl2_model_vars(True)}}, LS') = OT'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o2.type.statemachines %}{% set sm2loop = loop %}{{', ' if not (o2loop.first and sm2loop.first) }}[]{% endfor %}{% endfor %});
 (LS' != []) -> apply_por{{oloop.index}}_{{loop.index}}_1(L'{{model|mcrl2_model_vars(True)}}, LS') = OT'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o2.type.statemachines %}{% set sm2loop = loop %}{{', ' if not (o2loop.first and sm2loop.first) }}{% if o == o2 and sm == sm2 %}LS'{% else %}[]{% endif %}{% endfor %}{% endfor %});
 {% if oloop.last and loop.last %}
@@ -521,32 +1055,34 @@ eqn apply_por{{oloop.index}}_{{loop.index}}_1(OT'({% for o2 in model.objects %}{
 
 {% endfor %}
 {% endfor %}
-map sm_trans_are_ample: Object # List(STID){{model|mcrl2_model_vartypes(True)}} # List(STID) -> List(STID);
-var o': Object, L1', L2': List(STID){{model|mcrl2_model_vars_with_types(True)}};
+map sm_trans_are_ample: Object' # List(STID'){{model|mcrl2_model_vartypes(True)}} # List(STID') -> List(STID');
+var o': Object', L1', L2': List(STID'){{model|mcrl2_model_vars_with_types(True)}};
 eqn sm_trans_are_ample(o', []{{model|mcrl2_model_vars(True)}}, L2') = L2';
 (L1' != [] && por_issafe(o', head(L1'){{model|mcrl2_model_vars(True)}}) && isenabled(o', head(L1'){{model|mcrl2_model_vars(True)}})) -> sm_trans_are_ample(o', L1'{{model|mcrl2_model_vars(True)}}, L2') = sm_trans_are_ample(o', tail(L1'){{model|mcrl2_model_vars(True)}}, L2' ++ [head(L1')]);
 (L1' != [] && por_issafe(o', head(L1'){{model|mcrl2_model_vars(True)}}) && !isenabled(o', head(L1'){{model|mcrl2_model_vars(True)}})) -> sm_trans_are_ample(o', L1'{{model|mcrl2_model_vars(True)}}, L2') = sm_trans_are_ample(o', tail(L1'){{model|mcrl2_model_vars(True)}}, L2');
 (L1' != [] && !por_issafe(o', head(L1'){{model|mcrl2_model_vars(True)}})) -> sm_trans_are_ample(o', L1'{{model|mcrl2_model_vars(True)}}, L2') = [];
 
+% ----- END POR -----
+
+
+
 % *** ACTIONS TO REPORT DATA ACCESS PATTERNS ***
 
 {% for o in model.objects %}
-{% if loop.first %}act {% else %}    {% endif %}rw: Object # Statemachine # List(Var) # List(Var);
+{% if loop.first %}act {% else %}    {% endif %}rw: Object' # Statemachine' # List(Var') # List(Var');
 {% endfor %}
 {% for p in object_sync_commpairs %}
-{% if loop.first %}act {% else %}    {% endif %}rw: Object # Statemachine # List(Var) # List(Var) # Object # Statemachine # List(Var) # List(Var);
+{% if loop.first %}act {% else %}    {% endif %}rw: Object' # Statemachine' # List(Var') # List(Var') # Object' # Statemachine' # List(Var') # List(Var');
 {% endfor %}
-    % report action to report racy situations (detected on-the-fly)
-    report: List(Object_SM_AccessPattern);
-    % lock action to report locking performed on-the-fly
-    lock: List(Var);
+    % report action to report atomicity violation resolutions (detected on-the-fly)
+    report: Object' # Statemachine' # STID' # Advice';
     % action indicating that all variables need to be locked;
     lock_all;
 
 % ***  SPECIFICATION OF BEHAVIOUR ***
 
-proc {{model.name}}({% for o in model.objects %}{% set oloop = loop %}{% for stm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first) }}{{o.name}}'{{stm.name}}_state: State{% endfor %}{% endfor %}{{model|mcrl2_model_vars_with_types(True)}}, outtrans: OutgoingTransitions, watchlist: List(Var), to_be_locked1: List(Var), to_be_locked2: List(Var), race_check_done: Bool) =
-(watchlist != [] && to_be_locked1 == [] && to_be_locked2 == [] && (outgoing_is_safe(outtrans) || race_check_done)) -> (
+proc {{model.name}}({% for o in model.objects %}{% set oloop = loop %}{% for stm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first) }}{{o.name}}'{{stm.name}}_state: State'{% endfor %}{% endfor %}{{model|mcrl2_model_vars_with_types(True)}}, outtrans: OutgoingTransitions, depgraph': DPGraph', watchlist': List(Var'), violations': O'SM'ST'Advice', atomicity_check_done: Bool) =
+(watchlist' != [] && violations' == empty_O'SM'ST'Advice' && !atomicity_check_done) -> (
 {% for o in model.objects %}
 {% set oloop = loop %}
 {% for sm in o.type.statemachines %}
@@ -555,8 +1091,8 @@ proc {{model.name}}({% for o in model.objects %}{% set oloop = loop %}{% for stm
 {% set trloop = loop %}
 {% if tr.statements[0].__class__.__name__ != "ReceiveSignal" or ochannel[o][tr.statements[0]].synctype == "async" %}
   (ST'{{tr._tx_position}} in sm_outgoing({{o.name}}, {{sm.name}}, outtrans){% if tr.statements[0]|hascondition(o) %}) -> (({{tr.statements[0]|statement_condition(o)}}{% endif %}) -> (
-    {% if syncing_statements[o][tr.statements[0]]|length == 0 %}    {% if tr.statements[0]|statement_is_safe or check_onthefly %}tau{% else %}rw({{o.name}}, {{sm.name}}, R'(rwpattern({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}})), W'(rwpattern({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}))){% endif %} . {{model.name}}({{o.name}}'{{sm.name}}_state={{tr.target.name}}{{tr.statements[0]|statementstatechanges(o)}}, outtrans={% if apply_por %}apply_por(OT'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o.type.statemachines %}{{', ' if not (o2loop.first and loop.first) }}outgoing({{o2.type.name}}, {{sm2.name}}, {% if o == o2 and sm == sm2 %}{{tr.target.name}}{% else %}{{o2.name}}'{{sm2.name}}_state{% endif %}){% endfor %}{% endfor %}){{tr.statements[0]|complete_newstate(o)}}){% else %}update_outgoing({{o.name}}, {{sm.name}}, {{tr.target.name}}, outtrans){% endif %}{% if check_onthefly %}, race_check_done=false{% endif %})
-  ){% if tr.statements[0]|hascondition(o) %}){% endif %}{%else %}{% for sync in syncing_statements[o][tr.statements[0]] %}    (ST'{{transowner[sync[1]]._tx_position}} in sm_outgoing({{sync[0].name}}, {{statemachine[sync[1]].name}}, outtrans){% if sync[1]|hascondition(sync[0]) %}) -> (({{sync[1]|sync_statement_condition(sync[0], tr.statements[0], o)}}{% endif %}) -> ({% if tr.statements[0]|statement_is_safe and sync[1]|statement_is_safe or check_onthefly %}tau{% else %}rw({{o.name}}, {{sm.name}}, {{tr.statements[0]|mcrl2_read_accesspattern(o,True)}}, {{tr.statements[0]|mcrl2_write_accesspattern(o,True)}}, {{sync[0].name}}, {{statemachine[sync[1]].name}}, R'(rwpattern({{sync[0].name}}, ST'{{transowner[sync[1]]._tx_position}}{{model|mcrl2_model_vars(True)}}), W'(rwpattern({{sync[0].name}}, ST'{{transowner[sync[1]]._tx_position}}{{model|mcrl2_model_vars(True)}})))){% endif %} . {{model.name}}({{o.name}}'{{sm.name}}_state={{tr.target.name}}, {{sync[0].name}}'{{statemachine[sync[1]].name}}_state={{transowner[sync[1]].target.name}}{{sync[1]|sync_statementstatechanges(sync[0],tr.statements[0],o)}}, outtrans={% if apply_por %}apply_por(OT'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o.type.statemachines %}{{', ' if not (o2loop.first and loop.first) }}outgoing({{o2.type.name}}, {{sm2.name}}, {% if o == o2 and sm == sm2 %}{{tr.target.name}}{% elif sync[0] == o2 and statemachine[sync[1]] == sm2 %}{{transowner[sync[1]].target.name}}{% else %}{{o2.name}}'{{sm2.name}}_state{% endif %}){% endfor %}{% endfor %}){{tr.statements[0]|sync_complete_newstate(o)}}){% else %}update_outgoing({{sync[0].name}}, {{statemachine[sync[1]].name}}, {{transowner[sync[1]].target.name}}, update_outgoing({{o.name}}, {{sm.name}}, {{tr.target.name}}, outtrans)){% endif %}{% if check_onthefly %}, race_check_done=false{% endif %}){% if not loop.last %} +{% endif %}{% endfor %}
+    {% if syncing_statements[o][tr.statements[0]]|length == 0 %}    {% if check_onthefly %}tau{% else %}rw({{o.name}}, {{sm.name}}, R'(rwpattern({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}})), W'(rwpattern({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}))){% endif %} . {{model.name}}({{o.name}}'{{sm.name}}_state={{tr.target.name}}{{tr.statements[0]|statementstatechanges(o)}}, outtrans={% if apply_por %}apply_por(OT'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o.type.statemachines %}{{', ' if not (o2loop.first and loop.first) }}outgoing({{o2.type.name}}, {{sm2.name}}, {% if o == o2 and sm == sm2 %}{{tr.target.name}}{% else %}{{o2.name}}'{{sm2.name}}_state{% endif %}){% endfor %}{% endfor %}){{tr.statements[0]|complete_newstate(o)}}){% else %}update_outgoing({{o.name}}, {{sm.name}}, {{tr.target.name}}, outtrans){% endif %}{% if check_onthefly %}, depgraph'=process_transaction'({{o.name}}, {{sm.name}}, ST'{{tr._tx_position}}, depgraph', watchlist', has_disabled'({{o.name}}, {{sm.name}}, outtrans{{model|mcrl2_model_vars(True)}})), violations'=if(!issafe({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}), detect_violations'({{o.name}}, {{sm.name}}, ST'{{tr._tx_position}}, depgraph', watchlist'), empty_O'SM'ST'Advice'), atomicity_check_done=true{% endif %})
+  ){% if tr.statements[0]|hascondition(o) %}){% endif %}{%else %}{% for sync in syncing_statements[o][tr.statements[0]] %}    (ST'{{transowner[sync[1]]._tx_position}} in sm_outgoing({{sync[0].name}}, {{statemachine[sync[1]].name}}, outtrans){% if sync[1]|hascondition(sync[0]) %}) -> (({{sync[1]|sync_statement_condition(sync[0], tr.statements[0], o)}}{% endif %}) -> ({% if check_onthefly %}tau{% else %}rw({{o.name}}, {{sm.name}}, {{tr.statements[0]|mcrl2_read_accesspattern(o,True)}}, {{tr.statements[0]|mcrl2_write_accesspattern(o,True)}}, {{sync[0].name}}, {{statemachine[sync[1]].name}}, R'(rwpattern({{sync[0].name}}, ST'{{transowner[sync[1]]._tx_position}}{{model|mcrl2_model_vars(True)}}), W'(rwpattern({{sync[0].name}}, ST'{{transowner[sync[1]]._tx_position}}{{model|mcrl2_model_vars(True)}})))){% endif %} . {{model.name}}({{o.name}}'{{sm.name}}_state={{tr.target.name}}, {{sync[0].name}}'{{statemachine[sync[1]].name}}_state={{transowner[sync[1]].target.name}}{{sync[1]|sync_statementstatechanges(sync[0],tr.statements[0],o)}}, outtrans={% if apply_por %}apply_por(OT'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o.type.statemachines %}{{', ' if not (o2loop.first and loop.first) }}outgoing({{o2.type.name}}, {{sm2.name}}, {% if o == o2 and sm == sm2 %}{{tr.target.name}}{% elif sync[0] == o2 and statemachine[sync[1]] == sm2 %}{{transowner[sync[1]].target.name}}{% else %}{{o2.name}}'{{sm2.name}}_state{% endif %}){% endfor %}{% endfor %}){{tr.statements[0]|sync_complete_newstate(o)}}){% else %}update_outgoing({{sync[0].name}}, {{statemachine[sync[1]].name}}, {{transowner[sync[1]].target.name}}, update_outgoing({{o.name}}, {{sm.name}}, {{tr.target.name}}, outtrans)){% endif %}{% if check_onthefly %}, depgraph'=process_transaction'({{o.name}}, {{sm.name}}, ST'{{tr._tx_position}}, depgraph', watchlist', has_disabled'({{o.name}}, {{sm.name}}, outtrans{{model|mcrl2_model_vars(True)}})), violations'=if(!issafe({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}), detect_violations'({{o.name}}, {{sm.name}}, ST'{{tr._tx_position}}, depgraph', watchlist'), empty_O'SM'ST'Advice'), atomicity_check_done=true{% endif %}){% if not loop.last %} +{% endif %}{% endfor %} +
 
   ){% if sync[1]|hascondition(sync[0]) %}){% endif %}{% endif %}{% if not (oloop.last and smloop.last and trloop.last and loop.last) %} +{% endif %}
 
@@ -567,14 +1103,9 @@ proc {{model.name}}({% for o in model.objects %}{% set oloop = loop %}{% for stm
 ){% if check_onthefly %} +{% else %};{% endif %}
 
 {% if check_onthefly %}
-(!outgoing_is_safe(outtrans) && !race_check_done) -> tau . {{model.name}}(to_be_locked1=check_for_races(watchlist, outtrans{{model|mcrl2_model_vars(True)}}), to_be_locked2=check_for_cyclic_races(watchlist, outtrans{{model|mcrl2_model_vars(True)}}), race_check_done=true) +
-{% if lock_onthefly %}
-(to_be_locked1 != [] || to_be_locked2 != []) -> lock(merge(to_be_locked1, to_be_locked2)) . {{model.name}}(watchlist = extract(extract(watchlist, to_be_locked1), to_be_locked2), to_be_locked1 = [], to_be_locked2 = []) +
-{% else %}
-(to_be_locked1 != []) -> lock(to_be_locked1) . {{model.name}}(watchlist = extract(watchlist, to_be_locked1), to_be_locked1 = []) +
-{% endif %}
-(to_be_locked1 == [] && to_be_locked2 != []) -> report(get_access_patterns(outtrans{{model|mcrl2_model_vars(True)}})) . {{model.name}}(to_be_locked2 = []) +
-(watchlist == []) -> lock_all . {{model.name}}();
+(atomicity_check_done && violations' == empty_O'SM'ST'Advice') -> tau . {{model.name}}(depgraph'=update_blocks'(outtrans, depgraph'{{model|mcrl2_model_vars(True)}}), atomicity_check_done=false) +
+(atomicity_check_done && violations' != empty_O'SM'ST'Advice') -> report(O'(violations'), SM'(violations'), ST'(violations'), AD'(violations')) . {{model.name}}(depgraph'=update_blocks'(outtrans, depgraph'{{model|mcrl2_model_vars(True)}}){% if lock_onthefly %}, watchlist'=setminus(watchlist',get_vars'(LK'(AD'(violations')))){% endif %}, violations'=empty_O'SM'ST'Advice', atomicity_check_done=false) +
+(watchlist' == []) -> lock_all . {{model.name}}();
 {% endif %}
 
-init {{model.name}}({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first) }}{{sm.initialstate.name}}{% endfor %}{% endfor %}{% for o in model.objects %}{% set oloop = loop %}{% for var in o.type.variables %}, {% for vinit in o.assignments %}{% if var.name == vinit.left.name %}{% if vinit.right == None %}[{% for v in vinit.rights %}{{v|mcrl2value}}{{',' if not loop.last }}{% endfor %}]{% else %}{{vinit.right|mcrl2value}}{% endif %}{% break %}{% endif %}{% if loop.last %}{{var|variabledefault}}{% endif %}{% endfor %}{% if o.assignments|length == 0 %}{{var|variabledefault}}{% endif %}{% endfor %}{% for sm in o.type.statemachines %}{% for var in sm.variables %}, {{var|variabledefault}}{% endfor %}{% endfor %}{% endfor %}{% for ch in model.channels %}{% if ch.synctype == 'async' %}, [], 0{% endif %}{% endfor %}, {% if apply_por %}apply_por({% endif %}OT'({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first) }}outgoing({{o.type.name}}, {{sm.name}}, {{sm.initialstate.name}}){% endfor %}{% endfor %}){% if apply_por %}{% for o in model.objects %}{% set oloop = loop %}{% for var in o.type.variables %}, {% for vinit in o.assignments %}{% if var.name == vinit.left.name %}{% if vinit.right == None %}[{% for v in vinit.rights %}{{v|mcrl2value}}{{',' if not loop.last }}{% endfor %}]{% else %}{{vinit.right|mcrl2value}}{% endif %}{% break %}{% endif %}{% if loop.last %}{{var|variabledefault}}{% endif %}{% endfor %}{% if o.assignments|length == 0 %}{{var|variabledefault}}{% endif %}{% endfor %}{% for sm in o.type.statemachines %}{% for var in sm.variables %}, {{var|variabledefault}}{% endfor %}{% endfor %}{% endfor %}{% for ch in model.channels %}{% if ch.synctype == 'async' %}, [], 0{% endif %}{% endfor %}){% endif %}, [{% for v in unsafe_variables %}{{', ' if not loop.first }}{{mcrl2varprefix}}{{v}}{% endfor %}], [], [], {% if check_onthefly %}false{% else %}true{% endif %});
+init {{model.name}}({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first) }}{{sm.initialstate.name}}{% endfor %}{% endfor %}{% for o in model.objects %}{% set oloop = loop %}{% for var in o.type.variables %}, {% for vinit in o.assignments %}{% if var.name == vinit.left.name %}{% if vinit.right == None %}[{% for v in vinit.rights %}{{v|mcrl2value}}{{',' if not loop.last }}{% endfor %}]{% else %}{{vinit.right|mcrl2value}}{% endif %}{% break %}{% endif %}{% if loop.last %}{{var|variabledefault}}{% endif %}{% endfor %}{% if o.assignments|length == 0 %}{{var|variabledefault}}{% endif %}{% endfor %}{% for sm in o.type.statemachines %}{% for var in sm.variables %}, {{var|variabledefault}}{% endfor %}{% endfor %}{% endfor %}{% for ch in model.channels %}{% if ch.synctype == 'async' %}, [], 0{% endif %}{% endfor %}, {% if apply_por %}apply_por({% endif %}OT'({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first) }}outgoing({{o.type.name}}, {{sm.name}}, {{sm.initialstate.name}}){% endfor %}{% endfor %}){% if apply_por %}{% for o in model.objects %}{% set oloop = loop %}{% for var in o.type.variables %}, {% for vinit in o.assignments %}{% if var.name == vinit.left.name %}{% if vinit.right == None %}[{% for v in vinit.rights %}{{v|mcrl2value}}{{',' if not loop.last }}{% endfor %}]{% else %}{{vinit.right|mcrl2value}}{% endif %}{% break %}{% endif %}{% if loop.last %}{{var|variabledefault}}{% endif %}{% endfor %}{% if o.assignments|length == 0 %}{{var|variabledefault}}{% endif %}{% endfor %}{% for sm in o.type.statemachines %}{% for var in sm.variables %}, {{var|variabledefault}}{% endfor %}{% endfor %}{% endfor %}{% for ch in model.channels %}{% if ch.synctype == 'async' %}, [], 0{% endif %}{% endfor %}){% endif %}, update_blocks'(OT'({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first) }}outgoing({{o.type.name}}, {{sm.name}}, {{sm.initialstate.name}}){% endfor %}{% endfor %}), DG'({% for o in model.objects %}{{', ' if not loop.first }}[]{% endfor %}, empty_DPNode'){% for o in model.objects %}{% set oloop = loop %}{% for var in o.type.variables %}, {% for vinit in o.assignments %}{% if var.name == vinit.left.name %}{% if vinit.right == None %}[{% for v in vinit.rights %}{{v|mcrl2value}}{{',' if not loop.last }}{% endfor %}]{% else %}{{vinit.right|mcrl2value}}{% endif %}{% break %}{% endif %}{% if loop.last %}{{var|variabledefault}}{% endif %}{% endfor %}{% if o.assignments|length == 0 %}{{var|variabledefault}}{% endif %}{% endfor %}{% for sm in o.type.statemachines %}{% for var in sm.variables %}, {{var|variabledefault}}{% endfor %}{% endfor %}{% endfor %}{% for ch in model.channels %}{% if ch.synctype == 'async' %}, [], 0{% endif %}{% endfor %}), [{% for v in unsafe_variables %}{{', ' if not loop.first }}{{mcrl2varprefix}}{{v}}{% endfor %}], empty_O'SM'ST'Advice', false);
