@@ -41,6 +41,8 @@ vartypes = {}
 scopedvars = {}
 # per class / statemachine, give a set of local variables
 smlocalvars = {}
+# per class, give a list of shared variables
+csharedvars = []
 # transitions of state machines stored in dictionary per class/state machine/source state
 trans = {}
 # the summands for the output mCRL2 model
@@ -1180,9 +1182,9 @@ def number_of_accesses(s):
 	"""Count the number of accesses in the given filtered_access"""
 	count = len(s[0][0])
 	for a in s[0][1].keys():
-		count += len(s[1][a])
+		count += len(s[0][1][a])
 	for a in s[0][2].keys():
-		count += s[2][a]
+		count += s[0][2][a]
 	count += len(s[1][0])
 	for a in s[1][1].keys():
 		count += len(s[1][1][a])
@@ -1259,17 +1261,17 @@ def accesses_conflict(ac1, ac2):
 	for k in set(ac1[1][1].keys()) & set(ac2[1][1].keys()):
 		if ac1[1][1][k] & ac2[1][1][k] != set([]):
 			return True
-	if k in set(ac1[0][1].keys()) & set(ac2[1][2].keys()):
+	if set(ac1[0][1].keys()) & set(ac2[1][2].keys()) != set([]):
 		return True
-	if k in set(ac1[1][1].keys()) & set(ac2[0][2].keys()):
+	if set(ac1[1][1].keys()) & set(ac2[0][2].keys()) != set([]):
 		return True
-	if k in set(ac1[1][1].keys()) & set(ac2[1][2].keys()):
+	if set(ac1[1][1].keys()) & set(ac2[1][2].keys()) != set([]):
 		return True
-	if k in set(ac1[1][2].keys()) & set(ac2[0][1].keys()):
+	if set(ac1[1][2].keys()) & set(ac2[0][1].keys()) != set([]):
 		return True
-	if k in set(ac1[0][2].keys()) & set(ac2[1][1].keys()):
+	if set(ac1[0][2].keys()) & set(ac2[1][1].keys()) != set([]):
 		return True
-	if k in set(ac1[1][2].keys()) & set(ac2[1][1].keys()):
+	if set(ac1[1][2].keys()) & set(ac2[1][1].keys()) != set([]):
 		return True
 	return False
 
@@ -1309,6 +1311,9 @@ def identify_safe_unsafe_statements(m):
 			classobjects.append(o)
 			represented_classes.add(o.type)
 
+	# build a list of unsafe variables
+	unsafe_variables = set([])
+
 	# do we create a list of unsafe statements and variables with simply all statements / variables?
 	if default_search:
 		for c in model.classes:
@@ -1316,6 +1321,14 @@ def identify_safe_unsafe_statements(m):
 				for tr in sm.transitions:
 					for st in tr.statements:
 						unsafe_statements.add(st)
+		# create complete list of global variables
+		for o in model.objects:
+			for v in o.type.variables:
+				varname = o.name + "'" + v.name
+				if v.type.size > 1:
+					for i in range(0,v.type.size):
+						varname += "(Int2Nat(" + str(i) + ")"
+				unsafe_variables.add(varname)
 	else:
 		# filter statement_access to remove references to array cells that cannot be (or are hard to be) evaluated statically
 		# for each access set (read and write) we actually build a set and two dictionaries:
@@ -1434,8 +1447,7 @@ def identify_safe_unsafe_statements(m):
 								unsafe_filtered_accesses.append(conflict)
 						if not marked_unsafe:
 							safe_statements.add(st1)
-	# now that we have identified the unsafe statements, build a list of unsafe variables
-	unsafe_variables = set([])
+
 	# for st in unsafe_statements:
 	# 	# get the class owning st, and then all objects of that type
 	# 	c = smclass[statemachine[st]]
@@ -1471,6 +1483,7 @@ def identify_safe_unsafe_statements(m):
 	# 					unsafe_variables.add(v)
 	# 			else:
 	# 				unsafe_variables.add(v)
+
 	for ac in unsafe_filtered_accesses:
 		for a in ac[0][0]:
 			unsafe_variables.add(a)
@@ -1516,7 +1529,7 @@ def identify_safe_unsafe_statements(m):
 
 def preprocess():
 	"""preprocessing method"""
-	global model, statemachinenames, statemachine, trowner, smlocalvars, states, actions, class_sync_receives, class_sync_sends, trans, smclass, channeltypes, asynclosslesstypes, asynclossytypes, synctypes, porttypes, ochannel, vartypes, object_sync_commpairs, syncing_statements, sorted_variables, sorted_objects, sorted_statemachines
+	global model, statemachinenames, statemachine, trowner, smlocalvars, csharedvars, states, actions, class_sync_receives, class_sync_sends, trans, smclass, channeltypes, asynclosslesstypes, asynclossytypes, synctypes, porttypes, ochannel, vartypes, object_sync_commpairs, syncing_statements, sorted_variables, sorted_objects, sorted_statemachines
 	# build dictionaries providing for a given statement the state machine and transition owning it, and for a given state machine, the class owning it
 	for c in model.classes:
 		for stm in c.statemachines:
@@ -1575,6 +1588,18 @@ def preprocess():
 			for var in stm.variables:
 				varset.add(var.name)
 			smlocalvars[c.name + "'" + stm.name] = varset
+	# build a dictionary providing a list of shared variable names for each class
+	csharedvars = {}
+	for c in model.classes:
+		varlist = []
+		for v in c.variables:
+			varname = v.name
+			if v.type.size > 1:
+				for i in range(0,v.type.size):
+					varlist.append(varname + "(Int2Nat(" + str(i) + ")")
+			else:
+				varlist.append(varname)
+		csharedvars[c] = varlist
 	# build dictionary making variable scopes explicit
 	for c in model.classes:
 		for stm in c.statemachines:
@@ -1741,7 +1766,7 @@ def preprocess():
 
 def translate():
 	"""The translation function"""
-	global model, modelname, statemachinenames, statemachine, tr, smlocalvars, states, actions, class_receives, class_sends, vartypes, mcrl2varprefix, channeltypes, asynclossytypes, asynclosslesstypes, synctypes, statement_access, statement_condition_access, unsafe_statements, object_sync_commpairs, syncing_statements, check_onthefly, lock_onthefly, apply_por, sorted_variables, unsafe_variables
+	global model, modelname, statemachinenames, statemachine, tr, smlocalvars, csharedvars, states, actions, class_receives, class_sends, vartypes, mcrl2varprefix, channeltypes, asynclossytypes, asynclosslesstypes, synctypes, statement_access, statement_condition_access, unsafe_statements, object_sync_commpairs, syncing_statements, check_onthefly, lock_onthefly, apply_por, sorted_variables, unsafe_variables
 	
 	path, name = split(modelname)
 	if name.endswith('.slco'):
@@ -1803,7 +1828,7 @@ def translate():
 	# produce_summands(model)
 	# load the mCRL2 template
 	template = jinja_env.get_template('mcrl2sr.jinja2template')
-	out = template.render(model=model, statemachinenames=statemachinenames, states=states, vartypes=vartypes, mcrl2varprefix=mcrl2varprefix, channeltypes=channeltypes, asynclosslesstypes=asynclosslesstypes, asynclossytypes=asynclossytypes, synctypes=synctypes, trans=trans, ochannel=ochannel, object_sync_commpairs=object_sync_commpairs, syncing_statements=syncing_statements, transowner=trowner, statemachine=statemachine, check_onthefly=check_onthefly, lock_onthefly=lock_onthefly, apply_por=apply_por, sorted_variables=sorted_variables, unsafe_variables=unsafe_variables, sorted_objects=sorted_objects, sorted_statemachines=sorted_statemachines)
+	out = template.render(model=model, statemachinenames=statemachinenames, states=states, vartypes=vartypes, mcrl2varprefix=mcrl2varprefix, channeltypes=channeltypes, asynclosslesstypes=asynclosslesstypes, asynclossytypes=asynclossytypes, synctypes=synctypes, trans=trans, ochannel=ochannel, object_sync_commpairs=object_sync_commpairs, syncing_statements=syncing_statements, transowner=trowner, statemachine=statemachine, check_onthefly=check_onthefly, lock_onthefly=lock_onthefly, apply_por=apply_por, sorted_variables=sorted_variables, unsafe_variables=unsafe_variables, sorted_objects=sorted_objects, sorted_statemachines=sorted_statemachines, csharedvars=csharedvars)
 	# write mCRL2 spec
 	outFile.write(out)
 	outFile.close()
