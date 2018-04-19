@@ -481,9 +481,9 @@ eqn empty_History' = HIS'({% for o in model.objects %}{% set oloop = loop %}{% f
 
 % *** ACCESS DEPENDENCY AND THREAD DEPENDENCY FUNCTIONS, IMPLEMENTED AS LISTS, WITH INITIAL VALUES ***
 
-sort D_map' = struct DMAP'({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{% set smloop = loop %}{% for v in csharedvars[o.type] %}{{', ' if not (oloop.first and smloop.first and loop.first) }}r'{{o.name}}'{{sm.name}}'{{v}}: AccessPattern', w'{{o.name}}'{{sm.name}}'{{v}}: AccessPattern'{% endfor %}{% endfor %}{% endfor %});
+sort D_map' = struct DMAP'({% for o in model.objects | select("o_hassharedaccesses") %}{% set oloop = loop %}{% for sm in o.type.statemachines | select("sm_hassharedaccesses", o) %}{% set smloop = loop %}{% for v in accessed_sharedvars[o.type][sm][0] %}{{', ' if not (oloop.first and smloop.first and loop.first) }}r'{{sm.name}}'{{v}}: AccessPattern'{% endfor %}{% for v in accessed_sharedvars[o.type][sm][1] %}{{', ' if not (oloop.first and smloop.first and loop.first and accessed_sharedvars[o.type][sm][0] == []) }}w'{{sm.name}}'{{v}}: AccessPattern'{% endfor %}{% endfor %}{% endfor %});
 map D_init': D_map';
-eqn D_init' = DMAP'({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{% set smloop = loop %}{% for v in csharedvars[o.type] %}{{', ' if not (oloop.first and smloop.first and loop.first) }}A'([],[]), A'([],[]){% endfor %}{% endfor %}{% endfor %});
+eqn D_init' = DMAP'({% for o in model.objects | select("o_hassharedaccesses") %}{% set oloop = loop %}{% for sm in o.type.statemachines | select("sm_hassharedaccesses", o) %}{% set smloop = loop %}{% for v in accessed_sharedvars[o.type][sm][0] %}{{', ' if not (oloop.first and smloop.first and loop.first) }}A'([],[]){% endfor %}{% for v in accessed_sharedvars[o.type][sm][1] %}{{', ' if not (oloop.first and smloop.first and loop.first and accessed_sharedvars[o.type][sm][0] == []) }}A'([],[]){% endfor %}{% endfor %}{% endfor %});
 
 sort C_map' = struct CMAP'({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first)}}c'{{o.name}}'{{sm.name}}: AccessPattern'{% endfor %}{% endfor %});
 map C_init': C_map';
@@ -493,13 +493,15 @@ eqn C_init' = CMAP'({% for o in model.objects %}{% set oloop = loop %}{% for sm 
 
 map get_d': Object_SM' # Var' # Bool # D_map' -> AccessPattern';
 var dm': D_map';
-{% for o in model.objects %}
+{% for o in model.objects | select("o_hassharedaccesses") %}
 {% set oloop = loop %}
-{% for sm in o.type.statemachines %}
+{% for sm in o.type.statemachines | select("sm_hassharedaccesses", o) %}
 {% set smloop = loop %}
-{% for v in csharedvars[o.type] %}
-{% if oloop.first and smloop.first and loop.first %}eqn {% else %}    {% endif %}get_d'(O'SM'({{o.name}},{{sm.name}}), {{mcrl2varprefix}}{{o.name}}'{{v}}, false, dm') = r'{{o.name}}'{{sm.name}}'{{v}}(dm');
-    get_d'(O'SM'({{o.name}},{{sm.name}}), {{mcrl2varprefix}}{{o.name}}'{{v}}, true, dm') = w'{{o.name}}'{{sm.name}}'{{v}}(dm');
+{% for v in accessed_sharedvars[o.type][sm][0] %}
+{% if oloop.first and smloop.first and loop.first %}eqn {% else %}    {% endif %}get_d'(O'SM'({{o.name}},{{sm.name}}), {{mcrl2varprefix}}{{v}}, false, dm') = r'{{sm.name}}'{{v}}(dm');
+{% endfor %}
+{% for v in accessed_sharedvars[o.type][sm][1] %}
+{% if oloop.first and smloop.first and loop.first and accessed_sharedvars[o.type][sm][0] == [] %}eqn {% else %}    {% endif %}get_d'(O'SM'({{o.name}},{{sm.name}}), {{mcrl2varprefix}}{{v}}, true, dm') = w'{{sm.name}}'{{v}}(dm');
 {% endfor %}
 {% endfor %}
 {% endfor %}
@@ -516,13 +518,15 @@ var cm': C_map';
 map up_d': Object_SM' # Var' # Bool # AccessPattern' # D_map' -> D_map';
 var a': AccessPattern';
     dm': D_map';
-{% for o in model.objects %}
+{% for o in model.objects | select("o_hassharedaccesses") %}
 {% set oloop = loop %}
-{% for sm in o.type.statemachines %}
+{% for sm in o.type.statemachines | select("sm_hassharedaccesses", o) %}
 {% set smloop = loop %}
-{% for v in csharedvars[o.type] %}
-{% if oloop.first and smloop.first and loop.first %}eqn {% else %}    {% endif %}up_d'(O'SM'({{o.name}},{{sm.name}}), {{mcrl2varprefix}}{{o.name}}'{{v}}, false, a', dm') = DMAP'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o2.type.statemachines %}{% set sm2loop = loop %}{% for v2 in csharedvars[o2.type] %}{{', ' if not (o2loop.first and sm2loop.first and loop.first) }}{% if o == o2 and sm == sm2 and v == v2 %}union'(r'{{o2.name}}'{{sm2.name}}'{{v2}}(dm'),a'){% else %}r'{{o2.name}}'{{sm2.name}}'{{v2}}(dm'){% endif %}, w'{{o2.name}}'{{sm2.name}}'{{v2}}(dm'){% endfor %}{% endfor %}{% endfor %});
-    up_d'(O'SM'({{o.name}},{{sm.name}}), {{mcrl2varprefix}}{{o.name}}'{{v}}, true, a', dm') = DMAP'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o2.type.statemachines %}{% set sm2loop = loop %}{% for v2 in csharedvars[o2.type] %}{{', ' if not (o2loop.first and sm2loop.first and loop.first) }}r'{{o2.name}}'{{sm2.name}}'{{v2}}(dm'), {% if o == o2 and sm == sm2 and v == v2 %}union'(w'{{o2.name}}'{{sm2.name}}'{{v2}}(dm'),a'){% else %}w'{{o2.name}}'{{sm2.name}}'{{v2}}(dm'){% endif %}{% endfor %}{% endfor %}{% endfor %});
+{% for v in accessed_sharedvars[o.type][sm][0] %}
+{% if oloop.first and smloop.first and loop.first %}eqn {% else %}    {% endif %}up_d'(O'SM'({{o.name}},{{sm.name}}), {{mcrl2varprefix}}{{v}}, false, a', dm') = DMAP'({% for o2 in model.objects | select("o_hassharedaccesses") %}{% set o2loop = loop %}{% for sm2 in o.type.statemachines | select("sm_hassharedaccesses", o) %}{% set sm2loop = loop %}{% for v2 in accessed_sharedvars[o2.type][sm2][0] %}{{', ' if not (o2loop.first and sm2loop.first and loop.first) }}{% if o == o2 and sm == sm2 and v == v2 %}union'(r'{{sm2.name}}'{{v2}}(dm'),a'){% else %}r'{{sm2.name}}'{{v2}}(dm'){% endif %}{% endfor %}{% for v2 in accessed_sharedvars[o2.type][sm2][1] %}{{', ' if not (o2loop.first and sm2loop.first and loop.first and accessed_sharedvars[o2.type][sm2][0] == []) }}w'{{sm2.name}}'{{v2}}(dm'){% endfor %}{% endfor %}{% endfor %});
+{% endfor %}
+{% for v in accessed_sharedvars[o.type][sm][1] %}
+{% if oloop.first and smloop.first and loop.first and accessed_sharedvars[o.type][sm][0] == [] %}eqn {% else %}    {% endif %}up_d'(O'SM'({{o.name}},{{sm.name}}), {{mcrl2varprefix}}{{v}}, true, a', dm') = DMAP'({% for o2 in model.objects | select("o_hassharedaccesses") %}{% set o2loop = loop %}{% for sm2 in o.type.statemachines | select("sm_hassharedaccesses", o) %}{% set sm2loop = loop %}{% for v2 in accessed_sharedvars[o2.type][sm2][0] %}{{', ' if not (o2loop.first and sm2loop.first and loop.first) }}r'{{sm2.name}}'{{v2}}(dm'){% endfor %}{% for v2 in accessed_sharedvars[o2.type][sm2][1] %}{{', ' if not (o2loop.first and sm2loop.first and loop.first and accessed_sharedvars[o2.type][sm2][1] == []) }}{% if o == o2 and sm == sm2 and v == v2 %}union'(w'{{sm2.name}}'{{v2}}(dm'),a'){% else %}w'{{sm2.name}}'{{v2}}(dm'){% endif %}{% endfor %}{% endfor %}{% endfor %});
 {% endfor %}
 {% endfor %}
 {% endfor %}

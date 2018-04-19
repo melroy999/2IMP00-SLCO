@@ -42,7 +42,7 @@ scopedvars = {}
 # per class / statemachine, give a set of local variables
 smlocalvars = {}
 # per class, give a list of shared variables
-csharedvars = []
+accessed_sharedvars = []
 # transitions of state machines stored in dictionary per class/state machine/source state
 trans = {}
 # the summands for the output mCRL2 model
@@ -86,6 +86,10 @@ sorted_variables = []
 sorted_objects = []
 # sorted_statemachines
 sorted_statemachines = []
+
+# filtered accesses to reason about single and array variable accesses
+filtered_statement_access = {}
+filtered_statemachine_access = {}
 
 def RepresentsInt(s):
     try: 
@@ -174,6 +178,16 @@ def hasindex(v):
 def hasnoindex(v):
 	""" Test to check whether given (variable / variable scope name) pair has no index"""
 	return v[0].type.size <= 1
+
+def o_hassharedaccesses(o):
+	""" Test to check whether given object has at least one state machine accessing o's shared variables"""
+	global accessed_sharedvars
+	return accessed_sharedvars.get(o.type) != None
+
+def sm_hassharedaccesses(sm, o):
+	""" Test to check whether given object / statemachine accesses o's shared variables"""
+	global accessed_sharedvars
+	return accessed_sharedvars[o.type].get(sm) != None
 
 def datatypeacronym(s):
 	""" return acronym for given data type """
@@ -1192,7 +1206,7 @@ def number_of_accesses(s):
 		count += s[1][2][a]
 	return count
 
-def filtered_statemachine_access(o, sts, filtered_statement_access, in_access):
+def compute_filtered_statemachine_access(o, sts, filtered_statement_access, in_access):
 	"""Combine the filtered_accesses of the statements of a statemachine with the given in_access, producing a single filtered access. o is the owning object"""
 	setr = set([])
 	setw = set([])
@@ -1287,14 +1301,108 @@ def build_dep_graph(o, sm, smfadict):
 			for j in range(i+1,len(o.type.statemachines)):
 				sm2 = o.type.statemachines[j]
 				if sm2 != sm:
-					if accesses_conflict(smfadict[o][sm1], smfadict[o][sm2]):
+					if accesses_conflict(smfadict[o.type][sm1], smfadict[o.type][sm2]):
 						depgraph[sm1].add(sm2)
 						depgraph[sm2].add(sm1)
 	return depgraph
 
+def compute_filtered_statement_accesses():
+	"""Compute filtered accesses to reason about single and array variable accesses"""
+	global filtered_statement_access, statement_access
+	# filter statement_access to remove references to array cells that cannot be (or are hard to be) evaluated statically
+	# for each access set (read and write) we actually build a set and two dictionaries:
+	# - the first set consists of accesses to simple, i.e., not array, variables
+	# - the first dictionary produces per accessed array a set of concrete indices (integers)
+	# - the second dictionary produces per accessed array the number of accesses where the location (cell index) could not be determined statically.
+	filtered_statement_access = {}
+	for o in statement_access.keys():
+		filtered_statement_access[o] = {}
+		for st in statement_access[o].keys():
+			newaccess = [[set([]), {}, {}], [set([]), {}, {}]]
+			for i in range(0,2):
+				imprecise_seen = set([])
+				for v in statement_access[o][st][i]:
+					varname = v
+					if v.find('(Int2Nat(') != -1:
+						varname, varindex = v.split('(Int2Nat(')
+						# get index
+						varindex = varindex[:-2]
+						if RepresentsInt(varindex):
+							occset = newaccess[i][1].get(varname,set([]))
+							occset.add(varindex)
+							newaccess[i][1][varname] = occset
+						elif (varname + "[" + varindex + "]") not in imprecise_seen:
+							imprecise_seen.add(varname + "[" + varindex + "]")
+							counter = newaccess[i][2].get(varname,0)
+							counter += 1
+							newaccess[i][2][varname] = counter
+					else:
+						newaccess[i][0].add(varname)
+			filtered_statement_access[o][st] = tuple(newaccess)
+
+def compute_filtered_statemachine_accesses(m):
+	"""Filtered accesses on statemachine level"""
+	global filtered_statement_access, filtered_statemachine_access
+	# create list of objects, one at most per class
+	classobjects = []
+	represented_classes = set([])
+	for o in m.objects:
+		if o.type not in represented_classes:
+			classobjects.append(o)
+			represented_classes.add(o.type)
+	# create dictionary of statements
+	sdict = {}
+	for c in m.classes:
+		cdict = {}
+		for sm in c.statemachines:
+			stset = set([])
+			for tr in sm.transitions:
+				for st in tr.statements:
+					stset.add(st)
+			cdict[sm] = stset
+		sdict[c] = cdict
+	filtered_statemachine_access = {}
+
+	for o in m.objects:
+		smdict = {}
+		for sm in o.type.statemachines:
+			smdict[sm] = compute_filtered_statemachine_access(o, sdict[o.type][sm], filtered_statement_access, [[set(),{},{}],[set(),{},{}]])
+		filtered_statemachine_access[o.type] = smdict
+
+def build_accessed_sharedvars(m):
+	"""build a dictionary providing a list of shared variables accessed by each statemachine"""
+	global accessed_sharedvars
+	accessed_sharedvars = {}
+	for c in m.classes:
+		smdict = {}
+		for sm in c.statemachines:
+			vsets = [set([]),set([])]
+			fa = filtered_statemachine_access[c][sm]
+			for i in range(0,2):
+				vsets[i] |= fa[i][0]
+				aset = set([])
+				for a in fa[i][2].keys():
+					aset.add(a)
+					# look up array, and add all its cells
+					o1, v1 = a.split("'")
+					for v2 in c.variables:
+						if v2.name == v1:
+							for j in range(0,v2.type.size):
+								vsets[i].add(a + "(Int2Nat(" + str(j) + "))")
+							found = True
+							break
+				for a in fa[i][1].keys():
+					if a not in aset:
+						for j in fa[i][1][a]:
+							vsets[i].add(a + "(Int2Nat(" + str(j) + "))")
+			if vsets != [set([]),set([])]:
+				smdict[sm] = [list(vsets[0]),list(vsets[1])]
+		if smdict != {}:
+			accessed_sharedvars[c] = smdict
+
 def identify_safe_unsafe_statements(m):
 	"""Partition the statements of the model into safe and unsafe statements"""
-	global safe_statements, unsafe_statements, statement_access, statemachine, smclass, unsafe_variables, default_search
+	global safe_statements, unsafe_statements, statement_access, statemachine, smclass, unsafe_variables, default_search, filtered_statement_access, filtered_statemachine_access
 
 	# Distribute statements over the sets safe and unsafe
 	safe_statements = set([])
@@ -1330,36 +1438,6 @@ def identify_safe_unsafe_statements(m):
 						varname += "(Int2Nat(" + str(i) + ")"
 				unsafe_variables.add(varname)
 	else:
-		# filter statement_access to remove references to array cells that cannot be (or are hard to be) evaluated statically
-		# for each access set (read and write) we actually build a set and two dictionaries:
-		# - the first set consists of accesses to simple, i.e., not array, variables
-		# - the first dictionary produces per accessed array a set of concrete indices (integers)
-		# - the second dictionary produces per accessed array the number of accesses where the location (cell index) could not be determined statically.
-		filtered_statement_access = {}
-		for o in statement_access.keys():
-			filtered_statement_access[o] = {}
-			for st in statement_access[o].keys():
-				newaccess = [[set([]), {}, {}], [set([]), {}, {}]]
-				for i in range(0,2):
-					imprecise_seen = set([])
-					for v in statement_access[o][st][i]:
-						varname = v
-						if v.find('(Int2Nat(') != -1:
-							varname, varindex = v.split('(Int2Nat(')
-							# get index
-							varindex = varindex[:-2]
-							if RepresentsInt(varindex):
-								occset = newaccess[i][1].get(varname,set([]))
-								occset.add(varindex)
-								newaccess[i][1][varname] = occset
-							elif (varname + "[" + varindex + "]") not in imprecise_seen:
-								imprecise_seen.add(varname + "[" + varindex + "]")
-								counter = newaccess[i][2].get(varname,0)
-								counter += 1
-								newaccess[i][2][varname] = counter
-						else:
-							newaccess[i][0].add(varname)
-				filtered_statement_access[o][st] = tuple(newaccess)
 		# create dictionary of statements
 		sdict = {}
 		for o in classobjects:
@@ -1372,15 +1450,6 @@ def identify_safe_unsafe_statements(m):
 						stset.add(st)
 				cdict[sm] = stset
 			sdict[c] = cdict
-
-		# create dictionary of combined filtered accesses (one per object/statemachine)
-		smfadict = {}
-		for o in classobjects:
-			tmpdict = {}
-			for sm in o.type.statemachines:
-				fa = filtered_statemachine_access(o, sdict[o.type][sm], filtered_statement_access, [[set(),{},{}],[set(),{},{}]])
-				tmpdict[sm] = fa
-			smfadict[o] = tmpdict
 
 		# check possibility for atomicity violations
 		for o in classobjects:
@@ -1399,7 +1468,7 @@ def identify_safe_unsafe_statements(m):
 						# if SCCs indicating connections between other statemachines in o are not yet identified, do so
 						# and compute combined filtered accesses for the SCCs
 						if SCCs == []:
-							depgraph = build_dep_graph(o, sm, smfadict)
+							depgraph = build_dep_graph(o, sm, filtered_statemachine_access)
 							initialsm = []
 							for sm1 in c.statemachines:
 								if sm1 != sm:
@@ -1408,7 +1477,7 @@ def identify_safe_unsafe_statements(m):
 							for scc in SCCs:
 								combined_access = [[set(),{},{}],[set(),{},{}]]
 								for sm1 in scc[1].keys():
-									combined_access = filtered_statemachine_access(o, sdict[c][sm1], filtered_statement_access, combined_access)
+									combined_access = compute_filtered_statemachine_access(o, sdict[c][sm1], filtered_statement_access, combined_access)
 								SCC_filtered_accesses.append(combined_access)
 						# check if any combined filtered access conflicts with st1
 						marked_unsafe = False
@@ -1529,7 +1598,7 @@ def identify_safe_unsafe_statements(m):
 
 def preprocess():
 	"""preprocessing method"""
-	global model, statemachinenames, statemachine, trowner, smlocalvars, csharedvars, states, actions, class_sync_receives, class_sync_sends, trans, smclass, channeltypes, asynclosslesstypes, asynclossytypes, synctypes, porttypes, ochannel, vartypes, object_sync_commpairs, syncing_statements, sorted_variables, sorted_objects, sorted_statemachines
+	global model, statemachinenames, statemachine, trowner, smlocalvars, accessed_sharedvars, states, actions, class_sync_receives, class_sync_sends, trans, smclass, channeltypes, asynclosslesstypes, asynclossytypes, synctypes, porttypes, ochannel, vartypes, object_sync_commpairs, syncing_statements, sorted_variables, sorted_objects, sorted_statemachines, filtered_statement_access, filtered_statemachine_access
 	# build dictionaries providing for a given statement the state machine and transition owning it, and for a given state machine, the class owning it
 	for c in model.classes:
 		for stm in c.statemachines:
@@ -1588,18 +1657,6 @@ def preprocess():
 			for var in stm.variables:
 				varset.add(var.name)
 			smlocalvars[c.name + "'" + stm.name] = varset
-	# build a dictionary providing a list of shared variable names for each class
-	csharedvars = {}
-	for c in model.classes:
-		varlist = []
-		for v in c.variables:
-			varname = v.name
-			if v.type.size > 1:
-				for i in range(0,v.type.size):
-					varlist.append(varname + "(Int2Nat(" + str(i) + ")")
-			else:
-				varlist.append(varname)
-		csharedvars[c] = varlist
 	# build dictionary making variable scopes explicit
 	for c in model.classes:
 		for stm in c.statemachines:
@@ -1766,7 +1823,7 @@ def preprocess():
 
 def translate():
 	"""The translation function"""
-	global model, modelname, statemachinenames, statemachine, tr, smlocalvars, csharedvars, states, actions, class_receives, class_sends, vartypes, mcrl2varprefix, channeltypes, asynclossytypes, asynclosslesstypes, synctypes, statement_access, statement_condition_access, unsafe_statements, object_sync_commpairs, syncing_statements, check_onthefly, lock_onthefly, apply_por, sorted_variables, unsafe_variables
+	global model, modelname, statemachinenames, statemachine, tr, smlocalvars, accessed_sharedvars, states, actions, class_receives, class_sends, vartypes, mcrl2varprefix, channeltypes, asynclossytypes, asynclosslesstypes, synctypes, statement_access, statement_condition_access, unsafe_statements, object_sync_commpairs, syncing_statements, check_onthefly, lock_onthefly, apply_por, sorted_variables, unsafe_variables
 	
 	path, name = split(modelname)
 	if name.endswith('.slco'):
@@ -1809,17 +1866,24 @@ def translate():
 	jinja_env.tests['hasvariables'] = hasvariables
 	jinja_env.tests['hasindex'] = hasindex
 	jinja_env.tests['hasnoindex'] = hasnoindex
+	jinja_env.tests['o_hassharedaccesses'] = o_hassharedaccesses
+	jinja_env.tests['sm_hassharedaccesses'] = sm_hassharedaccesses
 
 	# compute statement access patterns
 	statement_access = compute_accesspatterns(model)
 	statement_condition_access = compute_condition_accesspatterns(model)
+	# compute filtered accesses per statement and on state machine level
+	compute_filtered_statement_accesses()
+	compute_filtered_statemachine_accesses(model)
+	# build dictionary of accesses to shared variables done by each statemachine
+	build_accessed_sharedvars(model)
 	# compute which statements are safe and unsafe
 	identify_safe_unsafe_statements(model)
 
 	# special case: if no unsafe statements are present, the result is that all variables can remain unlocked
-	# if len(unsafe_statements) == 0:
-	# 	print("No variables require locking!")
-	# 	exit(0)
+	if len(unsafe_statements) == 0:
+		print("No variables require locking!")
+		exit(0)
 
 	# identify POR safe statements
 	identify_por_safe_statements(model)
@@ -1828,7 +1892,7 @@ def translate():
 	# produce_summands(model)
 	# load the mCRL2 template
 	template = jinja_env.get_template('mcrl2sr.jinja2template')
-	out = template.render(model=model, statemachinenames=statemachinenames, states=states, vartypes=vartypes, mcrl2varprefix=mcrl2varprefix, channeltypes=channeltypes, asynclosslesstypes=asynclosslesstypes, asynclossytypes=asynclossytypes, synctypes=synctypes, trans=trans, ochannel=ochannel, object_sync_commpairs=object_sync_commpairs, syncing_statements=syncing_statements, transowner=trowner, statemachine=statemachine, check_onthefly=check_onthefly, lock_onthefly=lock_onthefly, apply_por=apply_por, sorted_variables=sorted_variables, unsafe_variables=unsafe_variables, sorted_objects=sorted_objects, sorted_statemachines=sorted_statemachines, csharedvars=csharedvars)
+	out = template.render(model=model, statemachinenames=statemachinenames, states=states, vartypes=vartypes, mcrl2varprefix=mcrl2varprefix, channeltypes=channeltypes, asynclosslesstypes=asynclosslesstypes, asynclossytypes=asynclossytypes, synctypes=synctypes, trans=trans, ochannel=ochannel, object_sync_commpairs=object_sync_commpairs, syncing_statements=syncing_statements, transowner=trowner, statemachine=statemachine, check_onthefly=check_onthefly, lock_onthefly=lock_onthefly, apply_por=apply_por, sorted_variables=sorted_variables, unsafe_variables=unsafe_variables, sorted_objects=sorted_objects, sorted_statemachines=sorted_statemachines, accessed_sharedvars=accessed_sharedvars)
 	# write mCRL2 spec
 	outFile.write(out)
 	outFile.close()
