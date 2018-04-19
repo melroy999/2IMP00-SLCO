@@ -38,7 +38,7 @@ class MinMax:
 		return random.randint(mi, ma)
 
 	def randint(self):
-		if (self.max <= self.min+1):
+		if (self.max <= self.min):
 			return self.min
 		return random.randint(self.min, self.max)
 
@@ -271,6 +271,9 @@ def to_json(obj):
 		        'num_edges': obj.num_edges,
 		        'loops': obj.loops,
 		        'degree_sequence': obj.dseq}
+	elif isinstance(obj, GraphGenerator_DegreeSequenceSpanningTree):
+		return {'__class__': 'GraphGenerator_DegreeSequenceSpanningTree',
+				'degree_sequence': obj.dseq}
 	raise TypeError(repr(obj) + ' is not JSON serializable')
 
 
@@ -309,6 +312,10 @@ def from_json(obj):
 			gen.directed = from_json(obj['directed'])
 			gen.num_edges = from_json(obj['num_edges'])
 			gen.loops = from_json(obj['loops'])
+			gen.dseq = from_json(obj['degree_sequence'])
+			return gen
+		elif obj['__class__'] == 'GraphGenerator_DegreeSequenceSpanningTree':
+			gen = GraphGenerator_DegreeSequenceSpanningTree()
 			gen.dseq = from_json(obj['degree_sequence'])
 			return gen
 	return obj
@@ -394,7 +401,7 @@ def generate_model(config, name):
 	for e in sm_network.es:
 		num_vars = max(1, config.vars_per_edge.randint())
 		e["vars"] = [var_count+x for x in range(0, num_vars)]
-		var_count += num_vars
+		var_count += num_vars + 1
 
 	if num_sm > 2:
 		# randomly generate a number of variables shared by more than two state machines
@@ -405,6 +412,7 @@ def generate_model(config, name):
 			selected_edges = random.sample(list(sm_network.es), num_shared)
 			for e in selected_edges:
 				e["vars"].append(var_count)
+	var_count += 1
 
 	state_machines = []
 	for sm in range(0, num_sm):
