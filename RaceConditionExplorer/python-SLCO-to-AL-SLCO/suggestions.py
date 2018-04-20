@@ -2,7 +2,7 @@
 from transformation_utils import *
 from utils import stack
 
-STATEMENT_MEMORY_FENCE = ';#;'
+STATEMENT_MEMORY_FENCE = '#'
 
 def parse_var(var):
 	return var.split("'")[1]
@@ -64,6 +64,8 @@ class AccessPattern:
 	def find_assignment_full(self, statement_list, start):
 		for i in range(start, len(statement_list)):
 			statement = statement_list[i]
+			if statement.__class__.__name__ == "str":
+				continue
 			b_write_found = len(self.w) == 0 or (len(self.w) == 1 and statement.left.var.name in self.w)
 			reads = set()
 			get_read_vars_from_expression(statement.right, reads)
@@ -179,9 +181,12 @@ class AD:
 		self.access_patterns = self.access_patterns | aps
 
 	def apply(self, composite):
-		# apply shuffle suggestions (in-line)
-		for sh in self.shuffles:
-			sh.apply(composite.assignments)
+		# apply shuffle suggestions (in-line) until a fixpoint is reached
+		shuffled = True
+		while shuffled:
+			shuffled = False
+			for sh in self.shuffles:
+				shuffled = shuffled | sh.apply(composite.assignments)
 		# move composite statement over the part that requires it
 		# first get matching ranges for each access pattern ap
 		ranges = []
@@ -299,10 +304,12 @@ class SH:
 		return access_patterns, new_shuffles
 
 	def apply(self, assignment_list):
-		i_before = -1
+		i_after = -1
+		shuffled = False
 		while True:  # termination condition at first if
-			i_before = self.before.find_assignment_full(assignment_list, i_before + 1)
-			i_after = self.after.find_assignment_full(assignment_list, i_before + 2)
+			i_after = self.after.find_assignment_full(assignment_list, i_after + 1)
+			i_before = self.before.find_assignment_full(assignment_list, i_after + 1)
+			
 			if i_before == -1 or i_after == -1:
 				break
 			if i_before > i_after:  # need to swap
@@ -311,6 +318,8 @@ class SH:
 				assignment_list[i_before] = assignment_list[i_after]
 				assignment_list[i_after] = temp
 				assignment_list.insert(i_before, STATEMENT_MEMORY_FENCE)
+				shuffled = True
+		return shuffled
 				
 
 
