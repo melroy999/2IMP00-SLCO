@@ -119,7 +119,7 @@ class AccessPattern:
 		# return_statements = [composite]
 		# when self.r and self.w are fully covered then we have a sub composite
 		read_remainder = (self.r - total_reads)
-		write_remainder = (self.r - total_writes)
+		write_remainder = (self.w - total_writes)
 		# if remainders are empty then self.r and self.w are fully covered
 		if not read_remainder and not write_remainder:
 			return first, last + 1  # range is [low, last + 1), i.e. last+1 is not selected by the range
