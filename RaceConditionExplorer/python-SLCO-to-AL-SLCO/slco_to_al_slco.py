@@ -242,9 +242,9 @@ def main():
 	
 	out_path = args['out']
 	if out_path == 'INPUT_MODEL':
-		out_path = slco_path[:-5] + '_AL.slco'
-	elif not out_path.endswith('.slco'):
-		out_path = out_path + '.slco'
+		out_path = slco_path[:-5] + '.alslco'
+	elif not out_path.endswith('.alslco'):
+		out_path = out_path + '.alslco'
 	
 	logging.info('Starting SLCO Atomicity-free code generator')
 	logging.info('Input model       : %s', slco_path)
