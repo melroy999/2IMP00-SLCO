@@ -62,7 +62,11 @@ Transition:
 ;
 
 Statement:
-  (Composite | ReceiveSignal | SendSignal | Delay | Assignment | Expression )
+  (Composite | ReceiveSignal | SendSignal | Delay | Assignment | Expression | MemoryFence)
+;
+
+MemoryFence:
+  ';' '#' ';'
 ;
 
 Assignment:
