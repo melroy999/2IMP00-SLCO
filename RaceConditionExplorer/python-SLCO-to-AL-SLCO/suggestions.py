@@ -273,12 +273,13 @@ class SH:
 				graph[acc] = afters
 		# find a cyclic shuffle orders, we use depth first search
 		if graph.keys():
-			node = list(graph.keys())[0]
-			cycle_completing_edges = find_cycle_completing_edges(graph, node)
+			cycle_completing_edges = find_cycle_completing_edges(graph)
 			# remove cycle_completing_edges from the graph
 			# and convert removed edges to an access pattern
 			for source, target in cycle_completing_edges:
 				graph[source].remove(target)
+				if not graph[source]:
+					del graph[source]
 				# convert source, target to an access pattern.
 				rsource, wsource = source
 				rtarget, wtarget = target
@@ -286,9 +287,9 @@ class SH:
 				if rsource and wtarget:
 					ap = AccessPattern({rsource}, {wtarget})
 				elif wsource and rtarget:
-					ap = AccessPattern({wsource}, {rtarget})
+					ap = AccessPattern({rtarget}, {wsource})
 				elif wsource and wtarget:
-					ap = AccessPattern({wsource}, {wtarget})
+					ap = AccessPattern(set(), {wsource, wtarget})
 				if ap:
 					access_patterns.add(ap)
 			# build new shuffle set
@@ -323,7 +324,7 @@ class SH:
 				
 
 
-def find_cycle_completing_edges(graph, default_value):
+def find_cycle_completing_edges(graph):
 	cycle_completing_edges = list()
 	visited = set()
 	for s in graph.keys():

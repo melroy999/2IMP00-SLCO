@@ -128,6 +128,8 @@ def slco_expression_to_text(expr):
 
 
 def slco_assignment_to_text(assign):
+	if assign.__class__.__name__ == "str":  # in case of MemoryFence #
+		return assign
 	return "%s := %s" % (slco_var_ref_to_text(assign.left), slco_expression_to_text(assign.right))
 
 
@@ -176,7 +178,7 @@ def slc_state_machine_to_text(state_machine):
 	states = [x.name for x in state_machine.states]
 	transitions = [slco_transition_to_text(x) for x in state_machine.transitions]
 	return state_machine_template % \
-	       (state_machine.name, "\n\t\t\t\t\t".join(variables), state_machine.initialstate,
+	       (state_machine.name, "\n\t\t\t\t\t".join(variables), state_machine.initialstate.name,
 		    " ".join(states),  "\n\t\t\t\t\t".join(transitions))
 	
 	
