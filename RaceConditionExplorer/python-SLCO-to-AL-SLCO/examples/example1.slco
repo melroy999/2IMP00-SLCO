@@ -42,7 +42,7 @@ classes
 				initial S0
 				states  S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13
 				transitions	
-					from S0 to S1 { var_8 := var_8 ; var_14 := var_8 ; var_11 := var_2}
+					from S0 to S1 { [var_8 := var_8 ; var_14 := var_8 ; var_11 := var_2]}
 				}
 
 

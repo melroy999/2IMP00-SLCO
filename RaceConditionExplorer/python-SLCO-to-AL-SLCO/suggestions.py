@@ -164,12 +164,10 @@ class AD:
 		return
 		conflicts = SH.find_conflicting(self.shuffles)
 		self.shuffles -= conflicts
-
-	# derive access pattern from conflicting shuffles
-	# TODO
+		# derive access pattern from conflicting shuffles
+		# TODO
 
 	def apply(self, composite):
-		statements = []
 		# apply shuffle suggestions (in-line)
 		for sh in self.shuffles:
 			sh.apply(composite.assignments)
@@ -183,16 +181,17 @@ class AD:
 		# merge overlapping ranges
 		for i in range(0, len(ranges)):
 			for j in range(0, len(ranges)):
-				lowi = ranges[i][0]
-				lowj = ranges[j][0]
-				highi = ranges[j][1]
-				highj = ranges[j][1]
-				if lowj < lowi < highj or lowj < highi < highj:
+				if i == j:
+					continue
+				lowi, highi = ranges[i]
+				lowj, highj = ranges[j]
+				if lowj <= lowi < highj or lowj < highi <= highj:
 					# merge range
-					ranges[i][0] = lowi if lowi < lowj else lwoj
-					ranges[i][1] = highi if highi > highj else highj
+					new_low = lowi if lowi < lowj else lowj
+					new_high = highi if highi > highj else highj
+					ranges[i] = (new_low, new_high)
 					# 'disable' redundant range
-					ranges[j][0] = ranges[j][1] = -2
+					ranges[j] = (-2,-2)
 		ranges = [(low, high) for (low, high) in ranges if low != -2]
 		# ranges are now disjoint
 		# sort ranges by lowest
@@ -204,14 +203,21 @@ class AD:
 			if asgn_idx < low:
 				return_statements.extend(composite.assignments[asgn_idx:low])
 			asgn_idx = high  # next index of assignments
-			new_composite = Composite()
-	todo how to create a composite? can we use textx?
+			
+			# create new composite class
+			composite_class = composite.__class__
+			new_composite = composite_class.__new__(composite_class)
+			composite_class._tx_metamodel._init_obj_attrs(new_composite)
+			
 			if low == -1:
 				new_composite.guard = composite.guard
 				low = 0
 			new_composite.assignments = composite.assignments[low:high]
 			return_statements.append(new_composite)
-		return statements
+		asgn_size = len(composite.assignments)
+		if asgn_size > asgn_idx:
+			return_statements.extend(composite.assignments[asgn_idx:asgn_size])
+		return return_statements
 
 
 class SH:
