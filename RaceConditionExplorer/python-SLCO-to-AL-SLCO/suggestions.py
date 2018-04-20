@@ -1,9 +1,12 @@
 
-from utils import *
-
+from transformation_utils import *
+from utils import stack
 
 STATEMENT_MEMORY_FENCE = ';#;'
 
+def parse_var(var):
+	return var.split("'")[1]
+	
 
 def parse_suggestions(sugg_path):
 	file = open(sugg_path, 'r')
@@ -149,7 +152,6 @@ class AD:
 
 		ad = AD({access_pattern}, shuffles)
 		ad.merge_overlapping_access_patterns()
-		ad.fix_conflicting_shuffles()
 		return ad
 
 	def merge(self, ad):
@@ -169,14 +171,12 @@ class AD:
 					ap1.w = ap1.w | ap2.w
 					ap2.r = ap2.w = set()
 		# remove redundant access_patterns
-		self.access_patterns = [x for x in self.access_patterns if x.r]
+		self.access_patterns = {x for x in self.access_patterns if x.r}
 
 	def fix_conflicting_shuffles(self):
-		return
-		conflicts = SH.find_conflicting(self.shuffles)
-		self.shuffles -= conflicts
-		# derive access pattern from conflicting shuffles
-		# TODO
+		aps, new_shuffles = SH.find_conflicting(self.shuffles)
+		self.shuffles = new_shuffles
+		self.access_patterns = self.access_patterns | aps
 
 	def apply(self, composite):
 		# apply shuffle suggestions (in-line)
@@ -251,9 +251,52 @@ class SH:
 
 	@staticmethod
 	def find_conflicting(shuffle_set):
-		# find a cyclic shuffle order
-		# TODO
-		return set()
+		access_patterns = set()
+		new_shuffles = shuffle_set
+		# build a graph dictionary
+		graph = dict()
+		for sh in shuffle_set:
+			for a in sh.before.r:
+				acc = (a, None)
+				afters = graph.get(acc, set())
+				afters = afters | {(x, None) for x in sh.after.r} | {(None, x) for x in sh.after.w}
+				graph[acc] = afters
+			for a in sh.before.w:
+				acc = (None, a)
+				afters = graph.get(acc, set())
+				afters = afters | {(x, None) for x in sh.after.r} | {(None, x) for x in sh.after.w}
+				graph[acc] = afters
+		# find a cyclic shuffle orders, we use depth first search
+		if graph.keys():
+			node = list(graph.keys())[0]
+			cycle_completing_edges = find_cycle_completing_edges(graph, node)
+			# remove cycle_completing_edges from the graph
+			# and convert removed edges to an access pattern
+			for source, target in cycle_completing_edges:
+				graph[source].remove(target)
+				# convert source, target to an access pattern.
+				rsource, wsource = source
+				rtarget, wtarget = target
+				ap = None
+				if rsource and wtarget:
+					ap = AccessPattern({rsource}, {wtarget})
+				elif wsource and rtarget:
+					ap = AccessPattern({wsource}, {rtarget})
+				elif wsource and wtarget:
+					ap = AccessPattern({wsource}, {wtarget})
+				if ap:
+					access_patterns.add(ap)
+			# build new shuffle set
+			new_shuffles = set()
+			for source, targets in graph.items():
+				rsource, wsource = source
+				source_ap = AccessPattern({rsource}, set()) if rsource \
+							else AccessPattern(set(), {wsource})
+				reads = {x for (x, _) in targets if x}
+				writes = {x for (_, x) in targets if x}
+				target_ap = AccessPattern(reads, writes)
+				new_shuffles.add(SH(source_ap, target_ap))
+		return access_patterns, new_shuffles
 
 	def apply(self, assignment_list):
 		i_before = -1
@@ -268,3 +311,31 @@ class SH:
 				assignment_list[i_before] = assignment_list[i_after]
 				assignment_list[i_after] = temp
 				assignment_list.insert(i_before, STATEMENT_MEMORY_FENCE)
+				
+
+
+def find_cycle_completing_edges(graph, default_value):
+	cycle_completing_edges = list()
+	visited = set()
+	for s in graph.keys():
+		if s in visited:
+			continue
+		
+		node_stack = stack()
+		node_stack.append(s)
+		while node_stack:
+			node = node_stack.peek()
+			if node in visited:
+				# node was already visited
+				node_stack.pop()
+				continue
+			
+			visited.add(node)
+			targets = graph.get(node, set())
+			for target in targets:
+				if target not in visited:
+					node_stack.append(target)
+				elif target in node_stack:
+					# if target is visited and in state_stack, then there is a cycle!
+					cycle_completing_edges.append((node, target))
+	return cycle_completing_edges
