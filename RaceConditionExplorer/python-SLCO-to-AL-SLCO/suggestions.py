@@ -157,8 +157,19 @@ class AD:
 		self.shuffles = self.shuffles | ad.shuffles
 
 	def merge_overlapping_access_patterns(self):
-		# TODO merge access paterns that have reads or writes in common
-		return
+		# merge access paterns that have reads or writes in common
+		for ap1 in self.access_patterns:
+			for ap2 in self.access_patterns:
+				if ap1 == ap2:
+					continue
+				
+				if ap1.r & ap2.r or ap1.w & ap2.w:
+					# merge the two access_patterns
+					ap1.r = ap1.r | ap2.r
+					ap1.w = ap1.w | ap2.w
+					ap2.r = ap2.w = set()
+		# remove redundant access_patterns
+		self.access_patterns = [x for x in self.access_patterns if x.r]
 
 	def fix_conflicting_shuffles(self):
 		return
