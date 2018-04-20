@@ -40,12 +40,8 @@ classes
 						turn[curr] = 0
 					}
 
-					from p8 to p9 {
+					from p8 to elected {
 						curr > 0 and c[curr-1] = 0
-					}
-
-					from p9 to elected {
-						
 					}
 
 					from p8 to p1 {
@@ -88,12 +84,8 @@ classes
 						turn[curr] = 1
 					}
 
-					from p8 to p9 {
+					from p8 to elected {
 						curr > 0 and c[curr-1] = 0
-					}
-
-					from p9 to elected {
-						
 					}
 
 					from p8 to p1 {
@@ -136,12 +128,8 @@ classes
 						turn[curr] = 2
 					}
 
-					from p8 to p9 {
+					from p8 to elected {
 						curr > 0 and c[curr-1] = 0
-					}
-
-					from p9 to elected {
-						
 					}
 
 					from p8 to p1 {

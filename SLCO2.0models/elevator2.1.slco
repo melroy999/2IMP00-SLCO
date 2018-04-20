@@ -11,7 +11,7 @@ classes
 				variables
 					
 				initial idle
-				states  mov open
+				states  mov open open1
 				transitions
 					from idle to mov {
 						v>0
@@ -29,7 +29,11 @@ classes
 						[t>p; p := p+1]
 					}
 
-					from open to idle {
+					from open to open1 {
+						p > 0 and p < 4
+					}
+
+					from open1 to idle {
 						[req[p] := 0;v := 0]
 					}
 
@@ -63,7 +67,7 @@ classes
 				variables
 					Byte ldir
 				initial wait
-				states  work done
+				states  work work1 work2 done
 				transitions
 					from wait to work {
 						[v=0; t := t+(2*ldir)-1]
@@ -73,12 +77,20 @@ classes
 						[t<0 or t=4; ldir := 1-ldir]
 					}
 
-					from work to done {
-						t>=0 and t<4 and req[t]=1
+					from work to work1 {
+						t>=0 and t < 4
 					}
 
-					from work to work {
-						[t>=0 and t<4 and req[t]=0; t := t+(2*ldir)-1]
+					from work1 to done {
+						req[t]=1
+					}
+
+					from work1 to work2 {
+						req[t]=0
+					}
+
+					from work2 to work {
+						[t := t+(2*ldir)-1]
 					}
 
 					from done to wait {
