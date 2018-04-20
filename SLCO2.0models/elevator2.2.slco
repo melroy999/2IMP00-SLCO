@@ -9,9 +9,9 @@ classes
 		state machines
 			cabin {
 				variables
-					
+				Integer vtmp
 				initial idle
-				states  mov open
+				states  mov open open1 open2
 				transitions
 					from idle to mov {
 						v>0
@@ -29,8 +29,16 @@ classes
 						[t>p; p := p+1]
 					}
 
-					from open to idle {
-						[req[p] := 0;v := 0]
+					from open to open1 {
+						vtmp := p
+					}
+
+					from open1 to open2 {
+						vtmp > 0 and vtmp < 10
+					}
+
+					from open2 to idle {
+						[req[vtmp] := 0;v := 0]
 					}
 
 				}
