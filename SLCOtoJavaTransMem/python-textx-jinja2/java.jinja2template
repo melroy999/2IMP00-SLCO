@@ -86,30 +86,24 @@ public class {{model.name}} {
 						switch(java_choice) {
 							{% for i in range(0,sout|length) %}
 							case {{i}}:
-								//System.out.println("{{sm.name}}_{{s.name}}_{{i}}");
 								{% for st in sout[i].statements %}
+								//System.out.println("{{sm.name}}_{{s.name}}_{{i}}");
 								{% set stloop = loop %}
 								// {{st|getlabel}}
 								{% set label = st|getlabel %}
+								{%set getjavastatement = st|javastatement(24,True,o)%}
 								{%if label[0][0] == '[' %}
 									atomic {
-								        	{{st|javastatement(16,True,o)}}
-										{%for guard in label%}
-										{%if guard in ('>', '<','>=','<=','==','!=','&&', '||','!=') %}
-										}
-										{% break %}
-										{%endif%}
-										{%endfor%}
+								        	{{getjavastatement}}
 									}
-								{% else %} 
-									{{st|javastatement(16,True,o)}}
-								    {%for guard in label%}
-									{%if guard in ('>', '<','>=','<=','==','!=','&&', '||','!=') %}
-									}
-									{% break %}
-									{%endif%}
-									{%endfor%}
+								{% else %}
+									{{getjavastatement}}
 								{% endif %} 
+								{%for brace in getjavastatement%}
+								{%if brace == '{'%}
+									}
+								{%endif%}
+								{%endfor%}
 								{% endfor %}
 								// Change state
 								//System.out.println("{{sm.name}}_{{s.name}}_{{i}}_changestate");
@@ -127,25 +121,19 @@ public class {{model.name}} {
 						//System.out.println("{{sm.name}}_{{s.name}}_{{st}}");
 						// {{st|getlabel}}
 						{% set label = st|getlabel %}
+						{%set getjavastatement = st|javastatement(24,True,o)%}
 						{% if label[0][0] == '['%} 
-						atomic {
-							{{st|javastatement(16,True,o)}}
-							{%for guard in label%}
-								{%if guard in ('>', '<','>=','<=','==','!=','&&', '||','!=') %}
-								}
-								{% break %}
-								{%endif%}
-							{%endfor%}
-						}
-						{% else %} 
-						{{st|javastatement(16,True,o)}}
-						{%for guard in label%}
-							{%if guard in ('>', '<','>=','<=','==','!=','&&', '||','!=') %}
+							atomic {
+								{{getjavastatement}}
 							}
-							{% break %}
-							{%endif%}
+						{% else %} 
+							{{getjavastatement}}
+						{% endif %}
+						{%for brace in getjavastatement%}
+						{%if brace == '{'%}
+							}
+						{%endif%}
 						{%endfor%}
-						{% endif %} 
 						{% endfor %}
 						// Change state
 						java_currentState = {{model.name}}.java_State.{{sout[0].target.name}};

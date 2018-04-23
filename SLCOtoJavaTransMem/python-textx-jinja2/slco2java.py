@@ -79,7 +79,7 @@ def getlabel(s):
 	elif s.__class__.__name__ == "Delay":
 		result += "<b>after </b>" + str(s.length) + "<b> ms</b>"
 	elif s.__class__.__name__ == "MemoryFence":
-		result += "|#|"
+		result += "#"
 	elif s.__class__.__name__ == "SendSignal":
 		result += "<b>send </b>" + s.signal + "("
 		first = True
@@ -208,7 +208,7 @@ def javastatement(s,indent,nondet,o):
 	elif s.__class__.__name__ == "Expression":
 		if not nondet:
 #			if statement_readsfromlocked(s, o):
-			output += "if(!(" + getinstruction(s) + "))"
+			output += "if(!(" + getinstruction(s) + ")) {"
 			if add_counter:
 				output += " java_transcounter++;"
 		else:
@@ -228,7 +228,7 @@ def javastatement(s,indent,nondet,o):
 		if s.guard != None:
 			output += javastatement(s.guard,indent,nondet,o)
 			if len(s.assignments) > 0:
-				output += "\n" + indentspace + indentspace
+				output += "\n" + indentspace + indentspace 
 		first = True
 		for e in s.assignments:
 			if not first:
