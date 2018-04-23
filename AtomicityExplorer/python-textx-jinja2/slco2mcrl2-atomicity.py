@@ -48,6 +48,10 @@ trans = {}
 # the summands for the output mCRL2 model
 mcrl2summands = []
 
+# Lists of occurring array sizes, both of type Int and Bool
+IntArraySizes = []
+BoolArraySizes = []
+
 mcrl2varprefix = "var_"
 
 # the type of the involved channels
@@ -119,7 +123,11 @@ def variabledefault(s):
 	if s.defvalue != None:
 		return s.defvalue
 	elif s.defvalues != []:
-		defv = '['
+		if s.type.base == 'Integer' or s.type.base == 'Byte':
+			defv = "AI"
+		else:
+			defv = "AB"
+		defv += str(s.type.size) + "'("
 		first = True
 		for v in s.defvalues:
 			if not first:
@@ -127,13 +135,13 @@ def variabledefault(s):
 			else:
 				first = False
 			defv += str(v)
-		defv += ']'
+		defv += ')'
 		return defv
 	elif s.type.base == 'Integer' or s.type.base == 'Byte':
 		if s.type.size < 2:
 			return '0'
 		else:
-			type = '['
+			type = "AI" + str(s.type.size) + "'("
 			first = True
 			for i in range(0,s.type.size):
 				if not first:
@@ -141,13 +149,13 @@ def variabledefault(s):
 				else:
 					first = False
 				type += '0'
-			type += ']'
+			type += ')'
 			return type
 	elif s.type.base == 'Boolean':
 		if s.type.size < 2:
 			return 'true'
 		else:
-			type = '['
+			type = "AB" + str(s.type.size) + "'("
 			first = True
 			for i in range(0,s.type.size):
 				if not first:
@@ -155,7 +163,7 @@ def variabledefault(s):
 				else:
 					first = False
 				type += 'true'
-			type += ']'
+			type += ')'
 			return type
 
 def hasobjectvariables(m):
@@ -195,9 +203,9 @@ def datatypeacronym(s):
 		return 'I'
 	elif s == 'Bool':
 		return 'B'
-	elif s == 'List(Int)':
+	elif "Int" in s and len(s) > 3:
 		return 'LI'
-	elif s == 'List(Bool)':
+	elif "Bool" in s and len(s) > 4:
 		return 'LB'
 
 def mcrl2type(s):
@@ -206,12 +214,12 @@ def mcrl2type(s):
 		if s.size < 2:
 			return 'Int'
 		else:
-			return 'List(Int)'
+			return 'Int' + str(s.size)
 	elif s.base == 'Boolean':
 		if s.size < 2:
 			return 'Bool'
 		else:
-			return 'List(Bool)'
+			return 'Bool' + str(s.size)
 
 def mcrl2value(s):
 	"""Maps values from SLCO to mCRL2 values"""
@@ -390,10 +398,10 @@ def expression(s,stm,c,primmap, owner):
 						output += primmap.get(varname_with_index)
 						return output
 				if s.ref.index != None:
-					output += "("
+					output += "get'("
 				output += primmap.get(scopedvars[c.name + "'" + stm.name][s.ref.ref], owner.name + "'" + scopedvars[c.name + "'" + stm.name][s.ref.ref])
 				if s.ref.index != None:
-					output += ".Int2Nat(" + expression(s.ref.index,stm,c,primmap,owner) + "))"
+					output += ", " + expression(s.ref.index,stm,c,primmap,owner) + ")"
 		else:
 			output += '(' + expression(s.body,stm,c,primmap,owner) + ')'
 	return output
@@ -602,10 +610,10 @@ def sync_statement_condition(s_rcv, rcv_owner, s_snd, snd_owner):
 				varname += "[" + s_rcv.params[i].index + "]"
 			varname2 = ""
 			if s_snd.params[i].index != None:
-				varname2 += "("
+				varname2 += "get'("
 			varname2 += s_snd.params[i].var.name
 			if s_snd.params[i].index != None:
-				varname2 += ".Int2Nat(" + expression(s_snd.params[i].index,statemachine[s_snd],smclass[statemachine[s_snd]],{},snd_owner) + "))" 
+				varname2 += ", " + expression(s_snd.params[i].index,statemachine[s_snd],smclass[statemachine[s_snd]],{},snd_owner) + ")"
 			newdict[varname] = varname2
 		result += " && " + expression(s_rcv.guard, statemachine[s_rcv], smclass[statemachine[s_rcv]], newdict, rcv_owner)
 	return result
@@ -618,7 +626,7 @@ def statementstatechanges(s,o):
 		varname = scopedvars[o.type.name + "'" + statemachine[s].name][s.left.var.name]
 		# an assignment to an array cell should be handled differently from other cases
 		if s.left.index != None:
-			output = ", " + o.name + "'" + varname + "=update(" + o.name + "'" + varname + ",Int2Nat(" + expression(s.left.index,statemachine[s],o.type,{},o) + "),"
+			output = ", " + o.name + "'" + varname + "=set'(" + o.name + "'" + varname + ", " + expression(s.left.index,statemachine[s],o.type,{},o) + ", "
 			# in case we are updating a Byte, restrict the new value
 			eright = expression(s.right,statemachine[s],o.type,{},o)
 			if s.left.var.type.base == 'Byte':
@@ -640,7 +648,7 @@ def statementstatechanges(s,o):
 				newright = "(" + newright + ") mod 256"
 			varname = scopedvars[o.type.name + "'" + statemachine[s].name][e.left.var.name]
 			if e.left.index != None:
-				vardict[varname] = "update(" + expression(e.left.var,statemachine[s],o.type,vardict,o) + ",Int2Nat(" + expression(e.left.index,statemachine[s],o.type,vardict,o) + ")," + newright + ")"
+				vardict[varname] = "set'(" + expression(e.left.var,statemachine[s],o.type,vardict,o) + ", " + expression(e.left.index,statemachine[s],o.type,vardict,o) + ", " + newright + ")"
 			else:
 				vardict[varname] = "(" + newright + ")"
 		# add assignments to state changes
@@ -667,7 +675,7 @@ def statementstatechanges(s,o):
 				newright = "(" + newright + ") mod 256"
 			varname = scopedvars[o.type.name + "'" + statemachine[s].name][p.var.name]
 			if p.index != None:
-				vardict[varname] = "update(" + expression(p.var,statemachine[s],o.type,vardict,o) + ",Int2Nat(" + expression(p.index,statemachine[s],o.type,vardict,o) + ")," + newright + ")"
+				vardict[varname] = "set'(" + expression(p.var,statemachine[s],o.type,vardict,o) + ", " + expression(p.index,statemachine[s],o.type,vardict,o) + ", " + newright + ")"
 			else:
 				vardict[varname] = "(" + newright + ")"
 		# add assignments
@@ -693,7 +701,7 @@ def sync_statementstatechanges(s_rcv,o_rcv,s_snd,o_snd):
 			newright = "(" + newright + ") mod 256"
 		varname = scopedvars[o_rcv.type.name + "'" + statemachine[s_rcv].name][p.var.name]
 		if p.index != None:
-			vardict[varname] = "update(" + expression(p.var,statemachine[s_rcv],o_rcv.type,vardict,o_rcv) + ",Int2Nat(" + expression(p.index,statemachine[s_rcv],o_rcv.type,vardict,o_rcv) + ")," + newright + ")"
+			vardict[varname] = "set'(" + expression(p.var,statemachine[s_rcv],o_rcv.type,vardict,o_rcv) + ", " + expression(p.index,statemachine[s_rcv],o_rcv.type,vardict,o_rcv) + ", " + newright + ")"
 		else:
 			vardict[varname] = "(" + newright + ")"
 	# add assignments
@@ -710,7 +718,7 @@ def complete_newstate(s, o):
 		varname = scopedvars[o.type.name + "'" + statemachine[s].name][s.left.var.name]
 		# an assignment to an array cell should be handled differently from other cases
 		if s.left.index != None:
-			output = "update(" + o.name + "'" + varname + ",Int2Nat(" + expression(s.left.index,statemachine[s],o.type,{},o) + "),"
+			output = "set'(" + o.name + "'" + varname + ", " + expression(s.left.index,statemachine[s],o.type,{},o) + ", "
 			# in case we are updating a Byte, restrict the new value
 			eright = expression(s.right,statemachine[s],o.type,{},o)
 			if s.left.var.type.base == 'Byte':
@@ -732,7 +740,7 @@ def complete_newstate(s, o):
 				newright = "(" + newright + ") mod 256"
 			varname = scopedvars[o.type.name + "'" + statemachine[s].name][e.left.var.name]
 			if e.left.index != None:
-				vardict[varname] = "update(" + expression(e.left.var,statemachine[s],o.type,vardict,o) + ",Int2Nat(" + expression(e.left.index,statemachine[s],o.type,vardict,o) + ")," + newright + ")"
+				vardict[varname] = "set'(" + expression(e.left.var,statemachine[s],o.type,vardict,o) + ", " + expression(e.left.index,statemachine[s],o.type,vardict,o) + ", " + newright + ")"
 			else:
 				vardict[varname] = "(" + newright + ")"
 		# add assignments to state changes
@@ -761,7 +769,7 @@ def complete_newstate(s, o):
 				newright = "(" + newright + ") mod 256"
 			varname = scopedvars[o.type.name + "'" + statemachine[s].name][p.var.name]
 			if p.index != None:
-				vardict[varname] = "update(" + expression(p.var,statemachine[s],o.type,vardict,o) + ",Int2Nat(" + expression(p.index,statemachine[s],o.type,vardict,o) + ")," + newright + ")"
+				vardict[varname] = "set'(" + expression(p.var,statemachine[s],o.type,vardict,o) + ", " + expression(p.index,statemachine[s],o.type,vardict,o) + ", " + newright + ")"
 			else:
 				vardict[varname] = "(" + newright + ")"
 		# add assignments
@@ -815,7 +823,7 @@ def sync_complete_newstate(s_rcv,o_rcv,s_snd,o_snd):
 			newright = "(" + newright + ") mod 256"
 		varname = scopedvars[o_rcv.type.name + "'" + statemachine[s_rcv].name][p.var.name]
 		if p.index != None:
-			vardict[varname] = "update(" + expression(p.var,statemachine[s_rcv],o_rcv.type,vardict,o_rcv) + ",Int2Nat(" + expression(p.index,statemachine[s_rcv],o_rcv.type,vardict,o_rcv) + ")," + newright + ")"
+			vardict[varname] = "set'(" + expression(p.var,statemachine[s_rcv],o_rcv.type,vardict,o_rcv) + ", " + expression(p.index,statemachine[s_rcv],o_rcv.type,vardict,o_rcv) + ", " + newright + ")"
 		else:
 			vardict[varname] = "(" + newright + ")"
 	# add assignments
@@ -867,7 +875,7 @@ def statement_accesspattern(s, o):
 			newright = expression(st.right,statemachine[s],smclass[statemachine[s]],vardict,o)
 			varname = scopedvars[smclass[statemachine[s]].name + "'" + statemachine[s].name][st.left.var.name]
 			if st.left.index != None:
-				vardict[varname] = "update(" + expression(st.left.var,statemachine[s],smclass[statemachine[s]],vardict,o) + ",Int2Nat(" + expression(st.left.index,statemachine[s],smclass[statemachine[s]],vardict,o) + ")," + newright + ")"
+				vardict[varname] = "set'(" + expression(st.left.var,statemachine[s],smclass[statemachine[s]],vardict,o) + ", " + expression(st.left.index,statemachine[s],smclass[statemachine[s]],vardict,o) + ", " + newright + ")"
 			else:
 				vardict[varname] = "(" + newright + ")"
 		return tuple([readset, writeset])
@@ -1435,8 +1443,8 @@ def identify_safe_unsafe_statements(m):
 				varname = o.name + "'" + v.name
 				if v.type.size > 1:
 					for i in range(0,v.type.size):
-						varname += "(Int2Nat(" + str(i) + ")"
-				unsafe_variables.add(varname)
+						varindex = "(Int2Nat(" + str(i) + "))"
+						unsafe_variables.add(varname + varindex)
 	else:
 		# create dictionary of statements
 		sdict = {}
@@ -1598,7 +1606,7 @@ def identify_safe_unsafe_statements(m):
 
 def preprocess():
 	"""preprocessing method"""
-	global model, statemachinenames, statemachine, trowner, smlocalvars, accessed_sharedvars, states, actions, class_sync_receives, class_sync_sends, trans, smclass, channeltypes, asynclosslesstypes, asynclossytypes, synctypes, porttypes, ochannel, vartypes, object_sync_commpairs, syncing_statements, sorted_variables, sorted_objects, sorted_statemachines, filtered_statement_access, filtered_statemachine_access
+	global model, statemachinenames, statemachine, trowner, smlocalvars, accessed_sharedvars, states, actions, class_sync_receives, class_sync_sends, trans, smclass, channeltypes, asynclosslesstypes, asynclossytypes, synctypes, porttypes, ochannel, vartypes, object_sync_commpairs, syncing_statements, sorted_variables, sorted_objects, sorted_statemachines, filtered_statement_access, filtered_statemachine_access, IntArraySizes, BoolArraySizes
 	# build dictionaries providing for a given statement the state machine and transition owning it, and for a given state machine, the class owning it
 	for c in model.classes:
 		for stm in c.statemachines:
@@ -1621,11 +1629,11 @@ def preprocess():
 				if sm.variables[i].type == None:
 					sm.variables[i].type = sm.variables[i-1].type
 	# add tau action to all transitions without statements
-	for c in model.classes:
-		for stm in c.statemachines:
-			for trn in stm.transitions:
-				if len(trn.statements) == 0:
-					trn.statements.append("tau'")
+	# for c in model.classes:
+	# 	for stm in c.statemachines:
+	# 		for trn in stm.transitions:
+	# 			if len(trn.statements) == 0:
+	# 				trn.statements.append("tau'")
 	# set sizes of channels to at least one
 	for ch in model.channels:
 		if ch.size == 0:
@@ -1820,10 +1828,29 @@ def preprocess():
 		for sm in c.statemachines:
 			tmp_statemachines.append(sm.name)
 	sorted_statemachines = sorted(tmp_statemachines)
+	# create lists of array sizes occurring in the model
+	isizes = set([])
+	bsizes = set([])
+	for c in model.classes:
+		for v in c.variables:
+			if v.type.size > 1:
+				if v.type.base == "Boolean":
+					bsizes.add(v.type.size)
+				elif v.type.base == "Integet" or v.type.base == "Byte":
+					isizes.add(v.type.size)
+		for sm in c.statemachines:
+			for v in sm.variables:
+				if v.type.size > 1:
+					if v.type.base == "Boolean" or v.type.base == "Byte":
+						bsizes.add(v.type.size)
+					elif v.type.base == "Integet":
+						isizes.add(v.type.size)
+	IntArraySizes = list(isizes)
+	BoolArraySizes = list(bsizes)
 
 def translate():
 	"""The translation function"""
-	global model, modelname, statemachinenames, statemachine, tr, smlocalvars, accessed_sharedvars, states, actions, class_receives, class_sends, vartypes, mcrl2varprefix, channeltypes, asynclossytypes, asynclosslesstypes, synctypes, statement_access, statement_condition_access, unsafe_statements, object_sync_commpairs, syncing_statements, check_onthefly, lock_onthefly, apply_por, sorted_variables, unsafe_variables
+	global model, modelname, statemachinenames, statemachine, tr, smlocalvars, accessed_sharedvars, states, actions, class_receives, class_sends, vartypes, mcrl2varprefix, channeltypes, asynclossytypes, asynclosslesstypes, synctypes, statement_access, statement_condition_access, unsafe_statements, object_sync_commpairs, syncing_statements, check_onthefly, lock_onthefly, apply_por, sorted_variables, unsafe_variables, IntArraySizes, BoolArraySizes
 	
 	path, name = split(modelname)
 	if name.endswith('.slco'):
@@ -1892,7 +1919,7 @@ def translate():
 	# produce_summands(model)
 	# load the mCRL2 template
 	template = jinja_env.get_template('mcrl2sr.jinja2template')
-	out = template.render(model=model, statemachinenames=statemachinenames, states=states, vartypes=vartypes, mcrl2varprefix=mcrl2varprefix, channeltypes=channeltypes, asynclosslesstypes=asynclosslesstypes, asynclossytypes=asynclossytypes, synctypes=synctypes, trans=trans, ochannel=ochannel, object_sync_commpairs=object_sync_commpairs, syncing_statements=syncing_statements, transowner=trowner, statemachine=statemachine, check_onthefly=check_onthefly, lock_onthefly=lock_onthefly, apply_por=apply_por, sorted_variables=sorted_variables, unsafe_variables=unsafe_variables, sorted_objects=sorted_objects, sorted_statemachines=sorted_statemachines, accessed_sharedvars=accessed_sharedvars)
+	out = template.render(model=model, statemachinenames=statemachinenames, states=states, vartypes=vartypes, mcrl2varprefix=mcrl2varprefix, channeltypes=channeltypes, asynclosslesstypes=asynclosslesstypes, asynclossytypes=asynclossytypes, synctypes=synctypes, trans=trans, ochannel=ochannel, object_sync_commpairs=object_sync_commpairs, syncing_statements=syncing_statements, transowner=trowner, statemachine=statemachine, check_onthefly=check_onthefly, lock_onthefly=lock_onthefly, apply_por=apply_por, sorted_variables=sorted_variables, unsafe_variables=unsafe_variables, sorted_objects=sorted_objects, sorted_statemachines=sorted_statemachines, accessed_sharedvars=accessed_sharedvars, IntArraySizes=IntArraySizes, BoolArraySizes=BoolArraySizes)
 	# write mCRL2 spec
 	outFile.write(out)
 	outFile.close()

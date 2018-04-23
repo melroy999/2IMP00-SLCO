@@ -4,27 +4,66 @@ map xor: Bool # Bool -> Bool;
 var a, b: Bool;
 eqn xor(a,b) = (a || b) && !(a && b);
 
-% *** DEFINITION OF UPDATING LISTS OF INTEGERS AND BOOLEANS ***
+% *** DEFINITIONS FOR ARRAYS OF INTEGERS AND BOOLEANS ***
 
-map update: List(Int) # Nat # Int -> List(Int);
-    updatestep: List(Int) # Nat # Int # Nat -> List(Int);
-    update: List(Bool) # Nat # Bool -> List(Bool);
-    updatestep: List(Bool) # Nat # Bool # Nat -> List(Bool);
-var li: List(Int);
-    lb: List(Bool);
-    i,j: Nat;
-    vi: Int;
-    vb: Bool;
-eqn (i >= #li) -> update(li,i,vi) = li;
-    (i < #li) -> update(li,i,vi) = updatestep(li,i,vi,0);
-    (j == i) -> updatestep(li,i,vi,j) = [vi] ++ tail(li);
-    (j < i)  -> updatestep(li,i,vi,j) = [head(li)] ++ updatestep(tail(li),i,vi,j+1);
-    (i >= #lb) -> update(lb,i,vb) = lb;
-    (i < #lb) -> update(lb,i,vb) = updatestep(lb,i,vb,0);
-    (j == i) -> updatestep(lb,i,vb,j) = [vb] ++ tail(lb);
-    (j < i)  -> updatestep(lb,i,vb,j) = [head(lb)] ++ updatestep(tail(lb),i,vb,j+1);
-
-
+{% for i in IntArraySizes %}
+{% if loop.first %}sort {% else %}    {% endif %}Int{{i}} = struct AI{{i}}'({% for j in range(0,i) %}{{', ' if not loop.first }}el'{{j}}: Int{% endfor %});
+{% endfor %}
+{% for b in BoolArraySizes %}
+{% if loop.first %}sort {% else %}    {% endif %}Bool{{i}} = struct AB{{i}}'({% for j in range(0,i) %}{{', ' if not loop.first }}el'{{j}}: Bool{% endfor %});
+{% endfor %}
+{% for i in IntArraySizes %}
+{% if loop.first %}map {% else %}    {% endif %}get': Int{{i}} # Int -> Int;
+    set': Int{{i}} # Int # Int -> Int{{i}};
+{% endfor %}
+{% for i in BoolArraySizes %}
+{% if loop.first %}map {% else %}    {% endif %}get': Bool{{i}} # Int -> Bool;
+    set': Bool{{i}} # Int # Bool -> Bool{{i}};
+{% endfor %}
+{% for i in IntArraySizes %}
+{% if loop.first %}
+var i': Int;
+    x': Int;
+{% endif %}
+    Li{{i}}': Int{{i}};
+{% endfor %}
+{% for i in IntArraySizes %}
+{% set iloop = loop %}
+eqn (i' < 0) -> get'(Li{{i}}', i') = 0;
+(i' > {{i-1}}) -> get'(Li{{i}}', i') = 0;
+{% for j in range(0,i) %}
+    get'(Li{{i}}', {{j}}) = el'{{j}}(Li{{i}}');
+{% endfor %}
+{% endfor %}
+{% for i in IntArraySizes %}
+(i' < 0) -> set'(Li{{i}}', i', x') = Li{{i}}';
+(i' > {{i-1}}) -> set'(Li{{i}}', i', x') = Li{{i}}';
+{% for j in range(0,i) %}
+    set'(Li{{i}}', {{j}}, x') = AI{{i}}'({% for k in range(0,i) %}{{', ' if not loop.first}}{% if k == j %}x'{% else %}el'{{k}}(Li{{i}}'){% endif %}{% endfor %});
+{% endfor %}
+{% endfor %}
+{% for i in BoolArraySizes %}
+{% if loop.first %}
+var i': Int;
+    b': Bool;
+{% endif %}
+    Lb{{i}}': Bool{{i}};
+{% endfor %}
+{% for i in BoolArraySizes %}
+{% set bloop = loop %}
+eqn (i' < 0) -> get'(Lb{{i}}', i') = false;
+(i' > {{i-1}}) -> get'(Lb{{i}}', i') = false;
+{% for j in range(0,i) %}
+{% if bloop.first and loop.first %}eqn {% else %}    {% endif %}get'(Lb{{i}}', {{j}}) = el'{{j}}(Lb{{i}}');
+{% endfor %}
+{% endfor %}
+{% for i in BoolArraySizes %}
+(i' < 0) -> set'(Lb{{i}}', i', b') = Lb{{i}}';
+(i' > {{i-1}}) -> set'(Lb{{i}}', i', b') = Lb{{i}}';
+{% for j in range(0,i) %}
+    set'(Lb{{i}}', {{j}}, b') = AB{{i}}'({% for k in range(0,i) %}{{', ' if not loop.first}}{% if k == j %}b'{% else %}el'{{k}}(Lb{{i}}'){% endif %}{% endfor %});
+{% endfor %}
+{% endfor %}
 
 % ----- START DEFINITIONS OF BASIC MODEL ASPECTS -----
 
@@ -187,15 +226,12 @@ eqn intersection([], L2, L3) = [];
     intersection(L1, [], L3) = [];
     intersection(L1, L2, []) = [];
 (L1 != [] && L2 != [] && L3 != [] && (head(L1) == head(L2)) && (head(L1) == head(L3))) -> intersection(L1, L2, L3) = [head(L1)] ++ intersection(tail(L1), tail(L2), tail(L3));
-(L2 != [] && L3 != [] && (head(L1) > head(L2)) && (head(L1) > head(L3))) -> intersection(L1, L2, L3) = intersection(L1, tail(L2), tail(L3));
-(L2 != [] && (head(L1) > head(L2)) && (head(L1) == head(L3))) -> intersection(L1, L2, L3) = intersection(L1, tail(L2), L3);
-(L3 != [] && (head(L1) == head(L2)) && (head(L1) > head(L3))) -> intersection(L1, L2, L3) = intersection(L1, L2, tail(L3));
-(L1 != [] && L3 != [] && (head(L2) > head(L1)) && (head(L2) > head(L3))) -> intersection(L1, L2, L3) = intersection(tail(L1), L2, tail(L3));
-(L1 != [] && (head(L2) > head(L1)) && (head(L2) == head(L3))) -> intersection(L1, L2, L3) = intersection(tail(L1), L2, L3);
-(L3 != [] && (head(L2) == head(L1)) && (head(L2) > head(L3))) -> intersection(L1, L2, L3) = intersection(L1, L2, tail(L3));
-(L1 != [] && L2 != [] && (head(L3) > head(L2)) && (head(L3) > head(L1))) -> intersection(L1, L2, L3) = intersection(tail(L1), tail(L2), L3);
-(L2 != [] && (head(L3) > head(L2)) && (head(L3) == head(L1))) -> intersection(L1, L2, L3) = intersection(L1, tail(L2), L3);
-(L1 != [] && (head(L3) == head(L2)) && (head(L3) > head(L1))) -> intersection(L1, L2, L3) = intersection(tail(L1), L2, L3);
+(L1 != [] && L2 != [] && L3 != [] && (head(L1) > head(L2)) && (head(L1) > head(L3))) -> intersection(L1, L2, L3) = intersection(L1, tail(L2), tail(L3));
+(L1 != [] && L2 != [] && L3 != [] && (head(L1) > head(L2)) && (head(L1) == head(L3))) -> intersection(L1, L2, L3) = intersection(L1, tail(L2), L3);
+(L1 != [] && L2 != [] && L3 != [] && (head(L1) == head(L2)) && (head(L1) > head(L3))) -> intersection(L1, L2, L3) = intersection(L1, L2, tail(L3));
+(L1 != [] && L2 != [] && L3 != [] && (head(L2) > head(L1)) && (head(L2) > head(L3))) -> intersection(L1, L2, L3) = intersection(tail(L1), L2, tail(L3));
+(L1 != [] && L2 != [] && L3 != [] && (head(L2) > head(L1)) && (head(L2) == head(L3))) -> intersection(L1, L2, L3) = intersection(tail(L1), L2, L3);
+(L1 != [] && L2 != [] && L3 != [] && (head(L3) > head(L2)) && (head(L3) > head(L1))) -> intersection(L1, L2, L3) = intersection(tail(L1), tail(L2), L3);
 
 % *** EXTRACT ONE LIST OF VARIABLES FROM THE OTHER ***
 
@@ -481,7 +517,7 @@ eqn empty_History' = HIS'({% for o in model.objects %}{% set oloop = loop %}{% f
 
 % *** ACCESS DEPENDENCY AND THREAD DEPENDENCY FUNCTIONS, IMPLEMENTED AS LISTS, WITH INITIAL VALUES ***
 
-sort D_map' = struct DMAP'({% for o in model.objects | select("o_hassharedaccesses") %}{% set oloop = loop %}{% for sm in o.type.statemachines | select("sm_hassharedaccesses", o) %}{% set smloop = loop %}{% for v in accessed_sharedvars[o.type][sm][0] %}{{', ' if not (oloop.first and smloop.first and loop.first) }}r'{{sm.name}}'{{v}}: AccessPattern'{% endfor %}{% for v in accessed_sharedvars[o.type][sm][1] %}{{', ' if not (oloop.first and smloop.first and loop.first and accessed_sharedvars[o.type][sm][0] == []) }}w'{{sm.name}}'{{v}}: AccessPattern'{% endfor %}{% endfor %}{% endfor %});
+sort D_map' = struct DMAP'({% for o in model.objects | select("o_hassharedaccesses") %}{% set oloop = loop %}{% for sm in o.type.statemachines | select("sm_hassharedaccesses", o) %}{% set smloop = loop %}{% for v in accessed_sharedvars[o.type][sm][0] %}{{', ' if not (oloop.first and smloop.first and loop.first) }}r'{{sm.name}}'{{v|replace("(","_")|replace(")","")}}: AccessPattern'{% endfor %}{% for v in accessed_sharedvars[o.type][sm][1] %}{{', ' if not (oloop.first and smloop.first and loop.first and accessed_sharedvars[o.type][sm][0] == []) }}w'{{sm.name}}'{{v|replace("(","_")|replace(")","")}}: AccessPattern'{% endfor %}{% endfor %}{% endfor %});
 map D_init': D_map';
 eqn D_init' = DMAP'({% for o in model.objects | select("o_hassharedaccesses") %}{% set oloop = loop %}{% for sm in o.type.statemachines | select("sm_hassharedaccesses", o) %}{% set smloop = loop %}{% for v in accessed_sharedvars[o.type][sm][0] %}{{', ' if not (oloop.first and smloop.first and loop.first) }}A'([],[]){% endfor %}{% for v in accessed_sharedvars[o.type][sm][1] %}{{', ' if not (oloop.first and smloop.first and loop.first and accessed_sharedvars[o.type][sm][0] == []) }}A'([],[]){% endfor %}{% endfor %}{% endfor %});
 
@@ -492,52 +528,58 @@ eqn C_init' = CMAP'({% for o in model.objects %}{% set oloop = loop %}{% for sm 
 % *** FUNCTIONS TO RETRIEVE AND UPDATE SINGLE VALUES OF DEPENDENCY FUNCTIONS
 
 map get_d': Object_SM' # Var' # Bool # D_map' -> AccessPattern';
-var dm': D_map';
-{% for o in model.objects | select("o_hassharedaccesses") %}
-{% set oloop = loop %}
-{% for sm in o.type.statemachines | select("sm_hassharedaccesses", o) %}
-{% set smloop = loop %}
-{% for v in accessed_sharedvars[o.type][sm][0] %}
-{% if oloop.first and smloop.first and loop.first %}eqn {% else %}    {% endif %}get_d'(O'SM'({{o.name}},{{sm.name}}), {{mcrl2varprefix}}{{v}}, false, dm') = r'{{sm.name}}'{{v}}(dm');
-{% endfor %}
-{% for v in accessed_sharedvars[o.type][sm][1] %}
-{% if oloop.first and smloop.first and loop.first and accessed_sharedvars[o.type][sm][0] == [] %}eqn {% else %}    {% endif %}get_d'(O'SM'({{o.name}},{{sm.name}}), {{mcrl2varprefix}}{{v}}, true, dm') = w'{{sm.name}}'{{v}}(dm');
-{% endfor %}
-{% endfor %}
-{% endfor %}
-
-map get_c': Object_SM' # C_map' -> AccessPattern';
-var cm': C_map';
-{% for o in model.objects %}
-{% set oloop = loop %}
-{% for sm in o.type.statemachines %}
-{% if oloop.first and loop.first %}eqn {% else %}    {% endif %}get_c'(O'SM'({{o.name}},{{sm.name}}), cm') = c'{{o.name}}'{{sm.name}}(cm');
-{% endfor %}
-{% endfor %}
-
-map up_d': Object_SM' # Var' # Bool # AccessPattern' # D_map' -> D_map';
-var a': AccessPattern';
+var o': Object_SM';
+    v': Var';
     dm': D_map';
 {% for o in model.objects | select("o_hassharedaccesses") %}
 {% set oloop = loop %}
 {% for sm in o.type.statemachines | select("sm_hassharedaccesses", o) %}
 {% set smloop = loop %}
 {% for v in accessed_sharedvars[o.type][sm][0] %}
-{% if oloop.first and smloop.first and loop.first %}eqn {% else %}    {% endif %}up_d'(O'SM'({{o.name}},{{sm.name}}), {{mcrl2varprefix}}{{v}}, false, a', dm') = DMAP'({% for o2 in model.objects | select("o_hassharedaccesses") %}{% set o2loop = loop %}{% for sm2 in o.type.statemachines | select("sm_hassharedaccesses", o) %}{% set sm2loop = loop %}{% for v2 in accessed_sharedvars[o2.type][sm2][0] %}{{', ' if not (o2loop.first and sm2loop.first and loop.first) }}{% if o == o2 and sm == sm2 and v == v2 %}union'(r'{{sm2.name}}'{{v2}}(dm'),a'){% else %}r'{{sm2.name}}'{{v2}}(dm'){% endif %}{% endfor %}{% for v2 in accessed_sharedvars[o2.type][sm2][1] %}{{', ' if not (o2loop.first and sm2loop.first and loop.first and accessed_sharedvars[o2.type][sm2][0] == []) }}w'{{sm2.name}}'{{v2}}(dm'){% endfor %}{% endfor %}{% endfor %});
+{% if oloop.first and smloop.first and loop.first %}eqn {% endif %}(o' == O'SM'({{o.name}},{{sm.name}}) && v' == {{mcrl2varprefix}}{{v}}) -> get_d'(o', v', false, dm') = r'{{sm.name}}'{{v|replace("(","_")|replace(")","")}}(dm');
 {% endfor %}
 {% for v in accessed_sharedvars[o.type][sm][1] %}
-{% if oloop.first and smloop.first and loop.first and accessed_sharedvars[o.type][sm][0] == [] %}eqn {% else %}    {% endif %}up_d'(O'SM'({{o.name}},{{sm.name}}), {{mcrl2varprefix}}{{v}}, true, a', dm') = DMAP'({% for o2 in model.objects | select("o_hassharedaccesses") %}{% set o2loop = loop %}{% for sm2 in o.type.statemachines | select("sm_hassharedaccesses", o) %}{% set sm2loop = loop %}{% for v2 in accessed_sharedvars[o2.type][sm2][0] %}{{', ' if not (o2loop.first and sm2loop.first and loop.first) }}r'{{sm2.name}}'{{v2}}(dm'){% endfor %}{% for v2 in accessed_sharedvars[o2.type][sm2][1] %}{{', ' if not (o2loop.first and sm2loop.first and loop.first and accessed_sharedvars[o2.type][sm2][1] == []) }}{% if o == o2 and sm == sm2 and v == v2 %}union'(w'{{sm2.name}}'{{v2}}(dm'),a'){% else %}w'{{sm2.name}}'{{v2}}(dm'){% endif %}{% endfor %}{% endfor %}{% endfor %});
+{% if oloop.first and smloop.first and loop.first and accessed_sharedvars[o.type][sm][0] == [] %}eqn {% endif %}(o' == O'SM'({{o.name}},{{sm.name}}) && v' == {{mcrl2varprefix}}{{v}}) -> get_d'(o', v', true, dm') = w'{{sm.name}}'{{v|replace("(","_")|replace(")","")}}(dm');
+{% endfor %}
+{% endfor %}
+{% endfor %}
+
+map get_c': Object_SM' # C_map' -> AccessPattern';
+var o': Object_SM';
+    cm': C_map';
+{% for o in model.objects %}
+{% set oloop = loop %}
+{% for sm in o.type.statemachines %}
+{% if oloop.first and loop.first %}eqn {% endif %}(o' == O'SM'({{o.name}},{{sm.name}})) -> get_c'(o', cm') = c'{{o.name}}'{{sm.name}}(cm');
+{% endfor %}
+{% endfor %}
+
+map up_d': Object_SM' # Var' # Bool # AccessPattern' # D_map' -> D_map';
+var o': Object_SM';
+    v': Var';
+    a': AccessPattern';
+    dm': D_map';
+{% for o in model.objects | select("o_hassharedaccesses") %}
+{% set oloop = loop %}
+{% for sm in o.type.statemachines | select("sm_hassharedaccesses", o) %}
+{% set smloop = loop %}
+{% for v in accessed_sharedvars[o.type][sm][0] %}
+{% if oloop.first and smloop.first and loop.first %}eqn {% endif %}(o' == O'SM'({{o.name}},{{sm.name}}) && v' == {{mcrl2varprefix}}{{v}}) -> up_d'(o', v', false, a', dm') = DMAP'({% for o2 in model.objects | select("o_hassharedaccesses") %}{% set o2loop = loop %}{% for sm2 in o.type.statemachines | select("sm_hassharedaccesses", o) %}{% set sm2loop = loop %}{% for v2 in accessed_sharedvars[o2.type][sm2][0] %}{{', ' if not (o2loop.first and sm2loop.first and loop.first) }}{% if o == o2 and sm == sm2 and v == v2 %}union'(r'{{sm2.name}}'{{v2|replace("(","_")|replace(")","")}}(dm'),a'){% else %}r'{{sm2.name}}'{{v2|replace("(","_")|replace(")","")}}(dm'){% endif %}{% endfor %}{% for v2 in accessed_sharedvars[o2.type][sm2][1] %}{{', ' if not (o2loop.first and sm2loop.first and loop.first and accessed_sharedvars[o2.type][sm2][0] == []) }}w'{{sm2.name}}'{{v2|replace("(","_")|replace(")","")}}(dm'){% endfor %}{% endfor %}{% endfor %});
+{% endfor %}
+{% for v in accessed_sharedvars[o.type][sm][1] %}
+{% if oloop.first and smloop.first and loop.first and accessed_sharedvars[o.type][sm][0] == [] %}eqn {% endif %}(o' == O'SM'({{o.name}},{{sm.name}}) && v' == {{mcrl2varprefix}}{{v}}) -> up_d'(o', v', true, a', dm') = DMAP'({% for o2 in model.objects | select("o_hassharedaccesses") %}{% set o2loop = loop %}{% for sm2 in o.type.statemachines | select("sm_hassharedaccesses", o) %}{% set sm2loop = loop %}{% for v2 in accessed_sharedvars[o2.type][sm2][0] %}{{', ' if not (o2loop.first and sm2loop.first and loop.first) }}r'{{sm2.name}}'{{v2|replace("(","_")|replace(")","")}}(dm'){% endfor %}{% for v2 in accessed_sharedvars[o2.type][sm2][1] %}{{', ' if not (o2loop.first and sm2loop.first and loop.first and accessed_sharedvars[o2.type][sm2][1] == []) }}{% if o == o2 and sm == sm2 and v == v2 %}union'(w'{{sm2.name}}'{{v2|replace("(","_")|replace(")","")}}(dm'),a'){% else %}w'{{sm2.name}}'{{v2|replace("(","_")|replace(")","")}}(dm'){% endif %}{% endfor %}{% endfor %}{% endfor %});
 {% endfor %}
 {% endfor %}
 {% endfor %}
 
 map up_c': Object_SM' # AccessPattern' # C_map' -> C_map';
-var a': AccessPattern';
+var o': Object_SM';
+    a': AccessPattern';
     cm': C_map';
 {% for o in model.objects %}
 {% set oloop = loop %}
 {% for sm in o.type.statemachines %}
-{% if oloop.first and loop.first %}eqn {% else %}    {% endif %}up_c'(O'SM'({{o.name}},{{sm.name}}), a', cm') = CMAP'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o.type.statemachines %}{{', ' if not (o2loop.first and loop.first)}}{% if o == o2 and sm == sm2 %}union'(c'{{o.name}}'{{sm.name}}(cm'),a'){% else %}c'{{o.name}}'{{sm.name}}(cm'){% endif %}{% endfor %}{% endfor %});
+{% if oloop.first and loop.first %}eqn {% endif %}(o' == O'SM'({{o.name}},{{sm.name}})) -> up_c'(o', a', cm') = CMAP'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o.type.statemachines %}{{', ' if not (o2loop.first and loop.first)}}{% if o == o2 and sm == sm2 %}union'(c'{{o.name}}'{{sm.name}}(cm'),a'){% else %}c'{{o.name}}'{{sm.name}}(cm'){% endif %}{% endfor %}{% endfor %});
 {% endfor %}
 {% endfor %}
 
@@ -621,7 +663,7 @@ eqn update_c'(c1',[],a') = c1';
 
 % *** DEPENDENCY GRAPH NODE ***
 
-sort DPNode' = struct N'(OSM': Object_SM', ST': STID', P': AccessPattern', H': History', d': D_map', c': C_map', owner': List(Object_SM')) | DPEmptynode';
+sort DPNode' = struct N'(OSM': Object_SM', ST': STID', P': AccessPattern', H': History', d': D_map', c': C_map', owner': List(Object_SM'));
 map lt', gt', eq': DPNode' # DPNode' -> Bool;
     empty_DPNode': DPNode';
 var n1', n2': DPNode';
@@ -683,7 +725,7 @@ var o1': Object';
     sm1': Statemachine';
     st': STID';
     L': List(DPNode');
-eqn get_dpnode1'(o1',sm1',st',[]) = DPEmptynode';
+eqn get_dpnode1'(o1',sm1',st',[]) = empty_DPNode';
 (L' != [] && OSM'(head(L')) == O'SM'(o1',sm1') && ST'(head(L')) == st') -> get_dpnode1'(o1',sm1',st',L') = head(L');
 (L' != [] && (OSM'(head(L')) != O'SM'(o1',sm1') || ST'(head(L')) != st')) -> get_dpnode1'(o1',sm1',st',L') = get_dpnode1'(o1',sm1',st',tail(L'));
 
@@ -1112,4 +1154,4 @@ proc {{model.name}}({% for o in model.objects %}{% set oloop = loop %}{% for stm
 (watchlist' == []) -> lock_all . {{model.name}}();
 {% endif %}
 
-init {{model.name}}({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first) }}{{sm.initialstate.name}}{% endfor %}{% endfor %}{% for o in model.objects %}{% set oloop = loop %}{% for var in o.type.variables %}, {% for vinit in o.assignments %}{% if var.name == vinit.left.name %}{% if vinit.right == None %}[{% for v in vinit.rights %}{{v|mcrl2value}}{{',' if not loop.last }}{% endfor %}]{% else %}{{vinit.right|mcrl2value}}{% endif %}{% break %}{% endif %}{% if loop.last %}{{var|variabledefault}}{% endif %}{% endfor %}{% if o.assignments|length == 0 %}{{var|variabledefault}}{% endif %}{% endfor %}{% for sm in o.type.statemachines %}{% for var in sm.variables %}, {{var|variabledefault}}{% endfor %}{% endfor %}{% endfor %}{% for ch in model.channels %}{% if ch.synctype == 'async' %}, [], 0{% endif %}{% endfor %}, {% if apply_por %}apply_por({% endif %}OT'({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first) }}outgoing({{o.type.name}}, {{sm.name}}, {{sm.initialstate.name}}){% endfor %}{% endfor %}){% if apply_por %}{% for o in model.objects %}{% set oloop = loop %}{% for var in o.type.variables %}, {% for vinit in o.assignments %}{% if var.name == vinit.left.name %}{% if vinit.right == None %}[{% for v in vinit.rights %}{{v|mcrl2value}}{{',' if not loop.last }}{% endfor %}]{% else %}{{vinit.right|mcrl2value}}{% endif %}{% break %}{% endif %}{% if loop.last %}{{var|variabledefault}}{% endif %}{% endfor %}{% if o.assignments|length == 0 %}{{var|variabledefault}}{% endif %}{% endfor %}{% for sm in o.type.statemachines %}{% for var in sm.variables %}, {{var|variabledefault}}{% endfor %}{% endfor %}{% endfor %}{% for ch in model.channels %}{% if ch.synctype == 'async' %}, [], 0{% endif %}{% endfor %}){% endif %}, update_blocks'(OT'({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first) }}outgoing({{o.type.name}}, {{sm.name}}, {{sm.initialstate.name}}){% endfor %}{% endfor %}), DG'({% for o in model.objects %}{{', ' if not loop.first }}[]{% endfor %}, empty_DPNode'){% for o in model.objects %}{% set oloop = loop %}{% for var in o.type.variables %}, {% for vinit in o.assignments %}{% if var.name == vinit.left.name %}{% if vinit.right == None %}[{% for v in vinit.rights %}{{v|mcrl2value}}{{',' if not loop.last }}{% endfor %}]{% else %}{{vinit.right|mcrl2value}}{% endif %}{% break %}{% endif %}{% if loop.last %}{{var|variabledefault}}{% endif %}{% endfor %}{% if o.assignments|length == 0 %}{{var|variabledefault}}{% endif %}{% endfor %}{% for sm in o.type.statemachines %}{% for var in sm.variables %}, {{var|variabledefault}}{% endfor %}{% endfor %}{% endfor %}{% for ch in model.channels %}{% if ch.synctype == 'async' %}, [], 0{% endif %}{% endfor %}), [{% for v in unsafe_variables %}{{', ' if not loop.first }}{{mcrl2varprefix}}{{v}}{% endfor %}], empty_O'SM'ST'Advice', false);
+init {{model.name}}({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first) }}{{sm.initialstate.name}}{% endfor %}{% endfor %}{% for o in model.objects %}{% set oloop = loop %}{% for var in o.type.variables %}, {% for vinit in o.assignments %}{% if var.name == vinit.left.name %}{% if vinit.right == None %}{% if var.type.base == "Integer" or var.type.base == "Byte" %}AI{% else %}AB{% endif %}{{var.type.size}}'({% for v in vinit.rights %}{{v|mcrl2value}}{{',' if not loop.last }}{% endfor %}){% else %}{{vinit.right|mcrl2value}}{% endif %}{% break %}{% endif %}{% if loop.last %}{{var|variabledefault}}{% endif %}{% endfor %}{% if o.assignments|length == 0 %}{{var|variabledefault}}{% endif %}{% endfor %}{% for sm in o.type.statemachines %}{% for var in sm.variables %}, {{var|variabledefault}}{% endfor %}{% endfor %}{% endfor %}{% for ch in model.channels %}{% if ch.synctype == 'async' %}, [], 0{% endif %}{% endfor %}, {% if apply_por %}apply_por({% endif %}OT'({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first) }}outgoing({{o.type.name}}, {{sm.name}}, {{sm.initialstate.name}}){% endfor %}{% endfor %}){% if apply_por %}{% for o in model.objects %}{% set oloop = loop %}{% for var in o.type.variables %}, {% for vinit in o.assignments %}{% if var.name == vinit.left.name %}{% if vinit.right == None %}{% if var.type.base == "Integer" or var.type.base == "Byte" %}AI{% else %}AB{% endif %}{{var.type.size}}'({% for v in vinit.rights %}{{v|mcrl2value}}{{',' if not loop.last }}{% endfor %}){% else %}{{vinit.right|mcrl2value}}{% endif %}{% break %}{% endif %}{% if loop.last %}{{var|variabledefault}}{% endif %}{% endfor %}{% if o.assignments|length == 0 %}{{var|variabledefault}}{% endif %}{% endfor %}{% for sm in o.type.statemachines %}{% for var in sm.variables %}, {{var|variabledefault}}{% endfor %}{% endfor %}{% endfor %}{% for ch in model.channels %}{% if ch.synctype == 'async' %}, [], 0{% endif %}{% endfor %}){% endif %}, update_blocks'(OT'({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first) }}outgoing({{o.type.name}}, {{sm.name}}, {{sm.initialstate.name}}){% endfor %}{% endfor %}), DG'({% for o in model.objects %}{{', ' if not loop.first }}[]{% endfor %}, empty_DPNode'){% for o in model.objects %}{% set oloop = loop %}{% for var in o.type.variables %}, {% for vinit in o.assignments %}{% if var.name == vinit.left.name %}{% if vinit.right == None %}{% if var.type.base == "Integer" or var.type.base == "Byte" %}AI{% else %}AB{% endif %}{{var.type.size}}'({% for v in vinit.rights %}{{v|mcrl2value}}{{',' if not loop.last }}{% endfor %}){% else %}{{vinit.right|mcrl2value}}{% endif %}{% break %}{% endif %}{% if loop.last %}{{var|variabledefault}}{% endif %}{% endfor %}{% if o.assignments|length == 0 %}{{var|variabledefault}}{% endif %}{% endfor %}{% for sm in o.type.statemachines %}{% for var in sm.variables %}, {{var|variabledefault}}{% endfor %}{% endfor %}{% endfor %}{% for ch in model.channels %}{% if ch.synctype == 'async' %}, [], 0{% endif %}{% endfor %}), [{% for v in unsafe_variables %}{{', ' if not loop.first }}{{mcrl2varprefix}}{{v}}{% endfor %}], empty_O'SM'ST'Advice', false);
