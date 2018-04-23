@@ -194,9 +194,9 @@ class AD:
 					low = -1
 				else:
 					i = statements.index(a)
-					high = min(high, i)
-					low = max(low, i)
-			ranges.append((low, high))
+					high = max(high, i)
+					low = min(low, i)
+			ranges.append((low, high+1))
 		# merge overlapping ranges
 		for i in range(0, len(ranges)):
 			for j in range(0, len(ranges)):
@@ -456,8 +456,10 @@ class ShuffleGraph:
 				n.children.remove(b)
 				
 	def apply(self):
-		#if self.b_cycle:
-		return self.assignments, [set(self.assignments)]
+		if self.b_cycle:
+			return self.assignments, [set(self.assignments)]
+		else:
+			return self.assignments, []
 		
 		new_assignments = list(self.assignments)
 		# NOTE: we move afters towards end only to avoid creating new conflicts
