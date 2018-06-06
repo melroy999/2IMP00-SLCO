@@ -244,8 +244,8 @@ def main(args):
 					break
 
 	# create meta-model
-	dve_mm = metamodel_from_file(join(this_folder,'dve.tx'))
-	slco_mm = metamodel_from_file(join(this_folder,'slco2.tx'))
+	dve_mm = metamodel_from_file(join(this_folder,'../../textx_grammars/dve.tx'))
+	slco_mm = metamodel_from_file(join(this_folder,'../../textx_grammars/slco2.tx'))
 
 	batch = []
 	if modelname.endswith('.dve'):

@@ -1623,7 +1623,7 @@ def translate():
 	jinja_env.tests['actionref'] = expression_is_actionref
 
 	# load the mCRL2 template
-	template = jinja_env.get_template('mcrl2.jinja2template')
+	template = jinja_env.get_template('../../jinja2_templates/mcrl2.jinja2template')
 	out = template.render(model=model, states=states, channeltypes=channeltypes,
 	                asynclosslesstypes=asynclosslesstypes, asynclossytypes=asynclossytypes, synctypes=synctypes,
 	                visibleactions=visibleactions, actions=actions, sync_guarded_statements=sync_guarded_statements,
@@ -1661,7 +1661,7 @@ def main(args):
 					modelname = args[i]
 
 	# create meta-model
-	slco_mm = metamodel_from_file(join(this_folder,'slco2.tx'))
+	slco_mm = metamodel_from_file(join(this_folder,'../../textx_grammars/slco2.tx'))
 
 	batch = []
 	if modelname.endswith('.slco'):

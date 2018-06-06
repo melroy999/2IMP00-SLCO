@@ -263,7 +263,7 @@ def main(args):
 				i += 1
 
 	# create meta-model
-	slco_mm = metamodel_from_file(join(this_folder,'slco2.tx'))
+	slco_mm = metamodel_from_file(join(this_folder,'../../textx_grammars/slco2.tx'))
 	# read model
 	model = slco_mm.model_from_file(join(this_folder,modelname))
 	# optionally process given layout

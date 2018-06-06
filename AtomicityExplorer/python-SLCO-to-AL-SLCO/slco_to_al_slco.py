@@ -17,7 +17,7 @@ from help_on_error_argument_parser import HelpOnErrorArgumentParser
 from suggestions import *
 
 this_folder = dirname(__file__)
-slco_mm = metamodel_from_file(join(this_folder,'slco2.tx'))
+slco_mm = metamodel_from_file(join(this_folder,'../../textx_grammars/slco2.tx'))
 	
 
 def translate(model, suggestions):

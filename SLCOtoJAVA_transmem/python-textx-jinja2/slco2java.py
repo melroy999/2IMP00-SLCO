@@ -698,7 +698,7 @@ def slco_to_java(modelfolder,modelname,model,lockingfilename):
 	jinja_env.tests['hasoutgoingtrans'] = hasoutgoingtrans
 
 	# load the Java template
-	template = jinja_env.get_template('java.jinja2template')
+	template = jinja_env.get_template('../../jinja2_templates/java_transmem.jinja2template')
 
 	# write the program
 	outFile.write(template.render(model=model,states=states,numberofelemvariables=numberofelemvariables,lockneeded=lockneeded,add_counter=add_counter))
@@ -735,7 +735,7 @@ def main(args):
 				i += 1
 
 	# create meta-model
-	slco_mm = metamodel_from_file(os.path.join(this_folder,'slco2.tx'))
+	slco_mm = metamodel_from_file(os.path.join(this_folder,'../../textx_grammars/slco2.tx'))
 	# read model
 	model = slco_mm.model_from_file(os.path.join(modelfolder,modelname))
 	# preprocess

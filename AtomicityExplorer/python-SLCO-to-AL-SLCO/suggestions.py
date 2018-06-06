@@ -24,12 +24,13 @@ def parse_suggestions(sugg_path):
 		statement = int(statement[3:])
 
 		if line.startswith('AD'):
-			ad = suggestions.get(statement, AD(set(), set()))
+			print(statement)
+			ad = suggestions.get(statement, AD())
 			ad.merge(AD.parse(line))
 			suggestions[statement] = ad
 
-	for ad in suggestions.values():
-		ad.fix_conflicting_shuffles()
+	#for ad in suggestions.values():
+	#	ad.fix_conflicting_shuffles()
 	total = 0
 	for ad in suggestions.values():
 		total += ad.size()
@@ -431,18 +432,7 @@ class ShuffleGraph:
 		for s in self.nodes:
 			if s in visited:
 				continue
-			
-<<<<<<< HEAD
-			visited.add(node)
-			targets = graph.get(node, set())
-			for target in targets:
-				if target not in visited:
-					node_stack.append(target)
-				elif target in node_stack:
-					# if target is visited and in state_stack, then there is a cycle!
-					cycle_completing_edges.append((node, target))
-	return cycle_completing_edges
-=======
+
 			node_stack = stack()
 			node_stack.append(s)
 			while node_stack:
@@ -512,7 +502,3 @@ class ShuffleGraph:
 						leaves.add(p)
 		
 		return new_assignments, self.atomic_sets
-		
-		
-	
->>>>>>> 702ec895e3e0b6a6fb4b2aaf06af45eb34a0c204

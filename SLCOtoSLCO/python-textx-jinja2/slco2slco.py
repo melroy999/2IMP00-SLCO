@@ -584,7 +584,7 @@ def translate():
 	if check_simple:
 		make_simple(model)
 	# load the SLCO template
-	template = jinja_env.get_template('slco.jinja2template')
+	template = jinja_env.get_template('../../jinja2_templates/slco.jinja2template')
 	out = template.render(model=model)
 	# write new SLCO model
 	outFile.write(out)
@@ -618,7 +618,7 @@ def main(args):
 					modelname = args[i]
 
 	# create meta-model
-	slco_mm = metamodel_from_file(join(this_folder,'slco2.tx'))
+	slco_mm = metamodel_from_file(join(this_folder,'../../textx_grammars/slco2.tx'))
 
 	batch = []
 	if modelname.endswith('.slco'):

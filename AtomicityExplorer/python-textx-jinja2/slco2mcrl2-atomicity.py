@@ -1838,14 +1838,14 @@ def preprocess():
 			if v.type.size > 1:
 				if v.type.base == "Boolean":
 					bsizes.add(v.type.size)
-				elif v.type.base == "Integet" or v.type.base == "Byte":
+				elif v.type.base == "Integer" or v.type.base == "Byte":
 					isizes.add(v.type.size)
 		for sm in c.statemachines:
 			for v in sm.variables:
 				if v.type.size > 1:
 					if v.type.base == "Boolean" or v.type.base == "Byte":
 						bsizes.add(v.type.size)
-					elif v.type.base == "Integet":
+					elif v.type.base == "Integer":
 						isizes.add(v.type.size)
 	IntArraySizes = list(isizes)
 	BoolArraySizes = list(bsizes)
