@@ -735,7 +735,7 @@ def main(args):
 				i += 1
 
 	# create meta-model
-	slco_mm = metamodel_from_file(os.path.join(this_folder,'../../textx_grammars/slco2.tx'))
+	slco_mm = metamodel_from_file(os.path.join(this_folder,'../../textx_grammars/slco2-al.tx'))
 	# read model
 	model = slco_mm.model_from_file(os.path.join(modelfolder,modelname))
 	# preprocess
