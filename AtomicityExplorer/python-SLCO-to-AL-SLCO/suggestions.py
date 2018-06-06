@@ -29,6 +29,10 @@ def parse_suggestions(sugg_path):
 
 	for ad in suggestions.values():
 		ad.fix_conflicting_shuffles()
+	total = 0
+	for ad in suggestions.values():
+		total += ad.size()
+	print total
 	return suggestions
 
 
@@ -155,6 +159,12 @@ class AD:
 		ad = AD({access_pattern}, shuffles)
 		ad.merge_overlapping_access_patterns()
 		return ad
+	
+	def size(self):
+		total = 0
+		for ac in self.access_patterns:
+			total += len(ac.r) + len(ac.w)
+		return total
 
 	def merge(self, ad):
 		self.access_patterns = self.access_patterns | ad.access_patterns

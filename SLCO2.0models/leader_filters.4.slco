@@ -24,12 +24,8 @@ classes
 						[b[curr] := 1]
 					}
 
-					from p4 to p5 {
+					from p4 to p6 {
 						turn[curr] <> 0
-					}
-
-					from p5 to p6 {
-						
 					}
 
 					from p6 to p7 {
@@ -40,12 +36,8 @@ classes
 						turn[curr] = 0
 					}
 
-					from p8 to p9 {
+					from p8 to elected {
 						curr > 0 and c[curr-1] = 0
-					}
-
-					from p9 to elected {
-						
 					}
 
 					from p8 to p1 {
@@ -72,12 +64,8 @@ classes
 						[b[curr] := 1]
 					}
 
-					from p4 to p5 {
+					from p4 to p6 {
 						turn[curr] <> 1
-					}
-
-					from p5 to p6 {
-						
 					}
 
 					from p6 to p7 {
@@ -88,12 +76,8 @@ classes
 						turn[curr] = 1
 					}
 
-					from p8 to p9 {
+					from p8 to elected {
 						curr > 0 and c[curr-1] = 0
-					}
-
-					from p9 to elected {
-						
 					}
 
 					from p8 to p1 {
@@ -120,12 +104,8 @@ classes
 						[b[curr] := 1]
 					}
 
-					from p4 to p5 {
+					from p4 to p6 {
 						turn[curr] <> 2
-					}
-
-					from p5 to p6 {
-						
 					}
 
 					from p6 to p7 {
@@ -136,12 +116,8 @@ classes
 						turn[curr] = 2
 					}
 
-					from p8 to p9 {
+					from p8 to elected {
 						curr > 0 and c[curr-1] = 0
-					}
-
-					from p9 to elected {
-						
 					}
 
 					from p8 to p1 {
@@ -168,12 +144,8 @@ classes
 						[b[curr] := 1]
 					}
 
-					from p4 to p5 {
+					from p4 to p6 {
 						turn[curr] <> 3
-					}
-
-					from p5 to p6 {
-						
 					}
 
 					from p6 to p7 {
@@ -184,12 +156,8 @@ classes
 						turn[curr] = 3
 					}
 
-					from p8 to p9 {
+					from p8 to elected {
 						curr > 0 and c[curr-1] = 0
-					}
-
-					from p9 to elected {
-						
 					}
 
 					from p8 to p1 {

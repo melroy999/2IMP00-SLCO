@@ -23,13 +23,21 @@ slco_mm = metamodel_from_file(join(this_folder,'slco2.tx'))
 def translate(model, suggestions):
 	# Currently only 1 class is supported
 	global_class = model.classes[0]
-	transitions = children_of_type("Transition", global_class)
+	transitions = []
+	for sm in global_class.statemachines:
+		for tr in sm.transitions:
+			transitions.append(tr)
+	#transitions = children_of_type("Transition", global_class)
 	for t in transitions:
 		#print((t.priority, t.source, t.target, t.statements))
 		# process suggestions
 		ad = suggestions.get(t._tx_position, None)
 		if ad: # atomicity violations, apply advice
-			composites = children_of_type("Composite", t)
+			composites = []
+			for st in tr.statements:
+				if st.__class__.__name__ == "Composite":
+					composites.append(st)
+			#composites = children_of_type("Composite", t)
 			# We assume that a transition only contains one statement.
 			# Hence, we can simply assign the new statements
 			if composites:
@@ -56,7 +64,7 @@ def slco_variable_to_text(var):
 	if var.defvalue:
 		text += " := %s" % var.defvalue
 	elif var.defvalues:
-		text += " := [%s]" % ", ".join(var.defvalue)
+		text += " := [%s]" % ", ".join(str(var.defvalues))
 	return text
 
 

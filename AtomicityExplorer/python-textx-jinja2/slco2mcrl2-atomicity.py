@@ -1445,6 +1445,8 @@ def identify_safe_unsafe_statements(m):
 					for i in range(0,v.type.size):
 						varindex = "(Int2Nat(" + str(i) + "))"
 						unsafe_variables.add(varname + varindex)
+				else:
+					unsafe_variables.add(varname)		
 	else:
 		# create dictionary of statements
 		sdict = {}
