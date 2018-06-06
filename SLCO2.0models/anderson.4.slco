@@ -2,7 +2,7 @@ model dve_anderson_4 {
 classes
 	GlobalClass {
 		variables
-			Byte[4] Slot := [1,0,0,0]
+			Byte[4] Slot := [1,0,0,0,0]
 			Byte next := 0
 		state machines
 			P_0 {

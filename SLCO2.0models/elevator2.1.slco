@@ -9,9 +9,9 @@ classes
 		state machines
 			cabin {
 				variables
-				Integer vtmp
+					
 				initial idle
-				states mov open open1 open2
+				states  mov open
 				transitions
 					from idle to mov {
 						v>0
@@ -29,16 +29,8 @@ classes
 						[t>p; p := p+1]
 					}
 
-					from open to open1 {
-						vtmp := p
-					}
-
-					from open1 to open2 {
-						vtmp > 0 and vtmp < 4
-					}
-
-					from open2 to idle {
-						[req[vtmp] := 0;v := 0]
+					from open to idle {
+						[req[p] := 0;v := 0]
 					}
 
 				}
@@ -70,32 +62,23 @@ classes
 			controller {
 				variables
 					Byte ldir
-					Integer vtmp
 				initial wait
-				states  work work1 work2 done
+				states  work done
 				transitions
 					from wait to work {
-						[v=0; t := t+(2*ldir)-1; vtmp := t]
+						[v=0; t := t+(2*ldir)-1]
 					}
 
 					from work to wait {
-						[vtmp<0 or vtmp=4; ldir := 1-ldir]
+						[t<0 or t=4; ldir := 1-ldir]
 					}
 
-					from work to work1 {
-						vtmp>=0 and vtmp < 4
+					from work to done {
+						t>=0 and t<4 and req[t]=1
 					}
 
-					from work1 to done {
-						req[vtmp]=1
-					}
-
-					from work1 to work2 {
-						req[vtmp]=0
-					}
-
-					from work2 to work {
-						[t := t+(2*ldir)-1]
+					from work to work {
+						[t>=0 and t<4 and req[t]=0; t := t+(2*ldir)-1]
 					}
 
 					from done to wait {

@@ -7,88 +7,75 @@ classes
 			Byte y := 8
 		state machines
 			Toad {
+				variables
+					
 				initial q
-				states p1 p2 p3 p4
-				variables Byte vtmp
+				states  
 				transitions
-				  from q to p1 {
-            vtmp = ((y)*1+x-1)
-          }
-
-					from p1 to p2 {
-						x>0 and ((y)*1+x-1) > 0 and ((y)*1+x-1) < 17
+					from q to q {
+						[x>0 and a[((y)*1+x-1)]=1; a[((y)*1+x)] := 1;a[((y)*1+x-1)] := 0;x := x-1]
 					}
 
-					from p1 to q {
-						not (x>0 and ((y)*1+x-1) > 0 and ((y)*1+x-1) < 17)
+					from q to q {
+						[y>0 and a[((y-1)*1+x)]=1; a[((y)*1+x)] := 1;a[((y-1)*1+x)] := 0;y := y-1]
 					}
 
-					from p2 to q {
-						[a[vtmp]=1; a[((y)*1+x)] := 1;a[((y)*1+x-1)] := 0;x := x-1]
+					from q to q {
+						[x>1 and a[((y)*1+x-1)]=2 and a[((y)*1+x-2)]=1; a[((y)*1+x)] := 1;a[((y)*1+x-2)] := 0;x := x-2]
 					}
 
-					from q to p2 {
-						y>0
-					}
-
-					from p2 to q {
-						[a[((y-1)*1+x)]=1; a[((y)*1+x)] := 1;a[((y-1)*1+x)] := 0;y := y-1]
-					}
-
-					from q to p3 {
-						x>1
-					}
-
-					from p3 to q {
-						[a[((y)*1+x-1)]=2 and a[((y)*1+x-2)]=1; a[((y)*1+x)] := 1;a[((y)*1+x-2)] := 0;x := x-2]
-					}
-
-					from q to p4 {
-						y>1
-					}
-
-					from p4 to q {
-						[a[((y-1)*1+x)]=2 and a[((y-2)*1+x)]=1; a[((y)*1+x)] := 1;a[((y-2)*1+x)] := 0;y := y-2]
+					from q to q {
+						[y>1 and a[((y-1)*1+x)]=2 and a[((y-2)*1+x)]=1; a[((y)*1+x)] := 1;a[((y-2)*1+x)] := 0;y := y-2]
 					}
 
 				}
 	
 			Frog {
+				variables
+					
 				initial q
-				states p1 p2 p3 p4
+				states  
 				transitions
-					from q to p1 {
-						x<0
-					}
-					from p1 to q {
-						[a[((y)*1+x+1)]=2; a[((y)*1+x)] := 2;a[((y)*1+x+1)] := 0;x := x+1]
-					}
-
-					from q to p2 {
-						y<16
-					}
-
-					from p2 to q {
-						[a[((y+1)*1+x)]=2; a[((y)*1+x)] := 2;a[((y+1)*1+x)] := 0;y := y+1]
-					}
-
-					from q to p3 {
-						x<-1
-					}
-
-					from p3 to q {
-						[a[((y)*1+x+1)]=1 and a[((y)*1+x+2)]=2; a[((y)*1+x)] := 2;a[((y)*1+x+2)] := 0;x := x+2]
-					}
-
-					from q to p4 {
-						y<15
+					from q to q {
+						[x<1-1 and a[((y)*1+x+1)]=2; a[((y)*1+x)] := 2;a[((y)*1+x+1)] := 0;x := x+1]
 					}
 
 					from q to q {
-						[a[((y+1)*1+x)]=1 and a[((y+2)*1+x)]=2; a[((y)*1+x)] := 2;a[((y+2)*1+x)] := 0;y := y+2]
+						[y<17-1 and a[((y+1)*1+x)]=2; a[((y)*1+x)] := 2;a[((y+1)*1+x)] := 0;y := y+1]
+					}
+
+					from q to q {
+						[x<1-2 and a[((y)*1+x+1)]=1 and a[((y)*1+x+2)]=2; a[((y)*1+x)] := 2;a[((y)*1+x+2)] := 0;x := x+2]
+					}
+
+					from q to q {
+						[y<17-2 and a[((y+1)*1+x)]=1 and a[((y+2)*1+x)]=2; a[((y)*1+x)] := 2;a[((y+2)*1+x)] := 0;y := y+2]
 					}
 
 				}
+	
+			Check {
+				variables
+					
+				initial dvenotdone
+				states  done
+				transitions
+					from dvenotdone to done {
+						a[0] = 2 and 
+a[1] = 2 and 
+a[2] = 2 and 
+a[3] = 2 and 
+a[4] = 2 and 
+a[5] = 2 and 
+a[6] = 2 and 
+a[7] = 2 and 
+
+ 
+a[9] = 1   and a[10] = 1   and a[11] = 1   and a[12] = 1   and a[13] = 1   and a[14] = 1   and a[15] = 1   and a[16] = 1
+					}
+
+				}
+	
 	}
 
 objects
