@@ -102,7 +102,10 @@ def variabledeclarations(s, indent):
 	for i in range(0,len(s)):
 		# write type?
 		if s[i].type.base != previous_base or s[i].type.size != previous_size:
-			output += " " + s[i].type.base
+			output += "\n  "
+			for j in range (0,indent):
+				output += " "
+			output += s[i].type.base
 			if s[i].type.size > 1:
 				output += "[" + str(s[i].type.size) + "]"
 			previous_base = s[i].type.base
@@ -116,7 +119,6 @@ def variabledeclarations(s, indent):
 			else:
 				output += str(s[i].defvalues)
 	if output != "":
-		output += "\n"
 		for i in range (0,indent):
 			output += " "
 	return output
@@ -132,7 +134,7 @@ def statement_varset(s):
 	global actions
 	output = set([])
 	if s.__class__.__name__ == "Assignment":
-		output.add(s.left.var.name)
+		output |= statement_varset(s.left)
 		output |= statement_varset(s.right)
 	elif s.__class__.__name__ == "Composite":
 		if s.guard != None:
@@ -152,7 +154,7 @@ def statement_varset(s):
 		if s.index != None:
 			output |= statement_varset(s.index)
 	elif s.__class__.__name__ == "Delay":
-		output = set([])
+		output |= set([])
 	elif s.__class__.__name__ != "Primary":
 		output |= statement_varset(s.left)
 		if s.op != '':
@@ -568,7 +570,7 @@ def translate():
 	outFile = open(join(path,name + "_new.slco"), 'w')
 
 	# Initialize the template engine.
-	jinja_env = jinja2.Environment(loader=jinja2.FileSystemLoader(this_folder), trim_blocks=True, lstrip_blocks=True, extensions=['jinja2.ext.loopcontrols','jinja2.ext.do',])
+	jinja_env = jinja2.Environment(loader=jinja2.FileSystemLoader(join(this_folder,'../../jinja2_templates')), trim_blocks=True, lstrip_blocks=True, extensions=['jinja2.ext.loopcontrols','jinja2.ext.do',])
 
 	# Register the filters
 	jinja_env.filters['printstatement'] = printstatement
@@ -584,7 +586,7 @@ def translate():
 	if check_simple:
 		make_simple(model)
 	# load the SLCO template
-	template = jinja_env.get_template('../../jinja2_templates/slco.jinja2template')
+	template = jinja_env.get_template('slco.jinja2template')
 	out = template.render(model=model)
 	# write new SLCO model
 	outFile.write(out)

@@ -1567,7 +1567,7 @@ def translate():
 	outFile = open(join(path,name + "mcrl2"), 'w')
 
 	# Initialize the template engine.
-	jinja_env = jinja2.Environment(loader=jinja2.FileSystemLoader(this_folder), trim_blocks=True, lstrip_blocks=True, extensions=['jinja2.ext.loopcontrols','jinja2.ext.do',])
+	jinja_env = jinja2.Environment(loader=jinja2.FileSystemLoader(join(this_folder,'../../jinja2_templates')), trim_blocks=True, lstrip_blocks=True, extensions=['jinja2.ext.loopcontrols','jinja2.ext.do',])
 
 	# Register the filters
 	jinja_env.filters['mcrl2type'] = mcrl2type
@@ -1623,7 +1623,7 @@ def translate():
 	jinja_env.tests['actionref'] = expression_is_actionref
 
 	# load the mCRL2 template
-	template = jinja_env.get_template('../../jinja2_templates/mcrl2.jinja2template')
+	template = jinja_env.get_template('mcrl2.jinja2template')
 	out = template.render(model=model, states=states, channeltypes=channeltypes,
 	                asynclosslesstypes=asynclosslesstypes, asynclossytypes=asynclossytypes, synctypes=synctypes,
 	                visibleactions=visibleactions, actions=actions, sync_guarded_statements=sync_guarded_statements,

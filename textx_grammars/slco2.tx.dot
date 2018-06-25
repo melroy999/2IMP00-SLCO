@@ -1,0 +1,146 @@
+
+    digraph xtext {
+    fontname = "Bitstream Vera Sans"
+    fontsize = 8
+    node[
+        shape=record,
+        style=filled,
+        fillcolor=aliceblue
+    ]
+    nodesep = 0.3
+    edge[dir=black,arrowtail=empty]
+
+
+4324688328 -> 4324849272[arrowtail=diamond, dir=both, headlabel="actions 1..*"]
+4324688328 -> 4324650920[arrowtail=diamond, dir=both, headlabel="classes 0..*"]
+4324688328 -> 4324830712[arrowtail=diamond, dir=both, headlabel="objects 0..*"]
+4324688328 -> 4324832568[arrowtail=diamond, dir=both, headlabel="channels 0..*"]
+4324688328[ label="{SLCOModel|+name:NID\l}"]
+
+4324650920 -> 4324851128[arrowtail=diamond, dir=both, headlabel="variables 0..*"]
+4324650920 -> 4324835352[arrowtail=diamond, dir=both, headlabel="ports 0..*"]
+4324650920 -> 4324833496[arrowtail=diamond, dir=both, headlabel="statemachines 0..*"]
+4324650920[ label="{Class|+name:NID\l}"]
+
+4324830712 -> 4324650920[headlabel="type "]
+4324830712 -> 4324831640[arrowtail=diamond, dir=both, headlabel="assignments 0..*"]
+4324830712[ label="{Object|+name:NID\l}"]
+
+4324831640 -> 4324851128[headlabel="left "]
+4324831640[ label="{Initialisation|+right:OBJECT\l+rights:list[OBJECT]\l}"]
+
+4324832568 -> 4324852056[arrowtail=diamond, dir=both, headlabel="type 0..*"]
+4324832568 -> 4324830712[headlabel="source "]
+4324832568 -> 4324835352[headlabel="ports 1..*"]
+4324832568 -> 4324830712[headlabel="target "]
+4324832568[ label="{Channel|+name:NID\l+synctype:STRING\l+size:INT\l+losstype:STRING\l}"]
+
+4324833496 -> 4324851128[arrowtail=diamond, dir=both, headlabel="variables 0..*"]
+4324833496 -> 4324834424[arrowtail=diamond, dir=both, headlabel="initialstate "]
+4324833496 -> 4324834424[arrowtail=diamond, dir=both, headlabel="states 0..*"]
+4324833496 -> 4324836280[arrowtail=diamond, dir=both, headlabel="transitions 0..*"]
+4324833496[ label="{StateMachine|+name:NID\l}"]
+
+4324834424[ label="{State|+name:NID\l}"]
+
+4324835352[ label="{Port|+name:NID\l}"]
+
+4324836280 -> 4324834424[headlabel="source "]
+4324836280 -> 4324834424[headlabel="target "]
+4324836280 -> 4324837208[arrowtail=diamond, dir=both, headlabel="statements 0..*"]
+4324836280[ label="{Transition|+priority:INT\l}"]
+
+4324837208[ label="{*Statement|}"]
+4324837208 -> 4324839064 [dir=back]
+4324837208 -> 4324839992 [dir=back]
+4324837208 -> 4324840920 [dir=back]
+4324837208 -> 4324847416 [dir=back]
+4324837208 -> 4324838136 [dir=back]
+4324837208 -> 4324841848 [dir=back]
+
+4324838136 -> 4324850200[arrowtail=diamond, dir=both, headlabel="left "]
+4324838136 -> 4324841848[arrowtail=diamond, dir=both, headlabel="right "]
+4324838136[ label="{Assignment|}"]
+
+4324839064 -> 4324841848[arrowtail=diamond, dir=both, headlabel="guard "]
+4324839064 -> 4324838136[arrowtail=diamond, dir=both, headlabel="assignments 0..*"]
+4324839064[ label="{Composite|}"]
+
+4324839992 -> 4324850200[arrowtail=diamond, dir=both, headlabel="params 0..*"]
+4324839992 -> 4324841848[arrowtail=diamond, dir=both, headlabel="guard "]
+4324839992 -> 4324835352[headlabel="target "]
+4324839992[ label="{ReceiveSignal|+signal:NID\l}"]
+
+4324840920 -> 4324841848[arrowtail=diamond, dir=both, headlabel="params 0..*"]
+4324840920 -> 4324835352[headlabel="target "]
+4324840920[ label="{SendSignal|+signal:NID\l}"]
+
+4324841848 -> 4324842776[arrowtail=diamond, dir=both, headlabel="left "]
+4324841848 -> 4324841848[arrowtail=diamond, dir=both, headlabel="right "]
+4324841848[ label="{Expression|+op:STRING\l}"]
+
+4324842776 -> 4324843704[arrowtail=diamond, dir=both, headlabel="left "]
+4324842776 -> 4324842776[arrowtail=diamond, dir=both, headlabel="right "]
+4324842776[ label="{ExprPrec4|+op:STRING\l}"]
+
+4324843704 -> 4324844632[arrowtail=diamond, dir=both, headlabel="left "]
+4324843704 -> 4324843704[arrowtail=diamond, dir=both, headlabel="right "]
+4324843704[ label="{ExprPrec3|+op:STRING\l}"]
+
+4324844632 -> 4324845560[arrowtail=diamond, dir=both, headlabel="left "]
+4324844632 -> 4324844632[arrowtail=diamond, dir=both, headlabel="right "]
+4324844632[ label="{ExprPrec2|+op:STRING\l}"]
+
+4324845560 -> 4324846488[arrowtail=diamond, dir=both, headlabel="left "]
+4324845560 -> 4324845560[arrowtail=diamond, dir=both, headlabel="right "]
+4324845560[ label="{ExprPrec1|+op:STRING\l}"]
+
+4324846488 -> 4324841848[arrowtail=diamond, dir=both, headlabel="body "]
+4324846488 -> 4324848344[arrowtail=diamond, dir=both, headlabel="ref "]
+4324846488[ label="{Primary|+sign:STRING\l+value:OBJECT\l}"]
+
+4324847416[ label="{Delay|+length:INT\l}"]
+
+4324848344 -> 4324841848[arrowtail=diamond, dir=both, headlabel="index "]
+4324848344[ label="{ExpressionRef|+ref:NID\l}"]
+
+4324849272[ label="{Action|+name:NID\l}"]
+
+4324850200 -> 4324851128[headlabel="var "]
+4324850200 -> 4324841848[arrowtail=diamond, dir=both, headlabel="index "]
+4324850200[ label="{VariableRef|}"]
+
+4324851128 -> 4324852056[arrowtail=diamond, dir=both, headlabel="type "]
+4324851128[ label="{Variable|+name:NID\l+defvalue:OBJECT\l+defvalues:list[OBJECT]\l}"]
+
+4324852056[ label="{Type|+base:STRING\l+size:INT\l}"]
+
+4324852984[ label="{Keyword|actions\|model\|classes\|ports\|state machines\|variables\|initial\|state\|transitions\|from\|to\|send\|receive\|objects\|channels\|Boolean\|Integer\|Byte\|async\|sync\|lossless\|lossy\|between\|and\|:=\|after\|ms\|not\|-\|+\|or\|xor\|and\|==\|\<\>\|\<=\|\>=\|\<\|\>\|mod\|*\|/\|**\|true\|false}"]
+
+4324853912[ label="{NID| ID}"]
+
+4324599832[ label="{ID|}"]
+
+4324601336[ label="{STRING|}"]
+
+4324602840[ label="{BOOL|}"]
+
+4324604344[ label="{INT|}"]
+
+4324605848[ label="{FLOAT|}"]
+
+4324607352[ label="{NUMBER|}"]
+4324607352 -> 4324605848 [dir=back]
+4324607352 -> 4324604344 [dir=back]
+
+4324608280[ label="{BASETYPE|}"]
+4324608280 -> 4324607352 [dir=back]
+4324608280 -> 4324602840 [dir=back]
+4324608280 -> 4324599832 [dir=back]
+4324608280 -> 4324601336 [dir=back]
+
+4324609208[ label="{*OBJECT|}"]
+4324609208 -> 4324608280 [dir=back]
+
+
+}

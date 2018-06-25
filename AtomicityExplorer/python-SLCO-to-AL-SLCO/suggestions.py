@@ -7,7 +7,6 @@ STATEMENT_MEMORY_FENCE = '#'
 
 def parse_var(var):
 	return var.split("'")[1]
-	
 
 def parse_suggestions(sugg_path):
 	file = open(sugg_path, 'r')
@@ -16,27 +15,33 @@ def parse_suggestions(sugg_path):
 
 	suggestions = defaultdict(AD)
 	for line in lines:
-		start = line.find(",") + 2
+		start = line.find("(") + 1
 		end = line.rfind("'") - 1
 		line = line[start:end]
-		sm, line = get_and_remove_up_to_first(line, ',', 2)
-		statement, line = get_and_remove_up_to_first(line, ',', 2)
-		statement = int(statement[3:])
-
+		print(line)
+		sm = line.split(", ")
+		print(sm)
+		statement = tuple([sm[0], sm[1], sm[2]])
+		line = ""
+		first = True
+		for i in range(3,len(sm)):
+			if not first:
+				line += ", "
+			else:
+				first = False
+			line += sm[i]
 		if line.startswith('AD'):
-			print(statement)
-			ad = suggestions.get(statement, AD())
-			ad.merge(AD.parse(line))
+			ad = suggestions.get(statement, [])
+			ad.append(AD.parse(line))
 			suggestions[statement] = ad
 
 	#for ad in suggestions.values():
 	#	ad.fix_conflicting_shuffles()
 	total = 0
 	for ad in suggestions.values():
-		total += ad.size()
+		total += len(ad)
 	print total
 	return suggestions
-
 
 class SuggestionSyntaxException(Exception):
 	def __init__(self, value):

@@ -6,10 +6,14 @@ model {{model.name}} {
   {{c.name}} {
     {{c.variables|variabledeclarations(4)}}{% for p in c.ports %}{{'ports' if loop.first }} {{p.name}}{% endfor %}
     
+
     {% for s in c.statemachines %}
     {{'state machines' if loop.first }}
     {{s.name}} {
-      {{s.variables|variabledeclarations(6)}}initial {{s.initialstate.name}} {% for st in s.states %}{{'states' if loop.index0 == 1 }}{% if not loop.first %} {{st.name}}{% endif %}{% endfor %}
+      {{s.variables|variabledeclarations(6)}}
+
+      initial {{s.initialstate.name}} {% for st in s.states %}{{'states' if loop.index0 == 1 }}{% if not loop.first %} {{st.name}}{% endif %}{% endfor %}
+
 
       {% for tr in s.transitions %}
       {{'transitions' if loop.first }}

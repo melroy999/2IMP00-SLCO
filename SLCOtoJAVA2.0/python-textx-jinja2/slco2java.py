@@ -680,7 +680,7 @@ def slco_to_java(modelfolder,modelname,model,lockingfilename):
 		lockneeded.append(i in lockids)
 
 	# Initialize the template engine.
-	jinja_env = jinja2.Environment(loader=jinja2.FileSystemLoader(this_folder), trim_blocks=True, lstrip_blocks=True, extensions=['jinja2.ext.loopcontrols','jinja2.ext.do',])
+	jinja_env = jinja2.Environment(loader=jinja2.FileSystemLoader(join(this_folder,'../../jinja2_templates')), trim_blocks=True, lstrip_blocks=True, extensions=['jinja2.ext.loopcontrols','jinja2.ext.do',])
 
 	# Register the filters
 	jinja_env.filters['getvarids'] = getvarids
@@ -698,7 +698,7 @@ def slco_to_java(modelfolder,modelname,model,lockingfilename):
 	jinja_env.tests['hasoutgoingtrans'] = hasoutgoingtrans
 
 	# load the Java template
-	template = jinja_env.get_template('../../jinja2_templates/java.jinja2template')
+	template = jinja_env.get_template('java.jinja2template')
 
 	# write the program
 	outFile.write(template.render(model=model,states=states,numberofelemvariables=numberofelemvariables,lockneeded=lockneeded,add_counter=add_counter))

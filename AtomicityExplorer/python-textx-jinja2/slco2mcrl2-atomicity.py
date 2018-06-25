@@ -1862,7 +1862,7 @@ def translate():
 	outFile = open(join(path,name + "mcrl2"), 'w')
 
 	# Initialize the template engine.
-	jinja_env = jinja2.Environment(loader=jinja2.FileSystemLoader(this_folder), trim_blocks=True, lstrip_blocks=True, extensions=['jinja2.ext.loopcontrols','jinja2.ext.do',])
+	jinja_env = jinja2.Environment(loader=jinja2.FileSystemLoader(join(this_folder,'../../jinja2_templates')), trim_blocks=True, lstrip_blocks=True, extensions=['jinja2.ext.loopcontrols','jinja2.ext.do',])
 
 	# Register the filters
 	jinja_env.filters['mcrl2value'] = mcrl2value
@@ -1920,7 +1920,7 @@ def translate():
 	# Produce (guard, action, effect) tuples for the translation
 	# produce_summands(model)
 	# load the mCRL2 template
-	template = jinja_env.get_template('../../jinja2_templates/mcrl2-atomicity.jinja2template')
+	template = jinja_env.get_template('mcrl2-atomicity.jinja2template')
 	out = template.render(model=model, statemachinenames=statemachinenames, states=states, vartypes=vartypes, mcrl2varprefix=mcrl2varprefix, channeltypes=channeltypes, asynclosslesstypes=asynclosslesstypes, asynclossytypes=asynclossytypes, synctypes=synctypes, trans=trans, ochannel=ochannel, object_sync_commpairs=object_sync_commpairs, syncing_statements=syncing_statements, transowner=trowner, statemachine=statemachine, check_onthefly=check_onthefly, lock_onthefly=lock_onthefly, apply_por=apply_por, sorted_variables=sorted_variables, unsafe_variables=unsafe_variables, sorted_objects=sorted_objects, sorted_statemachines=sorted_statemachines, accessed_sharedvars=accessed_sharedvars, IntArraySizes=IntArraySizes, BoolArraySizes=BoolArraySizes)
 	# write mCRL2 spec
 	outFile.write(out)
