@@ -1,6 +1,6 @@
 SLCOModel:
-  ('actions' actions+=Action)?
   'model' name=NID '{'
+  ('actions' actions+=Action)?
   ('classes' classes*=Class)?
   ('objects' objects*=Object[','])?
   ('channels' channels*=Channel)?
@@ -57,7 +57,8 @@ Port:
 
 Transition:
   (priority=INT':')?
-  'from' source=[State] 'to' target=[State]
+  ((source=[State] '->' target=[State])
+  ('from' source=[State] 'to' target=[State]))
   ('{' statements*=Statement[';'] (';')? '}')?
 ;
 
