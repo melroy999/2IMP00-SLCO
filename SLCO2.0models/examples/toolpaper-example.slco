@@ -1,4 +1,4 @@
-model toolpaper-example {
+model Test {
   actions init sa ra
   classes
 	  Q {
@@ -25,6 +25,6 @@ model toolpaper-example {
 			}
 	}
 
-objects
-	q: Q(10, 0)
+	objects
+		q: Q(x := 10, y := 0)
 }

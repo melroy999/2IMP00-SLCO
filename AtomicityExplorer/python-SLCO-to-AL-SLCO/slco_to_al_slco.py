@@ -17,78 +17,11 @@ from textx.model import children_of_type
 from help_on_error_argument_parser import HelpOnErrorArgumentParser
 from suggestions import *
 
-# Classes for SLCO statements
-class Assignment(object):
-	def __init__(self, parent, left, right):
-		self.parent = parent
-		self.left = left
-		self.right = right
-
-class Expression(object):
-	def __init__(self, parent, left, op, right):
-		self.parent = parent
-		self.left = left
-		self.op = op
-		self.right = right
-
-class ExprPrec1(object):
-	def __init__(self, parent, left, op, right):
-		self.parent = parent
-		self.left = left
-		self.op = op
-		self.right = right
-
-class ExprPrec2(object):
-	def __init__(self, parent, left, op, right):
-		self.parent = parent
-		self.left = left
-		self.op = op
-		self.right = right
-
-class ExprPrec3(object):
-	def __init__(self, parent, left, op, right):
-		self.parent = parent
-		self.left = left
-		self.op = op
-		self.right = right
-
-class ExprPrec4(object):
-	def __init__(self, parent, left, op, right):
-		self.parent = parent
-		self.left = left
-		self.op = op
-		self.right = right
-
-class Primary(object):
-	def __init__(self, parent, sign, value, body, ref):
-		self.parent = parent
-		self.sign = sign
-		self.value = value
-		self.body = body
-		self.ref = ref
-
-class ExpressionRef(object):
-	def __init__(self, parent, ref, index):
-		self.parent = parent
-		self.ref = ref
-		self.index = index
-
-class Variable(object):
-	def __init__(self, parent, type, name, defvalue, defvalues):
-		self.parent = parent
-		self.type = type
-		self.name = name
-		self.defvalue = defvalue
-		self.defvalues = self.defvalues
-
-class Type(object):
-	def __init__(self, parent, base, size):
-		self.parent = parent
-		self.base = base
-		self.size = size
-
 this_folder = dirname(__file__)
-slco_mm = metamodel_from_file(join(this_folder,'../../textx_grammars/slco2.tx'), classes=[Assignment, Expression, ExprPrec1, ExprPrec2, ExprPrec3, ExprPrec4, Primary, ExpressionRef, Variable, Type])
+
+# import SLCO library
+sys.path.append(join(this_folder,'../../libraries'))
+from slcolib import *
 
 # set of actions in the model
 actions = set([])
@@ -209,7 +142,7 @@ def apply_suggestions(model, suggestions):
 				# process suggestions
 				ad = suggestions.get(tuple([o.name, sm.name, "ST'" + str(tr._tx_position)]), None)
 				if ad: # atomicity violations, apply advice
-					break_down_statements(tr)
+					break_down_statements(tr, sm, o)
 				else: # no atomicity violations. If the statement is composite, remove the composite aspect from the model
 					newst = []
 					for st in tr.statements:
@@ -296,9 +229,10 @@ def create_var_expression(st, v, i):
 	p.ref = r
 	return e
 
-def break_down_statements(tr):
+def break_down_statements(tr, sm, o):
 	"""Break down the statements of the given transition tr. Involves transforming those statements into a new statement block,
-	in which each statement only accesses a single global variable, and at most once (read or write)"""
+	in which each statement only accesses a single global variable, and at most once (read or write).
+	sm and o are the owning state machine and object, respectively"""
 	global nr_local_int_vars, nr_local_byte_vars, nr_local_bool_vars
 
 	livarcount = 0
@@ -307,18 +241,25 @@ def break_down_statements(tr):
 	# build vardict for the use of local variables
 	vardict = {}
 	for s in tr.statements:
-		if s.guard != None:
-			vars = statement_varset(s.guard)
-			for v in vars:
-				if vardict.get(v) == None:
-					vardict[v] = lvarcount
-					lvarcount += 1
-		for e in s.assignments:
-			vars = statement_varset(e)
-			for v in vars:
-				if vardict.get(v) == None:
-					vardict[v] = lvarcount
-					lvarcount += 1
+		vars = statement_varset(s)
+		for v in vars:
+			if vardict.get(v) == None:
+				# lookup referenced variable to figure out type
+				tt = ''
+				for v2 in o.type.variables:
+					if v2.name == v:
+						tt = v2.type
+						break
+				# if we have not found a type, the variable is state machine-local, therefore not relevant
+				if tt == 'Integer':
+					vardict[v] = "itmp'" + str(livarcount)
+					livarcount += 1
+				elif tt == 'Boolean':
+					vardict[v] = "btmp'" + str(lbvarcount)
+					lbvarcount += 1
+				elif tt == 'Byte':
+					vardict[v] = "bytmp'" + str(lbyvarcount)
+					lbyvarcount += 1
 	# now that we have assigned local vars to global vars, create new block of statements
 	newstat = []
 	for s in tr.statements:
@@ -328,25 +269,27 @@ def break_down_statements(tr):
 				ns = Assignment(tr, )
 
 def statement_varset(s):
-	"""Produces set of variables referenced in given SLCO statement"""
+	"""Produces two sets of variables referenced in given SLCO statement, the first for read accesses and the second for write accesses"""
 	global actions
-	output = set([])
+	outputread = set([])
+	outputwrite = set([])
 	if s.__class__.__name__ == "Assignment":
-		output |= statement_varset(s.left)
-		output |= statement_varset(s.right)
+		outputwrite |= statement_varset(s.left)
+		outputread |= statement_varset(s.right)
 	elif s.__class__.__name__ == "Composite":
 		if s.guard != None:
-			output |= statement_varset(s.guard)
+			outputread |= statement_varset(s.guard)
 		for a in s.assignments:
-			output |= statement_varset(a)
+			outputwrite = statement_varset(a.left)
+			outputread |= statement_varset(a.right)
 	elif s.__class__.__name__ == "ReceiveSignal":
 		for p in s.params:
-			output |= statement_varset(p)
+			outputwrite |= statement_varset(p)
 		if s.guard != None:
-			output |= statement_varset(s.guard)
+			outputread |= statement_varset(s.guard)
 	elif s.__class__.__name__ == "SendSignal":
 		for p in s.params:
-			output |= statement_varset(p)
+			outputread |= statement_varset(p)
 	elif s.__class__.__name__ == "VariableRef":
 		output.add(s.var.name)
 		if s.index != None:
@@ -473,8 +416,8 @@ def main():
 	logging.info('Input suggestions : %s', sugg_path)
 	logging.info('Output File       : %s', out_path)
 
-	# read models
-	model = slco_mm.model_from_file(slco_path)
+	# read model
+	model = read_SLCO_model(slco_path)
 	# build set of actions in model
 	for a in model.actions:
 		actions.add(a)

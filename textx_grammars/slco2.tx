@@ -57,7 +57,7 @@ Port:
 
 Transition:
   (priority=INT':')?
-  ((source=[State] '->' target=[State])
+  ((source=[State] '->' target=[State])|
   ('from' source=[State] 'to' target=[State]))
   ('{' statements*=Statement[';'] (';')? '}')?
 ;
