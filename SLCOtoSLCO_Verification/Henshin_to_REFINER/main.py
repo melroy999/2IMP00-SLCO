@@ -28,10 +28,11 @@ class NotSupportedException(Exception):
 
 
 node_to_state_mapping = {}
+node_counter = 0
 
 
-def transition_node_to_LTS_transition(trans_node):
-	global node_to_state_mapping
+def transition_node_to_LTS_transition(trans_node, node_map):
+	global node_to_state_mapping, node_counter
 	# A transition node has outgoing edges to source and target Vertex, and statements
 	# We assume that each transition has a single action associated with it
 	s_node = None
@@ -45,20 +46,36 @@ def transition_node_to_LTS_transition(trans_node):
 			t_node = e.target
 		elif edge_name == SLCO_TRANSITION_STATEMENTS and not a_node:
 			a_node = e.target
-		else:
-			raise NotSupportedException("A transition may only have one source state, target state, and statement (a DoAction statement)")
+		elif s_node or t_node or a_node:
+			raise NotSupportedException(
+				"A transition may only have one source state, target state, and statement (a DoAction statement)")
 
-	if not (s_node and t_node and a_node):
+	if not (s_node and t_node and a_node) or (a_node and a_node.type.name != SLCO_DOACTION):
 		raise NotSupportedException(
 			"A transition must have one source state, target state, and statement (a DoAction statement)")
 
-	s = node_to_state_mapping[s_node]
-	t = node_to_state_mapping[t_node]
-	a = 4
+	if len(a_node.attributes.items) != 1:
+		raise NotSupportedException("The DoAction statement must have (only) the name attribute set")
+
+	s_node = node_map.get(s_node, s_node)
+	t_node = node_map.get(t_node, t_node)
+
+	s = node_to_state_mapping.get(s_node, node_counter)
+	if s == node_counter:
+		node_to_state_mapping[s_node] = s
+		node_counter += 1
+
+	t = node_to_state_mapping.get(t_node, node_counter)
+	if t == node_counter:
+		node_to_state_mapping[t_node] = t
+		node_counter += 1
+
+	a = a_node.attributes.items[0].value.strip('"')
+
 	return s, a, t
 
 
-def hensin_graph_to_lts(g):
+def hensin_graph_to_lts(g, node_map):
 	# Resolve the types of the nodes
 	for n in g.nodes:
 		n.type.force_resolve()
@@ -70,7 +87,7 @@ def hensin_graph_to_lts(g):
 		return None
 	sm_node = sm_nodes[0]
 	# Select transitions from transition nodes associated with the state machine
-	transitions = {transition_node_to_LTS_transition(e.target) for e in sm_node.outgoing.items
+	transitions = {transition_node_to_LTS_transition(e.target, node_map) for e in sm_node.outgoing.items
 					if e.target.type.name == SLCO_TRANSITION}
 
 	lts = refiner.LTS(transitions)
@@ -81,8 +98,11 @@ def henshin_rule_to_refiner_rule(rule):
 	ref_laws_L = []
 	ref_laws_R = []
 
-	L = hensin_graph_to_lts(rule.lhs)
-	R = hensin_graph_to_lts(rule.rhs)
+	# create a mapping of the vertices in LHS to RHS
+	vertex_mapping = {x.origin: x.image for x in rule.mappings.items if x.image.type.name == SLCO_VERTEX}
+
+	R = hensin_graph_to_lts(rule.rhs, {}) # no mapping required
+	L = hensin_graph_to_lts(rule.lhs, vertex_mapping) # mapping from lhs nodes to rhs nodes
 
 	if not (L and R):
 		return None, None, None

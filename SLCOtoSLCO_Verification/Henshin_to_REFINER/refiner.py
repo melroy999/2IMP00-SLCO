@@ -8,6 +8,12 @@ class LTS:
 	def add_transition(self, source, action, target):
 		self.transitions.add((source, action, target))
 
+	def rename_states(self, mapping):
+		new_transitions = set()
+		for s, a, t in self.transitions:
+			new_transitions.add((mapping[s], a, mapping[t]))
+		self.transitions = new_transitions
+
 	@staticmethod
 	def get_states_in_transition_set(trans_set):
 		states = set()
@@ -43,19 +49,31 @@ class RuleSystem:
 class Rule:
 	L = None
 	R = None
+	glue_states = set()
 
 	def __init__(self, L, R):
 		self.L = L
 		self.R = R
-
-		# TODO: rename state numbers so that glue_states appear first
+		l_states = self.L.get_states()
+		r_states = self.R.get_states()
+		self.glue_states = l_states & r_states
+		# rename state numbers so that glue_states appear first
+		mapping = {}
+		counter = 0
+		for s in self.glue_states:
+			mapping[s] = counter
+			counter += 1
+		remaining_states = (l_states | r_states) - self.glue_states
+		for s in remaining_states:
+			mapping[s] = counter
+			counter += 1
+		self.L.rename_states(mapping)
+		self.R.rename_states(mapping)
 
 	def to_string(self):
-		intersect = self.L.transitions & self.R.transitions
-		glue_states = LTS.get_states_in_transition_set(intersect)
-		L_str = self.L.to_string(len(glue_states), 0)
-		R_str = self.R.to_string(len(glue_states), 0)
-		return "%s\n->\n%s" % (L_str, R_str)
+		l_str = self.L.to_string(len(self.glue_states), 0)
+		r_str = self.R.to_string(len(self.glue_states), 0)
+		return "%s\n->\n%s" % (l_str, r_str)
 
 
 class Law:
