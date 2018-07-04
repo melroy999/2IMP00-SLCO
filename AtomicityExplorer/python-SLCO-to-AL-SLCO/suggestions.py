@@ -40,7 +40,7 @@ def parse_suggestions(sugg_path):
 	total = 0
 	for ad in suggestions.values():
 		total += len(ad)
-	print total
+	print(total)
 	return suggestions
 
 class SuggestionSyntaxException(Exception):

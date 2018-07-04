@@ -204,6 +204,12 @@ def add_variable_types(model, metamodel):
 				if sm.variables[i].type == None:
 					sm.variables[i].type = sm.variables[i-1].type
 
+# model processor setting sizes of channels by default to one
+def set_default_channel_size(model, metamodel):
+	for ch in model.channels:
+		if ch.size == 0:
+			ch.size = 1
+
 # model processor adding tau action to transitions without statements
 def add_taus(model, metamodel):
 	tau_needed = False
@@ -350,6 +356,7 @@ def read_SLCO_model(m):
 	slco_mm.register_model_processor(check_names)
 	slco_mm.register_model_processor(add_initial_to_states)
 	slco_mm.register_model_processor(add_variable_types)
+	slco_mm.register_model_processor(set_default_channel_size)
 	slco_mm.register_model_processor(add_taus)
 	slco_mm.register_model_processor(fix_references)
 	#slco_mm.register_model_processor(simplify_statements)

@@ -9,6 +9,13 @@ import glob
 import traceback
 from SCCTarjan import identifySCCs
 
+this_folder = dirname(__file__)
+
+# import SLCO library
+sys.path.append(join(this_folder,'../../libraries'))
+from slcolib import *
+this_folder = dirname(__file__)
+
 # on-the-fly atomicity violation checking
 check_onthefly = False
 # lock on-the-fly
@@ -20,7 +27,7 @@ default_search = False
 
 modelname = ""
 model = ""
-this_folder = dirname(__file__)
+
 # type of ports
 porttypes = {}
 # statemachine names used in the model
@@ -1615,19 +1622,6 @@ def preprocess():
 				for stat in trn.statements:
 					statemachine[stat] = stm
 					trowner[stat] = trn
-	# for each state machine, add the initial state to its list of states
-	for c in model.classes:
-		for stm in c.statemachines:
-			stm.states = [stm.initialstate] + stm.states
-	# fill in types of variables
-	for c in model.classes:
-		for i in range(0,len(c.variables)):
-			if c.variables[i].type == None:
-				c.variables[i].type = c.variables[i-1].type
-		for sm in c.statemachines:
-			for i in range(0,len(sm.variables)):
-				if sm.variables[i].type == None:
-					sm.variables[i].type = sm.variables[i-1].type
 	# add tau action to all transitions without statements
 	# for c in model.classes:
 	# 	for stm in c.statemachines:
@@ -1953,9 +1947,6 @@ def main(args):
 				else:
 					modelname = args[i]
 
-	# create meta-model
-	slco_mm = metamodel_from_file(join(this_folder,'../../textx_grammars/slco2.tx'))
-
 	batch = []
 	if modelname.endswith('.slco'):
 		batch = [modelname]
@@ -1975,7 +1966,7 @@ def main(args):
 	for file in batch:
 		# read model
 		modelname = file
-		model = slco_mm.model_from_file(file)
+		model = read_SLCO_model(file)
 		print("processing model %s" % basename(file))
 		try:
 			# preprocess model

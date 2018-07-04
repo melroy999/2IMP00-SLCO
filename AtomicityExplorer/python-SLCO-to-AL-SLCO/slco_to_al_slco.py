@@ -148,11 +148,14 @@ def apply_suggestions(model, suggestions):
 		for sm in o.type.statemachines:
 			for tr in sm.transitions:
 				# process suggestions
-				ad = suggestions.get(tuple([o.name, sm.name, "ST'" + str(tr._tx_position)]), None)
+				print(str(tr._tx_position))
+				ad = suggestions.get(tuple([o.name, sm.name, "ST'" + str(tr._tx_position)]))
+				print(ad)
 				if ad: # atomicity violations, apply advice
 					# first construct program order graph for this statement
 					POG = construct_pog(tr.statements[0])
-
+					# next create conflict graph
+					CG = construct_cg(ad)
 					# break_down_statements(tr, sm, o)
 				else: # no atomicity violations. If the statement is composite, remove the composite aspect from the model
 					newst = []
@@ -245,14 +248,14 @@ def construct_pog(s):
 	POG = {}
 	# obtain sets of variables referenced in statement
 	accsets = statement_accesssets(s)
-	# create a mapping between dynamic and static accesses
-	dynamic_to_static_map = {}
+	# create mapping between dynamic and static accesses
+	ds_map = {}
 	for a1 in accsets[1]:
 		aset = set([])
 		for a2 in accsets[0]:
 			if a1 in a2:
 				aset.add(a2)
-		dynamic_to_static_map[a1] = aset
+		ds_map[a1] = aset
 	# accesses are nodes in graph
 	for a in accsets[0]:
 		POG[a] = set([])
@@ -266,32 +269,28 @@ def construct_pog(s):
 			for a2 in rsets[0] | rsets[1]:
 				POG[a1].add(a2)
 	elif s.__class__.__name__ == "Composite":
-		# guard is not relevant for edges in graph
+		# Note: guard is not relevant for edges in graph
 		for e in s.assignments:
 			wsets = statement_accesssets(e.left, True)
 			rsets = statement_accesssets(e.right, False)
-			for a1 in wsets[0]:
-				aset = POG.get(a1, set([]))
+			for a1 in wsets[0] | wsets[1]:
+				aset = set([])
 				for a2 in rsets[0]:
 					aset.add(a2)
 					aset |= POG.get(a2, set([]))
 				for a2 in rsets[1]:
 					aset.add(a2)
 					aset |= POG.get(a2, set([]))
-					for a3 in dynamic_to_static_map[a2]:
+					for a3 in ds_map[a2]:
+						aset.add(a3)
 						aset |= POG.get(a3, set([]))
-				POG[a1] = aset
-			for a1 in wsets[1]:
-				aset = POG.get(a1, set([]))
-				for a2 in rsets[0]:
-					aset.add(a2)
-					aset |= POG.get(a2, set([]))
-				for a2 in rsets[1]:
-					aset.add(a2)
-					aset |= POG.get(a2, set([]))
-					for a3 in dynamic_to_static_map[a2]:
-						aset |= POG.get(a3, set([]))
-				POG[a1] = aset				
+				aset2 = POG.get(a1, set([]))
+				POG[a1] = aset2 | aset
+				if a1 in wsets[1]:
+					for a3 in ds_map[a1]:
+						aset2 = POG.get(a3, set([]))
+						POG[a3] = aset2 | aset
+	return POG
 
 # def break_down_statements(tr, sm, o):
 # 	"""Break down the statements of the given transition tr. Involves transforming those statements into a new statement block,

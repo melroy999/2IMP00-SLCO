@@ -1,1 +1,1 @@
-python slco2mcrl2-atomicity.py $@
+python3 slco2mcrl2-atomicity.py $@
