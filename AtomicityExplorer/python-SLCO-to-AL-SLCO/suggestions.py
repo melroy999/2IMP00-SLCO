@@ -18,9 +18,7 @@ def parse_suggestions(sugg_path):
 		start = line.find("(") + 1
 		end = line.rfind("'") - 1
 		line = line[start:end]
-		print(line)
 		sm = line.split(", ")
-		print(sm)
 		statement = tuple([sm[0], sm[1], sm[2]])
 		line = ""
 		first = True
@@ -40,7 +38,6 @@ def parse_suggestions(sugg_path):
 	total = 0
 	for ad in suggestions.values():
 		total += len(ad)
-	print(total)
 	return suggestions
 
 class SuggestionSyntaxException(Exception):
@@ -136,6 +133,11 @@ class AccessPattern:
 			return first, last + 1  # range is [low, last + 1), i.e. last+1 is not selected by the range
 		return -2, -2
 
+	def __repr__(self):
+		return "R: " + str(self.r) + ", W: " + str(self.w)
+
+	def __str__(self):
+		return "R: " + str(self.r) + ", W: " + str(self.w)
 
 class AD:
 	access_patterns = set()
@@ -152,7 +154,7 @@ class AD:
 			ap, text = get_and_remove_up_to_first(text, ')', 3)
 			access_pattern = AccessPattern.parse(ap + ')')
 		else:
-			raise SuggestionSyntaxException("An AD requires at least one access pattern, it may be empty")
+			raise SuggestionSyntaxException("An AD requires at least one access pattern, it may not be empty")
 		# access_pattern != None otherwise exception is raised
 
 		text = text[1:-1]
@@ -166,7 +168,7 @@ class AD:
 		ad = AD()
 		ad.access_patterns.add(access_pattern)
 		ad.shuffles = shuffles
-		ad.merge_overlapping_access_patterns()
+		#ad.merge_overlapping_access_patterns()
 		return ad
 	
 	def size(self):
@@ -175,94 +177,100 @@ class AD:
 			total += len(ac.r) + len(ac.w)
 		return total
 
-	def merge(self, ad):
-		self.access_patterns = self.access_patterns | ad.access_patterns
-		self.shuffles = self.shuffles | ad.shuffles
+	def get_access_patterns(self):
+		return self.access_patterns
 
-	def merge_overlapping_access_patterns(self):
-		# merge access paterns that have reads or writes in common
-		for ap1 in self.access_patterns:
-			for ap2 in self.access_patterns:
-				if ap1 == ap2:
-					continue
+	def get_shuffles(self):
+		return self.shuffles
+
+	# def merge(self, ad):
+	# 	self.access_patterns = self.access_patterns | ad.access_patterns
+	# 	self.shuffles = self.shuffles | ad.shuffles
+
+	# def merge_overlapping_access_patterns(self):
+	# 	# merge access paterns that have reads or writes in common
+	# 	for ap1 in self.access_patterns:
+	# 		for ap2 in self.access_patterns:
+	# 			if ap1 == ap2:
+	# 				continue
 				
-				if ap1.r & ap2.r or ap1.w & ap2.w:
-					# merge the two access_patterns
-					ap1.r = ap1.r | ap2.r
-					ap1.w = ap1.w | ap2.w
-					ap2.r = ap2.w = set()
-		# remove redundant access_patterns
-		self.access_patterns = {x for x in self.access_patterns if x.r}
+	# 			if ap1.r & ap2.r or ap1.w & ap2.w:
+	# 				# merge the two access_patterns
+	# 				ap1.r = ap1.r | ap2.r
+	# 				ap1.w = ap1.w | ap2.w
+	# 				ap2.r = ap2.w = set()
+	# 	# remove redundant access_patterns
+	# 	self.access_patterns = {x for x in self.access_patterns if x.r}
 		
-	def apply_shuffling(self, assignments, guard):
-		graph = ShuffleGraph(self.shuffles, assignments, guard)
-		return graph.apply()
+	# def apply_shuffling(self, assignments, guard):
+	# 	graph = ShuffleGraph(self.shuffles, assignments, guard)
+	# 	return graph.apply()
 				
-	def apply_atomics(self, statements, guard, atomic_sets, composite_class):
-		# move composite statement over the part that requires it
-		# first get matching ranges for each access pattern ap
-		ranges = []
-		for ap in self.access_patterns:
-			low, high = ap.find_sub_composite(statements, guard)
-			if low != -2:
-				ranges.append((low, high))
-		# add ranges from atomic_sets
-		for s in atomic_sets:
-			low = 99999999999
-			high = -1
-			for a in s:
-				if a == guard:
-					low = -1
-				else:
-					i = statements.index(a)
-					high = max(high, i)
-					low = min(low, i)
-			ranges.append((low, high+1))
-		# merge overlapping ranges
-		for i in range(0, len(ranges)):
-			for j in range(0, len(ranges)):
-				if i == j:
-					continue
-				lowi, highi = ranges[i]
-				lowj, highj = ranges[j]
-				if lowj <= lowi < highj or lowj < highi <= highj:
-					# merge range
-					new_low = lowi if lowi < lowj else lowj
-					new_high = highi if highi > highj else highj
-					ranges[i] = (new_low, new_high)
-					# 'disable' redundant range
-					ranges[j] = (-2, -2)
-		ranges = [(low, high) for (low, high) in ranges if low != -2]
-		# ranges are now disjoint
-		# sort ranges by lowest
-		sorted(ranges, key=lambda x: x[0])
-		return_statements = []
-		asgn_idx = 0
-		for r in ranges:
-			low, high = r
-			if asgn_idx < low:
-				return_statements.extend(statements[asgn_idx:low])
-			asgn_idx = high  # next index of assignments
+	# def apply_atomics(self, statements, guard, atomic_sets, composite_class):
+	# 	# move composite statement over the part that requires it
+	# 	# first get matching ranges for each access pattern ap
+	# 	ranges = []
+	# 	for ap in self.access_patterns:
+	# 		low, high = ap.find_sub_composite(statements, guard)
+	# 		if low != -2:
+	# 			ranges.append((low, high))
+	# 	# add ranges from atomic_sets
+	# 	for s in atomic_sets:
+	# 		low = 99999999999
+	# 		high = -1
+	# 		for a in s:
+	# 			if a == guard:
+	# 				low = -1
+	# 			else:
+	# 				i = statements.index(a)
+	# 				high = max(high, i)
+	# 				low = min(low, i)
+	# 		ranges.append((low, high+1))
+	# 	# merge overlapping ranges
+	# 	for i in range(0, len(ranges)):
+	# 		for j in range(0, len(ranges)):
+	# 			if i == j:
+	# 				continue
+	# 			lowi, highi = ranges[i]
+	# 			lowj, highj = ranges[j]
+	# 			if lowj <= lowi < highj or lowj < highi <= highj:
+	# 				# merge range
+	# 				new_low = lowi if lowi < lowj else lowj
+	# 				new_high = highi if highi > highj else highj
+	# 				ranges[i] = (new_low, new_high)
+	# 				# 'disable' redundant range
+	# 				ranges[j] = (-2, -2)
+	# 	ranges = [(low, high) for (low, high) in ranges if low != -2]
+	# 	# ranges are now disjoint
+	# 	# sort ranges by lowest
+	# 	sorted(ranges, key=lambda x: x[0])
+	# 	return_statements = []
+	# 	asgn_idx = 0
+	# 	for r in ranges:
+	# 		low, high = r
+	# 		if asgn_idx < low:
+	# 			return_statements.extend(statements[asgn_idx:low])
+	# 		asgn_idx = high  # next index of assignments
 			
-			# create new composite class
-			new_composite = composite_class.__new__(composite_class)
-			composite_class._tx_metamodel._init_obj_attrs(new_composite)
+	# 		# create new composite class
+	# 		new_composite = composite_class.__new__(composite_class)
+	# 		composite_class._tx_metamodel._init_obj_attrs(new_composite)
 			
-			if low == -1:
-				new_composite.guard = guard
-				low = 0
-			new_composite.assignments = [x for x in statements[low:high] if x != '#']
-			return_statements.append(new_composite)
-		asgn_size = len(statements)
-		if asgn_size > asgn_idx:
-			return_statements.extend(statements[asgn_idx:asgn_size])
-		return return_statements
+	# 		if low == -1:
+	# 			new_composite.guard = guard
+	# 			low = 0
+	# 		new_composite.assignments = [x for x in statements[low:high] if x != '#']
+	# 		return_statements.append(new_composite)
+	# 	asgn_size = len(statements)
+	# 	if asgn_size > asgn_idx:
+	# 		return_statements.extend(statements[asgn_idx:asgn_size])
+	# 	return return_statements
 	
-	def apply(self, composite):
-		statements = composite.assignments
-		statements, atomics = self.apply_shuffling(statements, composite.guard)
-		statements = self.apply_atomics(statements, composite.guard, atomics, composite.__class__)
-		return statements
+	# def apply(self, composite):
+	# 	statements = composite.assignments
+	# 	statements, atomics = self.apply_shuffling(statements, composite.guard)
+	# 	statements = self.apply_atomics(statements, composite.guard, atomics, composite.__class__)
+	# 	return statements
 
 
 SH_NONE     = 0
