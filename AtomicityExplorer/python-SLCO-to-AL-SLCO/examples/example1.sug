@@ -1,7 +1,4 @@
-[13:32:26 verbose] Loading LPS in lps format...
-[13:32:26 verbose] Checking for action report
-[13:32:26 verbose] not saving state space.
-[13:32:26 verbose] Replacing free variables with dummy values.
-[13:32:26 verbose] removing unused parts of the data specification.
-[13:32:26 verbose] generating state space with 'breadth' strategy...
-[13:32:29 warning] state space generation was aborted prematurely
+Detected action 'report(globalObject, StateMachine_2, ST'913, AD'(A'([var_globalObject'var_8], [var_globalObject'var_8]), []))' (state index 1)
+Detected action 'report(globalObject, StateMachine_0, ST'486, AD'(A'([var_globalObject'var_13], [var_globalObject'var_13]), []))' (state index 3)
+Detected action 'report(globalObject, StateMachine_0, ST'486, AD'(A'([var_globalObject'var_13], [var_globalObject'var_13]), []))' (state index 8)
+Detected action 'report(globalObject, StateMachine_2, ST'913, AD'(A'([var_globalObject'var_8], [var_globalObject'var_8]), []))' (state index 9)
