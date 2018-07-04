@@ -1628,10 +1628,6 @@ def preprocess():
 	# 		for trn in stm.transitions:
 	# 			if len(trn.statements) == 0:
 	# 				trn.statements.append("tau'")
-	# set sizes of channels to at least one
-	for ch in model.channels:
-		if ch.size == 0:
-			ch.size = 1
 	# fix wrong references from transitions to states (scope errors)
 	for c in model.classes:
 		for sm in c.statemachines:
