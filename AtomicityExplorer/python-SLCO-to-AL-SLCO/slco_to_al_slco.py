@@ -150,10 +150,10 @@ def apply_suggestions(model, suggestions):
 				# process suggestions
 				print(str(tr._tx_position))
 				ad = suggestions.get(tuple([o.name, sm.name, "ST'" + str(tr._tx_position)]))
-				print(ad)
 				if ad: # atomicity violations, apply advice
 					# first construct program order graph for this statement
 					POG = construct_pog(tr.statements[0])
+					print(POG)
 					# next create conflict graph
 					CG = construct_cg(ad)
 					# break_down_statements(tr, sm, o)
@@ -247,7 +247,7 @@ def construct_pog(s):
 	"""Construct program order graph for given statement s"""
 	POG = {}
 	# obtain sets of variables referenced in statement
-	accsets = statement_accesssets(s)
+	accsets = statement_accesssets(s, False)
 	# create mapping between dynamic and static accesses
 	ds_map = {}
 	for a1 in accsets[1]:
@@ -273,6 +273,8 @@ def construct_pog(s):
 		for e in s.assignments:
 			wsets = statement_accesssets(e.left, True)
 			rsets = statement_accesssets(e.right, False)
+			print(wsets)
+			print(rsets)
 			for a1 in wsets[0] | wsets[1]:
 				aset = set([])
 				for a2 in rsets[0]:
@@ -291,6 +293,34 @@ def construct_pog(s):
 						aset2 = POG.get(a3, set([]))
 						POG[a3] = aset2 | aset
 	return POG
+
+def construct_cg(ad):
+	"""Construct a conflict graph based on the given advice/suggestion"""
+	CG = {}
+
+	for a in ad:
+		# add access patterns info in ad as cyclic dependencies in graph
+		AP = a.get_access_patterns()
+		for ap in AP:
+			for ra in ap.r:
+				aset = CG.get('r_' + ra, set([]))
+				CG['r_' + ra] = aset | set(['w_' + wa for wa in ap.w])
+			for wa in ap.w:
+				aset = CG.get('w_' + wa, set([]))
+				CG['w_' + ra] = aset | set(['r_' + ra for ra in ap.r])
+		# add shuffle suggestions as acyclic dependencies in graph
+		SH = a.get_shuffles()
+		for sh in SH:
+			# create set of 'before' accesses
+			bset = set(['r_' + ra for ra in sh.before.r]) | set(['w_' + wa for wa in sh.before.w])
+			for ra in sh.after.r:
+				aset = CG.get('r_' + ra, set([]))
+				CG['r_' + ra] = aset | bset
+			for wa in sh.after.w:
+				aset = CG.get('w_' + wa, set([]))
+				CG['w_' + wa] = aset | bset
+	print(CG)
+	return CG
 
 # def break_down_statements(tr, sm, o):
 # 	"""Break down the statements of the given transition tr. Involves transforming those statements into a new statement block,
@@ -354,8 +384,7 @@ def statement_accesssets(s, wflag):
 		if s.guard != None:
 			output = mergesets(output, statement_accesssets(s.guard, False))
 		for a in s.assignments:
-			output = mergesets(output, statement_accesssets(a.left, True))
-			output = mergesets(output, statement_accesssets(a.right, False))
+			output = mergesets(output, statement_accesssets(a, False))
 	elif s.__class__.__name__ == "ReceiveSignal":
 		for p in s.params:
 			output = mergesets(output, statement_accesssets(p), True)
@@ -371,6 +400,8 @@ def statement_accesssets(s, wflag):
 			else:
 				output[1].add(accesstype(wflag) + "_" + s.var.name)
 				output = mergesets(output, statement_accesssets(s.index, False))
+		else:
+			output[0].add(accesstype(wflag) + "_" + s.var.name)
 	elif s.__class__.__name__ == "Delay":
 		output = tuple([set([]), set([])])
 	elif s.__class__.__name__ != "Primary":
@@ -385,6 +416,9 @@ def statement_accesssets(s, wflag):
 						output[0].add(accesstype(wflag) + "_" + s.ref.ref + "[" + s.ref.index + "]")
 					else:
 						output[1].add(accesstype(wflag) + "_" + s.ref.ref)
+						output = mergesets(output, statement_accesssets(s.ref.index, False))
+				else:
+					output[0].add(accesstype(wflag) + "_" + s.ref.ref)
 		if s.body != None:
 			output = mergesets(output, statement_accesssets(s.body, False))
 	return output
