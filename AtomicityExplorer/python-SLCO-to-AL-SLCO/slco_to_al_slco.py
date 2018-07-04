@@ -12,7 +12,7 @@ import sys
 from os.path import dirname, join
 import jinja2
 from textx.metamodel import metamodel_from_file
-from textx.model import children_of_type
+from textx.model import get_children_of_type
 
 from help_on_error_argument_parser import HelpOnErrorArgumentParser
 from suggestions import *
@@ -22,6 +22,7 @@ this_folder = dirname(__file__)
 # import SLCO library
 sys.path.append(join(this_folder,'../../libraries'))
 from slcolib import *
+this_folder = dirname(__file__)
 
 # set of actions in the model
 actions = set([])
@@ -30,6 +31,13 @@ actions = set([])
 nr_local_int_vars = {}
 nr_local_byte_vars = {}
 nr_local_bool_vars = {}
+
+def RepresentsInt(s):
+    try: 
+        int(s)
+        return True
+    except ValueError:
+        return False
 
 # *** BEGIN TRANSLATION FILTERS ***
 
@@ -142,7 +150,10 @@ def apply_suggestions(model, suggestions):
 				# process suggestions
 				ad = suggestions.get(tuple([o.name, sm.name, "ST'" + str(tr._tx_position)]), None)
 				if ad: # atomicity violations, apply advice
-					break_down_statements(tr, sm, o)
+					# first construct program order graph for this statement
+					POG = construct_pog(tr.statements[0])
+
+					# break_down_statements(tr, sm, o)
 				else: # no atomicity violations. If the statement is composite, remove the composite aspect from the model
 					newst = []
 					for st in tr.statements:
@@ -229,81 +240,154 @@ def create_var_expression(st, v, i):
 	p.ref = r
 	return e
 
-def break_down_statements(tr, sm, o):
-	"""Break down the statements of the given transition tr. Involves transforming those statements into a new statement block,
-	in which each statement only accesses a single global variable, and at most once (read or write).
-	sm and o are the owning state machine and object, respectively"""
-	global nr_local_int_vars, nr_local_byte_vars, nr_local_bool_vars
-
-	livarcount = 0
-	lbvarcount = 0
-	lbyvarcount = 0
-	# build vardict for the use of local variables
-	vardict = {}
-	for s in tr.statements:
-		vars = statement_varset(s)
-		for v in vars:
-			if vardict.get(v) == None:
-				# lookup referenced variable to figure out type
-				tt = ''
-				for v2 in o.type.variables:
-					if v2.name == v:
-						tt = v2.type
-						break
-				# if we have not found a type, the variable is state machine-local, therefore not relevant
-				if tt == 'Integer':
-					vardict[v] = "itmp'" + str(livarcount)
-					livarcount += 1
-				elif tt == 'Boolean':
-					vardict[v] = "btmp'" + str(lbvarcount)
-					lbvarcount += 1
-				elif tt == 'Byte':
-					vardict[v] = "bytmp'" + str(lbyvarcount)
-					lbyvarcount += 1
-	# now that we have assigned local vars to global vars, create new block of statements
-	newstat = []
-	for s in tr.statements:
-		if s.guard != None:
-			vars = statement_varset(s.guard)
-			for v in vars:
-				ns = Assignment(tr, )
-
-def statement_varset(s):
-	"""Produces two sets of variables referenced in given SLCO statement, the first for read accesses and the second for write accesses"""
-	global actions
-	outputread = set([])
-	outputwrite = set([])
+def construct_pog(s):
+	"""Construct program order graph for given statement s"""
+	POG = {}
+	# obtain sets of variables referenced in statement
+	accsets = statement_accesssets(s)
+	# create a mapping between dynamic and static accesses
+	dynamic_to_static_map = {}
+	for a1 in accsets[1]:
+		aset = set([])
+		for a2 in accsets[0]:
+			if a1 in a2:
+				aset.add(a2)
+		dynamic_to_static_map[a1] = aset
+	# accesses are nodes in graph
+	for a in accsets[0]:
+		POG[a] = set([])
+	for a in accsets[1]:
+		POG[a] = set([])
+	# derive the edges
 	if s.__class__.__name__ == "Assignment":
-		outputwrite |= statement_varset(s.left)
-		outputread |= statement_varset(s.right)
+		wsets = statement_accesssets(s.left, True)
+		rsets = statement_accesssets(s.right, False)
+		for a1 in wsets[0] | wsets[1]:
+			for a2 in rsets[0] | rsets[1]:
+				POG[a1].add(a2)
+	elif s.__class__.__name__ == "Composite":
+		# guard is not relevant for edges in graph
+		for e in s.assignments:
+			wsets = statement_accesssets(e.left, True)
+			rsets = statement_accesssets(e.right, False)
+			for a1 in wsets[0]:
+				aset = POG.get(a1, set([]))
+				for a2 in rsets[0]:
+					aset.add(a2)
+					aset |= POG.get(a2, set([]))
+				for a2 in rsets[1]:
+					aset.add(a2)
+					aset |= POG.get(a2, set([]))
+					for a3 in dynamic_to_static_map[a2]:
+						aset |= POG.get(a3, set([]))
+				POG[a1] = aset
+			for a1 in wsets[1]:
+				aset = POG.get(a1, set([]))
+				for a2 in rsets[0]:
+					aset.add(a2)
+					aset |= POG.get(a2, set([]))
+				for a2 in rsets[1]:
+					aset.add(a2)
+					aset |= POG.get(a2, set([]))
+					for a3 in dynamic_to_static_map[a2]:
+						aset |= POG.get(a3, set([]))
+				POG[a1] = aset				
+
+# def break_down_statements(tr, sm, o):
+# 	"""Break down the statements of the given transition tr. Involves transforming those statements into a new statement block,
+# 	in which each statement only accesses a single global variable, and at most once (read or write).
+# 	sm and o are the owning state machine and object, respectively"""
+# 	global nr_local_int_vars, nr_local_byte_vars, nr_local_bool_vars
+
+# 	livarcount = 0
+# 	lbvarcount = 0
+# 	lbyvarcount = 0
+# 	# build vardict for the use of local variables
+# 	vardict = {}
+# 	for s in tr.statements:
+# 		vars = statement_varset(s)
+# 		for v in vars:
+# 			if vardict.get(v) == None:
+# 				# lookup referenced variable to figure out type
+# 				tt = ''
+# 				for v2 in o.type.variables:
+# 					if v2.name == v:
+# 						tt = v2.type
+# 						break
+# 				# if we have not found a type, the variable is state machine-local, therefore not relevant
+# 				if tt == 'Integer':
+# 					vardict[v] = "itmp'" + str(livarcount)
+# 					livarcount += 1
+# 				elif tt == 'Boolean':
+# 					vardict[v] = "btmp'" + str(lbvarcount)
+# 					lbvarcount += 1
+# 				elif tt == 'Byte':
+# 					vardict[v] = "bytmp'" + str(lbyvarcount)
+# 					lbyvarcount += 1
+# 	# now that we have assigned local vars to global vars, create new block of statements
+# 	newstat = []
+# 	for s in tr.statements:
+# 		if s.guard != None:
+# 			vars = statement_varset(s.guard)
+# 			for v in vars:
+# 				ns = Assignment(tr, )
+
+def mergesets(S1, S2):
+	"""Merge the two given tuples of sets"""
+	return tuple([S1[0]|S2[0], S1[1]|S2[1]])
+
+def accesstype(b):
+	if b:
+		return "w"
+	else:
+		return "r"
+
+def statement_accesssets(s, wflag):
+	"""Produces two sets of variable accesses referenced in given SLCO statement, the first for static accesses and the second for dynamic array accesses.
+	wflag indicates whether we are currently checking write accesses or not."""
+	global actions
+	output = tuple([set([]), set([])])
+
+	if s.__class__.__name__ == "Assignment":
+		output = mergesets(output, statement_accesssets(s.left, True))
+		output = mergesets(output, statement_accesssets(s.right, False))
 	elif s.__class__.__name__ == "Composite":
 		if s.guard != None:
-			outputread |= statement_varset(s.guard)
+			output = mergesets(output, statement_accesssets(s.guard, False))
 		for a in s.assignments:
-			outputwrite = statement_varset(a.left)
-			outputread |= statement_varset(a.right)
+			output = mergesets(output, statement_accesssets(a.left, True))
+			output = mergesets(output, statement_accesssets(a.right, False))
 	elif s.__class__.__name__ == "ReceiveSignal":
 		for p in s.params:
-			outputwrite |= statement_varset(p)
+			output = mergesets(output, statement_accesssets(p), True)
 		if s.guard != None:
-			outputread |= statement_varset(s.guard)
+			output = mergesets(output, statement_accesssets(s.guard, False))
 	elif s.__class__.__name__ == "SendSignal":
 		for p in s.params:
-			outputread |= statement_varset(p)
+			output = mergesets(output, statement_accesssets(p, False))
 	elif s.__class__.__name__ == "VariableRef":
-		output.add(s.var.name)
 		if s.index != None:
-			output |= statement_varset(s.index)
+			if RepresentsInt(s.index):
+				output[0].add(accesstype(wflag) + "_" + s.var.name + "[" + s.index + "]")
+			else:
+				output[1].add(accesstype(wflag) + "_" + s.var.name)
+				output = mergesets(output, statement_accesssets(s.index, False))
 	elif s.__class__.__name__ == "Delay":
-		output |= set([])
+		output = tuple([set([]), set([])])
 	elif s.__class__.__name__ != "Primary":
-		output |= statement_varset(s.left)
+		output = mergesets(output, statement_accesssets(s.left, False))
 		if s.op != '':
-			output |= statement_varset(s.right)
+			output = mergesets(output, statement_accesssets(s.right, False))
 	else:
 		if s.ref != None:
 			if s.ref.ref not in actions:
-				output.add(s.ref.ref)
+				if s.ref.index != None:
+					if RepresentsInt(s.ref.index):
+						output[0].add(accesstype(wflag) + "_" + s.ref.ref + "[" + s.ref.index + "]")
+					else:
+						output[1].add(accesstype(wflag) + "_" + s.ref.ref)
+		if s.body != None:
+			output = mergesets(output, statement_accesssets(s.body, False))
 	return output
 
 #def combine_varsets(O,N):
@@ -352,6 +436,7 @@ def translate(model, suggestions, path):
 	
 	# Initialize the template engine.
 	jinja_env = jinja2.Environment(loader=jinja2.FileSystemLoader(join(this_folder,'../../jinja2_templates')), trim_blocks=True, lstrip_blocks=True, extensions=['jinja2.ext.loopcontrols','jinja2.ext.do',])
+	print(join(this_folder,'../../jinja2_templates'))
 
 	# Register the filters
 	jinja_env.filters['printstatement'] = printstatement
@@ -418,9 +503,7 @@ def main():
 
 	# read model
 	model = read_SLCO_model(slco_path)
-	# build set of actions in model
-	for a in model.actions:
-		actions.add(a)
+
 	suggestions = parse_suggestions(sugg_path)
 	# translate
 	out_model = translate(model, suggestions, out_path)

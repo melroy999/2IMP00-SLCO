@@ -27,8 +27,6 @@ porttypes = {}
 statemachinenames = set([])
 # set of state names used in the model
 states = set([])
-# set of actions used in the model
-actions = set([])
 # dictionary to look up state machine owning a given statement
 statemachine = {}
 # dictionary to look up class owning a given state machine
@@ -1714,10 +1712,6 @@ def preprocess():
 						ctype = mcrl2typetuple(porttypes[c.name + "'" + stat.target.name])
 						signalset = channeltypes[ctype]
 						signalset.add(stat.signal)
-	# construct the set of actions as they appear in the model
-	actions = set([])
-	for a in model.actions:
-		actions.add(a.name)
 	# give transitions without a priority a high enough priority value, such that they actually get the lowest priority
 	prios = {}
 	for c in model.classes:

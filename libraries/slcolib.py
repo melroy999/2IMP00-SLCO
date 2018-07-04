@@ -2,9 +2,15 @@ import sys
 from os import mkdir
 from os.path import exists, dirname, basename, join, split
 from textx.metamodel import metamodel_from_file
-from copy import deepcopy
+from textx.model import get_children_of_type
+from textx.exceptions import TextXSemanticError
+from textx.scoping import providers
+from copy import copy, deepcopy
 
 this_folder = dirname(__file__)
+
+# set of actions used in the model
+actions = set([])
 
 # Classes for SLCO statements
 class Assignment(object):
@@ -76,64 +82,110 @@ class Type(object):
 		self.base = base
 		self.size = size
 
-def preprocess():
-	"""preprocessing method"""
-	global model, porttypes, scopedvars, smlocalvars, signaltypes, states, channeltypes, asynclosslesstypes, asynclossytypes, synctypes, actions, visibleactions, syncactionlabelsdict, classobjects, class_receives, statemachine, tr, check_rc, modelvars, statemachinenames
+class Action(object):
+	def __init__(self, parent, name):
+		self.parent = parent
+		self.name = name
 
-	# build map between synchronisation actions. also record whether the synchronisation is 'direct' (between objects) or indirect 'via channels'
-	for c in model.channels:
-		if c.synctype == 'async':
-			syncactionlabelsdict[sendactionlabel(c)] = tuple([tuple(["insert_", c.source.name + "'" + c.ports[0].name, c.source]), commsendactionlabel(c), False])
-			syncactionlabelsdict[receiveactionlabel(c)] = tuple([tuple(["remove_", c.target.name + "'" + c.ports[1].name, c.target]), commreceiveactionlabel(c), False])
-			syncactionlabelsdict[peekactionlabel(c)] = tuple([tuple(["show_", c.target.name + "'" + c.ports[1].name, c.target]), commpeekactionlabel(c), False])
-		else:
-			syncactionlabelsdict[sendactionlabel(c)] = tuple([tuple([mcrl2objectreceive + "_", c.target.name + "'" + c.ports[1].name, c.target]), syncactionlabel(c), True])
-			syncactionlabelsdict[receiveactionlabel(c)] = tuple([tuple([mcrl2objectsend + "_", c.source.name + "'" + c.ports[0].name, c.source]), syncactionlabel(c), True])
-			syncactionlabelsdict[sendpeekactionlabel(c)] = tuple([tuple([mcrl2objectpeek + "_", c.target.name + "'" + c.ports[1].name, c.target]), peeksyncactionlabel(c), True])
-			syncactionlabelsdict[peekactionlabel(c)] = tuple([tuple(["show_", c.source.name + "'" + c.ports[0].name, c.source]), peeksyncactionlabel(c), True])
+# extra class to identify references to Actions
+class ActionRef(object):
+	def __init__(self, parent, act):
+		self.parent = parent
+		self.act = act
 
-	# create a list of statements representing receives for each class
-	class_receives = {}
+# method to raise semantic error
+def raise_semantic_error(S, s, model):
+	"""S is error message string.
+	s is object in which error occurs."""
+	line, col = model._tx_parser.pos_to_linecol(s._tx_position)
+	S += ' at ("%s", "%s")' % (line, col)
+	raise TextXSemanticError(S)
+
+# *** MODEL PROCESSORS ***
+
+# model processor to create the set of actions
+def construct_action_set(model, metamodel):
+	global actions
+	# construct the set of actions as they appear in the model
+	actions = set([])
+	for a in model.actions:
+		actions.add(a.name)
+
+# model processor to check for name clashes and remove duplicates in lists
+# invalid name clashes:
+# - action names cannot be used for variable names
+# - classes need to have unique names
+# - objects need to have unique names
+def check_names(model, metamodel):
+	# actions
+	actlist = []
+	actset = set([])
+	for a in model.actions:
+		if a.name not in actset:
+			actset.add(a.name)
+			actlist.append(a)
+	model.actions = actlist
+
+	# classes
+	cnames = set([])
 	for c in model.classes:
-		slist = []
-		for stm in c.statemachines:
-			for trn in stm.transitions:
-				for stat in trn.statements:
-					if stat.__class__.__name__ == "ReceiveSignal":
-						slist.append(stat)
-		# record list
-		class_receives[c] = slist
-	# construct a dictionary of visible actions per class
-	visibleactions = {}
-	# temporary dict to ensure that no two statements are stored in visibleactions with the same label
-	visibleactionstrings = {}
-	if not check_rc:
-		for c in model.classes:
-			for stm in c.statemachines:
-				for trn in stm.transitions:
-					for stat in trn.statements:
-						if expression_is_actionref(stat):
-							stringset = visibleactionstrings.get(c, set([]))
-							if statementactionlabel(stat,c,False) not in stringset:
-								stringset.add(statementactionlabel(stat,c,False))
-								visibleactionstrings[c] = stringset
-								actset = visibleactions.get(c, set([]))
-								actset.add(stat)
-								visibleactions[c] = actset
-	# add other visible actions, in case of race condition checking
-	else:
-		for c in model.classes:
-			for stm in c.statemachines:
-				for trn in stm.transitions:
-					for stat in trn.statements:
-						if stat.__class__.__name__ == "Assignment" or stat.__class__.__name__ == "Composite" or (stat.__class__.__name__ == "Expression" and not expression_is_actionref(stat)):
-							stringset = visibleactionstrings.get(c, set([]))
-							if statementactionlabel(stat,c,False) not in stringset:
-								stringset.add(statementactionlabel(stat,c,False))
-								visibleactionstrings[c] = stringset
-								actset = visibleactions.get(c, set([]))
-								actset.add(stat)
-								visibleactions[c] = actset
+		if c.name in cnames:
+			error = 'Name clash: "%s" used for multiple classes, once' % name
+			raise_semantic_error(error, c, model)
+		else:
+			cnames.add(c.name)
+
+	# check inside each class for variable names
+	for c in model.classes:
+		# variables
+		varlist = []
+		varset = set([])
+		for v in c.variables:
+			if v.name in actset:
+				error = 'Name clash: "%s" used for both a variable and an action ' % name
+				raise_semantic_error(error, v, model)
+			else:
+				if v.name not in varset:
+					varset.add(v.name)
+					varlist.append(v)
+		c.variables = varlist
+		# ports
+		portlist = []
+		tmp = set([])
+		for p in c.ports:
+			if p.name not in tmp:
+				tmp.add(p.name)
+				portlist.append(p)
+		c.ports = portlist
+		# state machines
+		for sm in c.statemachines:
+			varlist = []
+			varset = set([])
+			for v in sm.variables:
+				if v.name in actset:
+					error = 'Name clash: "%s" used for both a variable and an action at' % name
+					raise_semantic_error(error, v, model)
+				else:
+					if v.name not in varset:
+						varset.add(v.name)
+						varlist.append(v)
+			sm.variables = varlist
+			# states
+			statelist = []
+			stateset = set([sm.initialstate.name])
+			for s in sm.states:
+				if s.name not in stateset:
+					stateset.add(s.name)
+					statelist.append(s)
+			sm.states = statelist
+
+	onames = set([])
+	for o in model.objects:
+		if o.name in cnames:
+			error = 'Name clash: "%s" used for multiple objects, once' % o.name
+			raise_semantic_error(error, o, model)
+		else:
+			onames.add(o.name)
 
 # model processor adding initial state to list of states
 def add_initial_to_states(model, metamodel):
@@ -152,61 +204,164 @@ def add_variable_types(model, metamodel):
 				if sm.variables[i].type == None:
 					sm.variables[i].type = sm.variables[i-1].type
 
-# model processor adding tau actions to transitions without statements
+# model processor adding tau action to transitions without statements
 def add_taus(model, metamodel):
+	tau_needed = False
 	for c in model.classes:
 		for stm in c.statemachines:
 			for trn in stm.transitions:
 				if len(trn.statements) == 0:
-					trn.statements.append("tau'")
+					tau_needed = True
+					break
+			if tau_needed:
+				break
+		if tau_needed:
+			break
+	if tau_needed:
+		# add tau to list of actions
+		ta = Action(model, "tau")
+		model.actions.append(ta)
+		# add reference to tau action to all transitions without statements
+		for c in model.classes:
+			for stm in c.statemachines:
+				for trn in stm.transitions:
+					if len(trn.statements) == 0:
+						trn.statements.append(ActionRef(trn, ta))
 
-# model processor fixing wrong references from transitions to states (scope errors)
-# raises an error if the state does not exist
-def fix_state_refs(model, metamodel):
+# model processor to fix and check references
+def fix_references(model, metamodel):
 	for c in model.classes:
+		Vc = {}
+		for v in c.variables:
+			Vc[v.name] = v
 		for sm in c.statemachines:
-			sdict = {}
+			V = copy(Vc)
+			for v in sm.variables:
+				V[v.name] = v
+			statedict = {sm.initialstate.name: sm.initialstate}
 			for s in sm.states:
-				sdict[s.name] = s
+				statedict[s.name] = s
 			for tr in sm.transitions:
-				name = sdict.get(tr.source.name)
-				if name == None:
-					raise TextXSemanticError('Source state "%s" mentioned in transition is not defined in state machine.' % tr.source.name)
-				elif tr.source != name:
-					tr.source = sdict[tr.source.name]
-				name = sdict.get(tr.target.name)
-				if name == None:
-					raise TextXSemanticError('Target state "%s" mentioned in transition is not defined in state machine.' % tr.target.name)
-				elif tr.target != name:
-					tr.target = sdict[tr.target.name]
-
-# model processor giving transitions without a priority a high enough priority value, such that they actually get the lowest priority
-	prios = {}
-	for c in model.classes:
-		for stm in c.statemachines:
-			prios = {}
-			for trn in stm.transitions:
-				if prios.get(trn.source.name,0) == 0:
-					prios[trn.source.name] = trn.priority
+				# check state references of transitions
+				sref = statedict.get(tr.source.name)
+				if sref == None:
+					error = 'Source state "%s" mentioned in transition is not defined in state machine' % tr.source.name
+					raise_semantic_error(error, tr, model)
 				else:
-					if trn.priority > prios[trn.source.name]:
-						prios[trn.source.name] = trn.priority
-			# assign new priorities
-			for trn in stm.transitions:
-				if trn.priority == 0:
-					trn.priority = prios[trn.source.name]+1
+					tr.source = sref
+				sref = statedict.get(tr.target.name)
+				if sref == None:
+					error = 'Target state "%s" mentioned in transition is not defined in state machine' % tr.target.name
+					raise_semantic_error(error, tr, model)
+				else:
+					tr.target = sref
+				# check references to actions and variables in statements
+				for st in tr.statements:
+					statement_check_refs(st, V, model)
 
+def statement_check_refs(s, V, model):
+	"""Auxiliary function used to check references in statements.
+	V is a dictionary of references to variables in the current scope."""
+	global actions
+
+	if s.__class__.__name__ == "Assignment":
+		statement_check_refs(s.left, V, model)
+		statement_check_refs(s.right, V, model)
+	elif s.__class__.__name__ == "Composite":
+		if s.guard != None:
+			statement_check_refs(s.guard, V, model)
+		for a in s.assignments:
+			statement_check_refs(a, V, model)
+	elif s.__class__.__name__ == "ReceiveSignal":
+		for p in s.params:
+			statement_check_refs(p, V, model)
+		if s.guard != None:
+			statement_check_refs(s.guard, V, model)
+	elif s.__class__.__name__ == "SendSignal":
+		for p in s.params:
+			statement_check_refs(p, V, model)
+	elif s.__class__.__name__ == "VariableRef":
+		vref = V.get(s.var.name)
+		if vref == None:
+			error = 'There is a reference to a variable "%s" that does not exist in that scope' % s.var.name
+			raise_semantic_error(error, s, model)
+		else:
+			# possibly fix reference to take scope into account
+			s.var = vref
+			# if variable is of Array type, an index must be provided
+			if vref.type.size > 1 and s.index == None:
+				error = 'There is a reference to an Array variable "%s" where an index is mandatory, but missing,' % s.var.name
+				raise_semantic_error(error, s, model)
+	elif s.__class__.__name__ != "Primary":
+		statement_check_refs(s.left, V, model)
+		if s.op != '':
+			statement_check_refs(s.right, V, model)
+	else:
+		if s.ref != None:
+			if s.ref.ref not in actions:
+				vref = V.get(s.ref.ref)
+				if vref == None:
+					error = 'There is a reference to a variable "%s" that does not exist in that scope' % s.ref.ref
+					raise_semantic_error(error, s, model)
+				else:
+					# if variable is of Array type, an index must be provided
+					if vref.type.size > 1 and s.index == None:
+						error = 'There is a reference to an Array variable "%s" where an index is mandatory, but missing,' % s.var.name
+						raise_semantic_error(error, s, model)
+
+# model processor to simplify action references
+#def simplify_statements(model, metamodel):
+#	for c in model.classes:
+#		for sm in c.statemachines:
+#			for tr in sm.transitions:
+#				for st in tr.statements:
+#					if expression_is_actionref(st):
+						# replace with a single class of type ActionRef
+						# TODO
+
+def expression_is_actionref(s):
+	"""Determine whether the given expression is an action reference"""
+	global actions
+	if s.__class__.__name__ == "Expression":
+		if s.op == '':
+			snext = s.left
+			if snext.op == '':
+				snext = snext.left
+				if snext.op == '':
+					snext = snext.left
+					if snext.op == '':
+						snext = snext.left
+						if snext.op == '':
+							snext = snext.left
+							if snext.ref != None and snext.sign == '':
+								snext = snext.ref
+								if snext.ref in actions:
+									return True
+	return False
 
 def read_SLCO_model(m):
-	"""Read, post-process, and type-check an SLCO model"""
-	global model
+	"""Read, post process, and type check an SLCO model"""
 
 	# create meta-model
-	slco_mm = metamodel_from_file(join(this_folder,'../textx_grammars/slco2.tx'), classes=[Assignment, Expression, ExprPrec1, ExprPrec2, ExprPrec3, ExprPrec4, Primary, ExpressionRef, Variable, Type])
+	slco_mm = metamodel_from_file(join(this_folder,'../textx_grammars/slco2.tx'), autokwd=True, classes=[Assignment, Expression, ExprPrec1, ExprPrec2, ExprPrec3, ExprPrec4, Primary, ExpressionRef, Variable, Type, Action])
 
 	# register processors
+	slco_mm.register_model_processor(construct_action_set)
+	slco_mm.register_model_processor(check_names)
 	slco_mm.register_model_processor(add_initial_to_states)
 	slco_mm.register_model_processor(add_variable_types)
+	slco_mm.register_model_processor(add_taus)
+	slco_mm.register_model_processor(fix_references)
+	#slco_mm.register_model_processor(simplify_statements)
+
+	slco_mm.register_scope_providers({
+		"*.*": providers.FQN(),
+		"Initialisation.left": providers.RelativeName("parent.type.variables"),
+		"Channel.ports[0]": providers.RelativeName("source.type.ports"),
+		"Channel.ports[1]": providers.RelativeName("target.type.ports"),
+		"ReceiveSignal.from": providers.RelativeName("parent.parent.parent.type.ports"),
+		"SendSignal.to": providers.RelativeName("parent.parent.parent.type.ports")
+	})
 
 	# parse and return the model
 	return slco_mm.model_from_file(m)
