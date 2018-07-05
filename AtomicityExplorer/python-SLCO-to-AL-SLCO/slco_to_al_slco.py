@@ -19,9 +19,10 @@ from suggestions import *
 
 this_folder = dirname(__file__)
 
-# import SLCO library
+# import libraries
 sys.path.append(join(this_folder,'../../libraries'))
 from slcolib import *
+from SCCTarjan import *
 this_folder = dirname(__file__)
 
 # set of actions in the model
@@ -153,9 +154,35 @@ def apply_suggestions(model, suggestions):
 				if ad: # atomicity violations, apply advice
 					# first construct program order graph for this statement
 					POG = construct_pog(tr.statements[0])
-					print(POG)
 					# next create conflict graph
 					CG = construct_cg(ad)
+					# determine the SCCs in the union of the two graphs
+					uG = merge_graphs(POG, CG)
+					SCCs = []
+					SCCdict = {}
+					identifySCCs(uG, SCCdict, SCCs)
+					# create SCC compressed pog and cg
+					sccPOG = {}
+					for a in POG.keys():
+						sccset = sccPOG.get(SCCdict[a], set([]))
+						sccPOG[SCCdict[a]] = sccset | set([SCCdict[a1] for a1 in POG[a]]) - set([SCCdict[a]])
+					sccCG = {}
+					for a in CG.keys():
+						sccset = sccPOG.get(SCCdict[a], set([]))
+						sccCG[SCCdict[a]] = sccset | set([SCCdict[a1] for a1 in CG[a]]) - set([SCCdict[a]])
+					# place the SCCs in a sequence, derived from the compressed graphs. Start with a set of SCCs that do not need
+					# to be preceded by others, etc.
+					SQ = []
+					SCCOpen = set([i for i in range(0, len(SCCs))])
+					while len(SCCOpen) > 0:
+						tmp = set([])
+						for i in SCCOpen:
+							if sccPOG.get(i, set([])) & SCCOpen == set([]) and sccCG.get(i, set([])) & SCCOpen == set([]):
+								tmp.add(i)
+						SQ.append(tmp)
+						SCCOpen -= tmp
+					print(SQ)
+					print(SCCdict)
 					# break_down_statements(tr, sm, o)
 				else: # no atomicity violations. If the statement is composite, remove the composite aspect from the model
 					newst = []
@@ -214,34 +241,13 @@ def expression(s,primmap):
 			output = expression(s.body,primmap)
 	return output
 
-def create_var(sm, v, type):
-	"""Create and return a variable object for the variable named v of given type, associated to the given state machine sm"""
-	newv = Variable(sm, '', v, '', [])
-	if type == "Boolean":
-		t = Type(newv, 'Boolean', 1)
-	elif type == "Byte":
-		t = Type(newv, 'Byte', 1)
-	else:
-		t = Type(newv, 'Boolean', 1)
-	newv.type = t
-	return newv
-
-def create_var_expression(st, v, i):
-	"""Create and return a new expression containing only a reference to the given variable name (with possibly index i). Associate the expression with the given statement st"""
-	e = Expression(st, '', '', '')
-	e4 = ExprPrec4(e, '', '', '')
-	e3 = ExprPrec3(e4, '', '', '')
-	e2 = ExprPrec2(e3, '', '', '')
-	e1 = ExprPrec1(e2, '', '', '')
-	p = Primary(e1, '', '', '', '')
-	r = ExpressionRef(p, v, '')
-	e.left = e4
-	e4.left = e3
-	e3.left = e2
-	e2.left = e1
-	e1.left = p
-	p.ref = r
-	return e
+def merge_graphs(G1, G2):
+	"""Merge two graphs G1, G2 into a single one"""
+	G3 = G1.copy()
+	for v in G2.keys():
+		T = G1.get(v, set([]))
+		G3[v] = G2[v] | T
+	return G3
 
 def construct_pog(s):
 	"""Construct program order graph for given statement s"""
@@ -269,10 +275,13 @@ def construct_pog(s):
 			for a2 in rsets[0] | rsets[1]:
 				POG[a1].add(a2)
 	elif s.__class__.__name__ == "Composite":
-		# Note: guard is not relevant for edges in graph
+		# reads for guard need to be performed before first write
+		rguardsets = tuple([set([]), set([])])
+		if s.guard != None:
+			rguardsets = statement_accesssets(e.guard, False)
 		for e in s.assignments:
 			wsets = statement_accesssets(e.left, True)
-			rsets = statement_accesssets(e.right, False)
+			rsets = mergesets(rguardsets, statement_accesssets(e.right, False))
 			print(wsets)
 			print(rsets)
 			for a1 in wsets[0] | wsets[1]:
@@ -292,6 +301,8 @@ def construct_pog(s):
 					for a3 in ds_map[a1]:
 						aset2 = POG.get(a3, set([]))
 						POG[a3] = aset2 | aset
+			# reset read guard sets
+			rguardsets = tuple([set([]), set([])])
 	return POG
 
 def construct_cg(ad):

@@ -101,6 +101,37 @@ def raise_semantic_error(S, s, model):
 	S += ' at ("%s", "%s")' % (line, col)
 	raise TextXSemanticError(S)
 
+# FUNCTIONS TO CREATE INSTANCES OF SLCO CONCEPTS
+
+def create_smlocal_var(sm, v, type, size):
+	"""Create and return a variable object for the variable named v of given type and size, associated to the given state machine sm"""
+	newv = Variable(sm, '', v, None, [])
+	if type == "Boolean":
+		t = Type(newv, 'Boolean', size)
+	elif type == "Byte":
+		t = Type(newv, 'Byte', size)
+	else:
+		t = Type(newv, 'Boolean', size)
+	newv.type = t
+	return newv
+
+def create_var_expression(st, v, i):
+	"""Create and return a new expression containing only a reference to the given variable name (with possibly index i). Associate the expression with the given statement st"""
+	e = Expression(st, '', '', '')
+	e4 = ExprPrec4(e, '', '', '')
+	e3 = ExprPrec3(e4, '', '', '')
+	e2 = ExprPrec2(e3, '', '', '')
+	e1 = ExprPrec1(e2, '', '', '')
+	p = Primary(e1, '', '', '', '')
+	r = ExpressionRef(p, v, '')
+	e.left = e4
+	e4.left = e3
+	e3.left = e2
+	e2.left = e1
+	e1.left = p
+	p.ref = r
+	return e
+
 # *** MODEL PROCESSORS ***
 
 # model processor to create the set of actions
@@ -360,6 +391,8 @@ def read_SLCO_model(m):
 	slco_mm.register_model_processor(add_taus)
 	slco_mm.register_model_processor(fix_references)
 	#slco_mm.register_model_processor(simplify_statements)
+
+# To do: Check receive statements for not receiving multiple values in the same variable
 
 	slco_mm.register_scope_providers({
 		"*.*": providers.FQN(),

@@ -11,9 +11,10 @@ from SCCTarjan import identifySCCs
 
 this_folder = dirname(__file__)
 
-# import SLCO library
+# import libraries
 sys.path.append(join(this_folder,'../../libraries'))
 from slcolib import *
+from SCCTarjan import *
 this_folder = dirname(__file__)
 
 # on-the-fly atomicity violation checking
@@ -1484,11 +1485,7 @@ def identify_safe_unsafe_statements(m):
 						# and compute combined filtered accesses for the SCCs
 						if SCCs == []:
 							depgraph = build_dep_graph(o, sm, filtered_statemachine_access)
-							initialsm = []
-							for sm1 in c.statemachines:
-								if sm1 != sm:
-									initialsm.append(sm1)
-							identifySCCs(depgraph, initialsm, {}, SCCs)
+							identifySCCs(depgraph, {}, SCCs)
 							for scc in SCCs:
 								combined_access = [[set(),{},{}],[set(),{},{}]]
 								for sm1 in scc[1].keys():
