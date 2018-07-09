@@ -873,9 +873,10 @@ def statement_accesspattern(s, o):
 		if s.guard != None:
 			readset |= expression_varset(s.guard,statemachine[s],smclass[statemachine[s]],vardict,o,False)
 		for st in s.assignments:
-			readset |= expression_varset(st.right,statemachine[s],smclass[statemachine[s]],vardict,o,False)
+			# read accesses to variables that have already been written to do not need to be added, therefore '- writeset'
+			readset |= (expression_varset(st.right,statemachine[s],smclass[statemachine[s]],vardict,o,False) - writeset)
 			if st.left.index != None:
-				readset |= expression_varset(st.left.index,statemachine[s],smclass[statemachine[s]],vardict,o,False)
+				readset |= (expression_varset(st.left.index,statemachine[s],smclass[statemachine[s]],vardict,o,False) - writeset)
 			writeset |= expression_varset(st.left,statemachine[s],smclass[statemachine[s]],vardict,o,True)
 			# update vardict (to correctly handle possible array index use in subsequent assignments)
 			newright = expression(st.right,statemachine[s],smclass[statemachine[s]],vardict,o)

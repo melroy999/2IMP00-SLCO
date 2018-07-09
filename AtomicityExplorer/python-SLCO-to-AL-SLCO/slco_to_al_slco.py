@@ -405,6 +405,14 @@ def mergesets(S1, S2):
 	"""Merge the two given tuples of sets"""
 	return tuple([S1[0]|S2[0], S1[1]|S2[1]])
 
+def mergesets_filterreads(S1, S2):
+	"""Merge the two given tuples of sets, filtering out new read accesses if corresponding write accesses already exist"""
+	new0 = S1[0]
+	for s2 in S2[0]:
+		if 'w_' + s2[2:] not in new0:
+			new0.add(s2)
+	return tuple([new0, S1[1]|S2[1]])
+
 def accesstype(b):
 	if b:
 		return "w"
@@ -418,8 +426,8 @@ def statement_accesssets(s, wflag):
 	output = tuple([set([]), set([])])
 
 	if s.__class__.__name__ == "Assignment":
+		output = mergesets_filterreads(output, statement_accesssets(s.right, False))
 		output = mergesets(output, statement_accesssets(s.left, True))
-		output = mergesets(output, statement_accesssets(s.right, False))
 	elif s.__class__.__name__ == "Composite":
 		if s.guard != None:
 			output = mergesets(output, statement_accesssets(s.guard, False))
