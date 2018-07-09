@@ -254,10 +254,15 @@ def construct_pog(s):
 	POG = {}
 	# obtain sets of variables referenced in statement
 	accsets = statement_accesssets(s, False)
-	# create mapping between dynamic and static accesses
+	# create mapping between dynamic and static accesses (map dynamic reads to static writes, and dynamic writes to static reads)
 	ds_map = {}
 	for a1 in accsets[1]:
 		aset = set([])
+		ca1 = a1
+		if ca1[0] == 'r':
+			ca1[0] = 'w'
+		else:
+			ca1[0] = 'r'
 		for a2 in accsets[0]:
 			if a1 in a2:
 				aset.add(a2)
@@ -275,34 +280,58 @@ def construct_pog(s):
 			for a2 in rsets[0] | rsets[1]:
 				POG[a1].add(a2)
 	elif s.__class__.__name__ == "Composite":
-		# reads for guard need to be performed before first write
-		rguardsets = tuple([set([]), set([])])
+		accesses_seen = tuple([set([]), set([])])
 		if s.guard != None:
-			rguardsets = statement_accesssets(e.guard, False)
+			accesses_seen = statement_accesssets(e.guard, False)
+
 		for e in s.assignments:
 			wsets = statement_accesssets(e.left, True)
-			rsets = mergesets(rguardsets, statement_accesssets(e.right, False))
-			print(wsets)
-			print(rsets)
+			rsets = statement_accesssets(e.right, False)
+			# writes are dependent on the reads happening first
 			for a1 in wsets[0] | wsets[1]:
-				aset = set([])
-				for a2 in rsets[0]:
-					aset.add(a2)
-					aset |= POG.get(a2, set([]))
-				for a2 in rsets[1]:
-					aset.add(a2)
-					aset |= POG.get(a2, set([]))
-					for a3 in ds_map[a2]:
-						aset.add(a3)
-						aset |= POG.get(a3, set([]))
-				aset2 = POG.get(a1, set([]))
-				POG[a1] = aset2 | aset
-				if a1 in wsets[1]:
-					for a3 in ds_map[a1]:
-						aset2 = POG.get(a3, set([]))
-						POG[a3] = aset2 | aset
-			# reset read guard sets
-			rguardsets = tuple([set([]), set([])])
+				POG[a1] = POG.get(a1, set([])) | rsets[0] | rsets[1]
+			# writes are also dependent on earlier reads from the same variable
+			for a1 in wsets[0]:
+				if 'r_' + a1[2:] in accesses_seen[0]:
+					aset = POG.get(a1, set([]))
+					aset.add('r_' + a1[2:])
+					POG[a1] = aset
+				if 'r_' + a1[2:].split('[')[0] in accesses_seen[1]:
+					aset = POG.get(a1, set([]))
+					aset.add('r_' + a1[2:].split('[')[0])
+					POG[a1] = aset
+			for a1 in rsets[1]:
+				if 'r_' + a1[2:] in accesses_seen[1]:
+					aset = POG.get(a1, set([]))
+					aset.add('r_' + a1[2:])
+					POG[a1] = aset
+				sset = ds_map.get(a1, set([]))
+				aset = POG.get(a1, set([]))
+				aset |= (sset & accesses_seen1)
+				POG[a1] = aset
+			# reads are dependent on earlier writes to the same variable
+			for a1 in rsets[0]:
+				if 'w_' + a1[2:] in accesses_seen[0]:
+					aset = POG.get(a1, set([]))
+					aset.add('w_' + a1[2:])
+					POG[a1] = aset
+				if 'w_' + a1[2:].split('[')[0] in accesses_seen[1]:
+					aset = POG.get(a1, set([]))
+					aset.add('w_' + a1[2:].split('[')[0])
+					POG[a1] = aset
+			for a1 in rsets[1]:
+				if 'w_' + a1[2:] in accesses_seen[1]:
+					aset = POG.get(a1, set([]))
+					aset.add('w_' + a1[2:])
+					POG[a1] = aset
+				sset = ds_map.get(a1, set([]))
+				aset = POG.get(a1, set([]))
+				aset |= (sset & accesses_seen1)
+				POG[a1] = aset
+			# update accesses_seen
+			accesses_seen = mergesets(mergesets(accesses_seen, wsets), rsets)
+	print("here")
+	print(POG)
 	return POG
 
 def construct_cg(ad):
