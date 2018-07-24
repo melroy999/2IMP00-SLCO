@@ -28,11 +28,6 @@ this_folder = dirname(__file__)
 # set of actions in the model
 actions = set([])
 
-# dictionaries providing for each state machine in the model the number of newly introduced local variables of a specific type
-nr_local_int_vars = {}
-nr_local_byte_vars = {}
-nr_local_bool_vars = {}
-
 def RepresentsInt(s):
     try: 
         int(s)
@@ -147,6 +142,9 @@ def apply_suggestions(model, suggestions):
 
 	for o in model.objects:
 		for sm in o.type.statemachines:
+			nr_local_bool_vars = 0
+			nr_local_byte_vars = 0
+			nr_local_int_vars = 0
 			for tr in sm.transitions:
 				# process suggestions
 				print(str(tr._tx_position))
@@ -155,7 +153,7 @@ def apply_suggestions(model, suggestions):
 					# first construct program order graph for this statement
 					POG = construct_pog(tr.statements[0])
 					# next create conflict graph
-					CG = construct_cg(ad)
+					CG = construct_cg(ad, POG)
 					# determine the SCCs in the union of the two graphs
 					uG = merge_graphs(POG, CG)
 					SCCs = []
@@ -182,8 +180,10 @@ def apply_suggestions(model, suggestions):
 						SQ.append(tmp)
 						SCCOpen -= tmp
 					print(SQ)
-					print(SCCdict)
-					# break_down_statements(tr, sm, o)
+					print(SCCs)
+					# break down the statements according to the given access sequence SQ
+					for st in tr.statements:
+						break_down_statement(st, SQ, SCCs)
 				else: # no atomicity violations. If the statement is composite, remove the composite aspect from the model
 					newst = []
 					for st in tr.statements:
@@ -281,16 +281,60 @@ def construct_pog(s):
 				POG[a1].add(a2)
 	elif s.__class__.__name__ == "Composite":
 		accesses_seen = tuple([set([]), set([])])
+		guard_accesses = tuple([set([]), set([])])
 		if s.guard != None:
-			accesses_seen = statement_accesssets(e.guard, False)
-
+			guard_accesses = statement_accesssets(e.guard, False)
+			accesses_seen = mergesets(accesses_seen, guard_accesses)
 		for e in s.assignments:
+			# ! TO DO! The left can also have reads (to compute indices)
 			wsets = statement_accesssets(e.left, True)
 			rsets = statement_accesssets(e.right, False)
-			# writes are dependent on the reads happening first
+			# 1. writes are dependent on the reads happening first. if a read accesses a variable previously written to, the current
+			# write depends on the same accesses as that previous write
 			for a1 in wsets[0] | wsets[1]:
-				POG[a1] = POG.get(a1, set([])) | rsets[0] | rsets[1]
-			# writes are also dependent on earlier reads from the same variable
+				nset = POG.get(a1, set([]))
+				for a2 in rsets[0]:
+					# have we seen a previous write to the same variable?
+					wa = 'w_' + a2[2:]
+					if wa in accesses_seen[0]:
+						# current write depends on the same accesses as wa
+						aset2 = POG.get(wa, set([]))
+						nset |= aset2
+					elif 'w_' + a2.split('[')[0] in accesses_seen[1]:
+						# current write depends on the same accesses as wa
+						wa = 'w_' + a2.split('[')[0]
+						aset2 = POG.get(wa, set([]))
+						nset |= aset2
+					# no write seen. add read access
+					else:
+						nset.add(a2)
+						# 2a. the read also depends on the guard reads
+						aset = POG.get(a2, set([]))
+						POG[a2] = aset | guard_accesses[0] | guard_accesses[1]
+				for a2 in rsets[1]:
+					# for a dynamic array read access, we have to assume that earlier dynamic writes coincide, and that this read needs to be performed
+					wasets = ds_map.get(a2, set([]))
+					isec = wasets & accesses_seen[0]
+					for a3 in isec:
+						aset3 = POG.get(a3, set([]))
+						nset |= aset3
+					wa = 'w_' + a2[2:]
+					if wa in accesses_seen[1]:
+						aset2 = POG.get(wa, set([]))
+						nset |= aset2
+					# add the access itself
+					nset.add(a2)
+					# 2b. the access also depends on the guard reads
+					aset = POG.get(a2, set([]))
+					POG[a2] = aset | guard_accesses[0] | guard_accesses[1]
+				POG[a1] = nset
+				if a1 in wsets[1]:
+					# propagate result also to other matching static accesses
+					for ca in ds_map.get(a1, set([])):
+						aset = POG.get(ca, set([]))
+						aset |= nset
+						POG[ca] = aset
+			# 3. writes are also dependent on earlier reads from the same variable
 			for a1 in wsets[0]:
 				if 'r_' + a1[2:] in accesses_seen[0]:
 					aset = POG.get(a1, set([]))
@@ -300,29 +344,10 @@ def construct_pog(s):
 					aset = POG.get(a1, set([]))
 					aset.add('r_' + a1[2:].split('[')[0])
 					POG[a1] = aset
-			for a1 in rsets[1]:
+			for a1 in wsets[1]:
 				if 'r_' + a1[2:] in accesses_seen[1]:
 					aset = POG.get(a1, set([]))
 					aset.add('r_' + a1[2:])
-					POG[a1] = aset
-				sset = ds_map.get(a1, set([]))
-				aset = POG.get(a1, set([]))
-				aset |= (sset & accesses_seen1)
-				POG[a1] = aset
-			# reads are dependent on earlier writes to the same variable
-			for a1 in rsets[0]:
-				if 'w_' + a1[2:] in accesses_seen[0]:
-					aset = POG.get(a1, set([]))
-					aset.add('w_' + a1[2:])
-					POG[a1] = aset
-				if 'w_' + a1[2:].split('[')[0] in accesses_seen[1]:
-					aset = POG.get(a1, set([]))
-					aset.add('w_' + a1[2:].split('[')[0])
-					POG[a1] = aset
-			for a1 in rsets[1]:
-				if 'w_' + a1[2:] in accesses_seen[1]:
-					aset = POG.get(a1, set([]))
-					aset.add('w_' + a1[2:])
 					POG[a1] = aset
 				sset = ds_map.get(a1, set([]))
 				aset = POG.get(a1, set([]))
@@ -334,21 +359,59 @@ def construct_pog(s):
 	print(POG)
 	return POG
 
-def construct_cg(ad):
-	"""Construct a conflict graph based on the given advice/suggestion"""
+def construct_cg(ad, POG):
+	"""Construct a conflict graph based on the given advice/suggestion.
+	Use the program order graph to identify allowed nodes."""
 	CG = {}
+
+	POGkeys = set([k for k in POG.keys()])
 
 	for a in ad:
 		# add access patterns info in ad as cyclic dependencies in graph
 		AP = a.get_access_patterns()
 		for ap in AP:
+			# filter the read set
+			newr = set([])
 			for ra in ap.r:
-				aset = CG.get('r_' + ra, set([]))
-				CG['r_' + ra] = aset | set(['w_' + wa for wa in ap.w])
+				rra = 'r_' + ra
+				if rra in POGkeys:
+					newr.add(rra)
+				if '[' in ra:
+					ra_base = 'r_' + ra.split('[')[0]
+					if ra_base in POGkeys:
+						newr.add(ra_base)
+			# filter the write set
+			neww = set([])
 			for wa in ap.w:
-				aset = CG.get('w_' + wa, set([]))
-				CG['w_' + ra] = aset | set(['r_' + ra for ra in ap.r])
+				wwa = 'w_' + wa
+				if wwa in POGkeys:
+					neww.add(wwa)
+				if '[' in wa:
+					wa_base = 'w_' + wa.split('[')[0]
+					if wa_base in POGkeys:
+						neww.add(wa_base)
+			for ra in ap.r:
+				rra = 'r_' + ra
+				if rra in POGkeys:
+					aset = CG.get(rra, set([]))
+					CG[rra] = aset | neww
+				if '[' in ra:
+					ra_base = 'r_' + ra.split('[')[0]
+					if ra_base in POGkeys:
+						aset = CG.get(ra_base, set([]))
+						CG[ra_base] = aset | neww
+			for wa in ap.w:
+				wwa = 'w_' + wa
+				if wwa in POGkeys:
+					aset = CG.get(wwa, set([]))
+					CG[wwa] = aset | newr
+				if '[' in wa:
+					wa_base = 'w_' + wa.split('[')[0]
+					if wa_base in POGkeys:
+						aset = CG.get(wa_base, set([]))
+						CG[wa_base] = aset | newr
 		# add shuffle suggestions as acyclic dependencies in graph
+		# to do: fix for dynamic accesses!
 		SH = a.get_shuffles()
 		for sh in SH:
 			# create set of 'before' accesses
@@ -361,6 +424,70 @@ def construct_cg(ad):
 				CG['w_' + wa] = aset | bset
 	print(CG)
 	return CG
+
+def break_down_statement(st, SQ, SCCs):
+	"""Break down the given statement st based on the access sequence SQ"""
+
+	# dictionary mapping object-local to state machine-local variables
+	vardict = {}
+	# dictionary to look up right-hand side in assignment for a given variable that was written to
+	assdict = {}
+	# new block of statements
+	newblock = []
+	# iterate over the sets in SQ:
+	for aset in SQ:
+		# iterate over the SCCs in aset
+		for scc in aset:
+			# create statement (possibly composite if size > 1) for scc and add to new block
+			newblock.append(create_statement(scc, SCCs, vardict, assdict, st))
+
+def find_variable(vname, V):
+	"""Find given variable in list of variables"""
+	for v in V:
+		if vname == v.name:
+			return v
+	return null
+
+def create_statement(scc, SCCs, vardict, assdict, st):
+	"""Return new statement(s) for the given scc of accesses, based on the given statement st"""
+	alist = [a for a in SCCs[scc][1].keys()]
+	# sort list to get the reads in front
+	alist = sorted(alist)
+
+	c = st.parent.parent.parent
+	sm = st.parent.parent
+	tr = st.parent
+
+	# link to the appropriate parent
+	sparent = tr
+	if len(alist) > 1:
+		sparent = Composite(tr, None, [])
+
+	for a in alist:
+		# if the variable is object-local, find it
+		varname = a[2:]
+		v = find_variable(varname, c.variables)
+		if v != null:
+			if a[0] == 'r':
+				# create a read instruction
+				# create VariableRef to var
+				vr = VariableRef(sparent, v, None)
+				asright = create_var_expression(sparent, v.name, '')
+				if len(alist) > 1:
+					sparent.assignments.append(Assignment(sparent, asleft, asright))
+				# add association with local variable to vardict
+				if v.index != None:
+					if RepresentsInt(v.index):
+						varname += "[" + str(v.index) + "]"
+				vardict[varname] = vl
+			else:
+				# this is a write access. construct a new assignment reading from local variables and writing to the associated object-local variable
+				# first find the last assignment to the given variable
+				if st.__class__.__name__ == "Assignment":
+					lastas = st
+				elif st.__class__.__name__ == "Composite":
+					for i in reversed(range(0, len(st.assignments))):
+						if st.assignments[i].left.name == varname
 
 # def break_down_statements(tr, sm, o):
 # 	"""Break down the statements of the given transition tr. Involves transforming those statements into a new statement block,

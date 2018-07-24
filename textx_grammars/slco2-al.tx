@@ -57,24 +57,33 @@ Port:
 
 Transition:
   (priority=INT':')?
-  'from' source=[State] 'to' target=[State]
+  ((source=[State] '->' target=[State])|
+  ('from' source=[State] 'to' target=[State]))
   ('{' statements*=Statement[';'] (';')? '}')?
 ;
 
 Statement:
-  (Composite | ReceiveSignal | SendSignal | Delay | Assignment | Expression | MemoryFence)
+  (Composite | ReceiveSignal | SendSignal | Delay | Assignment | Expression | MemoryFence | ReadInstruction | WriteInstruction)
 ;
 
 MemoryFence:
   '|#|' (extra = NID)?
 ;
 
-Assignment:
-  left=VariableRef ':=' right=Expression
+ReadInstruction:
+  '<' 'read' ref=VariableRef '>'
+;
+
+WriteInstruction:
+  '<' 'write' ref=VariableRef '>'
+
+AL_Assignment:
+  (cached?='<' left=VariableRef ':=' right=Expression '>')|
+  (left=VariableRef ':=' right=Expression)
 ;
 
 Composite:
-  '[' (guard=Expression ';')? assignments*=Assignment[';'] ']'
+  '[' (guard=AL_Expression ';')? assignments*=AL_Assignment[';'] ']'
 ;
 
 ReceiveSignal:
@@ -85,8 +94,9 @@ SendSignal:
   'send' signal=NID '(' params*=Expression[','] ')' 'to' target=[Port]
 ;
 
-Expression:
-  left=ExprPrec4 ((op='or'|op='xor'|op='and'|op='&&'|op='||') right=Expression)?
+AL_Expression:
+  (cached?='<' left=ExprPrec4 ((op='or'|op='xor'|op='and'|op='&&'|op='||') right=Expression)? '>')|
+  (left=ExprPrec4 ((op='or'|op='xor'|op='and'|op='&&'|op='||') right=Expression)?)
 ;
 
 ExprPrec4:
@@ -134,7 +144,7 @@ Type:
 ;
 
 Keyword:
-  'actions' | 'model' | 'classes' | 'ports' | 'state machines' | 'variables' | 'initial' | 'state' | 'transitions' | 'from' | 'to' | 'send' | 'receive' | 'objects' | 'channels' | 'Boolean' | 'Integer' | 'Byte' | 'async' | 'sync' | 'lossless' | 'lossy' | 'between' | 'and' | ':=' | 'after' | 'ms' | 'not' | '-' | '+' | 'or' | 'xor' | 'and' | '==' | '<>' | '<=' | '>=' | '<' | '>' | 'mod' | '*' | '/' | '**' | 'true' | 'false'
+  'actions' | 'model' | 'classes' | 'ports' | 'state machines' | 'variables' | 'initial' | 'state' | 'transitions' | 'from' | 'to' | 'send' | 'receive' | 'objects' | 'channels' | 'Boolean' | 'Integer' | 'Byte' | 'async' | 'sync' | 'lossless' | 'lossy' | 'between' | 'and' | ':=' | 'after' | 'ms' | 'not' | '-' | '+' | 'or' | 'xor' | 'and' | '==' | '<>' | '<=' | '>=' | '<' | '>' | 'mod' | '*' | '/' | '**' | 'true' | 'false' | 'read' | 'write' | '<' | '>'
 ;
 
 NID:

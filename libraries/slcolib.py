@@ -19,6 +19,12 @@ class Assignment(object):
 		self.left = left
 		self.right = right
 
+class Composite(object):
+	def __init__(self, parent, guard, assignments):
+		self.parent = parent
+		self.guard = guard
+		self.assignments = assignments
+
 class Expression(object):
 	def __init__(self, parent, left, op, right):
 		self.parent = parent
@@ -76,6 +82,12 @@ class Variable(object):
 		self.defvalue = defvalue
 		self.defvalues = defvalues
 
+class VariableRef(object):
+	def __init__(self, parent, var, index):
+		self.parent = parent
+		self.var = var
+		self.index = index
+
 class Type(object):
 	def __init__(self, parent, base, size):
 		self.parent = parent
@@ -92,6 +104,32 @@ class ActionRef(object):
 	def __init__(self, parent, act):
 		self.parent = parent
 		self.act = act
+
+# extra classes for AL-SLCO models
+class AL_Assignment(object):
+	def __init__(self, parent, left, right, cached):
+		self.parent = parent
+		self.left = left
+		self.right = right
+		self.cached = cached
+
+class Expression(object):
+	def __init__(self, parent, left, op, right, cached):
+		self.parent = parent
+		self.left = left
+		self.op = op
+		self.right = right
+		self.cached = cached
+
+class ReadInstruction(object):
+	def __init__(self, parent, ref):
+		self.parent = parent
+		self.ref = ref
+
+class WriteInstruction(object):
+	def __init__(self, parent, ref):
+		self.parent = parent
+		self.ref = ref
 
 # method to raise semantic error
 def raise_semantic_error(S, s, model):
@@ -113,6 +151,8 @@ def create_smlocal_var(sm, v, type, size):
 	else:
 		t = Type(newv, 'Boolean', size)
 	newv.type = t
+	# add variable to list of state machine-local variables
+	sm.variables.append(newv)
 	return newv
 
 def create_var_expression(st, v, i):
@@ -123,7 +163,7 @@ def create_var_expression(st, v, i):
 	e2 = ExprPrec2(e3, '', '', '')
 	e1 = ExprPrec1(e2, '', '', '')
 	p = Primary(e1, '', '', '', '')
-	r = ExpressionRef(p, v, '')
+	r = ExpressionRef(p, v, i)
 	e.left = e4
 	e4.left = e3
 	e3.left = e2
@@ -380,7 +420,7 @@ def read_SLCO_model(m):
 	"""Read, post process, and type check an SLCO model"""
 
 	# create meta-model
-	slco_mm = metamodel_from_file(join(this_folder,'../textx_grammars/slco2.tx'), autokwd=True, classes=[Assignment, Expression, ExprPrec1, ExprPrec2, ExprPrec3, ExprPrec4, Primary, ExpressionRef, Variable, Type, Action])
+	slco_mm = metamodel_from_file(join(this_folder,'../textx_grammars/slco2.tx'), autokwd=True, classes=[Assignment, Composite, Expression, ExprPrec1, ExprPrec2, ExprPrec3, ExprPrec4, Primary, ExpressionRef, Variable, VariableRef, Type, Action])
 
 	# register processors
 	slco_mm.register_model_processor(construct_action_set)
