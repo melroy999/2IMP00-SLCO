@@ -14,9 +14,6 @@ model example1 {
 					final
 						Z
 					transitions
-						from X to Y {
-							do init
-						}
 						from Y to Z {
 							do init
 						}
