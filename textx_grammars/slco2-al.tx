@@ -1,6 +1,6 @@
 SLCOModel:
-  ('actions' actions+=Action)?
   'model' name=NID '{'
+  ('actions' actions+=Action)?
   ('classes' classes*=Class)?
   ('objects' objects*=Object[','])?
   ('channels' channels*=Channel)?
@@ -63,7 +63,11 @@ Transition:
 ;
 
 Statement:
-  (Composite | ReceiveSignal | SendSignal | Delay | Assignment | Expression | MemoryFence | ReadInstruction | WriteInstruction)
+  (Composite | ReceiveSignal | SendSignal | Delay | AL_Assignment | AL_Expression | MemoryFence | ReadInstruction | WriteInstruction | DoAction)
+;
+
+DoAction:
+  'do' act=[Action]
 ;
 
 MemoryFence:
@@ -76,10 +80,11 @@ ReadInstruction:
 
 WriteInstruction:
   '<' 'write' ref=VariableRef '>'
+ ;
 
 AL_Assignment:
-  (cached?='<' left=VariableRef ':=' right=Expression '>')|
-  (left=VariableRef ':=' right=Expression)
+  (cached?='<' left=VariableRef ':=' right=AL_Expression '>')|
+  (left=VariableRef ':=' right=AL_Expression)
 ;
 
 Composite:
@@ -87,16 +92,16 @@ Composite:
 ;
 
 ReceiveSignal:
-  'receive' signal=NID '(' params*=VariableRef[','] ('|' guard=Expression)? ')' 'from' target=[Port]
+  'receive' signal=NID '(' params*=VariableRef[','] ('|' guard=AL_Expression)? ')' 'from' target=[Port]
 ;
 
 SendSignal:
-  'send' signal=NID '(' params*=Expression[','] ')' 'to' target=[Port]
+  'send' signal=NID '(' params*=AL_Expression[','] ')' 'to' target=[Port]
 ;
 
 AL_Expression:
-  (cached?='<' left=ExprPrec4 ((op='or'|op='xor'|op='and'|op='&&'|op='||') right=Expression)? '>')|
-  (left=ExprPrec4 ((op='or'|op='xor'|op='and'|op='&&'|op='||') right=Expression)?)
+  (cached?='<' left=ExprPrec4 ((op='or'|op='xor'|op='and'|op='&&'|op='||') right=AL_Expression)? '>')|
+  (left=ExprPrec4 ((op='or'|op='xor'|op='and'|op='&&'|op='||') right=AL_Expression)?)
 ;
 
 ExprPrec4:
@@ -116,7 +121,7 @@ ExprPrec1:
 ;
 
 Primary:
-  (sign='+'|sign='-'|sign='not')? (value=INT | value=BOOL | '(' body=Expression ')' | ref=ExpressionRef)
+  (sign='+'|sign='-'|sign='not')? (value=INT | value=BOOL | '(' body=AL_Expression ')' | ref=ExpressionRef)
 ;
 
 Delay:
@@ -124,7 +129,7 @@ Delay:
 ;
 
 ExpressionRef:
-  ref=NID ('['index=Expression']')?
+  ref=NID ('['index=AL_Expression']')?
 ;
 
 Action:
@@ -132,7 +137,7 @@ Action:
 ;
 
 VariableRef:
-  var=[Variable] ('['index=Expression']')?
+  var=[Variable] ('['index=AL_Expression']')?
 ;
 
 Variable:
@@ -144,7 +149,7 @@ Type:
 ;
 
 Keyword:
-  'actions' | 'model' | 'classes' | 'ports' | 'state machines' | 'variables' | 'initial' | 'state' | 'transitions' | 'from' | 'to' | 'send' | 'receive' | 'objects' | 'channels' | 'Boolean' | 'Integer' | 'Byte' | 'async' | 'sync' | 'lossless' | 'lossy' | 'between' | 'and' | ':=' | 'after' | 'ms' | 'not' | '-' | '+' | 'or' | 'xor' | 'and' | '==' | '<>' | '<=' | '>=' | '<' | '>' | 'mod' | '*' | '/' | '**' | 'true' | 'false' | 'read' | 'write' | '<' | '>'
+  'do' | 'actions' | 'model' | 'classes' | 'ports' | 'state machines' | 'variables' | 'initial' | 'state' | 'transitions' | 'from' | 'to' | 'send' | 'receive' | 'objects' | 'channels' | 'Boolean' | 'Integer' | 'Byte' | 'async' | 'sync' | 'lossless' | 'lossy' | 'between' | 'and' | ':=' | 'after' | 'ms' | 'not' | '-' | '+' | 'or' | 'xor' | 'and' | '==' | '<>' | '<=' | '>=' | '<' | '>' | 'mod' | '*' | '/' | '**' | 'true' | 'false' | 'read' | 'write' | '<' | '>'
 ;
 
 NID:

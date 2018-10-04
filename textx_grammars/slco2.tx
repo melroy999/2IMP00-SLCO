@@ -63,7 +63,11 @@ Transition:
 ;
 
 Statement:
-  (Composite | ReceiveSignal | SendSignal | Delay | Assignment | Expression )
+  (Composite | ReceiveSignal | SendSignal | Delay | Assignment | Expression | DoAction)
+;
+
+DoAction:
+  'do' act=[Action]
 ;
 
 Assignment:
@@ -131,7 +135,7 @@ Type:
 ;
 
 Keyword:
-  'actions' | 'model' | 'classes' | 'ports' | 'state machines' | 'variables' | 'initial' | 'state' | 'transitions' | 'from' | 'to' | 'send' | 'receive' | 'objects' | 'channels' | 'Boolean' | 'Integer' | 'Byte' | 'async' | 'sync' | 'lossless' | 'lossy' | 'between' | 'and' | ':=' | 'after' | 'ms' | 'not' | '-' | '+' | 'or' | 'xor' | 'and' | '==' | '<>' | '<=' | '>=' | '<' | '>' | 'mod' | '*' | '/' | '**' | 'true' | 'false'
+  'do' | 'actions' | 'model' | 'classes' | 'ports' | 'state machines' | 'variables' | 'initial' | 'state' | 'transitions' | 'from' | 'to' | 'send' | 'receive' | 'objects' | 'channels' | 'Boolean' | 'Integer' | 'Byte' | 'async' | 'sync' | 'lossless' | 'lossy' | 'between' | 'and' | ':=' | 'after' | 'ms' | 'not' | '-' | '+' | 'or' | 'xor' | 'and' | '==' | '<>' | '<=' | '>=' | '<' | '>' | 'mod' | '*' | '/' | '**' | 'true' | 'false'
 ;
 
 NID:
