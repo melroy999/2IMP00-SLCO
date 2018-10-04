@@ -61,7 +61,7 @@ def sign(s):
 def getlabel(s):
 	"""Get the label for the given statement s"""
 	result = ''
-	if s.__class__.__name__ == "Assignment":
+	if s.__class__.__name__ == "AL_Assignment":
 		result += s.left.var.name
 		if s.left.index != None:
 			result += "[" + getlabel(s.left.index) + "]"
@@ -102,7 +102,7 @@ def getlabel(s):
 		if s.guard != None:
 			result += " | " + getlabel(s.guard)
 		result += ") <b>from </b>" + s.target.name
-	elif s.__class__.__name__ == "Expression" or s.__class__.__name__ == "ExprPrec4" or s.__class__.__name__ == "ExprPrec3" or s.__class__.__name__ == "ExprPrec2" or s.__class__.__name__ == "ExprPrec1":
+	elif s.__class__.__name__ == "AL_Expression" or s.__class__.__name__ == "ExprPrec4" or s.__class__.__name__ == "ExprPrec3" or s.__class__.__name__ == "ExprPrec2" or s.__class__.__name__ == "ExprPrec1":
 		if s.op != '':
 			result += getlabel(s.left) + " " + operator(s.op) + " " + getlabel(s.right)
 		else:
@@ -124,13 +124,15 @@ def getlabel(s):
 		result += s.var.name
 		if s.index != None:
 			result += "[" + getlabel(s.index) + "]"
+	elif s.__class__.__name__ == "DoAction":
+		result += "<b>do</b>" + str(s.act)
 	return result
 
 def getinstruction(s):
 	"""Get the Java instruction for the given statement s"""
 	global smlocalvars
 	result = ''
-	if s.__class__.__name__ == "Assignment":
+	if s.__class__.__name__ == "AL_Assignment":
 		result += s.left.var.name
 		if s.left.index != None:
 			result += "[" + getinstruction(s.left.index) + "]"
@@ -151,7 +153,7 @@ def getinstruction(s):
 			if i < len(s.assignments)-1:
 				result += ";"
 		result += "]"
-	elif s.__class__.__name__ == "Expression" or s.__class__.__name__ == "ExprPrec4" or s.__class__.__name__ == "ExprPrec3" or s.__class__.__name__ == "ExprPrec2" or s.__class__.__name__ == "ExprPrec1":
+	elif s.__class__.__name__ == "AL_Expression" or s.__class__.__name__ == "ExprPrec4" or s.__class__.__name__ == "ExprPrec3" or s.__class__.__name__ == "ExprPrec2" or s.__class__.__name__ == "ExprPrec1":
 		if s.op != '':
 			result += getinstruction(s.left) + " " + operator(s.op) + " " + getinstruction(s.right)
 		else:
@@ -201,11 +203,11 @@ def javastatement(s,indent,nondet,o):
 	global add_counter
 
 	output = ""
-	if s.__class__.__name__ == "Assignment":
+	if s.__class__.__name__ == "AL_Assignment":
 		output += getinstruction(s) + ";"
 	elif s.__class__.__name__ == "MemoryFence":
 		output += "fence_var = true;"
-	elif s.__class__.__name__ == "Expression":
+	elif s.__class__.__name__ == "AL_Expression":
 		if not nondet:
 #			if statement_readsfromlocked(s, o):
 			output += "if(!(" + getinstruction(s) + ")) {"
@@ -235,7 +237,9 @@ def javastatement(s,indent,nondet,o):
 				output += "\n" + indentspace + indentspace
 			else:
 				first = False
-			output += getinstruction(e) + ";" 
+			output += getinstruction(e) + ";"
+	elif s.__class__.__name__ == "DoAction":
+		output += 'System.out.println("%s");' % s.act
 	return output
 
 def expression(s,primmap):
@@ -244,7 +248,7 @@ def expression(s,primmap):
 	# special case: s is a variableref. In this case, it is the left-hand side of an assignment, and s refers to an array
 	if s.__class__.__name__ == "Variable":
 		output = primmap.get(s.name, s.name)
-	if s.__class__.__name__ == "Expression" or s.__class__.__name__ == "ExprPrec4" or s.__class__.__name__ == "ExprPrec3" or s.__class__.__name__ == "ExprPrec2":
+	if s.__class__.__name__ == "AL_Expression" or s.__class__.__name__ == "ExprPrec4" or s.__class__.__name__ == "ExprPrec3" or s.__class__.__name__ == "ExprPrec2":
 		#if s.op != '':
 		#	output = '('
 		if s.op != '' and s.op != 'xor':
@@ -296,7 +300,7 @@ def statement_varids(s,primmap):
 			if e.left.index != None:
 				varname += "[" + expression(e.left.index,primmap) + "]"
 			primmap[varname] = "(" + newright + ")"
-	elif s.__class__.__name__ == "Assignment":
+	elif s.__class__.__name__ == "AL_Assignment":
 		output += statement_varids(s.left,primmap)
 		output += statement_varids(s.right,primmap)
 	elif s.__class__.__name__ != "Primary":
@@ -348,7 +352,7 @@ def statement_writestolocked(s, o):
 			if result:
 				return result
 		return result
-	elif s.__class__.__name__ == "Assignment":
+	elif s.__class__.__name__ == "AL_Assignment":
 		return statement_writestolocked(s.left, o)
 	else:
 		return False
@@ -383,7 +387,7 @@ def statement_readsfromlocked(s, o):
 			return statement_readsfromlocked(s.guard, o)
 		else:
 			return False
-	elif s.__class__.__name__ == "Assignment":
+	elif s.__class__.__name__ == "AL_Assignment":
 		return False
 	elif s.__class__.__name__ != "Primary":
 		result = statement_readsfromlocked(s.left, o)
@@ -680,7 +684,10 @@ def slco_to_java(modelfolder,modelname,model,lockingfilename):
 		lockneeded.append(i in lockids)
 
 	# Initialize the template engine.
-	jinja_env = jinja2.Environment(loader=jinja2.FileSystemLoader(this_folder), trim_blocks=True, lstrip_blocks=True, extensions=['jinja2.ext.loopcontrols','jinja2.ext.do',])
+	#jinja_env = jinja2.Environment(loader=jinja2.FileSystemLoader(this_folder), trim_blocks=True, lstrip_blocks=True,
+	#	extensions=['jinja2.ext.loopcontrols','jinja2.ext.do',])
+	jinja_env = jinja2.Environment(loader=jinja2.FileSystemLoader(os.path.join(this_folder, '../../jinja2_templates')),
+		trim_blocks=True, lstrip_blocks=True, extensions=['jinja2.ext.loopcontrols', 'jinja2.ext.do', ])
 
 	# Register the filters
 	jinja_env.filters['getvarids'] = getvarids
@@ -698,7 +705,7 @@ def slco_to_java(modelfolder,modelname,model,lockingfilename):
 	jinja_env.tests['hasoutgoingtrans'] = hasoutgoingtrans
 
 	# load the Java template
-	template = jinja_env.get_template('../../jinja2_templates/java_transmem.jinja2template')
+	template = jinja_env.get_template('java_transmem.jinja2template')
 
 	# write the program
 	outFile.write(template.render(model=model,states=states,numberofelemvariables=numberofelemvariables,lockneeded=lockneeded,add_counter=add_counter))
