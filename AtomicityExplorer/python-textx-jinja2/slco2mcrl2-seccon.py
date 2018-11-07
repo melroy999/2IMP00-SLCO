@@ -7,14 +7,13 @@ from copy import deepcopy
 import itertools
 import glob
 import traceback
-from SCCTarjan import identifySCCs
 
 this_folder = dirname(__file__)
 
 # import libraries
 sys.path.append(join(this_folder,'../../libraries'))
 from slcolib import *
-from SCCTarjan import *
+from SCCTarjan import identifySCCs
 this_folder = dirname(__file__)
 
 # on-the-fly atomicity violation checking
@@ -1620,23 +1619,6 @@ def preprocess():
 				for stat in trn.statements:
 					statemachine[stat] = stm
 					trowner[stat] = trn
-	# add tau action to all transitions without statements
-	# for c in model.classes:
-	# 	for stm in c.statemachines:
-	# 		for trn in stm.transitions:
-	# 			if len(trn.statements) == 0:
-	# 				trn.statements.append("tau'")
-	# fix wrong references from transitions to states (scope errors)
-	for c in model.classes:
-		for sm in c.statemachines:
-			sdict = {}
-			for s in sm.states:
-				sdict[s.name] = s
-			for tr in sm.transitions:
-				if tr.source != sdict[tr.source.name]:
-					tr.source = sdict[tr.source.name]
-				if tr.target != sdict[tr.target.name]:
-					tr.target = sdict[tr.target.name]
 	# build a set of used statemachine names
 	statemachinenames = set([])
 	for c in model.classes:
@@ -1700,21 +1682,6 @@ def preprocess():
 						ctype = mcrl2typetuple(porttypes[c.name + "'" + stat.target.name])
 						signalset = channeltypes[ctype]
 						signalset.add(stat.signal)
-	# give transitions without a priority a high enough priority value, such that they actually get the lowest priority
-	prios = {}
-	for c in model.classes:
-		for stm in c.statemachines:
-			prios = {}
-			for trn in stm.transitions:
-				if prios.get(trn.source.name,0) == 0:
-					prios[trn.source.name] = trn.priority
-				else:
-					if trn.priority > prios[trn.source.name]:
-						prios[trn.source.name] = trn.priority
-			# assign new priorities
-			for trn in stm.transitions:
-				if trn.priority == 0:
-					trn.priority = prios[trn.source.name]+1
 	# construct a dictionary that provides the channel linked to a given object/statement pair
 	ochannel = {}
 	for o in model.objects:
@@ -1893,7 +1860,7 @@ def translate():
 
 	# special case: if no unsafe statements are present, the result is that all variables can remain unlocked
 	if len(unsafe_statements) == 0:
-		print("No variables require locking!")
+		print("No synchronisation mechanisms needed!")
 		exit(0)
 
 	# identify POR safe statements
@@ -1902,7 +1869,7 @@ def translate():
 	# Produce (guard, action, effect) tuples for the translation
 	# produce_summands(model)
 	# load the mCRL2 template
-	template = jinja_env.get_template('mcrl2-atomicity.jinja2template')
+	template = jinja_env.get_template('mcrl2-seccon.jinja2template')
 	out = template.render(model=model, statemachinenames=statemachinenames, states=states, vartypes=vartypes, mcrl2varprefix=mcrl2varprefix, channeltypes=channeltypes, asynclosslesstypes=asynclosslesstypes, asynclossytypes=asynclossytypes, synctypes=synctypes, trans=trans, ochannel=ochannel, object_sync_commpairs=object_sync_commpairs, syncing_statements=syncing_statements, transowner=trowner, statemachine=statemachine, check_onthefly=check_onthefly, lock_onthefly=lock_onthefly, apply_por=apply_por, sorted_variables=sorted_variables, unsafe_variables=unsafe_variables, sorted_objects=sorted_objects, sorted_statemachines=sorted_statemachines, accessed_sharedvars=accessed_sharedvars, IntArraySizes=IntArraySizes, BoolArraySizes=BoolArraySizes)
 	# write mCRL2 spec
 	outFile.write(out)
@@ -1918,10 +1885,10 @@ def main(args):
 		if args[0] == '-h' or args[0] == '-help':
 			print("Usage: pypy/python3 slco2mcrl2 [-rc]")
 			print("")
-			print("Transform an SLCO 2.0 model to an mCRL2 model for atomicity violation checking (reduced state space).")
+			print("Transform an SLCO 2.0 model to an mCRL2 model for sequential consistency violation checking.")
 			print(" -d                                    default search. do NOT apply static analysis")
-			print(" -o                                    apply on-the-fly atomicity violation checking")
-			print(" -l                                    lock on-the-fly (applies checking on-the-fly and acts on result)")
+			print(" -o                                    apply on-the-fly sequential consistency violation checking")
+			print(" -l                                    lock on-the-fly (applies checking on-the-fly and acts on result by locking variables)")
 			print(" -r                                    apply partial-order reduction")
 			sys.exit(0)
 		else:

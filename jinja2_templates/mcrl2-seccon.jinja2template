@@ -489,16 +489,13 @@ sort Object_Statement = struct O'S'(O': Object', ST': STID');
 
 % *** FUNCTION PROVIDING ACCESS PATTERNS OF STATEMENTS ***
 
-map rwpattern: Object' # STID'{{model|mcrl2_model_vartypes(True)}} -> AccessPattern';
-var {{model|mcrl2_model_vars_with_types(False)}};
+map rwpattern_st: Object' # STID' -> AccessPattern';
 {% for o in model.objects %}
 {% set oloop = loop %}
 {% for stm in o.type.statemachines %}
 {% set stmloop = loop %}
 {% for tr in stm.transitions %}
-{% if oloop.first and stmloop.first and loop.first %}eqn {% else %}    {% endif %}{% if tr.statements[0].__class__.__name__ == "Composite" and tr.statements[0].guard != None %}(isenabled({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}})) -> {% endif %}rwpattern({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}) = {{tr.statements[0]|mcrl2_accesspattern(o,True)}};
-{% if tr.statements[0].__class__.__name__ == "Composite" and tr.statements[0].guard != None %}    (!isenabled({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}})) -> rwpattern({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}) = {{tr.statements[0]|mcrl2_accesspattern(o,False)}};
-{% endif %}
+{% if oloop.first and stmloop.first and loop.first %}eqn {% else %}    {% endif %}rwpattern_st({{o.name}}, ST'{{tr._tx_position}}) = {{tr.statements[0]|mcrl2_accesspattern(o,True)}};
 {% endfor %}
 {% endfor %}
 {% endfor %}

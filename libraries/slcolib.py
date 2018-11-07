@@ -107,21 +107,21 @@ class ActionRef(object):
 
 # extra classes for AL-SLCO models
 class AL_Assignment(object):
-	def __init__(self, parent, left, right, cached):
+	def __init__(self, parent, left, right):
 		self.parent = parent
 		self.left = left
 		self.right = right
 		self.cached = cached
 
-class Expression(object):
-	def __init__(self, parent, left, op, right, cached):
+class AL_Expression(object):
+	def __init__(self, parent, left, op, right):
 		self.parent = parent
 		self.left = left
 		self.op = op
 		self.right = right
 		self.cached = cached
 
-class ReadInstruction(object):
+class AL_ReadInstruction(object):
 	def __init__(self, parent, ref):
 		self.parent = parent
 		self.ref = ref

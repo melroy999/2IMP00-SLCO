@@ -7,7 +7,7 @@ model TestA {
       initial S0
 			transitions
       from S0 to S0 {
-        y := x
+        [x=0; y := x]
       }
     }
     SM1 {
