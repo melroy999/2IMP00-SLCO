@@ -220,6 +220,14 @@ eqn intersection([], L2) = [];
 (L1 != [] && L2 != [] && (head(L1) > head(L2))) -> intersection(L1, L2) = intersection(L1, tail(L2));
 (L1 != [] && L2 != [] && (head(L2) > head(L1))) -> intersection(L1, L2) = intersection(tail(L1), L2);
 
+map intersection_not_empty': List(Var') # List(Var') -> Bool;
+var L1, L2: List(Var');
+eqn intersection_not_empty'([], L2) = false;
+    intersection_not_empty'(L1, []) = false;
+(L1 != [] && L2 != [] && (head(L1) == head(L2))) -> intersection_is_empty'(L1, L2) = true;
+(L1 != [] && L2 != [] && (head(L1) > head(L2))) -> intersection_is_empty'(L1, L2) = intersection_is_empty'(L1, tail(L2));
+(L1 != [] && L2 != [] && (head(L2) > head(L1))) -> intersection_is_empty'(L1, L2) = intersection_is_empty'(tail(L1), L2);
+
 map intersection: List(Var') # List(Var') # List(Var') -> List(Var');
 var L1, L2, L3: List(Var');
 eqn intersection([], L2, L3) = [];
@@ -441,6 +449,7 @@ var L': OutgoingTransitions;
 % *** SPECIFICATION OF ACCESS PATTERN ***
 
 % union_plus operator is specifically defined for application on P-summaries (a read to variable x is not needed in pattern if a write to x is also present)
+
 sort AccessPattern' = struct A'(R': List(Var'), W': List(Var'));
 map union': AccessPattern' # AccessPattern' -> AccessPattern';
     union_plus': AccessPattern' # AccessPattern' -> AccessPattern';
@@ -473,6 +482,17 @@ map conflicting': AccessPattern' # AccessPattern' -> AccessPattern';
 var a1', a2': AccessPattern';
 eqn conflicting'(a1',a2') = A'(intersection(R'(a1'), W'(a2')), intersection(W'(a1'), get_vars'(a2')));
 
+% is there a conflict between the two given AccessPatterns?
+map are_conflicting': AccessPattern' # AccessPattern' -> Bool;
+var a1', a2': AccessPattern';
+eqn are_conflicting'(a1', a2') = are_conflicting1'(a1', a2', intersection_not_empty'(R'(a1'),W'(a2')));
+
+map are_conflicting1': AccessPattern' # AccessPattern' # Bool -> Bool;
+var a1', a2': AccessPattern';
+    b': Bool;
+eqn are_conflicting1'(a1', a2',true) = true;
+    are_conflicting1'(a1', a2',false) = intersection_not_empty'(W'(a1'), get_vars'(a2'));
+
 map has_at_least_two: AccessPattern' -> Bool;
 var a': AccessPattern';
 eqn has_at_least_two(a') = has_at_least_two(R'(a') ++ W'(a'));
@@ -499,42 +519,46 @@ sort Object_Statement = struct O'S'(O': Object', ST': STID');
 
 % *** FUNCTION PROVIDING ACCESS PATTERNS OF STATEMENTS ***
 
-map rwpattern_st: Object' # STID' -> AccessPattern';
+map rwpattern_st: Object' # STID' # AccessPattern' -> AccessPattern';
+var filter': AccessPattern';
 {% for o in model.objects %}
 {% set oloop = loop %}
 {% for stm in o.type.statemachines %}
 {% set stmloop = loop %}
 {% for tr in stm.transitions %}
-{% if oloop.first and stmloop.first and loop.first %}eqn {% else %}    {% endif %}rwpattern_st({{o.name}}, ST'{{tr._tx_position}}) = {{tr.statements[0]|mcrl2_accesspattern(o,True)}};
+{% if oloop.first and stmloop.first and loop.first %}eqn {% else %}{% endif %}(filter' == A'([],[])) -> rwpattern_st({{o.name}}, ST'{{tr._tx_position}},filter') = {{tr.statements[0]|mcrl2_accesspattern(o,True)}};
+(filter' != A'([],[])) -> rwpattern_st({{o.name}}, ST'{{tr._tx_position}},filter') = setminus({{tr.statements[0]|mcrl2_accesspattern(o,True)}}, filter');
 {% endfor %}
 {% endfor %}
 {% endfor %}
 
-% *** FUNCTION PROVIDING ACCESS PATTERNS OF STATES (COMBINES ACCESS PATTERNS OF OUTGOING TRANSITIONS) ***
+% *** FUNCTION PROVIDING EXPRESSION ACCESS PATTERNS OF STATEMENTS ***
 
-map rwpattern_state: Object' # Statemachine' # State' -> AccessPattern';
+map rwpattern_st_expression: Object' # Statemachine' -> AccessPattern';
 {% for o in model.objects %}
 {% set oloop = loop %}
 {% for stm in o.type.statemachines %}
 {% set stmloop = loop %}
-{% for s in stm.states %}
-{% if oloop.first and stmloop.first and loop.first %}eqn {% else %}    {% endif %}rwpattern_state({{o.name}}, {{stm.name}}, {{s.name}}) = {{s|mcrl2_sourcestate_accesspattern(o,stm,True)}};
+{% for tr in stm.transitions %}
+{% if oloop.first and stmloop.first and loop.first %}eqn {% else %}{% endif %}(filter' == A'([],[])) -> rwpattern_st({{o.name}}, ST'{{tr._tx_position}},filter') = {{tr.statements[0]|mcrl2_accesspattern(o,False)}};
+(filter' != A'([],[])) -> rwpattern_st({{o.name}}, ST'{{tr._tx_position}},filter') = setminus({{tr.statements[0]|mcrl2_accesspattern(o,False)}}, filter');
 {% endfor %}
 {% endfor %}
 {% endfor %}
 
-% *** FUNCTION PROVIDING EXPRESSION ACCESS PATTERNS OF STATES (COMBINES EXPRESSION ACCESS PATTERNS OF OUTGOING TRANSITIONS) ***
+% *** FUNCTIONS TO DETERMINE WHETHER TWO OBJECT/STATEMENT PAIRS ARE CONFLICTING ***
 
-map rwpattern_state_expressions: Object' # Statemachine' # State' -> AccessPattern';
-{% for o in model.objects %}
-{% set oloop = loop %}
-{% for stm in o.type.statemachines %}
-{% set stmloop = loop %}
-{% for s in stm.states %}
-{% if oloop.first and stmloop.first and loop.first %}eqn {% else %}    {% endif %}rwpattern_state_expressions({{o.name}}, {{stm.name}}, {{s.name}}) = {{s|mcrl2_sourcestate_accesspattern(o,stm,False)}};
-{% endfor %}
-{% endfor %}
-{% endfor %}
+map conflicting': Object' # STID' # STID' # AccessPattern' -> AccessPattern';
+var o': Object';
+    st1', st2': STID';
+    filter': AccessPattern';
+eqn conflicting'(o',st1',st2') = conflicting'(rw_pattern_st(o',st1',filter'), rw_pattern_st(o',st2',filter'));
+
+map are_conflicting': Object' # STID' # STID' # AccessPattern' -> Bool;
+var o': Object';
+    st1', st2': STID';
+    filter': AccessPattern';
+eqn are_conflicting'(o',st1',st2') = are_conflicting'(rw_pattern_st(o',st1',filter'), rw_pattern_st(o',st2',filter'));
 
 % ----- END ACCESS PATTERNS -----
 
@@ -550,26 +574,159 @@ eqn empty_PS' = Psum'({% for o in model.objects %}{% set oloop = loop %}{% for s
 
 % *** C-SUMMARIES ***
 
-sort CS' = struct Csum'(CSin': CSA', CSout': CSA');
+sort CS' = struct str_CS'({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first)}}el'{{o.name}}'{{sm.name}}: List(STID'CS'){% endfor %}{% endfor %});
 map empty_CS': CS';
-eqn empty_CS' = Csum'(empty_CSA', empty_CSA');
+eqn empty_CS' = str_CS'({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first)}}empty_STID'CS'{% endfor %}{% endfor %});
 
-sort CSA' = struct Ca'({% for o in model.objects %}{% set oloop = loop %}{% for sm1 in o.type.statemachines %}{% set sm1loop = loop %}{% for sm2 in o.type.statemachines %}{{', ' if not (oloop.first and sm1loop.first and loop.first)}}el'{{o.name}}'{{sm1.name}}'{{sm2.name}}: AccessPattern'{% endfor %}{% endfor %}{% endfor %});
-map empty_CSA': CSA';
-eqn empty_CSA' = Ca'({% for o in model.objects %}{% set oloop = loop %}{% for sm1 in o.type.statemachines %}{% set sm1loop = loop %}{% for sm2 in o.type.statemachines %}{{', ' if not (oloop.first and sm1loop.first and loop.first)}}A'([],[]){% endfor %}{% endfor %}{% endfor %});
+sort STID'CS' = struct str_STID'CS'(el'STID: STID', el'CSin: List(STID'AP'), el'CSout: List(STID'AP'));
+map empty_STID'CS': STID'CS';
+eqn empty_STID'CS' = str_STID'CS'(st_, [], []);
 
-% *** LIST OF CONFLICTS *** %
+sort STID'AP' = struct str_STID'AP'(el'STID: STID', el'AP: AccessPattern');
+map empty_STID'AP': STID'AP';
+eqn empty_STID'AP' = str_STID'AP'(st_, A'([], []));
 
-sort Conflicts' = struct Co'({% for sn in statemachinenames %}{{', ' if not loop.first }}el'{{sn}}{% endfor %});
-map empty_Conflicts': Conflicts';
-eqn empty_Conflicts' = Co'({% for sn in statemachinenames %}{{', ' if not loop.first}}A'([],[]){% endfor %});
+% *** FUNCTIONS FOR C-SUMMARIES ***
 
-map update_conflicts': Statemachine' # AccessPattern' # Conflicts' -> Conflicts';
-var a': AccessPattern';
-    c': Conflicts';
-{% for sn in statemachinenames %}
-{% if loop.first %}eqn {% else %}    {% endif %}update_conflicts'({{sn}},a',c') = Co'({% for sn2 in statemachinenames %}{{', ' if not loop.first}}{% if sn == sn2 %}a'{% else %}el'{{sn2}}(c'){% endif %}{% endfor %});
+map get_conflicting_STID's: Object' # STID' # OutgoingTransitions # AccessPattern' -> List(STID');
+var out': OutgoingTransitions;
+    filter': AccessPattern';
+{% for o in model.objects %}
+{% set oloop = loop %}
+{% for sm in o.type.statemachines %}
+{% set smloop = loop %}
+{% for tr in sm.transitions %}
+{% if (oloop.first and smloop.first and loop.first) %}eqn {% else %}    {% endif %}get_conflicting_STID's({{o.name}},ST'{{tr._tx_position}},out',filter') = {% for sm2 in o.type.statemachines|reject("eq", sm) %}{{' ++ ' if not loop.first}}get_conflicting_STID's1({{o.name}},ST'{{tr._tx_position}},el'{{o.name}}'{{sm2.name}}(out')){% endfor %});
 {% endfor %}
+{% endfor %}
+{% endfor %}
+
+map get_conflicting_STID's1: Object' # STID' # List(STID') # AccessPattern' -> List(STID');
+var o': Object';
+    st': STID';
+    Ls': List(STID');
+    filter': AccessPattern';
+eqn get_conflicting_STID's1(o',st',[]) = [];
+(Ls' != []) -> get_conflicting_STID's1(o',st',Ls',filter') = get_conflicting_STID's2(o',st',Ls',filter',are_conflicting'(o',st',head(Ls'),filter'));
+
+map get_conflicting_STID's2: Object' # STID' # List(STID') # AccessPattern' # Bool -> List(STID');
+var o': Object';
+    st': STID';
+    Ls': List(STID');
+    filter': AccessPattern';
+eqn get_conflicting_STID's2(o',st',Ls',filter',false) = get_conflicting_STID's1(o',st',tail(Ls'),filter');
+    get_conflicting_STID's1(o',st',Ls',filter',true) = [head(Ls')] ++ get_conflicting_STID's1(o',st',tail(Ls'),filter');
+
+% *** GET A C-SUMMARY EDGE BETWEEN INSTRUCTIONS ***
+
+map get_CSin_edge': Object' # STID' # STID' # CS' -> AccessPattern';
+var st': STID';
+    cs': CS';
+{% for o in model.objects %}
+{% set oloop = loop %}
+{% for sm in o.type.statemachines %}
+{% set smloop = loop %}
+{% for tr in sm.transitions %}
+{% if (oloop.first and smloop.first and loop.first) %}eqn {% else %}    {% endif %}get_CSin_edge'({{o.name}},ST'{{tr._tx_position}},st',cs') = get_CSin_edge1'(ST'{{tr._tx_position}},st',el'{{o.name}}'{{sm.name}}(cs'));
+{% endfor %}
+{% endfor %}
+{% endfor %}
+
+map get_CSin_edge1': STID' # STID' # List(STID'CS') -> AccessPattern';
+var st1', st2': STID';
+    L': List(STID'CS');
+eqn get_CSin_edge1'(st1',st2',[]) = A'([],[]);
+(L' != [] && el'STID(head(L')) == st1') -> get_CSin_edge1'(st1',st2',L') = get_CS_edge2'(st2',el'CSin(head(L')));
+(L' != [] && el'STID(head(L')) < st1') -> get_CSin_edge1'(st1',st2',L') = get_CSin_edge1'(st1',st2',tail(L'));
+(L' != [] && el'STID(head(L')) > st1') -> get_CSin_edge1'(st1',st2',L') = A'([],[]);
+
+map get_CSout_edge': Object' # STID' # STID' # CS' -> AccessPattern';
+var st': STID';
+    cs': CS';
+{% for o in model.objects %}
+{% set oloop = loop %}
+{% for sm in o.type.statemachines %}
+{% set smloop = loop %}
+{% for tr in sm.transitions %}
+{% if (oloop.first and smloop.first and loop.first) %}eqn {% else %}    {% endif %}get_CSout_edge'({{o.name}},ST'{{tr._tx_position}},st',cs') = get_CSout_edge1'(ST'{{tr._tx_position}},st',el'{{o.name}}'{{sm.name}}(cs'));
+{% endfor %}
+{% endfor %}
+{% endfor %}
+
+map get_CSout_edge1': STID' # STID' # List(STID'CS') -> AccessPattern';
+var st1', st2': STID';
+    L': List(STID'CS');
+eqn get_CSout_edge1'(st1',st2',[]) = A'([],[]);
+(L' != [] && el'STID(head(L')) == st1') -> get_CSout_edge1'(st1',st2',L') = get_CS_edge2'(st2',el'CSout(head(L')));
+(L' != [] && el'STID(head(L')) < st1') -> get_CSout_edge1'(st1',st2',L') = get_CSout_edge1'(st1',st2',tail(L'));
+(L' != [] && el'STID(head(L')) > st1') -> get_CSout_edge1'(st1',st2',L') = A'([],[]);
+
+map get_CS_edge2': STID' # List(STID'AP') -> AccessPattern';
+var st2': STID';
+    L': List(STID'AP');
+eqn get_CS_edge2'(st2',[]) = A'([],[]);
+(L' != [] && el'STID(head(L')) == st2') -> get_CS_edge2'(st2',L') = el'AP(head(L'));
+(L' != [] && el'STID(head(L')) < st2') -> get_CS_edge2'(st2',L') = get_CS_edge2'(st2',tail(L'));
+(L' != [] && el'STID(head(L')) > st2') -> get_CS_edge2'(st2',L') = A'([],[]);
+
+% *** SET A C-SUMMARY EDGE BETWEEN INSTRUCTIONS ***
+
+map set_CSin_edge': Object' # STID' # STID' # AccessPattern' # CS' -> CS';
+var st': STID';
+    a': AccessPattern';
+    cs': CS';
+{% for o in model.objects %}
+{% set oloop = loop %}
+{% for sm in o.type.statemachines %}
+{% set smloop = loop %}
+{% for tr in sm.transitions %}
+{% if (oloop.first and smloop.first and loop.first) %}eqn {% else %}    {% endif %}set_CSin_edge'({{o.name}},ST'{{tr._tx_position}},st',a',cs') = str_CS'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o2.type.statemachines %}{{', ' if not (o2loop.first and loop.first)}}{% if not (o == o2 and sm == sm2) %}el'{{o2.name}}'{{sm2.name}}(cs'){% else %}set_CSin_edge1'({{o.name}},ST'{{tr._tx_position}},st',a',el'{{o2.name}}'{{sm2.name}}(cs')){% endif %}{% endfor %}{% endfor %});
+{% endfor %}
+{% endfor %}
+{% endfor %}
+
+map set_CSin_edge1': STID' # STID' # AccessPattern' # List(STID'CS') -> List(STID'CS');
+var st1', st2': STID';
+    a': AccessPattern';
+    L': List(STID'CS');
+eqn set_CSin_edge1'(st1',st2',a',[]) = [str_STID'CS'(st1',[str_STID'AP'(st2',a')],[])];
+(L' != [] && el'STID(head(L')) == st1') -> set_CSin_edge1'(st1',st2',a',L') = [str_STID'CS'(st1',set_CS_edge2'(st1',st2',a',el'CSin(head(L'))),el'CSout(head(L')))] ++ tail(L');
+(L' != [] && el'STID(head(L')) < st1') -> set_CSin_edge1'(st1',st2',a',L') = [head(L')] ++ set_CSin_edge1'(st1',st2',a',tail(L'));
+(L' != [] && el'STID(head(L')) > st1') -> set_CSin_edge1'(st1',st2',a',L') = set_CSin_edge1'(st1',st2',a',[]) ++ L';
+
+map set_CS_edge2': STID' # AccessPattern' # List(STID'AP') -> List(STID'AP');
+var st2': STID';
+    a': AccessPattern';
+    L': List(STID'AP');
+eqn set_CS_edge2'(st2',a',[]) = [str_STID'AP'(st2',a')];
+(L' != [] && el'STID(head(L')) == st2') -> set_CS_edge2'(st2',a',L') = [str_STID'AP'(st2',union'(el'AP(head(L')), a'))] ++ tail(L');
+(L' != [] && el'STID(head(L')) < st2') -> set_CS_edge2'(st2',a',L') = [head(L')] ++ set_CS_edge2'(st2',a',tail(L'));
+(L' != [] && el'STID(head(L')) > st2') -> set_CS_edge2'(st2',a',L') = set_CS_edge2'(st2',a',[]) ++ L';
+
+map set_CSout_edge': Object' # STID' # STID' # AccessPattern' # CS' -> CS';
+var st': STID';
+    a': AccessPattern';
+    cs': CS';
+{% for o in model.objects %}
+{% set oloop = loop %}
+{% for sm in o.type.statemachines %}
+{% set smloop = loop %}
+{% for tr in sm.transitions %}
+{% if (oloop.first and smloop.first and loop.first) %}eqn {% else %}    {% endif %}set_CSout_edge'({{o.name}},ST'{{tr._tx_position}},st',a',cs') = str_CS'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o2.type.statemachines %}{{', ' if not (o2loop.first and loop.first)}}{% if not (o == o2 and sm == sm2) %}el'{{o2.name}}'{{sm2.name}}(cs'){% else %}set_CSout_edge1'({{o.name}},ST'{{tr._tx_position}},st',a',el'{{o2.name}}'{{sm2.name}}(cs')){% endif %}{% endfor %}{% endfor %});
+{% endfor %}
+{% endfor %}
+{% endfor %}
+
+map set_CSout_edge1': STID' # STID' # AccessPattern' # List(STID'CS') -> List(STID'CS');
+var st1', st2': STID';
+    a': AccessPattern';
+    L': List(STID'CS');
+eqn set_CSout_edge1'(st1',st2',a',[]) = [str_STID'CS'(st1',[],[str_STID'AP'(st2',a')])];
+(L' != [] && el'STID(head(L')) == st1') -> set_CSout_edge1'(st1',st2',a',L') = [str_STID'CS'(st1',el'CSin(head(L')),set_CS_edge2'(st1',st2',a',el'CSout(head(L'))))] ++ tail(L');
+(L' != [] && el'STID(head(L')) < st1') -> set_CSout_edge1'(st1',st2',a',L') = [head(L')] ++ set_CSout_edge1'(st1',st2',a',tail(L'));
+(L' != [] && el'STID(head(L')) > st1') -> set_CSout_edge1'(st1',st2',a',L') = set_CSout_edge1'(st1',st2',a',[]) ++ L';
+
+% *** RESET EDGES TO/FROM GIVEN OBJECT/STID PAIR ***
 
 % *** FUNCTION TO ADD A GIVEN ACCESSPATTERN OF A GIVEN OBJECT/STATE MACHINE PAIR TO A P-SUMMARY ***
 
@@ -591,41 +748,24 @@ var ps': PS';
 
 % *** PROCESS TRANSACTION PROCEDURE ***
 
-map process_instruction': Object' # Statemachine' # STID' # State' # CS' # Conflicts' -> CS';
+map process_instruction': Object' # Statemachine' # STID' # CS' # OutgoingTransitions # AccessPattern' -> CS';
 var o1': Object';
     sm1': Statemachine';
     st': STID';
-    targetstate': State';
     cs': CS';
-    co': Conflicts';
-eqn process_instruction'(o1',sm1',st',targetstate',cs',co') = Csum'(process_instruction_in'(o1',sm1',st',targetstate',cs',co'), process_instruction_out'(o1',sm1',st',targetstate',cs',co'));
+    out': OutgoingTransitions;
+    filter': AccessPattern';
+eqn process_instruction'(o1',sm1',st',cs',out',filter') = process_instruction1'(o1',sm1',st',cs',out',filter',get_conflicting_STID's(o1',st',out',filter'));
 
-map process_instruction_in': Object' # Statemachine' # STID' # State' # CS' # Conflicts' -> CSA';
+map process_instruction1': Object' # Statemachine' # STID' # CS' # OutgoingTransitions # AccessPattern' # List(STID') -> CS';
 var o1': Object';
     sm1': Statemachine';
     st': STID';
-    targetstate': State';
     cs': CS';
-    co': Conflicts';
-eqn process_instruction_in'(o1',sm1',st',targetstate',cs',co') = ;
-
-
-compute_conflicts': Object' # Statemachine' # STID'{% for o in model.objects %}{% set oloop = loop %}{% for stm in o.type.statemachines %} # State'{% endfor %}{% endfor %} -> Conflicts';
-var st': STID';
-{% for o in model.objects %}
-{% set oloop = loop %}
-{% for stm in o.type.statemachines %}
-    {{o.name}}'{{stm.name}}_state: State';
-{% endfor %}
-{% endfor %}
-{% for o in model.objects %}
-{% set oloop = loop %}
-{% for sm in o.type.statemachines %}
-{% if (oloop.first and loop.first) %}eqn {% else %}    {% endif %}compute_conflicts'({{o.name}},{{sm.name}},st'{% for o in model.objects %}{% set oloop = loop %}{% for stm in o.type.statemachines %}, {{o.name}}'{{stm.name}}_state{% endfor %}{% endfor %}) = {% for sm2 in o.type.statemachines|reject("eq", sm) %}update_conflicts'({{sm2.name}},conflicting'(rw_pattern_state({{o.name}},{{sm2.name}},{{o.name}}'{{sm2.name}}_state),rw_pattern_st({{o.name}},st')),{% if loop.last %}empty_Conflicts'{% endif %}{% endfor %}{% for i in range(0,o.type.statemachines|length-1) %}){% endfor %};
-{% endfor %}
-{% endfor %}
-
-map update_edges_in': Object' # Statemachine' # Statemachine' # STID' # CS' -> CS';
+    out': OutgoingTransitions;
+    filter': AccessPattern';
+    conflicts': List(STID');
+eqn process_instruction'(o1',sm1',st',cs',out',filter',conflicts') = process_instruction1'(o1',sm1',st',cs',out',filter',get_conflicting_STID's(o1',st',out',filter'));
 
 % *** STATEMACHINE/STID PAIR ***
 
