@@ -1072,12 +1072,14 @@ def mcrl2_write_accesspattern(s, o, b):
 	# TODO: ADD SORTING?
 
 def mcrl2_sourcestate_accesspattern(s, o, sm, b):
-	"""Return the access pattern of a state, which is the combination of the access patterns of its outgoing transitions. Owners sm, o are also given.
+	"""Return the access pattern of the source state of the given statement, which is the combination of the access patterns of its outgoing transitions. Owners sm, o are also given.
 	Boolean b indicates whether the statement should be considered as enabled or not."""
-	global statement_access, statement_condition_access, trans
-	
+	global statement_access, statement_condition_access, trans, trowner
+
+	state = trowner[s].source
+
 	accesslist = [set([]),set([])]
-	for tr in trans[o.type][sm][s]:
+	for tr in trans[o.type][sm][state]:
 		st = tr.statements[0]
 		if b:
 			access = statement_access[o][st]
@@ -1142,6 +1144,20 @@ def mcrl2_sourcestate_accesspattern(s, o, sm, b):
 	output += ")"
 	return output
 
+def mcrl2_state_accesspattern(s, o, sm, b):
+	"""Return the access pattern of the given source state, i.e., combine the patterns of its outgoing transitions"""
+	global trans
+
+	outgoing = trans[o.type][sm][s]
+	if len(outgoing) == 0:
+		return "A'([],[])"
+	else:
+		# take first transition and call sourcestate function
+		for tr in outgoing:
+			for st in tr.statements:
+				output = mcrl2_sourcestate_accesspattern(st,o,sm,b)
+				return output
+		return "A'([],[])"
 
 def statement_is_por_safe(s, b):
 	"""Indicate whether the given statement for use in an mCRL2 specification.
@@ -1377,21 +1393,38 @@ def accesses_conflict(ac1, ac2):
 		return True
 	return False
 
-def build_dep_graph(o, sm, smfadict):
-	"""Build dependency graph between statemachines in o, excluding statemachine sm"""
+def build_dep_graph(m):
+	"""Build dependency graph between statements in model m"""
+	global filtered_statement_access, trans
+
 	depgraph = {}
-	for sm1 in o.type.statemachines:
-		if sm1 != sm:
-			depgraph[sm1] = set([])
-	for i in range(0,len(o.type.statemachines)):
-		sm1 = o.type.statemachines[i]
-		if sm1 != sm:
-			for j in range(i+1,len(o.type.statemachines)):
-				sm2 = o.type.statemachines[j]
-				if sm2 != sm:
-					if accesses_conflict(smfadict[o.type][sm1], smfadict[o.type][sm2]):
-						depgraph[sm1].add(sm2)
-						depgraph[sm2].add(sm1)
+	for o in m.objects:
+		for sm in o.type.statemachines:
+			for tr in sm.transitions:
+				for st in tr.statements:
+					depgraph[tuple([o,st])] = set([])
+	# add P-edges
+	for o in m.objects:
+		for sm in o.type.statemachines:
+			for tr in sm.transitions:
+				target_out = trans[o.type][sm][tr.target]
+				for st in tr.statements:
+					for tr2 in target_out:
+						if tr2.target != tr.target:
+							for st2 in tr2.statements:
+								depgraph[tuple(o,st)].add(tuple(o,st2))
+	# add C-edges
+	for o in m.objects:
+		for sm in o.type.statemachines:
+			for tr in sm.transitions:
+				for st in tr.statements:
+					for sm2 in o.type.statemachines:
+						if sm2 != sm:
+							for tr2 in sm2.transitions:
+								for st2 in tr2.statements:
+									if accesses_conflict(filtered_statement_access[o.type][st], filtered_statement_access[o.type][st2]):
+										depgraph[tuple(o,st)].add(tuple(o,st2))
+										depgraph[tuple(o,st2)].add(tuple(o,st))
 	return depgraph
 
 def compute_filtered_statement_accesses():
@@ -1541,25 +1574,9 @@ def identify_safe_unsafe_statements(m):
 				cdict[sm] = stset
 			sdict[c] = cdict
 
-		# check possibility for atomicity violations
-		for o in classobjects:
-			c = o.type
-			for i in range(0,len(c.statemachines)):
-				sm = c.statemachines[i]
-				depgraph = {}
-				SCC_filtered_accesses = list()
-				SCCs = list()
-				stset1 = sdict[c][sm]
-				for st1 in stset1:
-					# is st1 trivially safe?
-					if number_of_accesses(filtered_statement_access[o][st1]) < 2:
-						safe_statements.add(st1)
-					else:
-						# if SCCs indicating connections between other statemachines in o are not yet identified, do so
-						# and compute combined filtered accesses for the SCCs
-						if SCCs == []:
-							depgraph = build_dep_graph(o, sm, filtered_statemachine_access)
-							identifySCCs(depgraph, {}, SCCs)
+		# check possibility for sequential consistency violations
+		depgraph = build_dep_graph(m)
+		identifySCCs(depgraph, {}, SCCs)
 							for scc in SCCs:
 								combined_access = [[set(),{},{}],[set(),{},{}]]
 								for sm1 in scc[1].keys():
@@ -1907,6 +1924,7 @@ def translate():
 	jinja_env.filters['hascondition'] = hascondition
 	jinja_env.filters['statement_is_safe'] = statement_is_safe
 	jinja_env.filters['statement_is_por_safe'] = statement_is_por_safe
+	jinja_env.filters['mcrl2_state_accesspattern'] = mcrl2_state_accesspattern
 	jinja_env.filters['mcrl2_sourcestate_accesspattern'] = mcrl2_sourcestate_accesspattern
 	jinja_env.filters['mcrl2_accesspattern'] = mcrl2_accesspattern
 	jinja_env.filters['mcrl2_read_accesspattern'] = mcrl2_read_accesspattern
