@@ -21,7 +21,7 @@ model TestA {
       initial S0
       transitions
       from S0 to S0 {
-        x := z
+        x := y
       }
     }
   }

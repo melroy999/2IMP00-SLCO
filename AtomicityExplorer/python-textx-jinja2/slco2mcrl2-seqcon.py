@@ -1592,7 +1592,7 @@ def identify_safe_unsafe_statements(m):
 							# check if the single element has connections to multiple other nodes in scc (C-edges being bidirectional causes the problem here)
 							for st in interset:
 								conset = depgraph[st] & sccset
-								if len(conset) > 2:
+								if len(conset) > 1:
 									smlist.append(sm)
 								else:
 									# check if the single element has conflicts with multiple accesses
