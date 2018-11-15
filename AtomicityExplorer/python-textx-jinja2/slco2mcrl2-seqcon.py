@@ -1393,38 +1393,35 @@ def accesses_conflict(ac1, ac2):
 		return True
 	return False
 
-def build_dep_graph(m):
-	"""Build dependency graph between statements in model m"""
+def build_dep_graph(o):
+	"""Build dependency graph between statements in class c"""
 	global filtered_statement_access, trans
 
 	depgraph = {}
-	for o in m.objects:
-		for sm in o.type.statemachines:
-			for tr in sm.transitions:
-				for st in tr.statements:
-					depgraph[tuple([o,st])] = set([])
+	for sm in o.type.statemachines:
+		for tr in sm.transitions:
+			for st in tr.statements:
+				depgraph[st] = set([])
 	# add P-edges
-	for o in m.objects:
-		for sm in o.type.statemachines:
-			for tr in sm.transitions:
-				target_out = trans[o.type][sm][tr.target]
-				for st in tr.statements:
-					for tr2 in target_out:
-						if tr2.target != tr.target:
-							for st2 in tr2.statements:
-								depgraph[tuple(o,st)].add(tuple(o,st2))
+	for sm in o.type.statemachines:
+		for tr in sm.transitions:
+			target_out = trans[o.type][sm][tr.target]
+			for st in tr.statements:
+				for tr2 in target_out:
+					if tr2.target != tr.target:
+						for st2 in tr2.statements:
+							depgraph[st].add(st2)
 	# add C-edges
-	for o in m.objects:
-		for sm in o.type.statemachines:
-			for tr in sm.transitions:
-				for st in tr.statements:
-					for sm2 in o.type.statemachines:
-						if sm2 != sm:
-							for tr2 in sm2.transitions:
-								for st2 in tr2.statements:
-									if accesses_conflict(filtered_statement_access[o.type][st], filtered_statement_access[o.type][st2]):
-										depgraph[tuple(o,st)].add(tuple(o,st2))
-										depgraph[tuple(o,st2)].add(tuple(o,st))
+	for sm in o.type.statemachines:
+		for tr in sm.transitions:
+			for st in tr.statements:
+				for sm2 in o.type.statemachines:
+					if sm2 != sm:
+						for tr2 in sm2.transitions:
+							for st2 in tr2.statements:
+								if accesses_conflict(filtered_statement_access[o][st], filtered_statement_access[o][st2]):
+									depgraph[st].add(st2)
+									depgraph[st2].add(st)
 	return depgraph
 
 def compute_filtered_statement_accesses():
@@ -1574,87 +1571,50 @@ def identify_safe_unsafe_statements(m):
 				cdict[sm] = stset
 			sdict[c] = cdict
 
-		# check possibility for sequential consistency violations
-		depgraph = build_dep_graph(m)
-		identifySCCs(depgraph, {}, SCCs)
-							for scc in SCCs:
-								combined_access = [[set(),{},{}],[set(),{},{}]]
-								for sm1 in scc[1].keys():
-									combined_access = compute_filtered_statemachine_access(o, sdict[c][sm1], filtered_statement_access, combined_access)
-								SCC_filtered_accesses.append(combined_access)
-						# check if any combined filtered access conflicts with st1
-						marked_unsafe = False
-						for fa in SCC_filtered_accesses:
-							count = 0
-							count += count_conflicts2(fa[1], filtered_statement_access[o][st1][0], 2)
-							if count >= 2:
-								unsafe_statements.add(st1)
-								unsafe_filtered_accesses.append(fa)
-								marked_unsafe = True
-							else:
-								count += count_conflicts2(fa[0], filtered_statement_access[o][st1][1], 2)
-								if count >= 2:
-									unsafe_statements.add(st1)
-									unsafe_filtered_accesses.append(fa)
-									marked_unsafe = True
+		for o in classobjects:
+			# check possibility for sequential consistency violations
+			depgraph = build_dep_graph(o)
+			SCCs = list()
+			identifySCCs(depgraph, {}, SCCs)
+			# check which SCCs possibly constitute violations
+			for scc in SCCs:
+				# gather the involved statements in a set
+				sccset = set([st for st in scc[1].keys()])
+				# obtain list of sm's that are involved in the scc
+				smlist = list()
+				for sm in o.type.statemachines:
+					interset = sccset & sdict[o.type][sm]
+					if interset != set([]):
+						# check if sm is sufficiently involved
+						if len(interset) > 1:
+							smlist.append(sm)
+						else:
+							# check if the single element has connections to multiple other nodes in scc (C-edges being bidirectional causes the problem here)
+							for st in interset:
+								conset = depgraph[st] & sccset
+								if len(conset) > 2:
+									smlist.append(sm)
 								else:
-									count += count_conflicts2(fa[1], filtered_statement_access[o][st1][1], 2)
-									if count >= 2:
-										unsafe_statements.add(st1)
-										unsafe_filtered_accesses.append(fa)
-										marked_unsafe = True
-							if count >= 2:
-								conflict = [[],[]]
-								conflict[0] = compare_accesses2(fa[1], filtered_statement_access[o][st1][0])
-								tmp_conflict1 = compare_accesses2(fa[0], filtered_statement_access[o][st1][1])
-								tmp_conflict2 = compare_accesses2(fa[1], filtered_statement_access[o][st1][1])
-								tmp_conflict1[0] |= tmp_conflict2[0]
-								for a in tmp_conflict2[1].keys():
-									aset = tmp_conflict1[1].get(a,set([]))
-									tmp_conflict1[1][a] = aset | tmp_conflict2[1][a]
-								for a in tmp_conflict2[2].keys():
-									anumber = tmp_conflict1[2].get(a,0)
-									tmp_conflict1[2][a] = anumber + tmp_conflict2[2][a]
-								conflict[1] = tmp_conflict1
-								unsafe_filtered_accesses.append(conflict)
-						if not marked_unsafe:
-							safe_statements.add(st1)
-
-	# for st in unsafe_statements:
-	# 	# get the class owning st, and then all objects of that type
-	# 	c = smclass[statemachine[st]]
-	# 	olist = []
-	# 	for o in model.objects:
-	# 		if o.type == c:
-	# 			olist.append(o)
-	# 	# use the representative object to obtain the access pattern of st
-	# 	for o in olist:
-	# 		if o in classobjects:
-	# 			ap = statement_access[o][st]
-	# 			break
-	# 	# add all elements of the read and write set, making sure to make dynamic array accesses static (to all cells in the array)
-	# 	for i in range(0,2):
-	# 		for v in ap[i]:
-	# 			v_splitted = v.split("(Int2Nat(")
-	# 			if len(v_splitted) > 1:
-	# 				if not RepresentsInt(v_splitted[1][:-2]):
-	# 					# look up array, and add all its cells
-	# 					o1, v1 = v_splitted[0].split("'")
-	# 					found = False
-	# 					for o in model.objects:
-	# 						if o.name == o1:
-	# 							for v2 in o.type.variables:
-	# 								if v2.name == v1:
-	# 									for j in range(0,v2.type.size):
-	# 										unsafe_variables.add(v_splitted[0] + "(Int2Nat(" + str(j) + "))")
-	# 									found = True
-	# 									break
-	# 						if found:
-	# 							break
-	# 				else:
-	# 					unsafe_variables.add(v)
-	# 			else:
-	# 				unsafe_variables.add(v)
+									# check if the single element has conflicts with multiple accesses
+									for st2 in conset:
+										fa = filtered_statement_access[o][st2]
+									count = 0
+									count += count_conflicts2(fa[1], filtered_statement_access[o][st][0], 2)
+									if count < 2:
+										count += count_conflicts2(fa[0], filtered_statement_access[o][st][1], 2)
+										if count < 2:
+											count += count_conflicts2(fa[1], filtered_statement_access[o][st][1], 2)
+									if count > 1:
+										smlist.append(sm)
+				if len(smlist) > 1:
+					# the scc is relevant for violations. add the involved statements to unsafe_statements, and their access patterns to unsafe_filtered_accesses
+					for sm in smlist:
+						interset = sccset & sdict[o.type][sm]
+						unsafe_statements |= interset
+						for o2 in model.objects:
+							if o2.type == o.type:
+								for st in interset:
+									unsafe_filtered_accesses.append(filtered_statement_access[o2][st])
 
 	for ac in unsafe_filtered_accesses:
 		for a in ac[0][0]:
