@@ -116,7 +116,7 @@ eqn sm_index(sm_) = 0;
 
 % *** STATEMENT IDS ***
 
-{% for c in model.classes %}{% set cloop = loop %}{% for stm in c.statemachines %}{% set stmloop = loop %}{% for tr in stm.transitions %}{% if cloop.first and stmloop.first and loop.first %}sort STID' = struct {% else %}| {% endif %}ST'{{tr._tx_position}}{% if cloop.last and stmloop.last and loop.last %}| st_{% if check_onthefly %}{% for c in model.classes %}{% for sm in c.statemachines %}{% for s in sm.states %} | ST'epsilon'{{sm.name}}(src': State'){% endfor %}{% endfor %}{% endfor %}{% endif %};{% else %} {% endif %}{% endfor %}{% endfor %}{% endfor %}
+{% for c in model.classes %}{% set cloop = loop %}{% for stm in c.statemachines %}{% set stmloop = loop %}{% for tr in stm.transitions %}{% if cloop.first and stmloop.first and loop.first %}sort STID' = struct {% else %}| {% endif %}ST'{{tr._tx_position}}{% if cloop.last and stmloop.last and loop.last %}| st_{% if check_onthefly %}{% for c in model.classes %}{% for sm in c.statemachines %} | ST'epsilon'{{sm.name}}(src': State'){% endfor %}{% endfor %}{% endif %};{% else %} {% endif %}{% endfor %}{% endfor %}{% endfor %}
 
 
 % *** VARIABLE NAMES ***
@@ -331,13 +331,15 @@ var pt': PreviousTransitions';
 {% endfor %}
 {% endfor %}
 
-map set_previous_transition': Object' # Statemachine' # STID' # PreviousTransitions' -> PreviousTransitions';
-var st': STID';
+map set_previous_transition': Object' # Statemachine' # STID' # PreviousTransitions' # Bool -> PreviousTransitions';
+var o': Object';
+    sm': Statemachine';
+    st': STID';
     pt': PreviousTransitions';
+eqn set_previous_transition'(o',sm',st',pt',false) = pt';
 {% for o in model.objects %}
-{% set oloop = loop %}
 {% for sm in o.type.statemachines %}
-{% if oloop.first and loop.first %}eqn {% else %}    {% endif %}set_previous_transition'({{o.name}}, {{sm.name}}, st', pt') = PT'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o2.type.statemachines %}{% set sm2loop = loop %}{{', ' if not (o2loop.first and sm2loop.first) }}{% if o == o2 and sm == sm2 %}st'{% else %}el'{{o2.name}}'{{sm2.name}}(pt'){% endif %}{% endfor %}{% endfor %});
+    set_previous_transition'({{o.name}}, {{sm.name}}, st', pt', true) = PT'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o2.type.statemachines %}{% set sm2loop = loop %}{{', ' if not (o2loop.first and sm2loop.first) }}{% if o == o2 and sm == sm2 %}st'{% else %}el'{{o2.name}}'{{sm2.name}}(pt'){% endif %}{% endfor %}{% endfor %});
 {% endfor %}
 {% endfor %}
 
@@ -458,14 +460,15 @@ var ps': PS';
 {% endfor %}
 {% endfor %}
 
-map update_PS': Object' # Statemachine' # PreviousTransitions' # List(Var'){{model|mcrl2_model_vartypes(True)}} # PS' -> PS';
+map update_PS': Object' # Statemachine' # PreviousTransitions' # List(Var'){{model|mcrl2_model_vartypes(True)}} # PS' # Bool -> PS';
 var o': Object';
     sm': Statemachine';
     pt': PreviousTransitions';
     filter': List(Var');
     {{model|mcrl2_model_vars_with_types(False)}};
     ps': PS';
-eqn update_PS'(o',sm',pt',filter'{{model|mcrl2_model_vars(True)}}, ps') = add_to_PS'(o',sm',rwpattern_st(o',get_previous_transition'(o',sm',pt'),true,filter'{{model|mcrl2_model_vars(True)}}),add_to_PS'(o',sm',rwpattern_st(o',get_previous_transition'(o',sm',pt'),false,filter'{{model|mcrl2_model_vars(True)}}),ps'));
+eqn update_PS'(o',sm',pt',filter'{{model|mcrl2_model_vars(True)}}, ps', false) = ps';
+    update_PS'(o',sm',pt',filter'{{model|mcrl2_model_vars(True)}}, ps', true) = add_to_PS'(o',sm',rwpattern_st(o',get_previous_transition'(o',sm',pt'),true,filter'{{model|mcrl2_model_vars(True)}}),add_to_PS'(o',sm',rwpattern_st(o',get_previous_transition'(o',sm',pt'),false,filter'{{model|mcrl2_model_vars(True)}}),ps'));
 
 % *** C-SUMMARIES ***
 
@@ -715,7 +718,7 @@ eqn set_CSout_edges'(o',sm',b',[],a',cs',add_selfloops') = cs';
 
 % *** PROCESS INSTRUCTION PROCEDURE ***
 
-map process_instruction': Object' # Statemachine' # STID' # CS' # PreviousTransitions' # List(Var'){{model|mcrl2_model_vartypes(True)}} -> CS';
+map process_instruction': Object' # Statemachine' # STID' # CS' # PreviousTransitions' # List(Var'){{model|mcrl2_model_vartypes(True)}} # Bool -> CS';
 var o': Object';
     sm': Statemachine';
     st': STID';
@@ -723,8 +726,9 @@ var o': Object';
     pt': PreviousTransitions';
     filter': List(Var');
     {{model|mcrl2_model_vars_with_types(False)}};
-eqn process_instruction'(o',sm',st',cs',pt',filter'{{model|mcrl2_model_vars(True)}}) =
-    process_instruction1'(o',sm',false,rwpattern_st(o',st',false,filter'{{model|mcrl2_model_vars(True)}}),
+eqn process_instruction'(o',sm',st',cs',pt',filter'{{model|mcrl2_model_vars(True)}},false) = cs';
+    process_instruction'(o',sm',st',cs',pt',filter'{{model|mcrl2_model_vars(True)}},true) =
+      process_instruction1'(o',sm',false,rwpattern_st(o',st',false,filter'{{model|mcrl2_model_vars(True)}}),
         process_instruction1'(o',sm',true,rwpattern_st(o',st',true,filter'{{model|mcrl2_model_vars(True)}}),cs',
         get_conflicting_O'SM'(o',sm',true,get_previous_transition'(o',sm',pt'),pt',filter'{{model|mcrl2_model_vars(True)}}),
         get_CSins'(o',sm',true,cs',filter'),
@@ -848,7 +852,7 @@ eqn process_instruction1_add_edges2'(o',sm',b',[],L2',cs',add_selfloops') = cs';
 
 % *** DETECT VIOLATIONS PROCEDURE FOR GIVEN OBJECT/STATE MACHINE ***
 
-map detect_violations': Object' # Statemachine' # PreviousTransitions' # PS' # CS' # List(Var'){{model|mcrl2_model_vartypes(True)}} -> Advice';
+map detect_violations': Object' # Statemachine' # PreviousTransitions' # PS' # CS' # List(Var'){{model|mcrl2_model_vartypes(True)}} # Bool -> Advice';
 var o': Object';
     sm': Statemachine';
     pt': PreviousTransitions';
@@ -856,7 +860,8 @@ var o': Object';
     cs': CS';
     filter': List(Var');
     {{model|mcrl2_model_vars_with_types(False)}};
-eqn detect_violations'(o',sm',pt',ps',cs',filter'{{model|mcrl2_model_vars(True)}}) = detect_violations'1(o',sm',pt',
+eqn detect_violations'(o',sm',pt',ps',cs',filter'{{model|mcrl2_model_vars(True)}},false) = empty_Advice';
+    detect_violations'(o',sm',pt',ps',cs',filter'{{model|mcrl2_model_vars(True)}},true) = detect_violations'1(o',sm',pt',
       detect_violations_PS'(rwpattern_st(o',get_previous_transition'(o',sm',pt'),false,filter'{{model|mcrl2_model_vars(True)}}),get_from_PS'(o',sm',ps')),
       detect_violations_CS'(o',sm',false,cs',filter'),
       detect_violations_PS'(rwpattern_st(o',get_previous_transition'(o',sm',pt'),true,filter'{{model|mcrl2_model_vars(True)}}),get_from_PS'(o',sm',ps')),
@@ -979,14 +984,14 @@ proc {{model.name}}({% for o in model.objects %}{% set oloop = loop %}{% for stm
 {% set trloop = loop %}
 {% if tr.statements[0].__class__.__name__ != "ReceiveSignal" or ochannel[o][tr.statements[0]].synctype == "async" %}
   (ST'{{tr._tx_position}} in sm_outgoing({{o.name}}, {{sm.name}}, outtrans){% if tr.statements[0]|hascondition(o) %}) -> (({{tr.statements[0]|statement_condition(o)}}{% endif %}) -> (
-    {% if syncing_statements[o][tr.statements[0]]|length == 0 %}    {% if check_onthefly %}tau{% else %}rw({{o.name}}, {{sm.name}}, ST'{{tr._tx_position}}, R'(rwpattern_st({{o.name}}, ST'{{tr._tx_position}}, true, []{{model|mcrl2_model_vars(True)}})), W'(rwpattern_st({{o.name}}, ST'{{tr._tx_position}}, true, []{{model|mcrl2_model_vars(True)}}))){% endif %} . {{model.name}}({{o.name}}'{{sm.name}}_state={{tr.target.name}}{{tr.statements[0]|statementstatechanges(o)}}, outtrans={% if apply_por %}apply_por(OT'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o.type.statemachines %}{{', ' if not (o2loop.first and loop.first) }}outgoing({{o2.type.name}}, {{sm2.name}}, {% if o == o2 and sm == sm2 %}{{tr.target.name}}{% else %}{{o2.name}}'{{sm2.name}}_state{% endif %}){% endfor %}{% endfor %}){{tr.statements[0]|complete_newstate(o)}}){% else %}update_outgoing({{o.name}}, {{sm.name}}, {{tr.target.name}}, outtrans){% endif %}{% if check_onthefly %}, prevtrans=set_previous_transition'({{o.name}}, {{sm.name}}, ST'{{tr._tx_position}}, prevtrans), ps'=update_PS'({{o.name}}, {{sm.name}}, prevtrans, filter'{{model|mcrl2_model_vars(True)}}, ps'), cs'=process_instruction'({{o.name}}, {{sm.name}}, ST'{{tr._tx_position}}, cs', prevtrans, filter'{{model|mcrl2_model_vars(True)}}), violations'=detect_violations'({{o.name}}, {{sm.name}}, prevtrans, ps', cs', filter'{{model|mcrl2_model_vars(True)}}){% endif %})
-  ){% if tr.statements[0]|hascondition(o) %}){% endif %}{%else %}{% for sync in syncing_statements[o][tr.statements[0]] %}    (ST'{{transowner[sync[1]]._tx_position}} in sm_outgoing({{sync[0].name}}, {{statemachine[sync[1]].name}}, outtrans){% if sync[1]|hascondition(sync[0]) %}) -> (({{sync[1]|sync_statement_condition(sync[0], tr.statements[0], o)}}{% endif %}) -> ({% if check_onthefly %}tau{% else %}rw({{o.name}}, {{sm.name}}, ST'{{tr._tx_position}}, {{tr.statements[0]|mcrl2_read_accesspattern(o,True)}}, {{tr.statements[0]|mcrl2_write_accesspattern(o,True)}}, {{sync[0].name}}, {{statemachine[sync[1]].name}}, R'(rwpattern({{sync[0].name}}, ST'{{transowner[sync[1]]._tx_position}}{{model|mcrl2_model_vars(True)}}), W'(rwpattern({{sync[0].name}}, ST'{{transowner[sync[1]]._tx_position}}{{model|mcrl2_model_vars(True)}})))){% endif %} . {{model.name}}({{o.name}}'{{sm.name}}_state={{tr.target.name}}, {{sync[0].name}}'{{statemachine[sync[1]].name}}_state={{transowner[sync[1]].target.name}}{{sync[1]|sync_statementstatechanges(sync[0],tr.statements[0],o)}}, outtrans={% if apply_por %}apply_por(OT'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o.type.statemachines %}{{', ' if not (o2loop.first and loop.first) }}outgoing({{o2.type.name}}, {{sm2.name}}, {% if o == o2 and sm == sm2 %}{{tr.target.name}}{% elif sync[0] == o2 and statemachine[sync[1]] == sm2 %}{{transowner[sync[1]].target.name}}{% else %}{{o2.name}}'{{sm2.name}}_state{% endif %}){% endfor %}{% endfor %}){{tr.statements[0]|sync_complete_newstate(o)}}){% else %}update_outgoing({{sync[0].name}}, {{statemachine[sync[1]].name}}, {{transowner[sync[1]].target.name}}, update_outgoing({{o.name}}, {{sm.name}}, {{tr.target.name}}, outtrans)){% endif %}{% if check_onthefly %}, prevtrans=set_previous_transition'({{o.name}}, {{sm.name}}, ST'{{tr._tx_position}}, prevtrans), ps'=update_PS'({{o.name}}, {{sm.name}}, prevtrans, filter'{{model|mcrl2_model_vars(True)}}, ps'), cs'=process_instruction'({{o.name}}, {{sm.name}}, ST'{{tr._tx_position}}, cs', prevtrans, filter'{{model|mcrl2_model_vars(True)}}), violations'=detect_violations'({{o.name}}, {{sm.name}}, prevtrans, ps', cs', filter'{{model|mcrl2_model_vars(True)}}){% endif %}){% if not loop.last %} +{% endif %}{% endfor %} +
+    {% if syncing_statements[o][tr.statements[0]]|length == 0 %}    {% if check_onthefly %}tau{% else %}rw({{o.name}}, {{sm.name}}, ST'{{tr._tx_position}}, R'(rwpattern_st({{o.name}}, ST'{{tr._tx_position}}, true, []{{model|mcrl2_model_vars(True)}})), W'(rwpattern_st({{o.name}}, ST'{{tr._tx_position}}, true, []{{model|mcrl2_model_vars(True)}}))){% endif %} . {{model.name}}({{o.name}}'{{sm.name}}_state={{tr.target.name}}{{tr.statements[0]|statementstatechanges(o)}}, outtrans={% if apply_por %}apply_por(OT'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o.type.statemachines %}{{', ' if not (o2loop.first and loop.first) }}outgoing({{o2.type.name}}, {{sm2.name}}, {% if o == o2 and sm == sm2 %}{{tr.target.name}}{% else %}{{o2.name}}'{{sm2.name}}_state{% endif %}){% endfor %}{% endfor %}){{tr.statements[0]|complete_newstate(o)}}){% else %}update_outgoing({{o.name}}, {{sm.name}}, {{tr.target.name}}, outtrans){% endif %}{% if check_onthefly %}, prevtrans=set_previous_transition'({{o.name}}, {{sm.name}}, ST'{{tr._tx_position}}, prevtrans, {% if apply_por %}!por_issafe({{o.name}},ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}){% else %}true{% endif %}), ps'=update_PS'({{o.name}}, {{sm.name}}, prevtrans, filter'{{model|mcrl2_model_vars(True)}}, ps', {% if apply_por %}!por_issafe({{o.name}},ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}){% else %}true{% endif %}), cs'=process_instruction'({{o.name}}, {{sm.name}}, ST'{{tr._tx_position}}, cs', prevtrans, filter'{{model|mcrl2_model_vars(True)}}, {% if apply_por %}!por_issafe({{o.name}},ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}){% else %}true{% endif %}), violations'=detect_violations'({{o.name}}, {{sm.name}}, prevtrans, ps', cs', filter'{{model|mcrl2_model_vars(True)}}, {% if apply_por %}!por_issafe({{o.name}},ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}){% else %}true{% endif %}){% endif %})
+  ){% if tr.statements[0]|hascondition(o) %}){% endif %}{%else %}{% for sync in syncing_statements[o][tr.statements[0]] %}    (ST'{{transowner[sync[1]]._tx_position}} in sm_outgoing({{sync[0].name}}, {{statemachine[sync[1]].name}}, outtrans){% if sync[1]|hascondition(sync[0]) %}) -> (({{sync[1]|sync_statement_condition(sync[0], tr.statements[0], o)}}{% endif %}) -> ({% if check_onthefly %}tau{% else %}rw({{o.name}}, {{sm.name}}, ST'{{tr._tx_position}}, {{tr.statements[0]|mcrl2_read_accesspattern(o,True)}}, {{tr.statements[0]|mcrl2_write_accesspattern(o,True)}}, {{sync[0].name}}, {{statemachine[sync[1]].name}}, R'(rwpattern({{sync[0].name}}, ST'{{transowner[sync[1]]._tx_position}}{{model|mcrl2_model_vars(True)}}), W'(rwpattern({{sync[0].name}}, ST'{{transowner[sync[1]]._tx_position}}{{model|mcrl2_model_vars(True)}})))){% endif %} . {{model.name}}({{o.name}}'{{sm.name}}_state={{tr.target.name}}, {{sync[0].name}}'{{statemachine[sync[1]].name}}_state={{transowner[sync[1]].target.name}}{{sync[1]|sync_statementstatechanges(sync[0],tr.statements[0],o)}}, outtrans={% if apply_por %}apply_por(OT'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o.type.statemachines %}{{', ' if not (o2loop.first and loop.first) }}outgoing({{o2.type.name}}, {{sm2.name}}, {% if o == o2 and sm == sm2 %}{{tr.target.name}}{% elif sync[0] == o2 and statemachine[sync[1]] == sm2 %}{{transowner[sync[1]].target.name}}{% else %}{{o2.name}}'{{sm2.name}}_state{% endif %}){% endfor %}{% endfor %}){{tr.statements[0]|sync_complete_newstate(o)}}){% else %}update_outgoing({{sync[0].name}}, {{statemachine[sync[1]].name}}, {{transowner[sync[1]].target.name}}, update_outgoing({{o.name}}, {{sm.name}}, {{tr.target.name}}, outtrans)){% endif %}{% if check_onthefly %}, prevtrans=set_previous_transition'({{o.name}}, {{sm.name}}, ST'{{tr._tx_position}}, prevtrans, {% if apply_por %}!por_issafe({{o.name}},ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}){% else %}true{% endif %}), ps'=update_PS'({{o.name}}, {{sm.name}}, prevtrans, filter'{{model|mcrl2_model_vars(True)}}, ps', {% if apply_por %}!por_issafe({{o.name}},ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}){% else %}true{% endif %}), cs'=process_instruction'({{o.name}}, {{sm.name}}, ST'{{tr._tx_position}}, cs', prevtrans, filter'{{model|mcrl2_model_vars(True)}}, {% if apply_por %}!por_issafe({{o.name}},ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}){% else %}true{% endif %}), violations'=detect_violations'({{o.name}}, {{sm.name}}, prevtrans, ps', cs', filter'{{model|mcrl2_model_vars(True)}}, {% if apply_por %}!por_issafe({{o.name}},ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}}){% else %}true{% endif %}){% endif %}){% if not loop.last %} +{% endif %}{% endfor %} +
 
   ){% if sync[1]|hascondition(sync[0]) %}){% endif %}{% endif %}{% if check_onthefly or not (oloop.last and smloop.last and trloop.last and loop.last) %} +{% endif %}
 
 {% endif %}
 {% endfor %}
-{% if check_onthefly %}  (alldisabled({{o.name}},sm_outgoing({{o.name}}, {{sm.name}}, outtrans){{model|mcrl2_model_vars(True)}}) && rwpattern_st({{o.name}}, ST'epsilon'{{sm.name}}({{o.name}}'{{sm.name}}_state), false, filter'{{model|mcrl2_model_vars(True)}}) != A'([],[])) -> tau . {{model.name}}(prevtrans=set_previous_transition'({{o.name}}, {{sm.name}}, ST'epsilon'{{sm.name}}({{o.name}}'{{sm.name}}_state), prevtrans), ps'=update_PS'({{o.name}}, {{sm.name}}, prevtrans, filter'{{model|mcrl2_model_vars(True)}}, ps'), cs'=process_instruction'({{o.name}}, {{sm.name}}, ST'epsilon'{{sm.name}}({{o.name}}'{{sm.name}}_state), cs', prevtrans, filter'{{model|mcrl2_model_vars(True)}}), violations'=detect_violations'({{o.name}}, {{sm.name}}, prevtrans, ps', cs', filter'{{model|mcrl2_model_vars(True)}})){{' +' if not (oloop.last and smloop.last)}}
+{% if check_onthefly %}  (alldisabled({{o.name}},sm_outgoing({{o.name}}, {{sm.name}}, outtrans){{model|mcrl2_model_vars(True)}}) && rwpattern_st({{o.name}}, ST'epsilon'{{sm.name}}({{o.name}}'{{sm.name}}_state), false, filter'{{model|mcrl2_model_vars(True)}}) != A'([],[])) -> tau . {{model.name}}(prevtrans=set_previous_transition'({{o.name}}, {{sm.name}}, ST'epsilon'{{sm.name}}({{o.name}}'{{sm.name}}_state), prevtrans, true), ps'=update_PS'({{o.name}}, {{sm.name}}, prevtrans, filter'{{model|mcrl2_model_vars(True)}}, ps', true), cs'=process_instruction'({{o.name}}, {{sm.name}}, ST'epsilon'{{sm.name}}({{o.name}}'{{sm.name}}_state), cs', prevtrans, filter'{{model|mcrl2_model_vars(True)}}, true), violations'=detect_violations'({{o.name}}, {{sm.name}}, prevtrans, ps', cs', filter'{{model|mcrl2_model_vars(True)}}, true)){{' +' if not (oloop.last and smloop.last)}}
   {% endif %}
 {% endfor %}
 {% endfor %}
