@@ -457,7 +457,7 @@ def expression_varset(s,stm,c,primmap,owner,ignore_indices):
 		if s.var.name not in smlocalvars.get(c.name + "'" + stm.name,set([])):
 			varname = owner.name + "'" + s.var.name
 			if s.index != None:
-				varname += "(Int2Nat(" + expression(s.index,stm,c,primmap,owner) + "))"
+				varname += "(index'(" + expression(s.index,stm,c,primmap,owner) + "))"
 				if not ignore_indices:
 					output |= expression_varset(s.index,stm,c,primmap,owner,ignore_indices)
 			output.add(varname)
@@ -472,7 +472,7 @@ def expression_varset(s,stm,c,primmap,owner,ignore_indices):
 				if s.ref.ref not in smlocalvars.get(c.name + "'" + stm.name,set([])):
 					varname = owner.name + "'" + s.ref.ref
 					if s.ref.index != None:
-						varname += "(Int2Nat(" + expression(s.ref.index,stm,c,primmap,owner) + "))"
+						varname += "(index'(" + expression(s.ref.index,stm,c,primmap,owner) + "))"
 						if not ignore_indices:
 							output |= expression_varset(s.ref.index,stm,c,primmap,owner,ignore_indices)
 					output.add(varname)
@@ -979,7 +979,7 @@ def mcrl2_accesspattern(s, o, b):
 	occurrences = set([])
 	found = False
 	for v in sorted_access:
-		v_splitted = v.split("(Int2Nat(")
+		v_splitted = v.split("(index\'(")
 		if len(v_splitted) > 1:
 			if not RepresentsInt(v_splitted[1][:-2]):
 				if v_splitted[0] in occurrences:
@@ -1005,7 +1005,7 @@ def mcrl2_accesspattern(s, o, b):
 	occurrences = set([])
 	found = False
 	for v in sorted_access:
-		v_splitted = v.split("(Int2Nat(")
+		v_splitted = v.split("(index\'(")
 		if len(v_splitted) > 1:
 			if not RepresentsInt(v_splitted[1][:-2]):
 				if v_splitted[0] in occurrences:
@@ -1093,7 +1093,7 @@ def mcrl2_sourcestate_accesspattern(s, o, sm, b):
 	occurrences = set([])
 	found = False
 	for v in sorted_access:
-		v_splitted = v.split("(Int2Nat(")
+		v_splitted = v.split("(index\'(")
 		if len(v_splitted) > 1:
 			if not RepresentsInt(v_splitted[1][:-2]):
 				if v_splitted[0] in occurrences:
@@ -1120,7 +1120,7 @@ def mcrl2_sourcestate_accesspattern(s, o, sm, b):
 	occurrences = set([])
 	found = False
 	for v in sorted_access:
-		v_splitted = v.split("(Int2Nat(")
+		v_splitted = v.split("(index\'(")
 		if len(v_splitted) > 1:
 			if not RepresentsInt(v_splitted[1][:-2]):
 				if v_splitted[0] in occurrences:
@@ -1431,7 +1431,7 @@ def compute_filtered_statement_accesses():
 	# for each access set (read and write) we actually build a set and two dictionaries:
 	# - the first set consists of accesses to simple, i.e., not array, variables
 	# - the first dictionary produces per accessed array a set of concrete indices (integers)
-	# - the second dictionary produces per accessed array the number of accesses where the location (cell index) could not be determined statically.
+	# - the second dictionary produces per accessed array the number of accesses where the location (cell index') could not be determined statically.
 	filtered_statement_access = {}
 	for o in statement_access.keys():
 		filtered_statement_access[o] = {}
@@ -1441,8 +1441,8 @@ def compute_filtered_statement_accesses():
 				imprecise_seen = set([])
 				for v in statement_access[o][st][i]:
 					varname = v
-					if v.find('(Int2Nat(') != -1:
-						varname, varindex = v.split('(Int2Nat(')
+					if v.find('(index\'(') != -1:
+						varname, varindex = v.split('(index\'(')
 						# get index
 						varindex = varindex[:-2]
 						if RepresentsInt(varindex):
@@ -1506,13 +1506,13 @@ def build_accessed_sharedvars(m):
 					for v2 in c.variables:
 						if v2.name == v1:
 							for j in range(0,v2.type.size):
-								vsets[i].add(a + "(Int2Nat(" + str(j) + "))")
+								vsets[i].add(a + "(index\'(" + str(j) + "))")
 							found = True
 							break
 				for a in fa[i][1].keys():
 					if a not in aset:
 						for j in fa[i][1][a]:
-							vsets[i].add(a + "(Int2Nat(" + str(j) + "))")
+							vsets[i].add(a + "(index\'(" + str(j) + "))")
 			if vsets != [set([]),set([])]:
 				smdict[sm] = [list(vsets[0]),list(vsets[1])]
 		if smdict != {}:
@@ -1553,7 +1553,7 @@ def identify_safe_unsafe_statements(m):
 				varname = o.name + "'" + v.name
 				if v.type.size > 1:
 					for i in range(0,v.type.size):
-						varindex = "(Int2Nat(" + str(i) + "))"
+						varindex = "(index\'(" + str(i) + "))"
 						unsafe_variables.add(varname + varindex)
 				else:
 					unsafe_variables.add(varname)		
@@ -1598,16 +1598,16 @@ def identify_safe_unsafe_statements(m):
 									# check if the single element has conflicts with multiple accesses
 									for st2 in conset:
 										fa = filtered_statement_access[o][st2]
-									count = 0
-									count += count_conflicts2(fa[1], filtered_statement_access[o][st][0], 2)
-									if count < 2:
-										count += count_conflicts2(fa[0], filtered_statement_access[o][st][1], 2)
+										count = 0
+										count += count_conflicts2(fa[1], filtered_statement_access[o][st][0], 2)
 										if count < 2:
-											count += count_conflicts2(fa[1], filtered_statement_access[o][st][1], 2)
-									if count > 1:
-										smlist.append(sm)
+											count += count_conflicts2(fa[0], filtered_statement_access[o][st][1], 2)
+											if count < 2:
+												count += count_conflicts2(fa[1], filtered_statement_access[o][st][1], 2)
+										if count > 1:
+											smlist.append(sm)
 				if len(smlist) > 1:
-					# the scc is relevant for violations. add the involved statements to unsafe_statements, and their access patterns to unsafe_filtered_accesses
+					# the scc is relevant for violations. add the involved statements to unsafe_statements, and their involved accesses to unsafe_filtered_accesses
 					for sm in smlist:
 						interset = sccset & sdict[o.type][sm]
 						unsafe_statements |= interset
@@ -1623,10 +1623,10 @@ def identify_safe_unsafe_statements(m):
 			unsafe_variables.add(a)
 		for a in ac[0][1].keys():
 			for i in ac[0][1][a]:
-				unsafe_variables.add(a + "(Int2Nat(" + str(i) + "))")
+				unsafe_variables.add(a + "(index\'(" + str(i) + "))")
 		for a in ac[1][1].keys():
 			for i in ac[1][1][a]:
-				unsafe_variables.add(a + "(Int2Nat(" + str(i) + "))")		
+				unsafe_variables.add(a + "(index\'(" + str(i) + "))")		
 		for a in ac[0][2].keys():
 			# look up array, and add all its cells
 			o1, v1 = a.split("'")
@@ -1636,7 +1636,7 @@ def identify_safe_unsafe_statements(m):
 					for v2 in o.type.variables:
 						if v2.name == v1:
 							for j in range(0,v2.type.size):
-								unsafe_variables.add(a + "(Int2Nat(" + str(j) + "))")
+								unsafe_variables.add(a + "(index\'(" + str(j) + "))")
 							found = True
 							break
 				if found:
@@ -1650,7 +1650,7 @@ def identify_safe_unsafe_statements(m):
 					for v2 in o.type.variables:
 						if v2.name == v1:
 							for j in range(0,v2.type.size):
-								unsafe_variables.add(a + "(Int2Nat(" + str(j) + "))")
+								unsafe_variables.add(a + "(index\'(" + str(j) + "))")
 							found = True
 							break
 				if found:
@@ -1658,6 +1658,14 @@ def identify_safe_unsafe_statements(m):
 	# make unsafe_variables a sorted list
 	unsafe_variables = sorted(list(unsafe_variables))
 	print(unsafe_variables)
+	countvars = 0
+	for o in m.objects:
+		for v in o.type.variables:
+			if v.type.size > 1:
+				countvars += v.type.size
+			else:
+				countvars += 1
+	print(str(len(unsafe_variables)) + "/" + str(countvars) + " variables have to be monitored.")
 
 def preprocess():
 	"""preprocessing method"""
@@ -1808,18 +1816,11 @@ def preprocess():
 	tmp_sorted_variables = []
 	for o in model.objects:
 		for v in o.type.variables:
-			tmp_sorted_variables.append(tuple([v, o.name + "'" + v.name, 0]))
-	tmp_sorted_variables = sorted(tmp_sorted_variables, key=lambda vartuple: vartuple[1])
-	v_index = 0
-	sorted_variables = []
-	for v in tmp_sorted_variables:
-		vlist = list(v)
-		vlist[2] = v_index
-		sorted_variables.append(tuple(vlist))
-		if v[0].type.size > 1:
-			v_index += v[0].type.size
-		else:
-			v_index += 1
+			v_size = 1
+			if v.type.size > 1:
+				v_size = v.type.size
+			tmp_sorted_variables.append(tuple([v, o.name + "'" + v.name, v_size]))
+	sorted_variables = sorted(tmp_sorted_variables, key=lambda vartuple: vartuple[1])
 	# create sorted list of objects and statemachines
 	tmp_objects = []
 	for o in model.objects:
@@ -1981,6 +1982,21 @@ def main(args):
 		# read model
 		modelname = file
 		model = read_SLCO_model(file)
+		# produce statistics
+		countosm = 0
+		countvars = 0
+		countstats = 0
+		for o in model.objects:
+			for v in o.type.variables:
+				if v.type.size > 1:
+					countvars += v.type.size
+				else:
+					countvars += 1
+			for sm in o.type.statemachines:
+				countosm += 1
+				for tr in sm.transitions:
+					countstats += len(tr.statements)
+		print("model contains " + str(countosm) + " object/statemachine pairs, " + str(countvars) + " shared variables, and " + str(countstats) + " statements")
 		print("processing model %s" % basename(file))
 		try:
 			# preprocess model

@@ -6,11 +6,15 @@ eqn xor(a,b) = (a || b) && !(a && b);
 
 % *** DEFINITIONS FOR ARRAYS OF INTEGERS AND BOOLEANS ***
 
+map index': Int -> Int;
+var n': Int;
+eqn index'(n') = n';
+
 {% for i in IntArraySizes %}
-{% if loop.first %}sort {% else %}    {% endif %}Int{{i}} = struct AI{{i}}'({% for j in range(0,i) %}{{', ' if not loop.first }}el'{{j}}: Int{% endfor %});
+{% if loop.first %}sort {% else %}     {% endif %}Int{{i}} = struct AI{{i}}'({% for j in range(0,i) %}{{', ' if not loop.first }}el'{{j}}: Int{% endfor %});
 {% endfor %}
 {% for b in BoolArraySizes %}
-{% if loop.first %}sort {% else %}    {% endif %}Bool{{i}} = struct AB{{i}}'({% for j in range(0,i) %}{{', ' if not loop.first }}el'{{j}}: Bool{% endfor %});
+{% if loop.first %}sort {% else %}     {% endif %}Bool{{i}} = struct AB{{i}}'({% for j in range(0,i) %}{{', ' if not loop.first }}el'{{j}}: Bool{% endfor %});
 {% endfor %}
 {% for i in IntArraySizes %}
 {% if loop.first %}map {% else %}    {% endif %}get': Int{{i}} # Int -> Int;
@@ -29,7 +33,7 @@ var i': Int;
 {% endfor %}
 {% for i in IntArraySizes %}
 {% set iloop = loop %}
-eqn (i' < 0) -> get'(Li{{i}}', i') = 0;
+{% if iloop.first %}eqn{% else %}   {% endif %} (i' < 0) -> get'(Li{{i}}', i') = 0;
 (i' > {{i-1}}) -> get'(Li{{i}}', i') = 0;
 {% for j in range(0,i) %}
     get'(Li{{i}}', {{j}}) = el'{{j}}(Li{{i}}');
@@ -124,15 +128,23 @@ eqn sm_index(sm_) = 0;
 sort Var';
 cons {% for v in sorted_variables|select("hasnoindex") %}{{', ' if not loop.first }}{{mcrl2varprefix}}{{v[1]}}{{': Var\';' if loop.last }}{% endfor %}
 
-{% for v in sorted_variables|select("hasindex") %}{% if loop.first %}     {% else %}, {% endif %}{{mcrl2varprefix}}{{v[1]}}{% if loop.last %}: Nat -> Var';{% endif %}{% endfor %}
+{% for v in sorted_variables|select("hasindex") %}{% if loop.first %}     {% else %}, {% endif %}{{mcrl2varprefix}}{{v[1]}}{% if loop.last %}: Int -> Var';{% endif %}{% endfor %}
 
-map var_index: Var' -> Nat;
-var v1, v2: Var', n': Nat;
+map var_index1, var_index2: Var' -> Int;
+var v1, v2: Var';
+    n': Int;
 {% for v in sorted_variables %}
-{% if loop.first %}eqn {% else %}    {% endif %}var_index({{mcrl2varprefix}}{{v[1]}}{{'(n\')' if v is hasindex}}) = {{v[2]}}{{' + n\'' if v is hasindex }};
+{% if loop.first %}eqn {% else %}    {% endif %}var_index1({{mcrl2varprefix}}{{v[1]}}{{'(n\')' if v is hasindex}}) = {{loop.index0}};
 {% endfor %}
-    v1 < v2 = (var_index(v1) < var_index(v2));
-    v1 > v2 = (var_index(v1) > var_index(v2));
+{% for v in sorted_variables %}
+    var_index2({{mcrl2varprefix}}{{v[1]}}{{'(n\')' if v is hasindex}}) = {% if v is hasindex %}n'{% else %}0{% endif %};
+{% endfor %}
+(var_index1(v1) < var_index1(v2)) -> v1 < v2 = true;
+(var_index1(v1) > var_index1(v2)) -> v1 < v2 = false;
+(var_index1(v1) == var_index1(v2)) -> v1 < v2 = var_index2(v1) < var_index2(v2);
+(var_index1(v1) < var_index1(v2)) -> v1 > v2 = false;
+(var_index1(v1) > var_index1(v2)) -> v1 > v2 = true;
+(var_index1(v1) == var_index1(v2)) -> v1 > v2 = var_index2(v1) > var_index2(v2);
 
 {% if channeltypes|length > 0 %}
 % *** SPECIFICATION OF SIGNALS ***
@@ -161,7 +173,7 @@ sort M'{% for d in ct %}{{d|datatypeacronym}}{% endfor %} = struct m'{% for d in
 % *** FUNCTION TO IDENTIFY ARRAY ACCESSES ***
 
 map is_array_access: Var' -> Bool;
-var n': Nat;
+var n': Int;
 {% for v in sorted_variables %}
 {% if loop.first %}eqn {% else %}    {% endif %}is_array_access({{mcrl2varprefix}}{{v[1]}}{{'(n\')' if v is hasindex}}) = {{v is hasindex|lower}};
 {% endfor %}
@@ -400,10 +412,10 @@ eqn rwpattern_st(o',st_,b',L'{{model|mcrl2_model_vars(True)}}) = A'([],[]);
 {% for o in model.objects %}
 {% for stm in o.type.statemachines %}
 {% for tr in stm.transitions %}
-(filter' == []) -> rwpattern_st({{o.name}},ST'{{tr._tx_position}},true,filter'{{model|mcrl2_model_vars(True)}}) = {{tr.statements[0]|mcrl2_accesspattern(o,True)}};
-(filter' != []) -> rwpattern_st({{o.name}}, ST'{{tr._tx_position}},true,filter'{{model|mcrl2_model_vars(True)}}) = setminus({{tr.statements[0]|mcrl2_accesspattern(o,True)}}, filter');
-(filter' == []) -> rwpattern_st({{o.name}},ST'{{tr._tx_position}},false,filter'{{model|mcrl2_model_vars(True)}}) = {{tr.statements[0]|mcrl2_sourcestate_accesspattern(o,stm,False)}};
-(filter' != []) -> rwpattern_st({{o.name}}, ST'{{tr._tx_position}},false,filter'{{model|mcrl2_model_vars(True)}}) = setminus({{tr.statements[0]|mcrl2_sourcestate_accesspattern(o,stm,False)}}, filter');
+(filter' == []) -> rwpattern_st({{o.name}},ST'{{tr._tx_position}},true,filter'{{model|mcrl2_model_vars(True)}}) = remove_invalid_accesses'({{tr.statements[0]|mcrl2_accesspattern(o,True)}});
+(filter' != []) -> rwpattern_st({{o.name}}, ST'{{tr._tx_position}},true,filter'{{model|mcrl2_model_vars(True)}}) = remove_invalid_accesses'(setminus({{tr.statements[0]|mcrl2_accesspattern(o,True)}}, filter'));
+(filter' == []) -> rwpattern_st({{o.name}},ST'{{tr._tx_position}},false,filter'{{model|mcrl2_model_vars(True)}}) = remove_invalid_accesses'({{tr.statements[0]|mcrl2_sourcestate_accesspattern(o,stm,False)}});
+(filter' != []) -> rwpattern_st({{o.name}}, ST'{{tr._tx_position}},false,filter'{{model|mcrl2_model_vars(True)}}) = remove_invalid_accesses'(setminus({{tr.statements[0]|mcrl2_sourcestate_accesspattern(o,stm,False)}}, filter'));
 {% endfor %}
 {% endfor %}
 {% endfor %}
@@ -413,12 +425,29 @@ eqn rwpattern_st(o',st_,b',L'{{model|mcrl2_model_vars(True)}}) = A'([],[]);
 {% for stm in o.type.statemachines %}
     rwpattern_st({{o.name}},ST'epsilon'{{stm.name}}(s'),true,filter'{{model|mcrl2_model_vars(True)}}) = A'([],[]);
 {% for s in stm.states %}
-(filter' == []) -> rwpattern_st({{o.name}},ST'epsilon'{{stm.name}}({{s.name}}),false,filter'{{model|mcrl2_model_vars(True)}}) = {{s|mcrl2_state_accesspattern(o,stm,False)}};
-(filter' != []) -> rwpattern_st({{o.name}},ST'epsilon'{{stm.name}}({{s.name}}),false,filter'{{model|mcrl2_model_vars(True)}}) = setminus({{s|mcrl2_state_accesspattern(o,stm,False)}}, filter');
+(filter' == []) -> rwpattern_st({{o.name}},ST'epsilon'{{stm.name}}({{s.name}}),false,filter'{{model|mcrl2_model_vars(True)}}) = remove_invalid_accesses'({{s|mcrl2_state_accesspattern(o,stm,False)}});
+(filter' != []) -> rwpattern_st({{o.name}},ST'epsilon'{{stm.name}}({{s.name}}),false,filter'{{model|mcrl2_model_vars(True)}}) = remove_invalid_accesses'(setminus({{s|mcrl2_state_accesspattern(o,stm,False)}}, filter'));
 {% endfor %}
 {% endfor %}
 {% endfor %}
 {% endif %}
+
+map remove_invalid_accesses': AccessPattern' -> AccessPattern';
+var a': AccessPattern';
+eqn remove_invalid_accesses'(a') = A'(remove_invalid_accesses'1(R'(a')), remove_invalid_accesses'1(W'(a')));
+
+map remove_invalid_accesses'1: List(Var') -> List(Var');
+var L': List(Var');
+eqn remove_invalid_accesses'1([]) = [];
+(L' != []) -> remove_invalid_accesses'1(L') = remove_invalid_accesses'2(head(L')) ++ remove_invalid_accesses'1(tail(L'));
+
+map remove_invalid_accesses'2: Var' -> List(Var');
+var n': Int;
+{% for v in sorted_variables %}
+{% if loop.first %}eqn {% else %}{% if v is hasindex %}(n' > 0 && n' < {{v[2]}}) -> {% else %}    {% endif %}{% endif %}remove_invalid_accesses'2({{mcrl2varprefix}}{{v[1]}}{{'(n\')' if v is hasindex}}) = {% if v is hasindex %}[{{mcrl2varprefix}}{{v[1]}}(n')]{% else %}[{{mcrl2varprefix}}{{v[1]}}]{% endif %};
+{% if v is hasindex %}(n' < 0 || n' > {{v[2]}}) -> remove_invalid_accesses'2({{mcrl2varprefix}}{{v[1]}}(n')) = [];
+{% endif %}
+{% endfor %}
 
 % *** FUNCTIONS TO DETERMINE WHETHER TWO OBJECT/STATEMENT PAIRS ARE CONFLICTING ***
 

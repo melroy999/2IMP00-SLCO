@@ -369,11 +369,11 @@ def statement_check_refs(s, V, model):
 			if vref.type.size > 1 and s.index == None:
 				error = 'There is a reference to an Array variable "%s" where an index is mandatory, but missing,' % s.var.name
 				raise_semantic_error(error, s, model)
-	elif s.__class__.__name__ != "Primary":
+	elif s.__class__.__name__ != "Primary" and s.__class__.__name__ != "ActionRef":
 		statement_check_refs(s.left, V, model)
 		if s.op != '':
 			statement_check_refs(s.right, V, model)
-	else:
+	elif s.__class__.__name__ != "ActionRef":
 		if s.ref != None:
 			if s.ref.ref not in actions:
 				vref = V.get(s.ref.ref)
