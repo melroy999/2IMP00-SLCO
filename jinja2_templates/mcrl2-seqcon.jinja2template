@@ -499,6 +499,12 @@ var o': Object';
 eqn update_PS'(o',sm',pt',filter'{{model|mcrl2_model_vars(True)}}, ps', false) = ps';
     update_PS'(o',sm',pt',filter'{{model|mcrl2_model_vars(True)}}, ps', true) = add_to_PS'(o',sm',rwpattern_st(o',get_previous_transition'(o',sm',pt'),true,filter'{{model|mcrl2_model_vars(True)}}),add_to_PS'(o',sm',rwpattern_st(o',get_previous_transition'(o',sm',pt'),false,filter'{{model|mcrl2_model_vars(True)}}),ps'));
 
+map filter_PS': PS' # List(Var') -> PS';
+var ps': PS';
+    filter': List(Var');
+eqn filter_PS'(ps',[]) = ps';
+(filter' != []) -> filter_PS'(ps',filter') = str_PS'({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first)}}setminus(el'{{o.name}}'{{sm.name}}(ps'),filter'){% endfor %}{% endfor %});
+
 % *** C-SUMMARIES ***
 
 % *** SPECIFICATION OF CS NODE ***
@@ -506,6 +512,10 @@ eqn update_PS'(o',sm',pt',filter'{{model|mcrl2_model_vars(True)}}, ps', false) =
 sort CS' = struct str_CS'({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first)}}{{o.name}}'{{sm.name}}'exp: CSnode', {{o.name}}'{{sm.name}}: CSnode'{% endfor %}{% endfor %});
 map empty_CS': CS';
 eqn empty_CS' = str_CS'({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first)}}empty_CSnode', empty_CSnode'{% endfor %}{% endfor %});
+
+sort CSnode' = struct str_CSnode'(CSin': CSedges', CSout': CSedges');
+map empty_CSnode': CSnode';
+eqn empty_CSnode' = str_CSnode'(empty_CSedges', empty_CSedges');
 
 map get_CSnode': Object' # Statemachine' # Bool # CS' -> CSnode';
 var cs': CS';
@@ -530,9 +540,17 @@ var n': CSnode';
 {% endfor %}
 {% endfor %}
 
-sort CSnode' = struct str_CSnode'(CSin': CSedges', CSout': CSedges');
-map empty_CSnode': CSnode';
-eqn empty_CSnode' = str_CSnode'(empty_CSedges', empty_CSedges');
+map filter_CS': CS' # List(Var') -> CS';
+var cs': CS';
+    filter': List(Var');
+eqn filter_CS'(cs',[]) = cs';
+(filter' != []) -> filter_CS'(cs',filter') = str_CS'({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first)}}filter_CSnode'({{o.name}}'{{sm.name}}'exp(cs'),filter'), filter_CSnode'({{o.name}}'{{sm.name}}(cs'),filter'){% endfor %}{% endfor %});
+
+map filter_CSnode': CSnode' # List(Var') -> CSnode';
+var n': CSnode';
+    filter': List(Var');
+eqn filter_CSnode'(n',[]) = n';
+(filter' != []) -> filter_CSnode'(n',filter') = str_CSnode'(filter_CSedges'(CSin'(n'),filter'), filter_CSedges'(CSout'(n'),filter'));
 
 map set_CSin': CSnode' # CSedges' -> CSnode';
 var n': CSnode';
@@ -547,6 +565,12 @@ eqn set_CSout'(n',ce') = str_CSnode'(CSin'(n'), ce');
 sort CSedges' = struct str_CSedges'({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first)}}{{o.name}}'{{sm.name}}'exp: AccessPattern', {{o.name}}'{{sm.name}}: AccessPattern'{% endfor %}{% endfor %});
 map empty_CSedges': CSedges';
 eqn empty_CSedges' = str_CSedges'({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first)}}A'([],[]), A'([],[]){% endfor %}{% endfor %});
+
+map filter_CSedges': CSedges' # List(Var') -> CSedges';
+var ce': CSedges';
+    filter': List(Var');
+eqn filter_CSedges'(ce',[]) = ce';
+(filter' != []) -> filter_CSedges'(ce',filter') = str_CSedges'({% for o in model.objects %}{% set oloop = loop %}{% for sm in o.type.statemachines %}{{', ' if not (oloop.first and loop.first)}}setminus({{o.name}}'{{sm.name}}'exp(ce'),filter'), setminus({{o.name}}'{{sm.name}}(ce'),filter'){% endfor %}{% endfor %});
 
 map get_CSedge_elem': Object' # Statemachine' # Bool # CSedges' -> AccessPattern';
 var ce': CSedges';
@@ -664,25 +688,23 @@ eqn (a' == A'([],[])) -> get_conflicting_O'SM'2(o',sm',b',a') = [];
 
 % which object/statemachine/bool pairs have an incoming edge from given object/statemachine/bool pair, and which subset of their accesses is involved in this?
 
-map get_CSins': Object' # Statemachine' # Bool # CS' # List(Var') -> List(CS'AP');
+map get_CSins': Object' # Statemachine' # Bool # CS' -> List(CS'AP');
 var sm': Statemachine';
     b': Bool;
     cs': CS';
-    filter': List(Var');
 {% for o in model.objects %}
-{% if loop.first %}eqn {% else %}    {% endif %}get_CSins'({{o.name}},sm',b',cs',filter') =
+{% if loop.first %}eqn {% else %}    {% endif %}get_CSins'({{o.name}},sm',b',cs') =
 {% for sm2 in o.type.statemachines %}
 {% set sm2loop = loop %}
 {% for bflag in [False,True] %}
-  get_CSins'1({{o.name}},{{sm2.name}},{{bflag|lower}},sm',b',cs',filter'){% if not (sm2loop.last and loop.last) %} ++{% endif %}{% endfor %}{% endfor %}{% endfor %};
+  get_CSins'1({{o.name}},{{sm2.name}},{{bflag|lower}},sm',b',cs'){% if not (sm2loop.last and loop.last) %} ++{% endif %}{% endfor %}{% endfor %}{% endfor %};
 
-map get_CSins'1: Object' # Statemachine' # Bool # Statemachine' # Bool # CS' # List(Var') -> List(CS'AP');
+map get_CSins'1: Object' # Statemachine' # Bool # Statemachine' # Bool # CS' -> List(CS'AP');
 var o': Object';
     sm1', sm2': Statemachine';
     b1', b2': Bool;
     cs': CS';
-    filter': List(Var');
-eqn get_CSins'1(o',sm1',b1',sm2',b2',cs',filter') = construct_CS'AP'(sm2',b2',setminus(get_CSin_edge'(o',sm1',b1',sm2',b2',cs'),filter'));
+eqn get_CSins'1(o',sm1',b1',sm2',b2',cs') = construct_CS'AP'(sm2',b2',get_CSin_edge'(o',sm1',b1',sm2',b2',cs'));
 
 map construct_CS'AP': Statemachine' # Bool # AccessPattern' -> List(CS'AP');
 var sm': Statemachine';
@@ -693,25 +715,23 @@ eqn (a' == A'([],[])) -> construct_CS'AP'(sm',b',a') = [];
 
 % which object/statemachine/bool pairs have an outgoing edge to given object/statemachine/bool pair, and which subset of their accesses is involved in this?
 
-map get_CSouts': Object' # Statemachine' # Bool # CS' # List(Var') -> List(CS'AP');
+map get_CSouts': Object' # Statemachine' # Bool # CS' -> List(CS'AP');
 var sm': Statemachine';
     b': Bool;
     cs': CS';
-    filter': List(Var');
 {% for o in model.objects %}
-{% if loop.first %}eqn {% else %}    {% endif %}get_CSouts'({{o.name}},sm',b',cs',filter') =
+{% if loop.first %}eqn {% else %}    {% endif %}get_CSouts'({{o.name}},sm',b',cs') =
 {% for sm2 in o.type.statemachines %}
 {% set sm2loop = loop %}
 {% for bflag in [False,True] %}
-  get_CSouts'1({{o.name}},{{sm2.name}},{{bflag|lower}},sm',b',cs',filter'){% if not (sm2loop.last and loop.last) %} ++{% endif %}{% endfor %}{% endfor %}{% endfor %};
+  get_CSouts'1({{o.name}},{{sm2.name}},{{bflag|lower}},sm',b',cs'){% if not (sm2loop.last and loop.last) %} ++{% endif %}{% endfor %}{% endfor %}{% endfor %};
 
-map get_CSouts'1: Object' # Statemachine' # Bool # Statemachine' # Bool # CS' # List(Var') -> List(CS'AP');
+map get_CSouts'1: Object' # Statemachine' # Bool # Statemachine' # Bool # CS' -> List(CS'AP');
 var o': Object';
     sm1', sm2': Statemachine';
     b1', b2': Bool;
     cs': CS';
-    filter': List(Var');
-eqn get_CSouts'1(o',sm1',b1',sm2',b2',cs',filter') = construct_CS'AP'(sm2',b2',setminus(get_CSout_edge'(o',sm1',b1',sm2',b2',cs'),filter'));
+eqn get_CSouts'1(o',sm1',b1',sm2',b2',cs') = construct_CS'AP'(sm2',b2',get_CSout_edge'(o',sm1',b1',sm2',b2',cs'));
 
 % *** SET C-SUMMARY EDGES BETWEEN INSTRUCTIONS ***
 
@@ -739,7 +759,6 @@ eqn set_CSout_edges'(o',sm',b',[],a',cs',add_selfloops') = cs';
 (L' != [] && ((sm' != SM'(head(L')) || b' != B'(head(L'))) || add_selfloops')) -> set_CSout_edges'(o',sm',b',L',a',cs',add_selfloops') = set_CSout_edges'(o',sm',b',tail(L'),a',set_CSout_edge'(o',sm',b',SM'(head(L')),B'(head(L')),a',cs'),add_selfloops');
 (L' != [] && ((sm' == SM'(head(L')) && b' == B'(head(L'))) && !add_selfloops')) -> set_CSout_edges'(o',sm',b',L',a',cs',add_selfloops') = set_CSout_edges'(o',sm',b',tail(L'),a',cs',add_selfloops');
 
-
 % ----- END DEPENDENCY GRAPH STRUCTURE AND BASIC FUNCTIONS -----
 
 
@@ -757,62 +776,76 @@ var o': Object';
     {{model|mcrl2_model_vars_with_types(False)}};
 eqn process_instruction'(o',sm',st',cs',pt',filter'{{model|mcrl2_model_vars(True)}},false) = cs';
     process_instruction'(o',sm',st',cs',pt',filter'{{model|mcrl2_model_vars(True)}},true) =
-      process_instruction1'(o',sm',false,rwpattern_st(o',st',false,filter'{{model|mcrl2_model_vars(True)}}),
-        process_instruction1'(o',sm',true,rwpattern_st(o',st',true,filter'{{model|mcrl2_model_vars(True)}}),cs',
+      process_instruction1'(o',sm',false,
+        process_instruction1'(o',sm',true,cs',pt',
         get_conflicting_O'SM'(o',sm',true,get_previous_transition'(o',sm',pt'),pt',filter'{{model|mcrl2_model_vars(True)}}),
-        get_CSins'(o',sm',true,cs',filter'),
-        get_CSouts'(o',sm',true,cs',filter')),
+        get_CSins'(o',sm',true,cs'),
+        get_CSouts'(o',sm',true,cs'),filter'{{model|mcrl2_model_vars(True)}}),pt',
         get_conflicting_O'SM'(o',sm',false,get_previous_transition'(o',sm',pt'),pt',filter'{{model|mcrl2_model_vars(True)}}),
-        get_CSins'(o',sm',false,cs',filter'),
-        get_CSouts'(o',sm',false,cs',filter'));
+        get_CSins'(o',sm',false,cs'),
+        get_CSouts'(o',sm',false,cs'),filter'{{model|mcrl2_model_vars(True)}});
 
-map process_instruction1': Object' # Statemachine' # Bool # AccessPattern' # CS' # List(CS'AP') # List(CS'AP') # List(CS'AP') -> CS';
+map process_instruction1': Object' # Statemachine' # Bool # CS' # PreviousTransitions' # List(CS'AP') # List(CS'AP') # List(CS'AP') # List(Var'){{model|mcrl2_model_vartypes(True)}} -> CS';
 var o': Object';
     sm': Statemachine';
     b': Bool;
-    a': AccessPattern';
+    pt': PreviousTransitions';
     cs': CS';
     conflicts': List(CS'AP');
     in_edges': List(CS'AP');
     out_edges': List(CS'AP');
-eqn process_instruction1'(o',sm',b',a',cs',conflicts',in_edges',out_edges') =
-      process_instruction1_CS_PS'(o',sm',b',a',out_edges',
-        process_instruction1_C_PS'(o',sm',b',a',conflicts',
-          remove_O'SM'_from_CS'(o',sm',b',
-            process_instruction1_C_CSin'(o',sm',b',conflicts',in_edges',
-              process_instruction1_C_CSout'(o',sm',b',conflicts',out_edges',
-                process_instruction1_C_C'(o',sm',b',conflicts',
-                  process_instruction1_CS_CS'(o',sm',b',in_edges',out_edges',cs')))))));
+    filter': List(Var');
+    {{model|mcrl2_model_vars_with_types(False)}};
+eqn process_instruction1'(o',sm',b',cs',pt',conflicts',in_edges',out_edges',filter'{{model|mcrl2_model_vars(True)}}) =
+      process_instruction1_C_PS'(o',sm',b',pt',conflicts',
+        process_instruction1_C_CSin'(o',sm',b',conflicts',in_edges',
+          process_instruction1_C_CSout'(o',sm',b',conflicts',out_edges',
+            process_instruction1_C_C'(o',sm',b',conflicts',
+              process_instruction1_CS_CS'(o',sm',b',in_edges',out_edges',cs'))))
+                ,filter'{{model|mcrl2_model_vars(True)}});
 
-map remove_O'SM'_from_CS': Object' # Statemachine' # Bool # CS' -> CS';
-var cs': CS';
-{% for o in model.objects %}
-{% set oloop = loop %}
-{% for sm in o.type.statemachines %}
-{% set smloop = loop %}
-{% for bflag in [False,True] %}
-{% if (oloop.first and smloop.first and loop.first) %}eqn {% else %}    {% endif %}remove_O'SM'_from_CS'({{o.name}},{{sm.name}},{{bflag|lower}},cs') = str_CS'({% for o2 in model.objects %}{% set o2loop = loop %}{% for sm2 in o2.type.statemachines %}{% set sm2loop = loop %}{% for bflag2 in [False,True] %}{{', ' if not (o2loop.first and sm2loop.first and loop.first)}}{% if o == o2 and sm == sm2 and bflag == bflag2 %}empty_CSnode'{% elif o == o2 and sm != sm2 %}reset_CSedges'({{o.name}},{{sm.name}},{{bflag|lower}},{{o2.name}}'{{sm2.name}}{{'\'exp' if not bflag2}}(cs')){% else %}{{o2.name}}'{{sm2.name}}{{'\'exp' if not bflag2}}(cs'){% endif %}{% endfor %}{% endfor %}{% endfor %});
-{% endfor %}
-{% endfor %}
-{% endfor %}
-
-map process_instruction1_C_PS': Object' # Statemachine' # Bool # AccessPattern' # List(CS'AP') # CS' -> CS';
+map process_instruction1_C_PS': Object' # Statemachine' # Bool # PreviousTransitions' # List(CS'AP') # CS' # List(Var'){{model|mcrl2_model_vartypes(True)}} -> CS';
 var o': Object';
     sm': Statemachine';
     b': Bool;
-    a': AccessPattern';
+    pt': PreviousTransitions';
     conflicts': List(CS'AP');
     cs': CS';
-eqn process_instruction1_C_PS'(o',sm',b',a',conflicts',cs') = process_instruction1_add_edges'(o',sm',b',conflicts',[str_CS'AP'(sm',b',a')],cs',true);
+    filter': List(Var');
+    {{model|mcrl2_model_vars_with_types(False)}};
+eqn process_instruction1_C_PS'(o',sm',b',pt',conflicts',cs',filter'{{model|mcrl2_model_vars(True)}}) = process_instruction1_add_edges_C_PS'1(o',sm',b',pt',conflicts',process_instruction1_add_edges_C_PS'2(o',sm',b',pt',conflicts',cs',filter'{{model|mcrl2_model_vars(True)}}),filter'{{model|mcrl2_model_vars(True)}});
 
-map process_instruction1_CS_PS': Object' # Statemachine' # Bool # AccessPattern' # List(CS'AP') # CS' -> CS';
+map process_instruction1_add_edges_C_PS'1: Object' # Statemachine' # Bool # PreviousTransitions' # List(CS'AP') # CS' # List(Var'){{model|mcrl2_model_vartypes(True)}} -> CS';
 var o': Object';
     sm': Statemachine';
     b': Bool;
-    a': AccessPattern';
-    out_edges': List(CS'AP');
+    pt': PreviousTransitions';
+    L': List(CS'AP');
     cs': CS';
-eqn process_instruction1_CS_PS'(o',sm',b',a',out_edges',cs') = process_instruction1_add_edges'(o',sm',b',out_edges',[str_CS'AP'(sm',b',a')],cs',true);
+    filter': List(Var');
+    {{model|mcrl2_model_vars_with_types(False)}};
+eqn process_instruction1_add_edges_C_PS'1(o',sm',b',pt',[],cs',filter'{{model|mcrl2_model_vars(True)}}) = cs';
+(L' != []) -> process_instruction1_add_edges_C_PS'1(o',sm',b',pt',L',cs',filter'{{model|mcrl2_model_vars(True)}}) =
+                process_instruction1_add_edges_C_PS'1(o',sm',b',pt',tail(L'),
+                  set_CSin_edge'(o',sm',b',SM'(head(L')),B'(head(L')),conflicting'(o',
+                    get_previous_transition'(o',sm',pt'),b',
+                      get_previous_transition'(o',SM'(head(L')),pt'),B'(head(L')),filter'{{model|mcrl2_model_vars(True)}}),cs'),
+                        filter'{{model|mcrl2_model_vars(True)}});
+
+map process_instruction1_add_edges_C_PS'2: Object' # Statemachine' # Bool # PreviousTransitions' # List(CS'AP') # CS' # List(Var'){{model|mcrl2_model_vartypes(True)}} -> CS';
+var o': Object';
+    sm': Statemachine';
+    b': Bool;
+    pt': PreviousTransitions';
+    L': List(CS'AP');
+    cs': CS';
+    filter': List(Var');
+    {{model|mcrl2_model_vars_with_types(False)}};
+eqn process_instruction1_add_edges_C_PS'2(o',sm',b',pt',[],cs',filter'{{model|mcrl2_model_vars(True)}}) = cs';
+(L' != []) -> process_instruction1_add_edges_C_PS'2(o',sm',b',pt',L',cs',filter'{{model|mcrl2_model_vars(True)}}) =
+                process_instruction1_add_edges_C_PS'2(o',sm',b',pt',tail(L'),
+                  set_CSout_edge'(o',SM'(head(L')),B'(head(L')),sm',b',AP'(head(L')),cs'),
+                    filter'{{model|mcrl2_model_vars(True)}});
 
 map process_instruction1_C_CSin': Object' # Statemachine' # Bool # List(CS'AP') # List(CS'AP') # CS' -> CS';
 var o': Object';
@@ -878,7 +911,6 @@ var o': Object';
 eqn process_instruction1_add_edges2'(o',sm',b',[],L2',cs',add_selfloops') = cs';
 (L1' != []) -> process_instruction1_add_edges2'(o',sm',b',L1',L2',cs',add_selfloops') = process_instruction1_add_edges2'(o',sm',b',tail(L1'),L2', set_CSout_edges'(o',SM'(head(L1')),B'(head(L1')),L2',AP'(head(L1')),cs',add_selfloops'),add_selfloops');
 
-
 % *** DETECT VIOLATIONS PROCEDURE FOR GIVEN OBJECT/STATE MACHINE ***
 
 map detect_violations': Object' # Statemachine' # PreviousTransitions' # PS' # CS' # List(Var'){{model|mcrl2_model_vartypes(True)}} # Bool -> Advice';
@@ -892,9 +924,9 @@ var o': Object';
 eqn detect_violations'(o',sm',pt',ps',cs',filter'{{model|mcrl2_model_vars(True)}},false) = empty_Advice';
     detect_violations'(o',sm',pt',ps',cs',filter'{{model|mcrl2_model_vars(True)}},true) = detect_violations'1(o',sm',pt',
       detect_violations_PS'(rwpattern_st(o',get_previous_transition'(o',sm',pt'),false,filter'{{model|mcrl2_model_vars(True)}}),get_from_PS'(o',sm',ps')),
-      detect_violations_CS'(o',sm',false,cs',filter'),
+      detect_violations_CS'(o',sm',false,cs'),
       detect_violations_PS'(rwpattern_st(o',get_previous_transition'(o',sm',pt'),true,filter'{{model|mcrl2_model_vars(True)}}),get_from_PS'(o',sm',ps')),
-      detect_violations_CS'(o',sm',true,cs',filter'));
+      detect_violations_CS'(o',sm',true,cs'));
 
 map detect_violations'1: Object' # Statemachine' # PreviousTransitions' # Delay' # Delay' # Delay' # Delay' -> Advice';
 var o': Object';
@@ -908,23 +940,21 @@ map detect_violations_PS': AccessPattern' # AccessPattern' -> Delay';
 var a1', a2': AccessPattern';
 eqn detect_violations_PS'(a1',a2') = str_Delay'(conflicting'(a2',a1'), conflicting'(a1',a2'));
 
-map detect_violations_CS': Object' # Statemachine' # Bool # CS' # List(Var') -> Delay';
+map detect_violations_CS': Object' # Statemachine' # Bool # CS' -> Delay';
 var o': Object';
     sm': Statemachine';
     b': Bool;
     cs': CS';
-    filter': List(Var');
-eqn detect_violations_CS'(o',sm',b',cs',filter') = detect_violations_CS'1(o',sm',b',cs',filter',setminus(get_CSin_edge'(o',sm',b',sm',b',cs'),filter'));
+eqn detect_violations_CS'(o',sm',b',cs') = detect_violations_CS'1(o',sm',b',cs',get_CSin_edge'(o',sm',b',sm',b',cs'));
 
-map detect_violations_CS'1: Object' # Statemachine' # Bool # CS' # List(Var') # AccessPattern' -> Delay';
+map detect_violations_CS'1: Object' # Statemachine' # Bool # CS' # AccessPattern' -> Delay';
 var o': Object';
     sm': Statemachine';
     b': Bool;
     cs': CS';
-    filter': List(Var');
     a': AccessPattern';
-eqn (a' == A'([],[])) -> detect_violations_CS'1(o',sm',b',cs',filter',a') = empty_Delay';
-(a' != A'([],[])) -> detect_violations_CS'1(o',sm',b',cs',filter',a') = str_Delay'(a', setminus(get_CSout_edge'(o',sm',b',sm',b',cs'),filter'));
+eqn (a' == A'([],[])) -> detect_violations_CS'1(o',sm',b',cs',a') = empty_Delay';
+(a' != A'([],[])) -> detect_violations_CS'1(o',sm',b',cs',a') = str_Delay'(a', get_CSout_edge'(o',sm',b',sm',b',cs'));
 
 % *** SPECIFICATION OF SEQCON VIOLATION RESOLUTION ADVICE ***
 
@@ -1027,7 +1057,7 @@ proc {{model.name}}({% for o in model.objects %}{% set oloop = loop %}{% for stm
 ){% if check_onthefly %} +{% else %};{% endif %}
 
 {% if check_onthefly %}
-(violations' != empty_Advice') -> report(violations') . {{model.name}}(violations'=empty_Advice'{% if lock_onthefly %}, watchlist'=setminus(watchlist',compute_lockset'(violations')), filter'=union'(filter',compute_lockset'(violations')){% endif %}) +
+(violations' != empty_Advice') -> report(violations') . {{model.name}}(violations'=empty_Advice'{% if lock_onthefly %}, watchlist'=setminus(watchlist',compute_lockset'(violations')), filter'=union'(filter',compute_lockset'(violations')), ps'=filter_PS'(ps',compute_lockset'(violations')), cs'=filter_CS'(cs',compute_lockset'(violations')){% endif %}) +
 (watchlist' == []) -> lock_all . {{model.name}}();
 {% endif %}
 
