@@ -444,8 +444,8 @@ eqn remove_invalid_accesses'1([]) = [];
 map remove_invalid_accesses'2: Var' -> List(Var');
 var n': Int;
 {% for v in sorted_variables %}
-{% if loop.first %}eqn {% else %}{% if v is hasindex %}(n' > 0 && n' < {{v[2]}}) -> {% else %}    {% endif %}{% endif %}remove_invalid_accesses'2({{mcrl2varprefix}}{{v[1]}}{{'(n\')' if v is hasindex}}) = {% if v is hasindex %}[{{mcrl2varprefix}}{{v[1]}}(n')]{% else %}[{{mcrl2varprefix}}{{v[1]}}]{% endif %};
-{% if v is hasindex %}(n' < 0 || n' > {{v[2]}}) -> remove_invalid_accesses'2({{mcrl2varprefix}}{{v[1]}}(n')) = [];
+{% if loop.first %}eqn {% else %}{% if v is hasindex %}(n' >= 0 && n' < {{v[2]}}) -> {% else %}    {% endif %}{% endif %}remove_invalid_accesses'2({{mcrl2varprefix}}{{v[1]}}{{'(n\')' if v is hasindex}}) = {% if v is hasindex %}[{{mcrl2varprefix}}{{v[1]}}(n')]{% else %}[{{mcrl2varprefix}}{{v[1]}}]{% endif %};
+{% if v is hasindex %}(n' < 0 || n' >= {{v[2]}}) -> remove_invalid_accesses'2({{mcrl2varprefix}}{{v[1]}}(n')) = [];
 {% endif %}
 {% endfor %}
 
