@@ -85,6 +85,7 @@ object_sync_commpairs = set([])
 # dictionary providing the access patterns of statements
 statement_access = {}
 statement_condition_access = {}
+statement_structure_access = {}
 
 # statements that require syncing
 syncing_statements = {}
@@ -941,6 +942,51 @@ def statement_condition_accesspattern(s, o):
 			readset = expression_varset(s,statemachine[s],smclass[statemachine[s]],{},o,False)
 			return tuple([readset, set([])])
 
+def statement_structure_accesspattern(s, o):
+	"""Provide the access pattern of the given statement, minus the condition. o is Object owning statement s."""
+	global statemachine, smclass
+
+	if s.__class__.__name__ == "Assignment":
+		return [statement_accesspattern(s, o)]
+	elif s.__class__.__name__ == "Composite":
+		alist = []
+		readset = set([])
+		if s.guard != None:
+			readset |= expression_varset(s.guard,statemachine[s],smclass[statemachine[s]],{},o,False)
+		alist.append(tuple([expression_varset(s.guard,statemachine[s],smclass[statemachine[s]],{},o,False),set([])]))
+		vardict = {}
+		writeset = set([])
+		for st in s.assignments:
+			# read accesses to variables that have already been written to do not need to be added, therefore '- writeset'
+			readset2 = (expression_varset(st.right,statemachine[s],smclass[statemachine[s]],vardict,o,False) - writeset)
+			if st.left.index != None:
+				readset2 |= (expression_varset(st.left.index,statemachine[s],smclass[statemachine[s]],vardict,o,False) - writeset)
+			writeset2 = expression_varset(st.left,statemachine[s],smclass[statemachine[s]],vardict,o,True)
+			# update vardict (to correctly handle possible array index use in subsequent assignments)
+			newright = expression(st.right,statemachine[s],smclass[statemachine[s]],vardict,o)
+			varname = scopedvars[smclass[statemachine[s]].name + "'" + statemachine[s].name][st.left.var.name]
+			if st.left.index != None:
+				vardict[varname] = "set'(" + expression(st.left.var,statemachine[s],smclass[statemachine[s]],vardict,o) + ", " + expression(st.left.index,statemachine[s],smclass[statemachine[s]],vardict,o) + ", " + newright + ")"
+			else:
+				vardict[varname] = "(" + newright + ")"
+			alist.append(tuple([readset2 - readset - writeset, writeset2]))
+			readset |= readset2
+			writeset |= writeset2
+		return alist
+	elif s.__class__.__name__ == "Delay":
+		return []
+	elif s.__class__.__name__ == "SendSignal":
+		return [statement_accesspattern(s, o)]
+	elif s.__class__.__name__ == "ReceiveSignal":
+		for st in s.params:
+			writeset |= expression_varset(st,statemachine[s],smclass[statemachine[s]],{},o,True)
+		readset = set([])
+		# in SLCO ReceiveSignal, it is not possible to refer to the old value of a variable to which you are reading. Hence, reading AND writing to the same variable cannot occur
+		readset = readset - writeset
+		return [tuple([readset, writeset])]
+	elif s.__class__.__name__ == "Expression":
+		return [statement_accesspattern(s, o)]
+
 def compute_accesspatterns(m):
 	"""Compute the access patterns for all statements in the system"""
 	adict = {}
@@ -965,6 +1011,18 @@ def compute_condition_accesspatterns(m):
 					adict[o][st] = access
 	return adict
 
+def compute_structure_accesspatterns(m):
+	"""Compute the access patterns for all statements in the system"""
+	adict = {}
+	for o in m.objects:
+		adict[o] = {}
+		for stm in o.type.statemachines:
+			for tr in stm.transitions:
+				for st in tr.statements:
+					access = statement_structure_accesspattern(st,o)
+					adict[o][st] = access
+	return adict
+
 def mcrl2_accesspattern(s, o, b):
 	"""Return the access pattern of the given statement for use in an mCRL2 specification. Owner o is also given.
 	Boolean b indicates whether the statement should be considered as enabled or not."""
@@ -973,6 +1031,16 @@ def mcrl2_accesspattern(s, o, b):
 		access = statement_access[o][s]
 	else:
 		access = statement_condition_access[o][s]
+	return mcrl2_accesspattern_to_string(access)
+
+def mcrl2_structure_accesspattern(s, o):
+	"""Return the access pattern of the given statement, minus its condition, for use in an mCRL2 specification. Owner o is also given."""
+	global statement_structure_access
+	alist = statement_structure_access[o][s]
+	return mcrl2_accesspatterns_to_string(alist)
+
+def mcrl2_accesspattern_to_string(access):
+	"""Convert given access pattern to string"""
 	output = "A'("
 	sorted_access = sorted(list(access[0]))
 	# if the list requires dynamic sorting (it contains more than one dynamic accesses to an array), indicate this
@@ -1029,6 +1097,13 @@ def mcrl2_accesspattern(s, o, b):
 	output += ")"
 	return output
 
+def mcrl2_accesspatterns_to_string(alist):
+	output = "["
+	for a in alist:
+		output += mcrl2_accesspattern_to_string(a)
+	output += "]"
+	return output
+
 def mcrl2_read_accesspattern(s, o, b):
 	"""Return the read access pattern of the given statement for use in an mCRL2 specification. Owner o is also given.
 	Boolean b indicates whether the statement should be considered as enabled or not."""
@@ -1037,17 +1112,7 @@ def mcrl2_read_accesspattern(s, o, b):
 		access = statement_access[o][s]
 	else:
 		access = statement_condition_access[o][s]
-	output = "{"
-	first = True
-	sorted_access = sorted(list(access[0]))
-	for v in sorted_access:
-		if not first:
-			output += ", "
-		else:
-			first = False
-		output += mcrl2varprefix + v
-	output += "}"
-	return output
+	return mcrl2_accesspattern_to_string(tuple([access[0],[]]))
 	# TODO: ADD SORTING?
 
 def mcrl2_write_accesspattern(s, o, b):
@@ -1058,17 +1123,7 @@ def mcrl2_write_accesspattern(s, o, b):
 		access = statement_access[o][s]
 	else:
 		access = statement_condition_access[o][s]
-	output = "{"
-	first = True
-	sorted_access = sorted(list(access[1]))
-	for v in sorted_access:
-		if not first:
-			output += ", "
-		else:
-			first = False
-		output += mcrl2varprefix + v
-	output += "}"
-	return output
+	return mcrl2_accesspattern_to_string(tuple([[],access[1]]))
 	# TODO: ADD SORTING?
 
 def mcrl2_sourcestate_accesspattern(s, o, sm, b):
@@ -1853,7 +1908,7 @@ def preprocess():
 
 def translate():
 	"""The translation function"""
-	global model, modelname, statemachinenames, statemachine, tr, smlocalvars, accessed_sharedvars, states, actions, class_receives, class_sends, vartypes, mcrl2varprefix, channeltypes, asynclossytypes, asynclosslesstypes, synctypes, statement_access, statement_condition_access, unsafe_statements, object_sync_commpairs, syncing_statements, check_onthefly, lock_onthefly, apply_por, sorted_variables, unsafe_variables, IntArraySizes, BoolArraySizes
+	global model, modelname, statemachinenames, statemachine, tr, smlocalvars, accessed_sharedvars, states, actions, class_receives, class_sends, vartypes, mcrl2varprefix, channeltypes, asynclossytypes, asynclosslesstypes, synctypes, statement_access, statement_condition_access, statement_structure_access, unsafe_statements, object_sync_commpairs, syncing_statements, check_onthefly, lock_onthefly, apply_por, sorted_variables, unsafe_variables, IntArraySizes, BoolArraySizes
 	
 	path, name = split(modelname)
 	if name.endswith('.slco'):
@@ -1888,6 +1943,7 @@ def translate():
 	jinja_env.filters['mcrl2_state_accesspattern'] = mcrl2_state_accesspattern
 	jinja_env.filters['mcrl2_sourcestate_accesspattern'] = mcrl2_sourcestate_accesspattern
 	jinja_env.filters['mcrl2_accesspattern'] = mcrl2_accesspattern
+	jinja_env.filters['mcrl2_structure_accesspattern'] = mcrl2_structure_accesspattern
 	jinja_env.filters['mcrl2_read_accesspattern'] = mcrl2_read_accesspattern
 	jinja_env.filters['mcrl2_write_accesspattern'] = mcrl2_write_accesspattern
 	jinja_env.filters['mcrl2_model_vartypes'] = mcrl2_model_vartypes
@@ -1904,6 +1960,7 @@ def translate():
 	# compute statement access patterns
 	statement_access = compute_accesspatterns(model)
 	statement_condition_access = compute_condition_accesspatterns(model)
+	statement_structure_access = compute_structure_accesspatterns(model)
 	# compute filtered accesses per statement and on state machine level
 	compute_filtered_statement_accesses()
 	compute_filtered_statemachine_accesses(model)
@@ -1940,12 +1997,16 @@ def main(args):
 			print("Usage: pypy/python3 slco2mcrl2 [-rc]")
 			print("")
 			print("Transform an SLCO 2.0 model to an mCRL2 model for sequential consistency violation checking.")
-			print(" -d                                    default search. do NOT apply static analysis")
+			print(" -d                                    default search. do NOT apply static analysis [default setting]")
 			print(" -o                                    apply on-the-fly sequential consistency violation checking")
 			print(" -l                                    lock on-the-fly (applies checking on-the-fly and acts on result by locking variables)")
 			print(" -r                                    apply partial-order reduction")
 			sys.exit(0)
 		else:
+			default_search = True
+			check_onthefly = False
+			lock_onthefly = False
+			apply_por = False
 			for i in range(0,len(args)):
 				if args[i] == '-d':
 					default_search = True
@@ -1953,10 +2014,13 @@ def main(args):
 					lock_onthefly = False
 					apply_por = False
 				elif args[i] == '-o':
+					default_search = False
 					check_onthefly = True
+					lock_onthefly = False
 				elif args[i] == '-r':
 					apply_por = True
 				elif args[i] == '-l':
+					default_search = False
 					lock_onthefly = True
 					check_onthefly = True
 				else:
