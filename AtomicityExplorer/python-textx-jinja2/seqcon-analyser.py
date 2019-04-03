@@ -429,7 +429,7 @@ def circuit(L, s, o):
 				trace = []
 				for n, tgt, f2, nt in callstack:
 					trace.append(n)
-				print("adding " + str(trace) + " to list of critical cycles")
+				#print("adding " + str(trace) + " to list of critical cycles")
 				critlist = critical_cycles.get(o, [])
 				critlist.append(trace)
 				critical_cycles[o] = critlist
@@ -782,6 +782,9 @@ def postprocess_critical_cycles():
 	"""Postprocess detected cycles to identify fence insertion suggestions"""
 	global critical_cycles, DG_P, DG_C, statements_accesses, unsafe_cyclic_P_traces, SMowner, statement_fence_suggestions, statement_fence_counter, access_fence_suggestions, accesspattern
 
+	# for efficiency: set of P-traces for which a critical cycle has already been found
+	critical_P_traces = set([])
+
 	for o_name in critical_cycles.keys():
 		# Perform the following loop twice: first for single instruction P-traces, then for multiple instruction P-traces
 		for check_P_length_one in [True, False]:
@@ -864,135 +867,136 @@ def postprocess_critical_cycles():
 				#print("*** " + str(CY) + " " + str(CY_summary))
 				for ti in range(0,len(CY_summary)):
 					t = CY_summary[ti]
-					# consider t?
-					if (check_P_length_one and len(t) == 1) or (not check_P_length_one and len(t) > 1):
-						callstack = []
-						accesses = deepcopy(cycle_accesses[t[0]][0])
-						# currently selected access in current statement
-						current_access = ()
-						# previously selected access in current statement (have we moved inside statement?)
-						previous_access = ()
-						callstack.append((t[0], accesses, current_access, previous_access))
-						i = ti
-						Ppos = 0
-						cycle_found = False
-						# the two accesses at the start and end of the considered P-trace t
-						first_access = ()
-						second_access = ()
-						# variable counter to avoid C-chords (condition 2 of Shasha & Snir's critical cycle definition)
-						var_counter = {}
-						while callstack != []:
-							v, A, current_access, previous_access = peek(callstack)
-							move_to_next = False
-							while len(A) > 0:
-								a = A.pop()
-								#print("selecting " + str(a))
-								# increment counter if we are not considering the same access as the one in the previous step (in which case
-								# we stay at the same access in the same statement)
-								if a != previous_access:
-									#print("increment " + str(a[1]))
-									var_counter[a[1]] = var_counter.get(a[1],0)+1
-								if len(callstack) == 1:
-									first_access = a
-								current_access = a
+					if tuple(P_traces[tuple(t)]) not in critical_P_traces:
+						# consider t?
+						if (check_P_length_one and len(t) == 1) or (not check_P_length_one and len(t) > 1):
+							callstack = []
+							accesses = deepcopy(cycle_accesses[t[0]][0])
+							# currently selected access in current statement
+							current_access = ()
+							# previously selected access in current statement (have we moved inside statement?)
+							previous_access = ()
+							callstack.append((t[0], accesses, current_access, previous_access))
+							i = ti
+							Ppos = 0
+							cycle_found = False
+							# the two accesses at the start and end of the considered P-trace t
+							first_access = ()
+							second_access = ()
+							# variable counter to avoid C-chords (condition 2 of Shasha & Snir's critical cycle definition)
+							var_counter = {}
+							while callstack != []:
+								v, A, current_access, previous_access = peek(callstack)
 								move_to_next = False
-								# if we have selected a[1] already three times, reject in this case
-								if var_counter[a[1]] > 3:
-									var_counter[a[1]] -= 1
-									continue
-								# if we are considering trace t, make sure it will be unsafe
-								if len(callstack) == 2:
-									#print("checking safety")
-									t_start = callstack[0][0]
-									t_end = v
-									if t_start == t_end:
-										if P_trace_is_safe(first_access, a, P_traces[tuple([(t_start)])]):
-											#print("safe!")
-											continue
-										else:
-											second_access = a
-									else:
-										if P_trace_is_safe(first_access, a, P_traces[(t_start,t_end)]):
-											continue
-										else:
-											second_access = a
-								# are we about to close a cycle?
-								if len(callstack) == number_of_accesses:
-									if accesses_are_conflicting(first_access, a):
-										#print("success!")
-										#print("trace: " + str(t))
-										if len(t) == 1:
-											AS = access_fence_suggestions.get(t[0], set([]))
-											AS.add((first_access, second_access))
-											access_fence_suggestions[t[0]] = AS
-											# add fence suggestion to statement access order
-											#update_bigger_than(first_access, second_access, t[0])
-											#print(first_access)
-											#print(second_access)
-										else:
-											trace = P_traces[tuple(t)]
-											for tj in range(1,len(trace)):
-												fencing = statement_fence_suggestions.get(trace[tj], set([]))
-												fencing.add(statement_fence_counter)
-												statement_fence_suggestions[trace[tj]] = fencing
-											statement_fence_counter += 1
-											#print(trace)
-										cycle_found = True
-										break
-									else:
+								while len(A) > 0:
+									a = A.pop()
+									#print("selecting " + str(a))
+									# increment counter if we are not considering the same access as the one in the previous step (in which case
+									# we stay at the same access in the same statement)
+									if a != previous_access:
+										#print("increment " + str(a[1]))
+										var_counter[a[1]] = var_counter.get(a[1],0)+1
+									if len(callstack) == 1:
+										first_access = a
+									current_access = a
+									move_to_next = False
+									# if we have selected a[1] already three times, reject in this case
+									if var_counter[a[1]] > 3:
+										var_counter[a[1]] -= 1
 										continue
-								# put next statement on call stack
-								else:
-									new_previous = ()
-									if len(CY_summary[i]) == 2 or previous_access != ():
-										if Ppos == 0 and len(CY_summary[i]) == 2:
-											Ppos = 1
-											find_conflicts = False
+									# if we are considering trace t, make sure it will be unsafe
+									if len(callstack) == 2:
+										#print("checking safety")
+										t_start = callstack[0][0]
+										t_end = v
+										if t_start == t_end:
+											if P_trace_is_safe(first_access, a, P_traces[tuple([(t_start)])]):
+												#print("safe!")
+												continue
+											else:
+												second_access = a
 										else:
-											Ppos = 0
-											i = (i+1)%len(CY_summary)
-											find_conflicts = True
-										accesses = deepcopy(cycle_accesses[CY_summary[i][Ppos]][0])
-									elif previous_access == ():
-										accesses = deepcopy(cycle_accesses[CY_summary[i][Ppos]][1])
-										new_previous = current_access
-										find_conflicts = False
-										# take a out of accesses in case we are processing t
-										if len(callstack) == 1:
-											accesses = set(accesses)
-											accesses.remove(a)
-											accesses = list(accesses)
-									# filter accesses
-									if find_conflicts:
-										accesses_filtered = []
-										for a1 in accesses:
-											if accesses_are_conflicting(a, a1):
-												accesses_filtered.append(a1)
-										if accesses_filtered != []:
-											accesses = accesses_filtered
+											if P_trace_is_safe(first_access, a, P_traces[(t_start,t_end)]):
+												continue
+											else:
+												second_access = a
+									# are we about to close a cycle?
+									if len(callstack) == number_of_accesses:
+										if accesses_are_conflicting(first_access, a):
+											if len(t) == 1:
+												AS = access_fence_suggestions.get(t[0], set([]))
+												AS.add((first_access, second_access))
+												access_fence_suggestions[t[0]] = AS
+												# add fence suggestion to statement access order
+												#update_bigger_than(first_access, second_access, t[0])
+												#print(first_access)
+												#print(second_access)
+											else:
+												print("critical cycle: " + str(CY_summary))
+												trace = P_traces[tuple(t)]
+												for tj in range(1,len(trace)):
+													fencing = statement_fence_suggestions.get(trace[tj], set([]))
+													fencing.add(statement_fence_counter)
+													statement_fence_suggestions[trace[tj]] = fencing
+												statement_fence_counter += 1
+												#print(trace)
+											critical_P_traces.add(tuple(P_traces[tuple(t)]))
+											cycle_found = True
+											break
 										else:
 											continue
-									# update current access on callstack
-									callstack[len(callstack)-1] = (v, A, a, previous_access)
-									# put new access on callstack
-									callstack.append((CY_summary[i][Ppos], accesses, (), new_previous))
-									move_to_next = True
+									# put next statement on call stack
+									else:
+										new_previous = ()
+										if len(CY_summary[i]) == 2 or previous_access != ():
+											if Ppos == 0 and len(CY_summary[i]) == 2:
+												Ppos = 1
+												find_conflicts = False
+											else:
+												Ppos = 0
+												i = (i+1)%len(CY_summary)
+												find_conflicts = True
+											accesses = deepcopy(cycle_accesses[CY_summary[i][Ppos]][0])
+										elif previous_access == ():
+											accesses = deepcopy(cycle_accesses[CY_summary[i][Ppos]][1])
+											new_previous = current_access
+											find_conflicts = False
+											# take a out of accesses in case we are processing t
+											if len(callstack) == 1:
+												accesses = set(accesses)
+												accesses.remove(a)
+												accesses = list(accesses)
+										# filter accesses
+										if find_conflicts:
+											accesses_filtered = []
+											for a1 in accesses:
+												if accesses_are_conflicting(a, a1):
+													accesses_filtered.append(a1)
+											if accesses_filtered != []:
+												accesses = accesses_filtered
+											else:
+												continue
+										# update current access on callstack
+										callstack[len(callstack)-1] = (v, A, a, previous_access)
+										# put new access on callstack
+										callstack.append((CY_summary[i][Ppos], accesses, (), new_previous))
+										move_to_next = True
+										break
+								if cycle_found:
 									break
-							if cycle_found:
-								break
-							if not move_to_next:
-								callstack.pop()
-								# decrement variable counter, if needed
-								if previous_access != current_access and current_access != ():
-									count = var_counter.get(current_access[1])
-									if count != None:
-										count -= 1
-										var_counter[current_access[1]] = count
-								if Ppos == 1:
-									Ppos = 0
-								else:
-									i = (i-1)%len(CY_summary)
-									Ppos = len(CY_summary[i])-1
+								if not move_to_next:
+									callstack.pop()
+									# decrement variable counter, if needed
+									if previous_access != current_access and current_access != ():
+										count = var_counter.get(current_access[1])
+										if count != None:
+											count -= 1
+											var_counter[current_access[1]] = count
+									if Ppos == 1:
+										Ppos = 0
+									else:
+										i = (i-1)%len(CY_summary)
+										Ppos = len(CY_summary[i])-1
 			# Postprocess P-traces of length one
 			if check_P_length_one:
 				print("optimising transaction and intra-instruction fence placement")
@@ -1843,6 +1847,7 @@ def constructDG():
 
 	# add additional C-edges to handle guarded statements
 	for i in predecessors.keys():
+		o = statements_accesses[i][0]
 		condreads_i = accesspattern[i][0]
 		# construct list of parallel statements
 		parallel_instr = set([])
@@ -1861,6 +1866,7 @@ def constructDG():
 			# Take speculative reading into account?
 			if not RR_order:
 				spreads = speculative_reads[i]
+				print(spreads)
 				for k, accs in spreads.items():
 					if k not in parallel_statements.get(j, set([])):
 						conflicting_reads_k = set([])
@@ -1886,6 +1892,7 @@ def constructDG():
 						#conflicts = DG_C_spec_conflicts.get(k, {})
 						#conflicts[j] = (conflicting_reads_k, set([]))
 						#DG_C_spec_conflicts[k] = conflicts
+	print("P-relation: " + str(DG_P))
 	print("C-relation with spec reads: " + str(DG_C))
 
 def transitive_next_statements(t, trans):
