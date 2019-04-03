@@ -12,9 +12,10 @@ this_folder = dirname(__file__)
 # import libraries
 sys.path.append(join(this_folder,'../../libraries'))
 from slcolib import *
-from SCCTarjan import identifySCCs_lower_bound
+from SCCTarjan import identifySCCs_lower_bound, identifySCCs
 
 class MemoryModel(Enum):
+	SC = 0
 	TSO = 1
 	PSO = 2
 	ARM = 3
@@ -25,6 +26,9 @@ WR_order = True
 RR_order = True
 WW_order = True
 
+# purely apply static analysis
+pure_static_analysis = False
+
 memory_model = MemoryModel.TSO
 model_statespace = {}
 modelname = ""
@@ -33,13 +37,30 @@ DG = {}
 DG_P = {}
 DG_C = {}
 
-# dictionary providing info on conflicting accesses between instructions due to speculative reading
-DG_C_spec_conflicts = {}
+# Set of global variables per object
+globalvars = {}
+# dictionary to look up state machine owning a given statement
+statemachine = {}
+# dictionary to look up class owning a given state machine
+smclass = {}
+# per class / statemachine, give a set of local variables
+smlocalvars = {}
+# per class / statemachine, give a dictionary, making the scope of variables explicit
+scopedvars = {}
+
+# Access patterns of statements
+accesspattern = {}
+# Transitive closure of access order of statements
+access_smaller_than = {}
+access_bigger_than = {}
+
+# dictionary providing info on conflicting accesses between statements due to speculative reading
+#DG_C_spec_conflicts = {}
 
 # structures providing info on the structure of the SLCO model
-instructions_objects = {}
-instructions_IDs = {}
-instructions_accesses = {}
+statements_objects = {}
+statements_IDs = {}
+statements_accesses = {}
 SMowner = {}
 
 # structures for Johnson's algorithm
@@ -48,6 +69,18 @@ B = {}
 
 #structure containing the cycles
 critical_cycles = {}
+# structure to count the number of unsafe P traces in a critical cycle per statement
+unsafe_cyclic_P_traces = {}
+
+# statement level and access level synch suggestions
+statement_fence_suggestions = {}
+statement_fence_counter = 0
+access_fence_suggestions = {}
+
+# count number of transactions and fences needed
+transaction_counter = 0
+fence_counter_intra = 0
+fence_counter_inter = 0
 
 autscanner=re.Scanner([
   (r"des",															lambda scanner,token:("HEADER", token)),
@@ -64,6 +97,299 @@ rwscanner=re.Scanner([
   (r"\[", lambda scanner,token:("BEGINLIST", token)),
   (r"\]", lambda scanner,token:("ENDLIST", token)),
 ])
+
+# SLCO model functions - BEGIN
+
+def printstatement(s):
+	"""print the given statement"""
+	result = ''
+	if s.__class__.__name__ == "Assignment":
+		result += s.left.var.name
+		if s.left.index != None:
+			result += "[" + printstatement(s.left.index) + "]"
+		result += " := " + printstatement(s.right)
+	elif s.__class__.__name__ == "Composite":
+		result += "["
+		if s.guard != None:
+			result += printstatement(s.guard)
+			if len(s.assignments) > 1:
+				result += ";"
+		for i in range(0,len(s.assignments)):
+			result += " " + printstatement(s.assignments[i])
+			if i < len(s.assignments)-1:
+				result += ";"
+		result += "]"
+	elif s.__class__.__name__ == "ReceiveSignal":
+		result += "receive " + s.signal + '('
+		first = True
+		for p in s.params:
+			if not first:
+				result += ', '
+			else:
+				first = False
+			result += printstatement(p)
+		if s.guard != None:
+			result += " | " + printstatement(s.guard)
+		result += ") from " + s.target.name
+	elif s.__class__.__name__ == "SendSignal":
+		result += "send " + s.signal + '('
+		first = True
+		for p in s.params:
+			if not first:
+				result += ', '
+			else:
+				first = False
+			result += printstatement(p)
+		result += ") to " + s.target.name
+	elif s.__class__.__name__ == "Delay":
+		result += "after " + str(s.length) + " ms"
+	elif s.__class__.__name__ == "Expression" or s.__class__.__name__ == "ExprPrec4" or s.__class__.__name__ == "ExprPrec3" or s.__class__.__name__ == "ExprPrec2" or s.__class__.__name__ == "ExprPrec1":
+		if s.op != '':
+			result += printstatement(s.left) + " " + s.op + " " + printstatement(s.right)
+		else:
+			result += printstatement(s.left)
+	elif s.__class__.__name__ == "Primary":
+		result += s.sign
+		if s.sign == "not":
+			result += " "
+		if s.value != None:
+			newvalue = s.value
+			result += str(newvalue).lower()
+		elif s.ref != None:
+			result += s.ref.ref
+			if s.ref.index != None:
+				result += "[" + printstatement(s.ref.index) + "]"
+		else:
+			result += '(' + printstatement(s.body) + ')'
+	elif s.__class__.__name__ == "VariableRef":
+		result += s.var.name
+		if s.index != None:
+			result += "[" + printstatement(s.index) + "]"
+	return result
+
+def RepresentsInt(s):
+    try: 
+        int(s)
+        return True
+    except ValueError:
+        return False
+
+def statement_has_guard(i):
+	"""Returns whether i has a guard"""
+	global statements_objects, statements_accesses
+	# obtain corresponding object
+	s = statements_objects[statements_accesses[i][1]]
+	if s.__class__.__name__ == "Expression":
+		return True
+	if s.__class__.__name__ == "Composite":
+		if i.guard != None:
+			return True
+	return False
+
+def operator(s):
+	"""Maps SLCO expression operators to mCRL2 operators"""
+	if s == '=':
+		return '=='
+	elif s == '<>':
+		return '!='
+	elif s == '<=':
+		return '<='
+	elif s == '>=':
+		return '>='
+	elif s == '<':
+		return '<'
+	elif s == '>':
+		return '>'
+	elif s == '+':
+		return '+'
+	elif s == '-':
+		return '-'
+	elif s == 'or':
+		return '||'
+	elif s == 'xor':
+		return 'xor'
+	elif s == 'and':
+		return '&&'
+	elif s == '*':
+		return '*'
+	elif s == '/':
+		return '/'
+	elif s == '%':
+		return 'mod'
+	elif s == '**':
+		return 'exp'
+	elif s == 'not':
+		return '!'
+	return ''
+
+def expression(s,stm,c,primmap, owner):
+	"""Maps SLCO expression to mCRL2 expression. Statemachine stm and Class c owning the statement are also given. Primmap is a dictionary for rewriting primaries.
+	Owner is the class/object owning the statement."""
+	global actions, scopedvars
+	output = ''
+	# special case: s is a variableref. In this case, it is the left-hand side of an assignment, and s refers to an array
+	if s.__class__.__name__ == "Variable":
+		output = primmap.get(s.name, owner.name + "'" + scopedvars[c.name + "'" + stm.name][s.name])
+	if s.__class__.__name__ == "Expression" or s.__class__.__name__ == "ExprPrec4" or s.__class__.__name__ == "ExprPrec3" or s.__class__.__name__ == "ExprPrec2":
+		#if s.op != '':
+		#	output = '('
+		if s.op != '' and s.op != 'xor':
+			output += expression(s.left,stm,c,primmap,owner) + " " + operator(s.op) + " " + expression(s.right,stm,c,primmap,owner)
+		elif s.op == 'xor':
+			output += operator(s.op) + '(' + expression(s.left,stm,c,primmap,owner) + ', ' + expression(s.right,stm,c,primmap,owner) + ')'
+		else:
+			output += expression(s.left,stm,c,primmap,owner)
+	elif s.__class__.__name__ == "ExprPrec1":
+		if s.op != '':
+			output += operator(s.op) + '(' + expression(s.left,stm,c,primmap,owner) + ', ' + expression(s.right,stm,c,primmap,owner) + ')'
+		else:
+			output += expression(s.left,stm,c,primmap,owner)
+	elif s.__class__.__name__ == "Primary":
+		output = operator(s.sign)
+		if s.value != None:
+			newvalue = s.value
+			output += str(newvalue).lower()
+		elif s.ref != None:
+			if s.ref.ref in actions:
+				output += s.ref.ref
+			else:
+				# is an index to an array given?
+				if s.ref.index != None:
+					varname = scopedvars[c.name + "'" + stm.name][s.ref.ref]
+					varname_with_index = varname + "[" + expression(s.ref.index,stm,c,primmap,owner) + "]"
+					if primmap.get(varname_with_index) != None:
+						output += primmap.get(varname_with_index)
+						return output
+				if s.ref.index != None:
+					output += "get'("
+				output += primmap.get(scopedvars[c.name + "'" + stm.name][s.ref.ref], owner.name + "'" + scopedvars[c.name + "'" + stm.name][s.ref.ref])
+				if s.ref.index != None:
+					output += ", " + expression(s.ref.index,stm,c,primmap,owner) + ")"
+		else:
+			output += '(' + expression(s.body,stm,c,primmap,owner) + ')'
+	return output
+
+def statement_structure_accesspattern(s, o):
+	"""Provide the access pattern of the given statement. o is Object owning statement s."""
+	global statemachine, smclass
+
+	if s.__class__.__name__ == "Assignment":
+		readset = expression_full_varset(s.right,statemachine[s],smclass[statemachine[s]],{},o,False)
+		if s.left.index != None:
+			readset |= expression_full_varset(s.left.index,statemachine[s],smclass[statemachine[s]],{},o,False)
+		writeset = expression_full_varset(s.left,statemachine[s],smclass[statemachine[s]],{},o,True)
+		return [tuple([readset, writeset])]
+	elif s.__class__.__name__ == "Composite":
+		alist = []
+		readset = set([])
+		if s.guard != None:
+			readset |= expression_full_varset(s.guard,statemachine[s],smclass[statemachine[s]],{},o,False)
+		alist.append(tuple([expression_full_varset(s.guard,statemachine[s],smclass[statemachine[s]],{},o,False),set([])]))
+		vardict = {}
+		writeset = set([])
+		for st in s.assignments:
+			readset2 = expression_full_varset(st.right,statemachine[s],smclass[statemachine[s]],vardict,o,False)
+			if st.left.index != None:
+				readset2 |= expression_full_varset(st.left.index,statemachine[s],smclass[statemachine[s]],vardict,o,False) - writeset
+			writeset2 = expression_full_varset(st.left,statemachine[s],smclass[statemachine[s]],vardict,o,True)
+			# update vardict (to correctly handle possible array index use in subsequent assignments)
+			newright = expression(st.right,statemachine[s],smclass[statemachine[s]],vardict,o)
+			varname = scopedvars[smclass[statemachine[s]].name + "'" + statemachine[s].name][st.left.var.name]
+			if st.left.index != None:
+				vardict[varname] = "set'(" + expression(st.left.var,statemachine[s],smclass[statemachine[s]],vardict,o) + ", " + expression(st.left.index,statemachine[s],smclass[statemachine[s]],vardict,o) + ", " + newright + ")"
+			else:
+				vardict[varname] = "(" + newright + ")"
+			alist.append(tuple([readset2, writeset2]))
+			readset |= readset2
+			writeset |= writeset2
+		return alist
+	elif s.__class__.__name__ == "Delay":
+		return []
+	elif s.__class__.__name__ == "SendSignal":
+		readset = set([])
+		for st in s.params:
+			readset |= expression_full_varset(st,statemachine[s],smclass[statemachine[s]],{},o,False)
+		return tuple([readset, set([])])
+	elif s.__class__.__name__ == "ReceiveSignal":
+		for st in s.params:
+			writeset |= expression_full_varset(st,statemachine[s],smclass[statemachine[s]],{},o,True)
+		readset = set([])
+		# in SLCO ReceiveSignal, it is not possible to refer to the old value of a variable to which you are reading. Hence, reading AND writing to the same variable cannot occur
+		readset = readset - writeset
+		return [tuple([readset, writeset])]
+	elif s.__class__.__name__ == "Expression":
+		if expression_is_actionref(s):
+			return tuple([set([]), set([])])
+		else:
+			readset = expression_full_varset(s,statemachine[s],smclass[statemachine[s]],{},o,False)
+			return [tuple([readset, set([])])]
+
+def expression_full_varset(s,stm,c,primmap,owner,ignore_indices):
+	"""Produce set of variables including the local ones"""
+	return expression_variables(s,stm,c,primmap,owner,ignore_indices,True)
+
+def expression_variables(s,stm,c,primmap,owner,ignore_indices,add_local):
+	"""Produces set of variables referenced in given SLCO expression or variableref. Statemachine stm and Class c owning the statement are also given. Primmap is a dictionary for rewriting primaries, which is relevant when array indices are used.
+	The owner of the statement is also given. ignore_indices is a Boolean flag indicating whether array indices should be ignored or not.
+	add_local is a Boolean flag indicating whether local variables should be included or nor."""
+	global actions, scopedvars, smlocalvars
+	output = set([])
+	if s.__class__.__name__ == "VariableRef":
+		# is the variable not local to state machine?
+
+		if add_local or (s.var.name not in smlocalvars.get(c.name + "'" + stm.name,set([]))):
+			if s.var.name in smlocalvars.get(c.name + "'" + stm.name,set([])):
+				varname = "var_" + owner.name + "'" + stm.name + "'" + s.var.name
+			else:
+				varname = "var_" + owner.name + "'" + s.var.name
+			if s.index != None:
+				e = expression(s.index,stm,c,primmap,owner)
+				if RepresentsInt(e):
+					varname += "[" + e + "]"
+				else:
+					varname += "[*]"
+				if not ignore_indices:
+					output |= expression_variables(s.index,stm,c,primmap,owner,ignore_indices,add_local)
+			output.add(varname)
+	elif s.__class__.__name__ != "Primary":
+		output |= expression_variables(s.left,stm,c,primmap,owner,ignore_indices,add_local)
+		if s.op != '':
+			output |= expression_variables(s.right,stm,c,primmap,owner,ignore_indices,add_local)
+	else:
+		if s.ref != None:
+			if s.ref.ref not in actions:
+				# IGNORE STATE MACHINE LOCAL VARS?
+				if add_local or (s.ref.ref not in smlocalvars.get(c.name + "'" + stm.name,set([]))):
+					if s.ref.ref in smlocalvars.get(c.name + "'" + stm.name,set([])):
+						varname = "var_" + owner.name + "'" + stm.name + "'" + s.ref.ref
+					else:
+						varname = "var_" + owner.name + "'" + s.ref.ref
+					if s.ref.index != None:
+						e = expression(s.ref.index,stm,c,primmap,owner)
+						if RepresentsInt(s.ref.index):
+							varname += "[" + e + "]"
+						else:
+							varname += "[*]"
+						if not ignore_indices:
+							output |= expression_variables(s.ref.index,stm,c,primmap,owner,ignore_indices,add_local)
+					output.add(varname)
+		if s.body != None:
+			output |= expression_variables(s.body,stm,c,primmap,owner,ignore_indices,add_local)
+	return output
+
+# SLCO model functions - END
+
+def var_is_local(a, i):
+	"""Return whether variable accessed by a is local to SM of i or not"""
+	global statements_accesses, statements_objects, globalvars
+	o = statements_accesses[i][0]
+	V = globalvars.get(o, set([]))
+	a_splitted = a.split("[")
+	if len(a_splitted) > 1:
+		a2 = a_splitted[0]
+	else:
+		a2 = a
+	return (a2 not in V)
 
 def peek(stack):
 	"""Return but do not pop top element of stack"""
@@ -82,42 +408,44 @@ def unblock(u):
 
 def circuit(L, s, o):
 	"""Procedure for Johnson's algorithm"""
-	global blocked, B, critical_cycles, instructions_accesses, SMowner
+	global blocked, B, critical_cycles, statements_accesses, SMowner
 
-	# Set of visited threads in cycle detection
+	# Keep track of visited threads in cycle detection, to enforce condition 1 of Shasha & Snir for critical cycles
+	initial_thread = SMowner[statements_accesses[s][1]]
 	T = set([])
-	current_thread = SMowner[instructions_accesses[s][1]]
 
 	# call stack
 	callstack = []
 	outgoing = L.get(s, set([]))
-	callstack.append((s, list(outgoing), False))
+	callstack.append((s, list(outgoing), False, initial_thread))
 	blocked[s] = True
 	while callstack != []:
-		v, targets, f = peek(callstack)
+		v, targets, f, current_thread = peek(callstack)
 		move_to_next = False
 		while len(targets) > 0:
 			w = targets.pop()
 			if w == s and T != set([]):
-				# put stack in list of critical cycles (at least two threads are involved)
+				# unfold trace on stack, and add to list of critical cycles (at least two threads are involved)
 				trace = []
-				for n, tgt, f2 in callstack:
+				for n, tgt, f2, nt in callstack:
 					trace.append(n)
 				print("adding " + str(trace) + " to list of critical cycles")
-				critlist = critical_cycles.get(o.name, [])
+				critlist = critical_cycles.get(o, [])
 				critlist.append(trace)
-				critical_cycles[o.name] = critlist
-				callstack[len(callstack)-1] = (v, targets, True)
+				critical_cycles[o] = critlist
+				f = True
 			elif not blocked[w]:
 				# condition for criticality (thread visitation)
-				w_thread = SMowner[instructions_accesses[w][1]]
-				if w_thread not in T:
+				w_thread = SMowner[statements_accesses[w][1]]
+				if (w_thread not in T or w_thread == initial_thread) and not (initial_thread in T and current_thread == initial_thread and w_thread != initial_thread):
+					# store f value on callstack
+					callstack[len(callstack)-1] = (v, targets, f, current_thread)
 					if w_thread != current_thread:
 						T.add(current_thread)
 						current_thread = w_thread
 					# put w on the callstack
 					woutgoing = L.get(w, set([]))
-					callstack.append((w, list(woutgoing), False))
+					callstack.append((w, list(woutgoing), False, current_thread))
 					blocked[w] = True
 					move_to_next = True
 					break
@@ -132,22 +460,25 @@ def circuit(L, s, o):
 					B[w] = Bw
 			callstack.pop()
 			# update predecessor
-			if f:
-				if len(callstack) > 0:
-					n, tgt, f2 = peek(callstack)
-					callstack[len(callstack)-1] = (n, tgt, f)
+			if len(callstack) > 0:
+				n, tgt, f2, nt = peek(callstack)
+				if f:
+					callstack[len(callstack)-1] = (n, tgt, f, nt)
+				if nt != current_thread:
+					if nt in T:
+						T.remove(nt)
 
 def detect_critical_cycles():
 	"""Detect conflict cycles in given graph. Based on Johnson's algorithm for the detection of elementary circuits"""
 	# list of all states
-	global blocked, B, DG_P, DG_C, T, model, instructions_accesses, SMowner
+	global blocked, B, DG_P, DG_C, T, model, statements_accesses, SMowner
 
 	for o in model.objects:
 		# Conbine the C and P relations
-		DG = deepcopy(DG_P[o.name])
-		for i, tgts in DG_C[o.name].items():
+		DG = deepcopy(DG_P[o])
+		for i, tgts in DG_C[o].items():
 			p_tgts = DG.get(i, set([]))
-			p_tgts |= DG_C[o.name][i]
+			p_tgts |= DG_C[o][i]
 			DG[i] = p_tgts
 
 		states = set(DG.keys())
@@ -183,55 +514,577 @@ def detect_critical_cycles():
 			else:
 				s = max_state+1
 
+def access_follows(i, a1, a2):
+	"""Could a1 follow a2 in i? It is assumed that a2 is in i, but whether a1 is as well needs to be checked"""
+	global statements_accesses
+	ap = statements_accesses[i][2]
+	# 0: no, 1: maybe, 2: yes
+	condreads = set([])
+	reads = set([])
+	writes = set([])
+	i = 0
+	condreads - set([])
+	if statement_has_guard(i):
+		condreads = ap[0][0]
+		if len(ap) > 1:
+			i = 1
+	while i < len(ap):
+		reads |= ap[0] - writes - condreads
+		writes |= ap[1]
+		i += 1
+	if a1[0] == 'C' and a1[1] in condreads:
+		if a2[0] == 'C':
+			return 1
+		else:
+			return 2
+	if a1[0] == 'R' and a1[1] in reads:
+		if a2[0] == 'C':
+			return 0
+		elif a2[0] == 'R':
+			return 1
+		else:
+			return 2
+	if a1[0] == 'W' and a1[1] in writes:
+		if a2[0] != 'W':
+			return 0
+		else:
+			return 1
+
+def P_trace_has_condition_with_access(x, i1, a1, i2, a2, AP):
+	"""Returns whether the P-trace from i1 to i2 with access pattern AP has a condition accessing variable x"""
+	if x in AP[0]:
+		return True
+		return True
+	if access_has_smaller_than(a2, ('C',x), i2) == 2:
+		return True
+	return False
+
+def access_is_on_trace(a, a1, i1, a2, i2, tAP):
+	"""Return whether access a is somewhere on the trace starting with access a1 (in i1), end with access a2 (in i2), with t access pattern tAP"""
+	if a[0] == 'C':
+		if a[1] in tAP[0]:
+			return True
+	if a[0] == 'R':
+		if a[1] in tAP[1]:
+			return True
+	if a[0] == 'W':
+		if a[1] in tAP[2]:
+			return True
+	if access_has_bigger_than(a1, a, i1):
+		return True
+	if access_has_smaller_than(a2, a, i2):
+		return True
+	return False
+
+def P_trace_is_safe(a1, a2, t):
+	"""Returns whether the trace t from statement executing a1 to statement executing a2 via accesses in t is safe or not."""
+	global RR_order, RW_order, WR_order, WW_order, statements_accesses, accesspattern, access_bigger_than
+
+	i1 = t[0]
+	i2 = t[len(t)-1]
+	if i1 == i2:
+		# single statement case
+		return a2 in access_bigger_than[i1].get(a1, set([]))
+	else:
+		if a1[1] == a2[1] and (a1[0] == 'W' or a2[0] == 'W'):
+			return True
+		if a1[0] != 'W' and a2[0] != 'W' and RR_order:
+			return True
+		if a1[0] != 'W' and a2[0] == 'W' and RW_order:
+			return True
+		if a1[0] == 'W' and a2[0] != 'W' and WR_order:
+			return True
+		if a1[0] == 'W' and a2[0] == 'W' and WW_order:
+			return True
+		#print("UNSAFE?")
+		# obtain summarised access pattern for t between first and last instruction
+		t_accesses = (set([]), set([]), set([]))
+		if len(t) > 2:
+			for i in range(1, len(t)-1):
+				ap = accesspattern[t[i]]
+				t_accesses = (t_accesses[0]|ap[0], t_accesses[1]|ap[1], t_accesses[2]|ap[2])
+		if a1[0] != 'W' and a2[0] == 'W':
+			# simple, single access occurrence checks
+			if not RW_order and not WR_order and not RR_order and not WW_order:
+				if a1[1] in t_accesses[0]:
+					return True
+			if RR_order:
+				if t_accesses[0] != set([]):
+					return True
+				if a2[1] in t_accesses[0] or a2[1] in t_accesses[1]:
+					return True
+			if WW_order:
+				# is a write to a1[1] somewhere on the trace?
+				if access_is_on_trace(('W',a1[1]), a1, i1, a2, i2, t_accesses):
+					return True
+			# simple, single access occurrence within start and end instructions checks
+			if not RW_order and not WR_order and not RR_order and not WW_order:
+				# read a1[1] occurs before write a2[1]
+				if access_has_smaller_than(a2, ('R',a1[1]), i2):
+					return True
+				if access_has_bigger_than(a1, ('W',a2[1]), i1):
+					return True
+			if RR_order:
+				if access_has_read_smaller_than(a2, i2):
+					return True
+				if access_has_bigger_than(a1, ('W',a2[1]), i1):
+					return True
+				if access_has_condition_bigger_than(a1, i1):
+					return True
+				if access_has_read_bigger_than(a1, ('R',a2[1]), i1):
+					return True
+			if WR_order and not RR_order and not WW_order:
+				# check whether a write to a1[1] is followed by a read from a2[1] on a safe subtrace
+				# if RR_order or WW_order, then those checks have already established that this condition cannot be satisfied.
+
+				# find statement with first write to a1[1]
+				start = -1
+				end = -1
+				for i in range(0,len(t)):
+					ap = accesspattern[i]
+					if a1[1] in ap[2]:
+						start = i
+						break
+				if start != -1:
+					# find statement with last read from a2[1]
+					for i in reversed(range(0,len(t))):
+						if i < start:
+							break
+						if a2[1] in ap[0] or a2[1] in ap[1]:
+							end = i
+							break
+				if end != -1:
+					subtrace = []
+					for i in range(start,end):
+						subtrace.append(t[i])
+					return P_trace_is_safe(('W',a1[1]), ('R', a2[1]), subtrace)
+			return False
+		if a1[0] != 'W' and a2[0] != 'W':
+			if not RW_order and not WR_order and not RR_order and not WW_order:
+				if access_has_bigger_than(a1, ('W',a2[1]), i1):
+					return True
+				if access_has_smaller_than(a2, ('W',a1[1]), i2):
+					return True
+			if RW_order:
+				if access_is_on_trace(('W',a2[1]), a1, i1, a2, i2, t_accesses):
+					return True
+			if WR_order:
+				if access_is_on_trace(('W',a1[1]), a1, i1, a2, i2, t_accesses):
+					return True
+			if WW_order and not RW_order and not WR_order:
+				# check whether a write to a1[1] is followed by a write to a2[1] on a safe subtrace
+				# if RW_order or WR_order, then those checks have already established that this condition cannot be satisfied.
+
+				# find statement with first write to a1[1]
+				start = -1
+				end = -1
+				for i in range(0,len(t)):
+					ap = accesspattern[i]
+					if a1[1] in ap[2]:
+						start = i
+						break
+				if start != -1:
+					# find statement with last write to a2[1]
+					for i in reversed(range(0,len(t))):
+						if i < start:
+							break
+						if a2[1] in ap[2]:
+							end = i
+							break
+				if end != -1:
+					subtrace = []
+					for i in range(start,end):
+						subtrace.append(t[i])
+					return P_trace_is_safe(('W',a1[1]), ('W', a2[1]), subtrace)
+			return False
+		if a1[0] == 'W' and a2[0] == 'W':
+			if not RW_order and not WR_order and not RR_order and not WW_order:
+				if access_has_smaller_than(a2, ('R',a1[1]), i2):
+					return True
+				if access_has_bigger_than(a1, ('R',a2[1]), i1):
+					return True
+				if access_is_on_trace(('C',a1[1]), a1, i1, a2, i2, t_accesses):
+					return True
+			if RW_order:
+				if access_is_on_trace(('R',a1[1]), a1, i1, a2, i2, t_accesses):
+					return True
+			if WR_order:
+				if access_is_on_trace(('R',a2[1]), a1, i1, a2, i2, t_accesses):
+					return True
+			if RR_order:
+				if access_has_smaller_than(a2, ('R',a1[1]), i2):
+					return True
+				if access_is_on_trace(('C',a1[1]), a1, i1, a2, i2, t_accesses):
+					return True
+			if RR_order and not RW_order and not WR_order:
+				# check whether a read from a1[1] is followed by a read from a2[1] on a safe subtrace
+				# if RW_order or WR_order, then those checks have already established that this condition cannot be satisfied.
+
+				# find statement with first read from a1[1]
+				start = -1
+				end = -1
+				for i in range(0,len(t)):
+					ap = accesspattern[i]
+					if a1[1] in ap[0] or a1[1] in ap[1]:
+						start = i
+						break
+				if start != -1:
+					# find statement with last read from a2[1]
+					for i in reversed(range(0,len(t))):
+						if i < start:
+							break
+						if a2[1] in ap[0] or a2[1] in ap[1]:
+							end = i
+							break
+				if end != -1:
+					subtrace = []
+					for i in range(start,end):
+						subtrace.append(t[i])
+					return P_trace_is_safe(('R',a1[1]), ('R', a2[1]), subtrace)
+			return False
+		if a1[0] == 'W' and a2[0] != 'W':
+			if not RW_order and not WR_order and not RR_order and not WW_order:
+				return False
+			if RR_order:
+				if access_is_on_trace(('R',a1[1]), a1, i1, a2, i2, t_accesses):
+					return True
+			if WW_order:
+				if access_is_on_trace(('W',a2[1]), a1, i1, a2, i2, t_accesses):
+					return True
+			if RW_order and not RR_order and not WW_order:
+				# check whether a read from a1[1] is followed by a write to a2[1] on a safe subtrace
+				# if RW_order or WR_order, then those checks have already established that this condition cannot be satisfied.
+
+				# find statement with first read from a1[1]
+				start = -1
+				end = -1
+				for i in range(0,len(t)):
+					ap = accesspattern[i]
+					if a1[1] in ap[0] or a1[1] in ap[1]:
+						start = i
+						break
+				if start != -1:
+					# find statement with last write to a2[1]
+					for i in reversed(range(0,len(t))):
+						if i < start:
+							break
+						if a2[1] in ap[2]:
+							end = i
+							break
+				if end != -1:
+					subtrace = []
+					for i in range(start,end):
+						subtrace.append(t[i])
+					return P_trace_is_safe(('R',a1[1]), ('W', a2[1]), subtrace)
+			return False
+
 def postprocess_critical_cycles():
 	"""Postprocess detected cycles to identify fence insertion suggestions"""
-	global critical_cycles, DG_P, DG_C, instructions_accesses
+	global critical_cycles, DG_P, DG_C, statements_accesses, unsafe_cyclic_P_traces, SMowner, statement_fence_suggestions, statement_fence_counter, access_fence_suggestions, accesspattern
 
 	for o_name in critical_cycles.keys():
-		for C in critical_cycles[o_name]:
-			print(C)
-			# Summarise and compress the P-traces
-			C_summary = []
-			P_trace_accesses = {}
-			# store conditional reads, reads, and writes of each P trace
-			exploring_P_trace = False
-			P_trace_start = 0
-			for i in range(0, len(C)):
-				s = C[i]
-				t = C[(i+1)%len(C)]
-				if t in DG_P[o_name].get(s, set([])):
-					if not exploring_P_trace:
-						exploring_P_trace = True
+		# Perform the following loop twice: first for single instruction P-traces, then for multiple instruction P-traces
+		for check_P_length_one in [True, False]:
+			for CY in critical_cycles[o_name]:
+				#print("here: " + str(CY))
+				# Compress the P-traces
+				CY_summary = []
+				P_traces = {}
+				scanning_start = 0
+				for i in range(0, len(CY)):
+					s = CY[i]
+					t = CY[(i+1)%len(CY)]
+					if SMowner[statements_accesses[s][1]] != SMowner[statements_accesses[t][1]]:
+						# here we should start scanning for P-traces
+						scanning_start = (i+1)%len(CY)
+						break
+				i = scanning_start
+				trace = []
+				first = True
+				while i != scanning_start or first:
+					first = False
+					s = CY[i]
+					t = CY[(i+1)%len(CY)]
+					if trace == []:
 						P_trace_start = s
-						P_trace_summary = (set([]), set([]), set([]))
+					trace.append(s)
+					if t in DG_P[o_name].get(s, set([])) and SMowner[statements_accesses[s][1]] == SMowner[statements_accesses[t][1]]:
+						if s == t:
+							CY_summary.append((P_trace_start,s))
+							P_traces[tuple((P_trace_start,s))] = trace
+							trace = []
 					else:
-						if t != P_trace_start:
-							ap = instructions_accesses[s][2]
-							if ap[0][1] == set([]):
-								condreads = ap[0][0]
-								api = 1
-							else:
-								condreads = set([])
-								api = 0
-							reads = set([])
-							writes = set([])
-							while api < len(ap):
-								reads |= ap[api][0] - writes - condreads
-								writes |= ap[api][1]
-								api += 1
-							P_trace_summary = (P_trace_summary[0]|condreads, P_trace_summary[1]|reads, P_trace_summary[2]|writes)
+						if s == P_trace_start:
+							t_summary = tuple([(s)])
 						else:
-							C_summary.append([P_trace_start,P_trace_start])
-							P_trace_accesses[P_trace_start] = P_trace_summary
-				else:
-					if exploring_P_trace:
-						exploring_P_trace = False
-						C_summary.append([P_trace_start,s])
-						P_trace_accesses[P_trace_start] = P_trace_summary
+							t_summary = (P_trace_start,s)
+						CY_summary.append(t_summary)
+						P_traces[t_summary] = trace
+						trace = []
+					i = (i+1)%len(CY)
+				# next, we try to identify for each P-trace in CY whether we can construct an access-level cycle in which that P-trace is unsafe
+				# (and no C-chords are present)
+
+				# first limit the accesses per statement to take C-edges into account
+				cycle_accesses = {}
+				for i in range(0,len(CY_summary)):
+					t_start = CY_summary[i][0]
+					t_end = CY_summary[i][len(CY_summary[i])-1]
+					previous = (i-1)%len(CY_summary)
+					next = (i+1)%len(CY_summary)
+					predecessor = CY_summary[previous][len(CY_summary[previous])-1]
+					successor = CY_summary[next][0]
+					ap = accesspattern[t_start]
+					L = [('C',a) for a in ap[0]] + [('R',a) for a in ap[1]] + [('W',a) for a in ap[2]]
+					cycle_accesses[t_start] = tuple([L])
+					if t_start != t_end:
+						ap = accesspattern[t_end]
+						L = [('C',a) for a in ap[0]] + [('R',a) for a in ap[1]] + [('W',a) for a in ap[2]]
+						cycle_accesses[t_end] = tuple([L])
+					A = cycle_accesses[t_start][0]
+					A_filtered = []
+					for a,x in A:
+						if conflicting_accesses(x, (a == 'W'), predecessor) != (set([]),set([])):
+							A_filtered.append((a,x))
+					cycle_accesses[t_start] = tuple([A_filtered])
+					if t_start != t_end:
+						A = cycle_accesses[t_end][0]
+					A_filtered = []
+					for a,x in A:
+						if conflicting_accesses(x, (a == 'W'), successor) != (set([]),set([])):
+							A_filtered.append((a,x))
+					if t_start == t_end:
+						# we write a tuple of two lists, to distinguish how to enter, and how to leave the statement
+						cycle_accesses[t_end] = (cycle_accesses[t_end][0], A_filtered)
 					else:
-						C_summary.append([s])
-			print(C_summary)
-			print(P_trace_accesses)
+						cycle_accesses[t_end] = tuple([A_filtered])
+
+				# depth-first like access cycle construction
+				number_of_accesses = len(CY_summary)*2
+				#print("*** " + str(CY) + " " + str(CY_summary))
+				for ti in range(0,len(CY_summary)):
+					t = CY_summary[ti]
+					# consider t?
+					if (check_P_length_one and len(t) == 1) or (not check_P_length_one and len(t) > 1):
+						callstack = []
+						accesses = deepcopy(cycle_accesses[t[0]][0])
+						# currently selected access in current statement
+						current_access = ()
+						# previously selected access in current statement (have we moved inside statement?)
+						previous_access = ()
+						callstack.append((t[0], accesses, current_access, previous_access))
+						i = ti
+						Ppos = 0
+						cycle_found = False
+						# the two accesses at the start and end of the considered P-trace t
+						first_access = ()
+						second_access = ()
+						# variable counter to avoid C-chords (condition 2 of Shasha & Snir's critical cycle definition)
+						var_counter = {}
+						while callstack != []:
+							v, A, current_access, previous_access = peek(callstack)
+							move_to_next = False
+							while len(A) > 0:
+								a = A.pop()
+								#print("selecting " + str(a))
+								# increment counter if we are not considering the same access as the one in the previous step (in which case
+								# we stay at the same access in the same statement)
+								if a != previous_access:
+									#print("increment " + str(a[1]))
+									var_counter[a[1]] = var_counter.get(a[1],0)+1
+								if len(callstack) == 1:
+									first_access = a
+								current_access = a
+								move_to_next = False
+								# if we have selected a[1] already three times, reject in this case
+								if var_counter[a[1]] > 3:
+									var_counter[a[1]] -= 1
+									continue
+								# if we are considering trace t, make sure it will be unsafe
+								if len(callstack) == 2:
+									#print("checking safety")
+									t_start = callstack[0][0]
+									t_end = v
+									if t_start == t_end:
+										if P_trace_is_safe(first_access, a, P_traces[tuple([(t_start)])]):
+											#print("safe!")
+											continue
+										else:
+											second_access = a
+									else:
+										if P_trace_is_safe(first_access, a, P_traces[(t_start,t_end)]):
+											continue
+										else:
+											second_access = a
+								# are we about to close a cycle?
+								if len(callstack) == number_of_accesses:
+									if accesses_are_conflicting(first_access, a):
+										#print("success!")
+										#print("trace: " + str(t))
+										if len(t) == 1:
+											AS = access_fence_suggestions.get(t[0], set([]))
+											AS.add((first_access, second_access))
+											access_fence_suggestions[t[0]] = AS
+											# add fence suggestion to statement access order
+											#update_bigger_than(first_access, second_access, t[0])
+											#print(first_access)
+											#print(second_access)
+										else:
+											trace = P_traces[tuple(t)]
+											for tj in range(1,len(trace)):
+												fencing = statement_fence_suggestions.get(trace[tj], set([]))
+												fencing.add(statement_fence_counter)
+												statement_fence_suggestions[trace[tj]] = fencing
+											statement_fence_counter += 1
+											#print(trace)
+										cycle_found = True
+										break
+									else:
+										continue
+								# put next statement on call stack
+								else:
+									new_previous = ()
+									if len(CY_summary[i]) == 2 or previous_access != ():
+										if Ppos == 0 and len(CY_summary[i]) == 2:
+											Ppos = 1
+											find_conflicts = False
+										else:
+											Ppos = 0
+											i = (i+1)%len(CY_summary)
+											find_conflicts = True
+										accesses = deepcopy(cycle_accesses[CY_summary[i][Ppos]][0])
+									elif previous_access == ():
+										accesses = deepcopy(cycle_accesses[CY_summary[i][Ppos]][1])
+										new_previous = current_access
+										find_conflicts = False
+										# take a out of accesses in case we are processing t
+										if len(callstack) == 1:
+											accesses = set(accesses)
+											accesses.remove(a)
+											accesses = list(accesses)
+									# filter accesses
+									if find_conflicts:
+										accesses_filtered = []
+										for a1 in accesses:
+											if accesses_are_conflicting(a, a1):
+												accesses_filtered.append(a1)
+										if accesses_filtered != []:
+											accesses = accesses_filtered
+										else:
+											continue
+									# update current access on callstack
+									callstack[len(callstack)-1] = (v, A, a, previous_access)
+									# put new access on callstack
+									callstack.append((CY_summary[i][Ppos], accesses, (), new_previous))
+									move_to_next = True
+									break
+							if cycle_found:
+								break
+							if not move_to_next:
+								callstack.pop()
+								# decrement variable counter, if needed
+								if previous_access != current_access and current_access != ():
+									count = var_counter.get(current_access[1])
+									if count != None:
+										count -= 1
+										var_counter[current_access[1]] = count
+								if Ppos == 1:
+									Ppos = 0
+								else:
+									i = (i-1)%len(CY_summary)
+									Ppos = len(CY_summary[i])-1
+			# Postprocess P-traces of length one
+			if check_P_length_one:
+				print("optimising transaction and intra-instruction fence placement")
+				optimise_transactions()
+			else:
+				print("optimising inter-instruction fence placement")
+				optimise_fences()
+
+def optimise_transactions():
+	"""Optimise the placement of transactions and intra-instruction fences"""
+	global access_fence_suggestions, access_smaller_than, access_bigger_than, transaction_counter, fence_counter_intra
+	# for each statement mentioned in the suggestions, add suggestions to access order and detect SCCs to identify transactions
+	transaction_counter = 0
+	for i, S in access_fence_suggestions.items():
+		O = deepcopy(access_bigger_than[i])
+		for a1, a2 in S:
+			B2 = O.get(a2, set([]))
+			B1 = O.get(a1, set([]))
+			B1.add(a2)
+			B1 |= B2
+			O[a1] = B1
+		# detect SCCs
+		SCCs = list()
+		SCCdict = {}
+		identifySCCs(O, SCCdict, SCCs)
+		# count SCCs of size > 1. Those require transactions.
+		for scc in SCCs:
+			if scc[0] > 1:
+				transaction_counter += 1
+				print("transaction in " + str(i) + ": " + str(scc))
+		# filter suggestions, removing edges within an SCC
+		S_filtered = []
+		for a1, a2 in S:
+			if SCCdict[a1] != SCCdict[a2]:
+				S_filtered.append[(a1,a2)]
+		# group accesses in i into equivalence classes based on their predecessors and successors
+		EC_counter = 0
+		EC_numbers = {}
+		ECs = {}
+		accesses = set(access_smaller_than[i].keys()) | set(access_bigger_than[i].keys())
+		for a in accesses:
+			B = list(access_smaller_than[i].get(a,set([])))
+			B.sort()
+			B = tuple(B)
+			G = list(access_bigger_than[i].get(a,set([])))
+			G.sort
+			G = tuple(G)
+			ecid = EC_numbers.get((B,G))
+			if ecid == None:
+				EC_numbers[(B,G)] = EC_counter
+				ecid = EC_counter
+				EC_counter += 1
+			ECs[a] = ecid
+		# filter suggestions, keeping at most one for every equivalence class pair
+		S_EQ_filtered = []
+		sug_added = set([])
+		for a1, a2 in S_filtered:
+			if (ECs[a1],ECs[a2]) not in sug_added:
+				S_EQ_filtered.append((a1,a2))
+				sug_added.add((ECs[a1],ECs[a2]))
+		# count number of intra-instruction fences
+		fence_counter_intra += len(S_EQ_filtered)
+
+def statement_fence_sorting_value(e):
+	"""Function for sorting statement fence suggestions"""
+	global statement_fence_suggestions
+	size = len(statement_fence_suggestions[e])
+	if size == None:
+		return 0
+	else:
+		return size
+
+def optimise_fences():
+	"""Optimise the placement of inter-instruction fences"""
+	global statement_fence_suggestions, fence_counter_inter
+	L = statement_fence_suggestions.keys()
+	fence_counter_inter = 0
+	while L != []:
+		L.sort(reverse=True, key=statement_fence_sorting_value)
+		# pick first item to put a fence in front of it (todo: store this list somewhere)
+		# and remove all associated trace entries
+		select = L[0]
+		print("fence before: " + str(select))
+		fence_counter_inter += 1
+		S = statement_fence_suggestions[select]
+		sug_tmp = {}
+		for i, S2 in statement_fence_suggestions.items():
+			newS2 = S2 - S
+			if newS2 != set([]):
+				sug_tmp[i] = newS2
+		statement_fence_suggestions = sug_tmp
+		L = statement_fence_suggestions.keys()
 
 def readAut(autfile):
 	"""Read a .aut file and place the data in a dictionary"""
@@ -308,24 +1161,55 @@ def read_statespace(m):
 	model_statespace = readAut(statespace_name)
 
 def preprocess():
-	global instructions_objects, SMowner, model
-	# construct list of instruction names with pointers to the objects
-	instructions_objects = {}
+	global statements_objects, SMowner, model, globalvars, statemachine, smlocalvars, pure_static_analysis
+	if pure_static_analysis:
+		# build dictionaries providing for a given statement the state machine owning it, and for a given state machine, the class owning it
+		for c in model.classes:
+			for stm in c.statemachines:
+				smclass[stm] = c
+				for trn in stm.transitions:
+					for stat in trn.statements:
+						statemachine[stat] = stm
+		# build a dictionary providing sets of variables local for given state machines
+		for c in model.classes:
+			for stm in c.statemachines:
+				varset = set([])
+				for var in stm.variables:
+					varset.add(var.name)
+				smlocalvars[c.name + "'" + stm.name] = varset
+		# build dictionary making variable scopes explicit
+		for c in model.classes:
+			for stm in c.statemachines:
+				vdict = {}
+				for var in c.variables:
+					vdict[var.name] = var.name
+				for var in stm.variables:
+					vdict[var.name] = stm.name + "'" + var.name
+				scopedvars[c.name + "'" + stm.name] = vdict
+	# construct list of statement names with pointers to the objects
+	statements_objects = {}
 	for c in model.classes:
 		for sm in c.statemachines:
 			for tr in sm.transitions:
-				instructions_objects["ST'" + str(tr._tx_position)] = tr.statements[0]
+				statements_objects["ST'" + str(tr._tx_position)] = tr.statements[0]
 	# construct function providing for given statement the owning SM
 	SMowner = {}
 	for c in model.classes:
 		for sm in c.statemachines:
 			for tr in sm.transitions:
 				SMowner["ST'" + str(tr._tx_position)] = sm
+	# build set of global variables per object
+	for o in model.objects:
+		V = set([])
+		c = o.type
+		for v in c.variables:
+			V.add("var_" + o.name + "'" + v.name)
+		globalvars[o] = V
 
 def get_smallest_accesses(id):
-	global instructions_accesses
-	"""Return the set of smallest accesses of the given instruction (indicated by number) id"""
-	instr = instructions_accesses[id]
+	global statements_accesses
+	"""Return the set of smallest accesses of the given statement (indicated by number) id"""
+	instr = statements_accesses[id]
 
 	if len(instr[2]) > 0:
 		if instr[2][0][0] != set([]) and instr[2][0][1] == set([]):
@@ -339,12 +1223,12 @@ def get_smallest_accesses(id):
 		if ap[0] == set([]):
 			wset |= ap[1]
 		writes |= ap[1]
-	return tuple([rset, wset])
+	return (rset, wset)
 
 def get_largest_accesses(id):
-	global instructions_accesses
-	"""Return the set of largest accesses of the given instruction (indicated by number) id"""
-	instr = instructions_accesses[id]
+	global statements_accesses
+	"""Return the set of largest accesses of the given statement (indicated by number) id"""
+	instr = statements_accesses[id]
 
 	if len(instr[2]) == 1 and instr[2][0][1] == set([]):
 		return instr[2][0]
@@ -352,22 +1236,19 @@ def get_largest_accesses(id):
 		wset = set([])
 		for i in range(0, len(instr[2])):
 			wset |= instr[2][i][1]
-		return tuple([set([]),wset])
+		return (set([]),wset)
 
-def instructions_are_conflicting(i1, i2):
-	"""Return whether the first instruction conflicts with the second"""
-	global instructions_accesses
+def statements_are_conflicting(i1, i2):
+	"""Return whether the first statement conflicts with the second"""
+	global accesspattern
+	ap = accesspattern[i1]
+	reads = ap[0] | ap[1]
+	writes = ap[2]
+	return accesspattern_conflicts_with_statement((reads, writes), i2)
 
-	reads = set([])
-	writes = set([])
-	for p in instructions_accesses[i1][2]:
-		reads |= p[0]
-		writes |= p[1]
-	return accesspattern_conflicts_with_instruction(tuple([reads, writes]), i2)
-
-def accesspattern_conflicts_with_instruction(ap, i1):
-	"""Return whether the given access pattern ap conflicts with the instruction i1"""
-	global instructions_accesses
+def accesspattern_conflicts_with_statement(ap, i1):
+	"""Return whether the given access pattern ap conflicts with the statement i1"""
+	global statements_accesses
 
 	reads = ap[0]
 	writes = ap[1]
@@ -382,52 +1263,121 @@ def accesspattern_conflicts_with_instruction(ap, i1):
 			return True
 	return False
 
-def instructions_are_parallel(a1, a2):
-	"""Return whether the two instructions can possibly be executed in parallel (are from different statemachines of the same object)"""
-	global instructions_accesses, SMowner
+def statements_are_parallel(a1, a2):
+	"""Return whether the two statements can possibly be executed in parallel (are from different statemachines of the same object)"""
+	global statements_accesses, SMowner
 
 	if a1 == '\"tau\"' or a2 == '\"tau\"':
 		return True
-	ac1 = instructions_accesses[a1]
-	ac2 = instructions_accesses[a2]
+	ac1 = statements_accesses[a1]
+	ac2 = statements_accesses[a2]
 	if ac1[0] == ac2[0]:
 		return SMowner[ac1[1]] != SMowner[ac2[1]]
 	else:
 		return False
 
+def accesses_are_conflicting(a1, a2):
+	"""Return whether accesses are conflicting"""
+	global pure_static_analysis
+	if a1[0] != 'W' and a2[0] != 'W':
+		return False
+	if not pure_static_analysis:
+		return (a1[1] == a2[1])
+	else:
+		a1_splitted = a1[1].split("[")
+		a2_splitted = a2[1].split("[")
+		if len(a1_splitted) == 1 and len(a2_splitted) == 1:
+			return (a1[1] == a2[1])
+		if (len(a1_splitted) == 1 and len(a2_splitted) > 1) or (len(a1_splitted) > 1 and len(a2_splitted) == 1):
+			return False
+		a1_splitted = a1[1].split("[*]")
+		if len(a1_splitted) > 1:
+			return (a1_splitted[0] == a2_splitted[0])
+		a1_splitted = a1[1].split("[")
+		a2_splitted = a2[1].split("[*]")
+		if len(a2_splitted) > 1:
+			return (a1_splitted[0] == a2_splitted[0])
+		return False
+
 def conflicting_accesses(a, iswrite, ins):
-	global instructions_accesses
-	"""For the given access a, provide the accesses of instruction ins conflicting with a. Boolean iswrite indicates whether a is a write or not"""
-	ap = instructions_accesses[ins][2]
+	global accesspattern, pure_static_analysis
+	"""For the given access a, provide the accesses of statement ins conflicting with a. Boolean iswrite indicates whether a is a write or not"""
+	ap = accesspattern[ins]
 	# merge reads and writes
-	readsap = set([])
-	writesap = set([])
-	for p in ap:
-		readsap |= p[0]
-		writesap |= p[1]
-	conflicting = tuple([set([]), set([])])
+	readsap = ap[0] | ap[1]
+	writesap = ap[2]
+	conflicting = (set([]), set([]))
+	array_static_access = False
+	array_dynamic_access = False
+	if pure_static_analysis:
+		a_splitted = a.split("[*]")
+		if len(a_splitted[0]) > 1:
+			array_dynamic_access = True
+			a2 = a_splitted[0]
+		else:
+			a_splitted = a.split("[")
+			if len(a_splitted[0]) > 1:
+				array_static_access = True
+				a2 = a_splitted[0]
 	if iswrite:
-		if a in readsap:
+		if array_static_access:
+			if a in readsap:
+				conflicting[0].add(a)
+			elif a2 + "[*]" in readsap:
+				conflicting[0].add(a)
+		elif array_dynamic_access:
+			if a in readsap:
+				conflicting[0].add(a)
+			else:
+				for a3 in readsap:
+					a3_splitted = a3.split("[")
+					if len(a3_splitted[0]) > 1:
+						if a2 == a3:
+							conflicting[0].add(a)
+							break
+		elif a in readsap:
 			conflicting[0].add(a)
-	if a in writesap:
+	if array_static_access:
+		if a in writesap:
+			conflicting[1].add(a)
+		elif a2 + "[*]" in writesap:
+			conflicting[1].add(a)
+	elif array_dynamic_access:
+		if a in writesap:
+			conflicting[1].add(a)
+		else:
+			for a3 in writesap:
+				a3_splitted = a3.split("[")
+				if len(a3_splitted[0]) > 1:
+					if a2 == a3:
+						conflicting[1].add(a)
+						break
+	elif a in writesap:
 		conflicting[1].add(a)
 	return conflicting
 
-def constructDG():
-	"""Construct the dependency graph of the SLCO model"""
-	global model, model_statespace, DG_P, DG_C, DG_C_spec_conflicts, instructions_objects, instructions_IDs, instructions_accesses, memory_model, SMowner, RR_order
+def print_STIDs():
+	global model
+	for c in model.classes:
+		for sm in c.statemachines:
+			for tr in sm.transitions:
+				print("ST'" + str(tr._tx_position) + ": " + printstatement(tr.statements[0]))
 
-	# construct dictionary of instruction IDs
+def obtain_statements_accesses():
+	"""Analyse the statements occurring in the state space, and construct list of IDs and accesses"""
+	global model, model_statespace, statements_IDs, statements_accesses, accesspattern, access_smaller_than, access_bigger_than, globalvars
+
+	# construct dictionary of statement IDs
 	L = list(model_statespace[2])
-	instructions_IDs = {}
+	statements_IDs = {}
 	j = 0
 	for i in range(0,len(L)):
 		if L[i] != '\"tau\"':
-			instructions_IDs[L[i]] = j
+			statements_IDs[L[i]] = j
 			j += 1
 
-	# construct dictionary of accesses for the instructions
-	instructions_accesses = {}
+	# construct dictionary of accesses for the statements
+	statements_accesses = {}
 	for a in model_statespace[2]:
 		if a != '\"tau\"':
 			rw, remainder = rwscanner.scan(a)
@@ -450,7 +1400,7 @@ def constructDG():
 						if not read:
 							read = True
 						else:
-							alist.append(tuple([reads, writes]))
+							alist.append((reads, writes))
 							accessmode = False
 					else:
 						break
@@ -463,215 +1413,541 @@ def constructDG():
 					else:
 						writes.add(rw[i][1])
 					i += 1
-			instructions_accesses[instructions_IDs[a]] = tuple([rw[0][1], rw[2][1], alist])
+			# get object
+			owner = ""
+			for o in model.objects:
+				if o.name == rw[0][1]:
+					owner = o
+					break
+			statements_accesses[statements_IDs[a]] = (owner, rw[2][1], alist)
+
+def static_obtain_statements_accesses():
+	"""Analyse the statements occurring in the model statically, and construct list of IDs and accesses"""
+	global model, model_statespace, statements_IDs, statements_accesses, accesspattern, access_smaller_than, access_bigger_than, globalvars
+
+	# construct dictionary of statement IDs, and dictionary of accesses
+	statements_IDs = {}
+	statements_accesses = {}
+	j = 0
+	for o in model.objects:
+		for sm in o.type.statemachines:
+			for tr in sm.transitions:
+				ap = statement_structure_accesspattern(tr.statements[0], o)
+				if ap != [(set([]), set([]))]:
+					statements_IDs[str(o.name) + "'ST'" + str(tr._tx_position)] = j
+					statements_accesses[j] = (o, "ST'" + str(tr._tx_position), ap)
+					j += 1
+
+def accesses_minus(A1, A2):
+	"""Set minus for sets of accesses"""
+	global pure_static_analysis
+	if not pure_static_analysis:
+		return A1 - A2
+	else:
+		newA1 = set([])
+		for a in A1:
+			if "[*]" in a:
+				newA1.add(a)
+			elif a not in A2:
+				newA1.add(a)
+		return newA1
+
+def access_is_in_set(a, A):
+	"""Return whether access a is in set A"""
+	global pure_static_analysis
+	if not pure_static_analysis:
+		return a in A
+	else:
+		if "[*]" in a:
+			return False
+		else:
+			return a in A
+
+def filter_accesses(A, V):
+	"""Filter the accesses in A, only keep those that are also in V"""
+	newA = set([])
+	for a in A:
+		a_splitted = a.split("[")
+		if len(a_splitted) > 1:
+			a2 = a_splitted[0]
+		else:
+			a2 = a
+		if a2 in V:
+			newA.add(a)
+	return newA
+
+def analyse_statements():
+	"""Analyse the statements occurring in the state space. Construct relations on accesses."""
+	global model, model_statespace, statements_IDs, statements_accesses, accesspattern, access_smaller_than, access_bigger_than, globalvars, pure_static_analysis
+
+	accesspattern = {}
+	# build access patterns based on the statements_accesses information
+	for i in range(0,len(statements_IDs)):
+		ap = statements_accesses[i][2]
+		V = globalvars.get(statements_accesses[i][0], set([]))
+		reads = set([])
+		writes = set([])
+		j = 0
+		if statement_has_guard(i):
+			condreads = filter_accesses(ap[0][0], V)
+			j = 1
+		else:
+			condreads = set([])
+		while j < len(ap):
+			reads |= filter_accesses(accesses_minus(accesses_minus(ap[j][0], condreads), writes), V)
+			writes |= filter_accesses(ap[j][1], V)
+			j += 1
+		accesspattern[i] = (condreads, reads, writes)
+
+	# build a dictionary for each instruction, indicating the successor and predecessor accesses of each access
+	access_smaller_than = {}
+	access_bigger_than = {}
+	for i in range(0,len(statements_IDs)):
+		read_pred_tmp = {}
+		access_predecessors_i = {}
+		ap = statements_accesses[i][2]
+		j = 0
+		if statement_has_guard(i):
+			condreads = set([])
+			for ra in ap[0][0]:
+				condreads.add(('C',ra))
+			j = 1
+		else:
+			condreads = set([])
+		reads = set([])
+		for ra in condreads:
+			reads.add(ra[1])
+		writes = set([])
+		while j < len(ap):
+			reads_j = ap[j][0]
+			writes_j = ap[j][1]
+			# handle the case that a variable is being read after having been written to: take over dependencies of write for the read
+			for ra in reads_j:
+				reads.add(ra)
+				ra_reads = set([])
+				if access_is_in_set(ra, writes):
+					R = access_predecessors_i.get(('W',ra), set([]))
+					read_pred_tmp[ra] = R
+			# handle the write access of an assignment: reads are predecessors, handle special case of read after write occurrences
+			for wa in writes_j:
+				wa_reads = set([])
+				for ra in reads_j:
+					if pure_static_analysis:
+						if "[*]" in ra:
+							wa_reads.add(('R',ra))
+							continue
+					R = read_pred_tmp.get(ra, set([]))
+					if R != set([]):
+						wa_reads |= R
+					else:
+						wa_reads.add(('R',ra))
+				# add conditional reads
+				wa_reads |= condreads
+				# if read from before, add this read to dependencies
+				if access_is_in_set(wa, reads):
+					wa_reads.add(('R',wa))
+				W = access_predecessors_i.get(('W',wa), set([]))
+				access_predecessors_i[('W',wa)] = W | wa_reads
+			j += 1
+		# we now have the predecessor relation of the accesses
+		# find and replace local variables
+		new_access_predecessors_i = {}
+		for a in access_predecessors_i.keys():
+			if not var_is_local(a[1], i):
+				new_access_predecessors_i[a] = get_global_accesses(a, access_predecessors_i, i)
+		# build transitive closure of predecessor relation
+		access_smaller_than_i = {}
+		openset = set([])
+		closedset = set([])
+		for a in access_predecessors_i.keys():
+			V = set([])
+			openset = set([a])
+			closedset = set([])
+			while openset != set([]):
+				v = openset.pop()
+				closedset.add(v)
+				S = access_predecessors_i.get(v, set([]))
+				V |= S
+				for v2 in S:
+					if v2 not in closedset:
+						openset.add(v2)
+			access_smaller_than_i[a] = V
+		access_smaller_than[i] = access_smaller_than_i
+
+		# reverse
+		access_bigger_than_i = {}
+		for a1, deps in access_smaller_than_i.items():
+			for a2 in deps:
+				R = access_bigger_than_i.get(a2, set([]))
+				R.add(a1)
+				access_bigger_than_i[a2] = R
+		access_bigger_than[i] = access_bigger_than_i
+
+def get_global_accesses(a, D, i):
+	"""From the dependency relation encoded by dictionary D, get the global accesses on which access a depends. i is statement performing a."""
+	V = D.get(a, set([]))
+	newV = set([])
+	for v in V:
+		if var_is_local(a[1], i):
+			newV |= get_global_accesses(v, D, i)
+		else:
+			newV.add(v)
+	return newV
+
+def access_has_smaller_than(a1, a2, i):
+	"""In i, access a2 is indeed executed before a1. 0: no, 1: perhaps (but this should be enforced), 2: yes"""
+	global access_smaller_than
+	if a2 in access_smaller_than[i].get(a1, set([])):
+		return 2
+	elif a2[0] == 'R' and ('C',a2[1]) in access_smaller_than[i].get(a1, set([])):
+		return 2
+	elif a1 not in access_smaller_than[i].get(a2, set([])):
+		if a2[0] == 'R':
+			if a1 not in access_smaller_than[i].get(('C',a2[1]), set([])):
+				return 1
+			else:
+				return 0
+		else:
+			return 1
+	else:
+		return 0
+
+def access_has_read_smaller_than(a1, i):
+	"""In i, a read is indeed executed before a1."""
+	global access_smaller_than
+	if a1[0] == 'R' and access_smaller_than[i].get(a1) == None:
+		return access_has_read_smaller_than(('C',a1[1]), i)
+	R = access_smaller_than[i].get(a1, set([]))
+	if R == set([]):
+		return False
+	else:
+		for a2 in R:
+			if a2[0] == 'R' or a2[0] == 'C':
+				return True
+		return False
+
+def access_has_read_bigger_than(a1, i):
+	"""In i, a read is indeed executed after a1."""
+	global access_bigger_than
+	if a1[0] == 'R' and access_bigger_than[i].get(a1) == None:
+		return access_has_read_bigger_than(('C',a1[1]), i)
+	R = access_bigger_than[i].get(a1, set([]))
+	if R == set([]):
+		return False
+	else:
+		for a2 in R:
+			if a2[0] == 'R' or a2[0] == 'C':
+				return True
+		return False
+
+def access_has_condition_smaller_than(a1, i):
+	"""In i, a read is indeed executed before a1."""
+	global access_smaller_than
+	if a1[0] == 'R' and access_smaller_than[i].get(a1) == None:
+		return access_has_condition_smaller_than(('C',a1[1]), i)
+	R = access_smaller_than[i].get(a1, set([]))
+	if R == set([]):
+		return False
+	else:
+		for a2 in R:
+			if a2[0] == 'C':
+				return True
+		return False
+
+def access_has_condition_bigger_than(a1, i):
+	"""In i, a read is indeed executed after a1."""
+	global access_bigger_than
+	if a1[0] == 'R' and access_bigger_than[i].get(a1) == None:
+		return access_has_condition_bigger_than(('C',a1[1]), i)
+	R = access_bigger_than[i].get(a1, set([]))
+	if R == set([]):
+		return False
+	else:
+		for a2 in R:
+			if a2[0] == 'C':
+				return True
+		return False
+
+def access_has_bigger_than(a1, a2, i):
+	"""In i, access a2 is indeed executed after a1. False if not guaranteed."""
+	global access_bigger_than
+	if a1[0] == 'R' and access_bigger_than[i].get(a1) == None:
+		return access_has_bigger_than(('C',a1[1]), a2, i)
+	if a2 in access_bigger_than[i].get(a1, set([])):
+		return True
+	elif a2[0] == 'R' and ('C',a2[1]) in access_bigger_than[i].get(a1, set([])):
+		return True
+	return False
+
+def update_smaller_than(a1, a2, i):
+	"""Extend the P-order in i to execute a2 before a1"""
+	global access_smaller_than, access_bigger_than, access_successors, access_predecessors
+	R = access_bigger_than[i].get(a2, set([]))
+	R.add(a1)
+	R |= access_bigger_than[i].get(a1, set([]))
+	access_bigger_than[i][a2] = R
+	R = access_smaller_than[i].get(a1, set([]))
+	R.add(a2)
+	R |= access_smaller_than[i].get(a2, set([]))
+	access_smaller_than[i][a1] = R
+
+def update_bigger_than(a1, a2, i):
+	"""Extend the P-order in i to execute a2 after a1"""
+	global access_smaller_than, access_bigger_than, access_successors, access_predecessors
+	R = access_bigger_than[i].get(a1, set([]))
+	R.add(a2)
+	R |= access_bigger_than[i].get(a2, set([]))
+	access_bigger_than[i][a1] = R
+	R = access_smaller_than[i].get(a2, set([]))
+	R.add(a1)
+	R |= access_smaller_than[i].get(a1, set([]))
+	access_smaller_than[i][a2] = R
+
+def transitive_outgoing(s):
+	"""Transitively over tau return outgoing transitions of state s. Precondition: no tau-loops present."""
+	global model_statespace
+	outgoing = model_statespace[1].get(s,{})
+	tr_out = {}
+	for a, tgts in outgoing.items():
+		if a != '\"tau\"':
+			T = tr_out.get(a, set([]))
+			T |= tgts
+			tr_out[a] = T
+		else:
+			for t in tgts:
+				tr_out.update(transitive_outgoing(t))
+	return tr_out
+
+def constructDG():
+	"""Construct the dependency graph of the SLCO model"""
+	global model, model_statespace, DG_P, DG_C, statements_IDs, statements_accesses, memory_model, SMowner, RR_order, accesspattern
 
 	# Build dependency graph - P-relation
 	DG_P = {}
 	for o in model.objects:
-		DG_P[o.name] = {}
+		DG_P[o] = {}
 	# construct P-relation. Iterate over all states, consider their outgoing transitions, and compare these to the outgoing transitions of successors.
 	for i in range(0, int(model_statespace[0][2])):
 		s = str(i)
-		outgoing = model_statespace[1].get(s,{})
+		outgoing = transitive_outgoing(s)
 		s_aset = set(outgoing.keys())
 		for a, tgts in outgoing.items():
-			if a != '\"tau\"':
-				j = instructions_IDs[a]
-				for t in tgts:
-					t_outgoing = model_statespace[1].get(t,{})
-					t_aset = set(t_outgoing.keys())
-					enabled = t_aset - s_aset
-					tgtset = set([])
-					for a2 in enabled - set(['\"tau\"']):
-						tgtset.add(instructions_IDs[a2])
-					out = DG_P[instructions_accesses[j][0]].get(j,set([]))
-					DG_P[instructions_accesses[j][0]][j] = out | tgtset
+			j = statements_IDs[a]
+			for t in tgts:
+				t_outgoing = transitive_outgoing(t)
+				t_aset = set(t_outgoing.keys())
+				enabled = t_aset - s_aset
+				tgtset = set([])
+				for a2 in enabled:
+					tgtset.add(statements_IDs[a2])
+				out = DG_P[statements_accesses[j][0]].get(j,set([]))
+				DG_P[statements_accesses[j][0]][j] = out | tgtset
 
 	# Build dependency graph - C-relation
 	DG_C = {}
 	for o in model.objects:
-		DG_C[o.name] = {}
+		DG_C[o] = {}
 	# construct C-relation. Iterate over all states, consider their outgoing transitions, and compare those from different state machines w.r.t. conflicting accesses.
-	parallel_instructions = {}
+	parallel_statements = {}
 	for i in range(0, int(model_statespace[0][2])):
 		s = str(i)
-		outgoing = model_statespace[1].get(s,{})
-		s_aset = set(outgoing.keys()) - set(['\"tau\"'])
+		outgoing = transitive_outgoing(s)
+		s_aset = set(outgoing.keys())
 		for a in s_aset:
-			aid = instructions_IDs[a]
+			aid = statements_IDs[a]
 			paset = set([])
 			for a2 in s_aset:
-				a2id = instructions_IDs[a2]
-				if instructions_are_parallel(aid, a2id):
+				a2id = statements_IDs[a2]
+				if statements_are_parallel(aid, a2id):
 					paset.add(a2id)
-			par = parallel_instructions.get(aid,set([]))
-			parallel_instructions[aid] = par | paset
-	for aid in parallel_instructions.keys():
-		for aid2 in parallel_instructions[aid]:
-			if instructions_are_conflicting(aid, aid2):
+			par = parallel_statements.get(aid,set([]))
+			parallel_statements[aid] = par | paset
+	for aid in parallel_statements.keys():
+		for aid2 in parallel_statements[aid]:
+			if statements_are_conflicting(aid, aid2):
 				# Not yet present in P-relation?
-				if aid2 not in DG_P[instructions_accesses[aid][0]].get(aid,set([])) and aid not in DG_P[instructions_accesses[aid2][0]].get(aid2,set([])):
-					out = DG_C[instructions_accesses[aid][0]].get(aid,set([]))
+				if aid2 not in DG_P[statements_accesses[aid][0]].get(aid,set([])) and aid not in DG_P[statements_accesses[aid2][0]].get(aid2,set([])):
+					out = DG_C[statements_accesses[aid][0]].get(aid,set([]))
 					out.add(aid2)
-					DG_C[instructions_accesses[aid][0]][aid] = out
+					DG_C[statements_accesses[aid][0]][aid] = out
 	
 	# For each guarded statement, obtain the predecessors in P, to identify C conflicts with that guarded statement if execution of those predecessors does not
 	# enable the guarded statement
 	predecessors = {}
-	for i in range(0, len(instructions_IDs)):
-		a = instructions_accesses[i]
-		if a[2][0][0] != set([]) and a[2][0][1] == set([]):
-			preddict = predecessors.get(instructions_accesses[i][0], {})
-			preddict[i] = set([])
-			predecessors[instructions_accesses[i][0]] = preddict
-			for j in range(0, len(instructions_IDs)):
-				if i in DG_P[instructions_accesses[i][0]].get(j,set([])) and SMowner[instructions_accesses[i][1]] == SMowner[instructions_accesses[j][1]]:
-					predecessors[instructions_accesses[i][0]][i].add(j)
+	for i in range(0, len(statements_IDs)):
+		if statement_has_guard(i):
+			o = statements_accesses[i][0]
+			iset = set([])
+			for j in range(0, len(statements_IDs)):
+				if i in DG_P[o].get(j,set([])) and SMowner[statements_accesses[i][1]] == SMowner[statements_accesses[j][1]]:
+					iset.add(j)
+			predecessors[i] = iset
 
 	# For each guarded statement, add conflicts with the statements executed in parallel with the former's predecessors
-	#for o in model.objects:
-	#	for 
-
 	# Perform a DFS from each guarded statement to identify reads that can be done speculatively. Only relevant if speculative reading is allowed by the memory model
 	speculative_reads = {}
 	if not RR_order:
-		for o in model.objects:
-			speculative_reads[o.name] = {}
-			for i in predecessors[o.name].keys():
-				ap = instructions_accesses[i][2]
-				condreads_i = ap[0][0]
-				specreads = {}
-				blocked = set([])
-				# first check speculative reads for i itself
-				if len(ap) > 1:
-					reads = set([])
-					writes = set([])
-					accesses = set([])
-					for pi in range(1,len(ap)):
-						reads |= (ap[pi][0] - writes - condreads_i)
-						writes |= ap[pi][1]
-					for a in condreads | reads:
-						if a not in blocked and a not in condreads_i:
-							accesses.add(a)
-							if a in condreads:
-								blocked.add(a)
-					blocked |= writes 
-					specreads[i] = accesses
-				# call stack for DFS
-				callstack = []
-				onstack = set([])
-				blocked_vars = {}
-				outgoing = DG_P[o.name].get(i, set([]))
-				# put instruction on call stack. Third argument is the set of variables that are blocked from speculative reading
-				# (due to having observed a write to those variables on the stack trace)
-				callstack.append((i, list(outgoing), blocked))
-				onstack.add(i)
-				while callstack != []:
-					j, tgts, blocked = peek(callstack)
-					# stop early if WR is guaranteed
-					if WR_order:
-						if blocked != set([]):
-							callstack.pop()
-							continue
-					while len(tgts) > 0:
-						k = peek(tgts)
-						if not k in onstack and (blocked_vars.get(k) == None or not (blocked_vars.get(k, set([])) <= blocked)):
-							# - any variables read from by k, not yet written to along the trace, and not read from by i can be done speculatively
-							# - any variables written to by k should be blocked from speculative reading further down the trace. If WR is guaranteed
-							# by the memory model, further searching is actually not needed.
-							ap = instructions_accesses[k][2]
-							if ap[0][1] == set([]):
-								condreads = ap[0][0]
-								pi = 1
-							else:
-								condreads = set([])
-								pi = 0
-							reads = set([])
-							writes = set([])
-							while pi < len(ap):
-								reads |= (ap[pi][0] - writes - condreads)
-								writes |= ap[pi][1]
-								pi += 1
-
-							kblocked = deepcopy(blocked)
-							for a in condreads | reads:
-								if a not in blocked and a not in condreads_i:
-									accesses = specreads.get(j,set([]))
-									accesses.add(a)
-									specreads[j] = accesses
-									if a in condreads:
-										kblocked.add(a)
-							kblocked |= writes
-
-							# put k on call stack
-							koutgoing = DG_P[o.name].get(k, set([]))
-							callstack.append((k, list(koutgoing), kblocked))
-							onstack.add(k)
-							break
-						else:
-							tgts.pop()
-					if len(tgts) == 0:
-						# close j
-						B = blocked_vars.get(j, set([]))
-						blocked_vars[j] = (B & blocked)
-						# pop j off call stack
+		speculative_reads = {}
+		for i in predecessors.keys():
+			(condreads_i,reads,writes) = accesspattern[i]
+			blocked = deepcopy(writes)
+			specreads = {}
+			if reads != set([]):
+				specreads[i] = deepcopy(reads)
+			# call stack for DFS
+			callstack = []
+			onstack = set([])
+			blocked_vars = {}
+			outgoing = DG_P[o].get(i, set([]))
+			# put statement on call stack. Third argument is the set of variables that are blocked from speculative reading
+			# (due to having observed a write to those variables on the stack trace)
+			callstack.append((i, list(outgoing), blocked))
+			onstack.add(i)
+			while callstack != []:
+				j, tgts, blocked = peek(callstack)
+				# stop early if WR is guaranteed
+				if WR_order:
+					if blocked != set([]):
 						callstack.pop()
-						onstack.remove(j)
-				speculative_reads[o.name][i] = specreads
-			print(speculative_reads[o.name])
+						continue
+				while len(tgts) > 0:
+					k = peek(tgts)
+					if not k in onstack and (blocked_vars.get(k) == None or not (blocked_vars.get(k, set([])) <= blocked)):
+						# - any variables read from by k, not yet written to along the trace, and not read from by i can be done speculatively
+						# - any variables written to by k should be blocked from speculative reading further down the trace. If WR is guaranteed
+						# by the memory model, further searching is actually not needed.
+						(condreads,reads,writes) = accesspattern[k]
+						kblocked = deepcopy(blocked)
+						for a in condreads | reads:
+							if a not in blocked and a not in condreads_i:
+								accesses = specreads.get(j,set([]))
+								accesses.add(a)
+								specreads[j] = accesses
+						kblocked |= writes
 
-	print("C relation without spec reads: " + str(DG_C))
-	print(" ")
+						# put k on call stack
+						koutgoing = DG_P[o].get(k, set([]))
+						callstack.append((k, list(koutgoing), kblocked))
+						onstack.add(k)
+						break
+					else:
+						tgts.pop()
+				if len(tgts) == 0:
+					# close j
+					B = blocked_vars.get(j, set([]))
+					blocked_vars[j] = (B & blocked)
+					# pop j off call stack
+					callstack.pop()
+					onstack.remove(j)
+			speculative_reads[i] = specreads
+
 	# add additional C-edges to handle guarded statements
-	for o in model.objects:
-		for i in predecessors[o.name].keys():
-			condreads_i = instructions_accesses[i][2][0][0]
-			# construct list of parallel instructions
-			parallel_instr = set([])
-			for j in predecessors[o.name][i]:
-				parallel_instr |= parallel_instructions.get(j, set([]))
-			# check for conflicts, and if present, add a C-edge
-			for j in parallel_instr:
-				if accesspattern_conflicts_with_instruction(tuple([condreads,set([])]), j):
-					if i not in DG_P[o.name].get(j, set([])) and j not in DG_P[o.name].get(i, set([])):
-						out = DG_C[o.name].get(i, set([]))
-						out.add(j)
-						DG_C[o.name][i] = out
-						out = DG_C[o.name].get(j, set([]))
-						out.add(i)
-						DG_C[o.name][j] = out
-				# Take speculative reading into account?
-				if not RR_order:
-					spreads = speculative_reads[o.name][i]
-					for k, accs in spreads.items():
-						if k not in parallel_instructions.get(j, set([])):
-							conflicting_reads_k = set([])
-							conflicting_accesses_j = tuple([set([]), set([])])
-							for a in accs:
-								accesses = conflicting_accesses(a, False, j)
-								if accesses != tuple([set([]),set([])]):
-									if j not in DG_P[o.name].get(k, set([])) and k not in DG_P[o.name].get(j, set([])):
-										out = DG_C[o.name].get(j, set([]))
-										out.add(k)
-										DG_C[o.name][j] = out
-										out = DG_C[o.name].get(k, set([]))
-										out.add(j)
-										DG_C[o.name][k] = out
-										conflicting_accesses_j[0] |= accesses[0]
-										conflicting_accesses_j[1] |= accesses[1]
-										conflicting_reads_k.add(a)
-							# record access conflicts between j and k
-							conflicts = DG_C_spec_conflicts.get(j, {})
-							conflicts[k] = conflicting_accesses_j
-							DG_C_spec_conflicts[j] = conflicts
-							conflicts = DG_C_spec_conflicts.get(k, {})
-							conflicts[j] = tuple([conflicting_reads_k, set([])])
-							DG_C_spec_conflicts[k] = conflicts
+	for i in predecessors.keys():
+		condreads_i = accesspattern[i][0]
+		# construct list of parallel statements
+		parallel_instr = set([])
+		for j in predecessors[i]:
+			parallel_instr |= parallel_statements.get(j, set([]))
+		# check for conflicts, and if present, add a C-edge
+		for j in parallel_instr:
+			if accesspattern_conflicts_with_statement((condreads_i,set([])), j):
+				if i not in DG_P[o].get(j, set([])) and j not in DG_P[o].get(i, set([])):
+					out = DG_C[o].get(i, set([]))
+					out.add(j)
+					DG_C[o][i] = out
+					out = DG_C[o].get(j, set([]))
+					out.add(i)
+					DG_C[o][j] = out
+			# Take speculative reading into account?
+			if not RR_order:
+				spreads = speculative_reads[i]
+				for k, accs in spreads.items():
+					if k not in parallel_statements.get(j, set([])):
+						conflicting_reads_k = set([])
+						conflicting_accesses_j = (set([]), set([]))
+						for a in accs:
+							accesses = conflicting_accesses(a, False, j)
+							#print("conflicting with " + str(k) + ": " + str(accesses))
+							if accesses != (set([]),set([])):
+								if j not in DG_P[o].get(k, set([])) and k not in DG_P[o].get(j, set([])):
+									out = DG_C[o].get(j, set([]))
+									out.add(k)
+									DG_C[o][j] = out
+									out = DG_C[o].get(k, set([]))
+									out.add(j)
+									DG_C[o][k] = out
+									#conflicting_accesses_j[0] |= accesses[0]
+									#conflicting_accesses_j[1] |= accesses[1]
+									#conflicting_reads_k.add(a)
+						# record access conflicts between j and k
+						#conflicts = DG_C_spec_conflicts.get(j, {})
+						#conflicts[k] = conflicting_accesses_j
+						#DG_C_spec_conflicts[j] = conflicts
+						#conflicts = DG_C_spec_conflicts.get(k, {})
+						#conflicts[j] = (conflicting_reads_k, set([]))
+						#DG_C_spec_conflicts[k] = conflicts
 	print("C-relation with spec reads: " + str(DG_C))
+
+def transitive_next_statements(t, trans):
+	"""Return set of next statements (transitive w.r.t. local statements)"""
+	global statements_accesses
+	outgoing = set([])
+	out = trans.get(t, set([]))
+	for i, tgt in out:
+		iid = statements_IDs.get(i)
+		if iid == None:
+			outgoing |= transitive_next_statements(tgt, trans)
+		else:
+			outgoing.add(iid)
+	return outgoing
+
+def static_constructDG():
+	"""Construct the dependency graph of the SLCO model statically"""
+	global model, DG_P, DG_C, statements_IDs, statements_accesses, memory_model, SMowner, accesspattern
+
+	# Build dependency graph - P-relation
+	DG_P = {}
+	for o in model.objects:
+		DG_P[o] = {}
+		# For each state machine, construct a P-relation.
+		for sm in o.type.statemachines:
+			# place transitions in dictionary
+			trans = {}
+			for tr in sm.transitions:
+				out = trans.get(tr.source, [])
+				out.append((str(o.name) + "'ST'" + str(tr._tx_position), tr.target))
+				trans[tr.source] = out
+			# now construct P-relation
+			for tr in sm.transitions:
+				trid = statements_IDs.get(str(o.name) + "'ST'" + str(tr._tx_position))
+				if trid != None:
+					Pout = transitive_next_statements(tr.target, trans)
+					DG_P[o][trid] = Pout
+
+	# Build dependency graph - C-relation
+	DG_C = {}
+	for o in model.objects:
+		DG_C[o] = {}
+		# Compare pairs of statements. If conflicting, add a C-edge
+		for sm in o.type.statemachines:
+			for tr in sm.transitions:
+				trid = statements_IDs.get(str(o.name) + "'ST'" + str(tr._tx_position))
+				if trid != None:
+					for sm2 in o.type.statemachines:
+						if sm != sm2:
+							for tr2 in sm2.transitions:
+								trid2 = statements_IDs.get(str(o.name) + "'ST'" + str(tr2._tx_position))
+ 								if trid2 != None:
+ 									if statements_are_conflicting(trid, trid2):
+ 										# add C-edge
+ 										out = DG_C[o].get(trid, set([]))
+ 										out.add(trid2)
+ 										DG_C[o][trid] = out
+ 	print("C-relation: " + str(DG_C))
 
 def main(args):
 	"""The main function"""
-	global modelname, model, memory_model, model_statespace, RW_order, RW_order, RR_order, WW_order, critical_cycles
+	global modelname, model, memory_model, model_statespace, RW_order, RW_order, RR_order, WW_order, critical_cycles, transaction_counter, fence_counter_intra, fence_counter_inter, pure_static_analysis, statements_IDs
 	if len(args) == 0:
 		print("Missing arguments: SLCO model")
 		sys.exit(1)
@@ -680,12 +1956,20 @@ def main(args):
 			print("Usage: pypy/python3 slco2mcrl2")
 			print("")
 			print("Check given SLCO model for sequentially inconsistent behaviour. For the model, a .aut file containing its state space is required.")
-			print(" -w                                    weak memory model to consider (TSO,PSO,ARM) (default: TSO)")
+			print(" -w                                    weak memory model to consider (TSO,PSO,ARM)     (default: TSO)")
+			print(" -s                                    apply only static analysis (ignore state space) (default: no)")
 			sys.exit(0)
 		else:
 			i = 0
 			while i < len(args):
 				if args[i] == '-w':
+					if args[i+1] == "SC":
+						memory_model = MemoryModel.SC
+						WR_order = True
+						RW_order = True
+						RR_order = True
+						WW_order = True
+						print("memory model set to SC")						
 					if args[i+1] == "PSO":
 						memory_model = MemoryModel.PSO
 						WR_order = False
@@ -708,6 +1992,8 @@ def main(args):
 						WW_order = True				
 						print("memory model set to TSO")
 					i += 1
+				elif args[i] == '-s':
+					pure_static_analysis = True
 				else:
 					modelname = args[i]
 				i += 1
@@ -735,15 +2021,31 @@ def main(args):
 		try:
 			print("extracting relevant info from the SLCO model")
 			preprocess()
+			print_STIDs()
 			# read state space
-			print("reading the state space of the SLCO model")
-			read_statespace(modelname)
-			print("constructing dependency graph")
-			constructDG()
+			if not pure_static_analysis:
+				print("reading the state space of the SLCO model")
+				read_statespace(modelname)
+				print("analysing the statements occurring in the state space")
+				obtain_statements_accesses()
+				analyse_statements()
+				print("constructing dependency graph")
+				constructDG()
+			else:
+				print("statically analysing the statements")
+				static_obtain_statements_accesses()
+				analyse_statements()
+				print("statically constructing dependency graph")
+				static_constructDG()
+			print(statements_IDs)
 			print("detecting critical cycles in dependency graph")
 			detect_critical_cycles()
 			print("postprocessing cycles")
 			postprocess_critical_cycles()
+			print("report: ")
+			print("number of transactions to create: " + str(transaction_counter))
+			print("number of fences to place inside statements: " + str(fence_counter_intra))
+			print("number of fences to place between statements: " + str(fence_counter_inter))
 		except Exception:
 			print("failed to process model %s" % basename(file))
 			print(traceback.format_exc())

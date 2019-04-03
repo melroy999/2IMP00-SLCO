@@ -449,36 +449,52 @@ def expression_usedvars_scan(s,stm,c):
 	return output
 
 def expression_varset(s,stm,c,primmap,owner,ignore_indices):
+	"""Produce set of variables minus the local ones"""
+	return expression_variables(s,stm,c,primmap,owner,ignore_indices,False)
+
+def expression_full_varset(s,stm,c,primmap,owner,ignore_indices):
+	"""Produce set of variables including the local ones"""
+	return expression_variables(s,stm,c,primmap,owner,ignore_indices,True)
+
+def expression_variables(s,stm,c,primmap,owner,ignore_indices,add_local):
 	"""Produces set of variables referenced in given SLCO expression or variableref. Statemachine stm and Class c owning the statement are also given. Primmap is a dictionary for rewriting primaries, which is relevant when array indices are used.
-	The owner of the statement is also given. ignore_indices is a Boolean flag indicating whether array indices should be ignored or not."""
+	The owner of the statement is also given. ignore_indices is a Boolean flag indicating whether array indices should be ignored or not.
+	add_local is a Boolean flag indicating whether local variables should be included or nor."""
 	global actions, scopedvars, smlocalvars
 	output = set([])
 	if s.__class__.__name__ == "VariableRef":
 		# is the variable not local to state machine?
-		if s.var.name not in smlocalvars.get(c.name + "'" + stm.name,set([])):
-			varname = owner.name + "'" + s.var.name
+
+		if add_local or (s.var.name not in smlocalvars.get(c.name + "'" + stm.name,set([]))):
+			if s.var.name in smlocalvars.get(c.name + "'" + stm.name,set([])):
+				varname = owner.name + "'" + stm.name + "'" + s.var.name
+			else:
+				varname = owner.name + "'" + s.var.name
 			if s.index != None:
 				varname += "(index'(" + expression(s.index,stm,c,primmap,owner) + "))"
 				if not ignore_indices:
-					output |= expression_varset(s.index,stm,c,primmap,owner,ignore_indices)
+					output |= expression_variables(s.index,stm,c,primmap,owner,ignore_indices,add_local)
 			output.add(varname)
 	elif s.__class__.__name__ != "Primary":
-		output |= expression_varset(s.left,stm,c,primmap,owner,ignore_indices)
+		output |= expression_variables(s.left,stm,c,primmap,owner,ignore_indices,add_local)
 		if s.op != '':
-			output |= expression_varset(s.right,stm,c,primmap,owner,ignore_indices)
+			output |= expression_variables(s.right,stm,c,primmap,owner,ignore_indices,add_local)
 	else:
 		if s.ref != None:
 			if s.ref.ref not in actions:
-				# IGNORE STATE MACHINE LOCAL VARS!
-				if s.ref.ref not in smlocalvars.get(c.name + "'" + stm.name,set([])):
-					varname = owner.name + "'" + s.ref.ref
+				# IGNORE STATE MACHINE LOCAL VARS?
+				if add_local or (s.ref.ref not in smlocalvars.get(c.name + "'" + stm.name,set([]))):
+					if s.ref.ref in smlocalvars.get(c.name + "'" + stm.name,set([])):
+						varname = owner.name + "'" + stm.name + "'" + s.ref.ref
+					else:
+						varname = owner.name + "'" + s.ref.ref
 					if s.ref.index != None:
 						varname += "(index'(" + expression(s.ref.index,stm,c,primmap,owner) + "))"
 						if not ignore_indices:
-							output |= expression_varset(s.ref.index,stm,c,primmap,owner,ignore_indices)
+							output |= expression_variables(s.ref.index,stm,c,primmap,owner,ignore_indices,add_local)
 					output.add(varname)
 		if s.body != None:
-			output |= expression_varset(s.body,stm,c,primmap,owner,ignore_indices)
+			output |= expression_variables(s.body,stm,c,primmap,owner,ignore_indices,add_local)
 	return output
 
 def expression_is_actionref(s):
@@ -943,25 +959,28 @@ def statement_condition_accesspattern(s, o):
 			return tuple([readset, set([])])
 
 def statement_structure_accesspattern(s, o):
-	"""Provide the access pattern of the given statement, minus the condition. o is Object owning statement s."""
+	"""Provide the access pattern of the given statement. o is Object owning statement s."""
 	global statemachine, smclass
 
 	if s.__class__.__name__ == "Assignment":
-		return [statement_accesspattern(s, o)]
+		readset = expression_full_varset(s.right,statemachine[s],smclass[statemachine[s]],{},o,False)
+		if s.left.index != None:
+			readset |= expression_full_varset(s.left.index,statemachine[s],smclass[statemachine[s]],{},o,False)
+		writeset = expression_full_varset(s.left,statemachine[s],smclass[statemachine[s]],{},o,True)
+		return [tuple([readset, writeset])]
 	elif s.__class__.__name__ == "Composite":
 		alist = []
 		readset = set([])
 		if s.guard != None:
-			readset |= expression_varset(s.guard,statemachine[s],smclass[statemachine[s]],{},o,False)
-		alist.append(tuple([expression_varset(s.guard,statemachine[s],smclass[statemachine[s]],{},o,False),set([])]))
+			readset |= expression_full_varset(s.guard,statemachine[s],smclass[statemachine[s]],{},o,False)
+		alist.append(tuple([expression_full_varset(s.guard,statemachine[s],smclass[statemachine[s]],{},o,False),set([])]))
 		vardict = {}
 		writeset = set([])
 		for st in s.assignments:
-			# read accesses to variables that have already been written to do not need to be added, therefore '- writeset'
-			readset2 = (expression_varset(st.right,statemachine[s],smclass[statemachine[s]],vardict,o,False) - writeset)
+			readset2 = expression_full_varset(st.right,statemachine[s],smclass[statemachine[s]],vardict,o,False)
 			if st.left.index != None:
-				readset2 |= (expression_varset(st.left.index,statemachine[s],smclass[statemachine[s]],vardict,o,False) - writeset)
-			writeset2 = expression_varset(st.left,statemachine[s],smclass[statemachine[s]],vardict,o,True)
+				readset2 |= expression_full_varset(st.left.index,statemachine[s],smclass[statemachine[s]],vardict,o,False) - writeset
+			writeset2 = expression_full_varset(st.left,statemachine[s],smclass[statemachine[s]],vardict,o,True)
 			# update vardict (to correctly handle possible array index use in subsequent assignments)
 			newright = expression(st.right,statemachine[s],smclass[statemachine[s]],vardict,o)
 			varname = scopedvars[smclass[statemachine[s]].name + "'" + statemachine[s].name][st.left.var.name]
@@ -969,23 +988,30 @@ def statement_structure_accesspattern(s, o):
 				vardict[varname] = "set'(" + expression(st.left.var,statemachine[s],smclass[statemachine[s]],vardict,o) + ", " + expression(st.left.index,statemachine[s],smclass[statemachine[s]],vardict,o) + ", " + newright + ")"
 			else:
 				vardict[varname] = "(" + newright + ")"
-			alist.append(tuple([readset2 - readset - writeset, writeset2]))
+			alist.append(tuple([readset2, writeset2]))
 			readset |= readset2
 			writeset |= writeset2
 		return alist
 	elif s.__class__.__name__ == "Delay":
 		return []
 	elif s.__class__.__name__ == "SendSignal":
-		return [statement_accesspattern(s, o)]
+		readset = set([])
+		for st in s.params:
+			readset |= expression_full_varset(st,statemachine[s],smclass[statemachine[s]],{},o,False)
+		return tuple([readset, set([])])
 	elif s.__class__.__name__ == "ReceiveSignal":
 		for st in s.params:
-			writeset |= expression_varset(st,statemachine[s],smclass[statemachine[s]],{},o,True)
+			writeset |= expression_full_varset(st,statemachine[s],smclass[statemachine[s]],{},o,True)
 		readset = set([])
 		# in SLCO ReceiveSignal, it is not possible to refer to the old value of a variable to which you are reading. Hence, reading AND writing to the same variable cannot occur
 		readset = readset - writeset
 		return [tuple([readset, writeset])]
 	elif s.__class__.__name__ == "Expression":
-		return [statement_accesspattern(s, o)]
+		if expression_is_actionref(s):
+			return tuple([set([]), set([])])
+		else:
+			readset = expression_full_varset(s,statemachine[s],smclass[statemachine[s]],{},o,False)
+			return [tuple([readset, set([])])]
 
 def compute_accesspatterns(m):
 	"""Compute the access patterns for all statements in the system"""
@@ -1867,7 +1893,7 @@ def preprocess():
 			object_sync_commpairs.add(pair)
 			pair = tuple([ch.target, ch.source])
 			object_sync_commpairs.add(pair)
-	# create sorted list of object variables
+	# create sorted list of object and statemachine variables
 	tmp_sorted_variables = []
 	for o in model.objects:
 		for v in o.type.variables:
@@ -1875,6 +1901,12 @@ def preprocess():
 			if v.type.size > 1:
 				v_size = v.type.size
 			tmp_sorted_variables.append(tuple([v, o.name + "'" + v.name, v_size]))
+		for sm in o.type.statemachines:
+			for v in sm.variables:
+				v_size = 1
+				if v.type.size > 1:
+					v_size = v.type.size
+				tmp_sorted_variables.append(tuple([v, o.name + "'" + sm.name + "'" + v.name, v_size]))
 	sorted_variables = sorted(tmp_sorted_variables, key=lambda vartuple: vartuple[1])
 	# create sorted list of objects and statemachines
 	tmp_objects = []
