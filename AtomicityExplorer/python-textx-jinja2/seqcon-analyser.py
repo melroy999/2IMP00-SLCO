@@ -25,6 +25,8 @@ RW_order = True
 WR_order = True
 RR_order = True
 WW_order = True
+StoreBuffering = False
+WriteAtomicity = True
 
 # purely apply static analysis
 pure_static_analysis = False
@@ -106,10 +108,10 @@ def printstatement(s):
 	if s.__class__.__name__ == "Assignment":
 		result += s.left.var.name
 		if s.left.index != None:
-			result += "[" + printstatement(s.left.index) + "]"
+			result += "(" + printstatement(s.left.index) + ")"
 		result += " := " + printstatement(s.right)
 	elif s.__class__.__name__ == "Composite":
-		result += "["
+		result += "("
 		if s.guard != None:
 			result += printstatement(s.guard)
 			if len(s.assignments) > 1:
@@ -118,7 +120,7 @@ def printstatement(s):
 			result += " " + printstatement(s.assignments[i])
 			if i < len(s.assignments)-1:
 				result += ";"
-		result += "]"
+		result += ")"
 	elif s.__class__.__name__ == "ReceiveSignal":
 		result += "receive " + s.signal + '('
 		first = True
@@ -158,13 +160,13 @@ def printstatement(s):
 		elif s.ref != None:
 			result += s.ref.ref
 			if s.ref.index != None:
-				result += "[" + printstatement(s.ref.index) + "]"
+				result += "(" + printstatement(s.ref.index) + ")"
 		else:
 			result += '(' + printstatement(s.body) + ')'
 	elif s.__class__.__name__ == "VariableRef":
 		result += s.var.name
 		if s.index != None:
-			result += "[" + printstatement(s.index) + "]"
+			result += "(" + printstatement(s.index) + ")"
 	return result
 
 def RepresentsInt(s):
@@ -256,7 +258,7 @@ def expression(s,stm,c,primmap, owner):
 				# is an index to an array given?
 				if s.ref.index != None:
 					varname = scopedvars[c.name + "'" + stm.name][s.ref.ref]
-					varname_with_index = varname + "[" + expression(s.ref.index,stm,c,primmap,owner) + "]"
+					varname_with_index = varname + "(" + expression(s.ref.index,stm,c,primmap,owner) + ")"
 					if primmap.get(varname_with_index) != None:
 						output += primmap.get(varname_with_index)
 						return output
@@ -345,9 +347,9 @@ def expression_variables(s,stm,c,primmap,owner,ignore_indices,add_local):
 			if s.index != None:
 				e = expression(s.index,stm,c,primmap,owner)
 				if RepresentsInt(e):
-					varname += "[" + e + "]"
+					varname += "(" + e + ")"
 				else:
-					varname += "[*]"
+					varname += "(*)"
 				if not ignore_indices:
 					output |= expression_variables(s.index,stm,c,primmap,owner,ignore_indices,add_local)
 			output.add(varname)
@@ -367,9 +369,9 @@ def expression_variables(s,stm,c,primmap,owner,ignore_indices,add_local):
 					if s.ref.index != None:
 						e = expression(s.ref.index,stm,c,primmap,owner)
 						if RepresentsInt(s.ref.index):
-							varname += "[" + e + "]"
+							varname += "(" + e + ")"
 						else:
-							varname += "[*]"
+							varname += "(*)"
 						if not ignore_indices:
 							output |= expression_variables(s.ref.index,stm,c,primmap,owner,ignore_indices,add_local)
 					output.add(varname)
@@ -384,7 +386,7 @@ def var_is_local(a, i):
 	global statements_accesses, statements_objects, globalvars
 	o = statements_accesses[i][0]
 	V = globalvars.get(o, set([]))
-	a_splitted = a.split("[")
+	a_splitted = a.split("(")
 	if len(a_splitted) > 1:
 		a2 = a_splitted[0]
 	else:
@@ -576,211 +578,391 @@ def access_is_on_trace(a, a1, i1, a2, i2, tAP):
 		return True
 	return False
 
+def get_access_classes(s, a, b):
+	"""Get the accesses of statement s, in a list of ordered accesses (based on their order inside s), from access a up to access b"""
+	global access_smaller_than, accesspattern
+	L = []
+	done = set([])
+	todo1 = []
+	todo2 = []
+	# print("to obtain: " + str(s))
+	# print(a)
+	# print(access_smaller_than[s])
+	ap = accesspattern[s]
+	# print(ap)
+	if a != None:
+		S = access_smaller_than[s].get(a, set([]))
+		done = deepcopy(S)
+		done.add(a)
+	for a in ap[0]:
+		if ('C',a) not in done:
+			todo1.append(('C',a))
+	for a in ap[1]:
+		if ('R',a) not in done:
+			todo1.append(('R',a))
+	for a in ap[2]:
+		if ('W',a) not in done:
+			todo1.append(('W',a))
+	# print(todo1)
+	while todo1 != []:
+		# print(todo1)
+		# print("done: " + str(done))
+		C = (set([]), set([]), set([]))
+		done_tmp = set([])
+		for a1 in todo1:
+			S = access_smaller_than[s].get(a1, set([]))
+			# print("smaller than " + str(a1) + ": " + str(S))
+			if S - done == set([]):
+				if a1[0] == 'C':
+					C[0].add(a1[1])
+				if a1[0] == 'R':
+					C[1].add(a1[1])
+				if a1[0] == 'W':
+					C[2].add(a1[1])
+				done_tmp.add(a1)
+			else:
+				todo2.append(a1)
+		todo1 = todo2
+		todo2 = []
+		done |= done_tmp
+		if C != (set([]), set([]), set([])):
+			if b != None:
+				if b[0] == 'C':
+					if b[1] in C[0]:
+						break
+				if b[0] == 'R':
+					if b[1] in C[1]:
+						break
+				if b[0] == 'W':
+					if b[1] in C[2]:
+						break
+			L.append((s,C))
+	# print(L)
+	return L
+
+def get_access_classes_trace(t, a, b):
+	"""Get a list of access classes for a trace t"""
+	if len(t) == 1:
+		L = get_access_classes(t[0], a, b)
+	else:
+		L = get_access_classes(t[0], a, None)
+		for i in range(1, len(t)-1):
+			L += get_access_classes(t[i], None, None)
+		L += get_access_classes(t[len(t)-1], None, b)
+	start = (set([]), set([]), set([]))
+	end = (set([]), set([]), set([]))
+	if a[0] == 'C':
+		start[0].add(a[1])
+	if a[0] == 'R':
+		start[1].add(a[1])
+	if a[0] == 'W':
+		start[2].add(a[1])
+	if b[0] == 'C':
+		end[0].add(b[1])
+	if b[0] == 'R':
+		end[1].add(b[1])
+	if b[0] == 'W':
+		end[2].add(b[1])
+	L = [(t[0], start)] + L + [(t[len(t)-1], end)]
+	return L
+
 def P_trace_is_safe(a1, a2, t):
 	"""Returns whether the trace t from statement executing a1 to statement executing a2 via accesses in t is safe or not."""
-	global RR_order, RW_order, WR_order, WW_order, statements_accesses, accesspattern, access_bigger_than
+	# First construct list of access patterns for the involved statements, together with a dictionary to indicate their ordering in t
+	C = get_access_classes_trace(t, a1, a2)
+	Cnext = {}
+	Cprev = {}
+	Ccounter = len(C)
+	for i in range(0,len(C)-1):
+		Cnext[i] = i+1
+	for i in range(1,len(C)):
+		Cprev[i] = i-1
+	# indices for a1, a2, and frontier of reordering
+	a1_index = 0
+	a2_index = len(C)-1
+	frontier_index = 0
+	
+	print("to reorder: " + str(C))
 
-	i1 = t[0]
-	i2 = t[len(t)-1]
-	if i1 == i2:
-		# single statement case
-		return a2 in access_bigger_than[i1].get(a1, set([]))
-	else:
-		if a1[1] == a2[1] and (a1[0] == 'W' or a2[0] == 'W'):
-			return True
-		if a1[0] != 'W' and a2[0] != 'W' and RR_order:
-			return True
-		if a1[0] != 'W' and a2[0] == 'W' and RW_order:
-			return True
-		if a1[0] == 'W' and a2[0] != 'W' and WR_order:
-			return True
-		if a1[0] == 'W' and a2[0] == 'W' and WW_order:
-			return True
-		#print("UNSAFE?")
-		# obtain summarised access pattern for t between first and last instruction
-		t_accesses = (set([]), set([]), set([]))
-		if len(t) > 2:
-			for i in range(1, len(t)-1):
-				ap = accesspattern[t[i]]
-				t_accesses = (t_accesses[0]|ap[0], t_accesses[1]|ap[1], t_accesses[2]|ap[2])
-		if a1[0] != 'W' and a2[0] == 'W':
-			# simple, single access occurrence checks
-			if not RW_order and not WR_order and not RR_order and not WW_order:
-				if a1[1] in t_accesses[0]:
-					return True
-			if RR_order:
-				if t_accesses[0] != set([]):
-					return True
-				if a2[1] in t_accesses[0] or a2[1] in t_accesses[1]:
-					return True
-			if WW_order:
-				# is a write to a1[1] somewhere on the trace?
-				if access_is_on_trace(('W',a1[1]), a1, i1, a2, i2, t_accesses):
-					return True
-			# simple, single access occurrence within start and end instructions checks
-			if not RW_order and not WR_order and not RR_order and not WW_order:
-				# read a1[1] occurs before write a2[1]
-				if access_has_smaller_than(a2, ('R',a1[1]), i2):
-					return True
-				if access_has_bigger_than(a1, ('W',a2[1]), i1):
-					return True
-			if RR_order:
-				if access_has_read_smaller_than(a2, i2):
-					return True
-				if access_has_bigger_than(a1, ('W',a2[1]), i1):
-					return True
-				if access_has_condition_bigger_than(a1, i1):
-					return True
-				if access_has_read_bigger_than(a1, ('R',a2[1]), i1):
-					return True
-			if WR_order and not RR_order and not WW_order:
-				# check whether a write to a1[1] is followed by a read from a2[1] on a safe subtrace
-				# if RR_order or WW_order, then those checks have already established that this condition cannot be satisfied.
+	# reordering algorithm
+	while frontier_index != None and a1_index < a2_index:
+		#print("outer loop: " + str(C))
+		# reorder right neighbour of frontier to the left over a1_index
+		current = Cnext.get(frontier_index)
+		if current == None:
+			break
+		pred = frontier_index
+		stop_inner = False
+		while True:
+			#print("inner loop: " + str(C))
+			print("reordering " + str(C[pred]) + " " + str(C[current]))
+			L = reorder_accesses(C[pred], C[current])
+			node_pos = 0
+			node_counter = 0
+			for i in range(0,4):
+				if L[i][1] != (set([]), set([]), set([])):
+					node_counter += 1
+			newpos = []
+			counter = node_counter
+			# assign indices to the new nodes
+			for i in range(0,4):
+				if L[i][1] != (set([]), set([]), set([])):
+					if counter == node_counter:
+						newpos.append(pred)
+					elif counter > 1:
+						newpos.append(Ccounter)
+						Ccounter += 1
+					else:
+						newpos.append(current)
+					counter -= 1
+				else:
+					newpos.append(-1)
+			print(newpos)
+			previous_index = -1
+			for i in range(0,4):
+				if L[i][1] != (set([]), set([]), set([])):
+					if newpos[i] >= len(C):
+						C.append(L[i])
+					else:
+						C[newpos[i]] = L[i]
+					if previous_index != -1:
+						Cnext[previous_index] = newpos[i]
+						Cprev[newpos[i]] = previous_index
+					previous_index = newpos[i]
+			# update ai indices
+			if a1_index == pred and (newpos[0] != -1 or newpos[3] != -1):
+				if newpos[3] != -1:
+					a1_index = newpos[3]
+				else:
+					a1_index = newpos[1]
+				stop_inner = True
+			if a2_index == current and (newpos[0] != -1 or newpos[3] != -1):
+				if newpos[0] != -1:
+					a2_index = newpos[0]
+				else:
+					a2_index = newpos[2]
+			print("result of reorder: ")
+			j = 0
+			while j != None:
+				print(C[j])
+				j = Cnext.get(j)
+			if L[0][1] != (set([]), set([]), set([])) and not stop_inner:
+				current = pred
+				#print(Cprev)
+				pred = Cprev[current]
+				print("current: " + str(current))
+				print("pred: " + str(pred))
+			else:
+				break
+		frontier_index = Cnext.get(frontier_index)
+		print(Cnext)
+	return (a1_index < a2_index)
 
-				# find statement with first write to a1[1]
-				start = -1
-				end = -1
-				for i in range(0,len(t)):
-					ap = accesspattern[i]
-					if a1[1] in ap[2]:
-						start = i
-						break
-				if start != -1:
-					# find statement with last read from a2[1]
-					for i in reversed(range(0,len(t))):
-						if i < start:
-							break
-						if a2[1] in ap[0] or a2[1] in ap[1]:
-							end = i
-							break
-				if end != -1:
-					subtrace = []
-					for i in range(start,end):
-						subtrace.append(t[i])
-					return P_trace_is_safe(('W',a1[1]), ('R', a2[1]), subtrace)
-			return False
-		if a1[0] != 'W' and a2[0] != 'W':
-			if not RW_order and not WR_order and not RR_order and not WW_order:
-				if access_has_bigger_than(a1, ('W',a2[1]), i1):
-					return True
-				if access_has_smaller_than(a2, ('W',a1[1]), i2):
-					return True
-			if RW_order:
-				if access_is_on_trace(('W',a2[1]), a1, i1, a2, i2, t_accesses):
-					return True
-			if WR_order:
-				if access_is_on_trace(('W',a1[1]), a1, i1, a2, i2, t_accesses):
-					return True
-			if WW_order and not RW_order and not WR_order:
-				# check whether a write to a1[1] is followed by a write to a2[1] on a safe subtrace
-				# if RW_order or WR_order, then those checks have already established that this condition cannot be satisfied.
+# def P_trace_is_safe(a1, a2, t):
+# 	"""Returns whether the trace t from statement executing a1 to statement executing a2 via accesses in t is safe or not."""
+# 	global RR_order, RW_order, WR_order, WW_order, statements_accesses, accesspattern, access_bigger_than
 
-				# find statement with first write to a1[1]
-				start = -1
-				end = -1
-				for i in range(0,len(t)):
-					ap = accesspattern[i]
-					if a1[1] in ap[2]:
-						start = i
-						break
-				if start != -1:
-					# find statement with last write to a2[1]
-					for i in reversed(range(0,len(t))):
-						if i < start:
-							break
-						if a2[1] in ap[2]:
-							end = i
-							break
-				if end != -1:
-					subtrace = []
-					for i in range(start,end):
-						subtrace.append(t[i])
-					return P_trace_is_safe(('W',a1[1]), ('W', a2[1]), subtrace)
-			return False
-		if a1[0] == 'W' and a2[0] == 'W':
-			if not RW_order and not WR_order and not RR_order and not WW_order:
-				if access_has_smaller_than(a2, ('R',a1[1]), i2):
-					return True
-				if access_has_bigger_than(a1, ('R',a2[1]), i1):
-					return True
-				if access_is_on_trace(('C',a1[1]), a1, i1, a2, i2, t_accesses):
-					return True
-			if RW_order:
-				if access_is_on_trace(('R',a1[1]), a1, i1, a2, i2, t_accesses):
-					return True
-			if WR_order:
-				if access_is_on_trace(('R',a2[1]), a1, i1, a2, i2, t_accesses):
-					return True
-			if RR_order:
-				if access_has_smaller_than(a2, ('R',a1[1]), i2):
-					return True
-				if access_is_on_trace(('C',a1[1]), a1, i1, a2, i2, t_accesses):
-					return True
-			if RR_order and not RW_order and not WR_order:
-				# check whether a read from a1[1] is followed by a read from a2[1] on a safe subtrace
-				# if RW_order or WR_order, then those checks have already established that this condition cannot be satisfied.
+# 	i1 = t[0]
+# 	i2 = t[len(t)-1]
+# 	if i1 == i2:
+# 		# single statement case
+# 		return a2 in access_bigger_than[i1].get(a1, set([]))
+# 	else:
+# 		if a1[1] == a2[1] and (a1[0] == 'W' or a2[0] == 'W'):
+# 			return True
+# 		if a1[0] != 'W' and a2[0] != 'W' and RR_order:
+# 			return True
+# 		if a1[0] != 'W' and a2[0] == 'W' and RW_order:
+# 			return True
+# 		if a1[0] == 'W' and a2[0] != 'W' and WR_order:
+# 			return True
+# 		if a1[0] == 'W' and a2[0] == 'W' and WW_order:
+# 			return True
+# 		#print("UNSAFE?")
+# 		# obtain summarised access pattern for t between first and last instruction
+# 		t_accesses = (set([]), set([]), set([]))
+# 		if len(t) > 2:
+# 			for i in range(1, len(t)-1):
+# 				ap = accesspattern[t[i]]
+# 				t_accesses = (t_accesses[0]|ap[0], t_accesses[1]|ap[1], t_accesses[2]|ap[2])
+# 		if a1[0] != 'W' and a2[0] == 'W':
+# 			# simple, single access occurrence checks
+# 			if not RW_order and not WR_order and not RR_order and not WW_order:
+# 				if a1[1] in t_accesses[0]:
+# 					return True
+# 			if RR_order:
+# 				if t_accesses[0] != set([]):
+# 					return True
+# 				if a2[1] in t_accesses[0] or a2[1] in t_accesses[1]:
+# 					return True
+# 			if WW_order:
+# 				# is a write to a1[1] somewhere on the trace?
+# 				if access_is_on_trace(('W',a1[1]), a1, i1, a2, i2, t_accesses):
+# 					return True
+# 			# simple, single access occurrence within start and end instructions checks
+# 			if not RW_order and not WR_order and not RR_order and not WW_order:
+# 				# read a1[1] occurs before write a2[1]
+# 				if access_has_smaller_than(a2, ('R',a1[1]), i2):
+# 					return True
+# 				if access_has_bigger_than(a1, ('W',a2[1]), i1):
+# 					return True
+# 			if RR_order:
+# 				if access_has_read_smaller_than(a2, i2):
+# 					return True
+# 				if access_has_bigger_than(a1, ('W',a2[1]), i1):
+# 					return True
+# 				if access_has_condition_bigger_than(a1, i1):
+# 					return True
+# 				if access_has_read_bigger_than(a1, ('R',a2[1]), i1):
+# 					return True
+# 			if WR_order and not RR_order and not WW_order:
+# 				# check whether a write to a1[1] is followed by a read from a2[1] on a safe subtrace
+# 				# if RR_order or WW_order, then those checks have already established that this condition cannot be satisfied.
 
-				# find statement with first read from a1[1]
-				start = -1
-				end = -1
-				for i in range(0,len(t)):
-					ap = accesspattern[i]
-					if a1[1] in ap[0] or a1[1] in ap[1]:
-						start = i
-						break
-				if start != -1:
-					# find statement with last read from a2[1]
-					for i in reversed(range(0,len(t))):
-						if i < start:
-							break
-						if a2[1] in ap[0] or a2[1] in ap[1]:
-							end = i
-							break
-				if end != -1:
-					subtrace = []
-					for i in range(start,end):
-						subtrace.append(t[i])
-					return P_trace_is_safe(('R',a1[1]), ('R', a2[1]), subtrace)
-			return False
-		if a1[0] == 'W' and a2[0] != 'W':
-			if not RW_order and not WR_order and not RR_order and not WW_order:
-				return False
-			if RR_order:
-				if access_is_on_trace(('R',a1[1]), a1, i1, a2, i2, t_accesses):
-					return True
-			if WW_order:
-				if access_is_on_trace(('W',a2[1]), a1, i1, a2, i2, t_accesses):
-					return True
-			if RW_order and not RR_order and not WW_order:
-				# check whether a read from a1[1] is followed by a write to a2[1] on a safe subtrace
-				# if RW_order or WR_order, then those checks have already established that this condition cannot be satisfied.
+# 				# find statement with first write to a1[1]
+# 				start = -1
+# 				end = -1
+# 				for i in range(0,len(t)):
+# 					ap = accesspattern[i]
+# 					if a1[1] in ap[2]:
+# 						start = i
+# 						break
+# 				if start != -1:
+# 					# find statement with last read from a2[1]
+# 					for i in reversed(range(0,len(t))):
+# 						if i < start:
+# 							break
+# 						if a2[1] in ap[0] or a2[1] in ap[1]:
+# 							end = i
+# 							break
+# 				if end != -1:
+# 					subtrace = []
+# 					for i in range(start,end):
+# 						subtrace.append(t[i])
+# 					return P_trace_is_safe(('W',a1[1]), ('R', a2[1]), subtrace)
+# 			return False
+# 		if a1[0] != 'W' and a2[0] != 'W':
+# 			if not RW_order and not WR_order and not RR_order and not WW_order:
+# 				if access_has_bigger_than(a1, ('W',a2[1]), i1):
+# 					return True
+# 				if access_has_smaller_than(a2, ('W',a1[1]), i2):
+# 					return True
+# 			if RW_order:
+# 				if access_is_on_trace(('W',a2[1]), a1, i1, a2, i2, t_accesses):
+# 					return True
+# 			if WR_order:
+# 				if access_is_on_trace(('W',a1[1]), a1, i1, a2, i2, t_accesses):
+# 					return True
+# 			if WW_order and not RW_order and not WR_order:
+# 				# check whether a write to a1[1] is followed by a write to a2[1] on a safe subtrace
+# 				# if RW_order or WR_order, then those checks have already established that this condition cannot be satisfied.
 
-				# find statement with first read from a1[1]
-				start = -1
-				end = -1
-				for i in range(0,len(t)):
-					ap = accesspattern[i]
-					if a1[1] in ap[0] or a1[1] in ap[1]:
-						start = i
-						break
-				if start != -1:
-					# find statement with last write to a2[1]
-					for i in reversed(range(0,len(t))):
-						if i < start:
-							break
-						if a2[1] in ap[2]:
-							end = i
-							break
-				if end != -1:
-					subtrace = []
-					for i in range(start,end):
-						subtrace.append(t[i])
-					return P_trace_is_safe(('R',a1[1]), ('W', a2[1]), subtrace)
-			return False
+# 				# find statement with first write to a1[1]
+# 				start = -1
+# 				end = -1
+# 				for i in range(0,len(t)):
+# 					ap = accesspattern[i]
+# 					if a1[1] in ap[2]:
+# 						start = i
+# 						break
+# 				if start != -1:
+# 					# find statement with last write to a2[1]
+# 					for i in reversed(range(0,len(t))):
+# 						if i < start:
+# 							break
+# 						if a2[1] in ap[2]:
+# 							end = i
+# 							break
+# 				if end != -1:
+# 					subtrace = []
+# 					for i in range(start,end):
+# 						subtrace.append(t[i])
+# 					return P_trace_is_safe(('W',a1[1]), ('W', a2[1]), subtrace)
+# 			return False
+# 		if a1[0] == 'W' and a2[0] == 'W':
+# 			if not RW_order and not WR_order and not RR_order and not WW_order:
+# 				if access_has_smaller_than(a2, ('R',a1[1]), i2):
+# 					return True
+# 				if access_has_bigger_than(a1, ('R',a2[1]), i1):
+# 					return True
+# 				if access_is_on_trace(('C',a1[1]), a1, i1, a2, i2, t_accesses):
+# 					return True
+# 			if RW_order:
+# 				if access_is_on_trace(('R',a1[1]), a1, i1, a2, i2, t_accesses):
+# 					return True
+# 			if WR_order:
+# 				if access_is_on_trace(('R',a2[1]), a1, i1, a2, i2, t_accesses):
+# 					return True
+# 			if RR_order:
+# 				if access_has_smaller_than(a2, ('R',a1[1]), i2):
+# 					return True
+# 				if access_is_on_trace(('C',a1[1]), a1, i1, a2, i2, t_accesses):
+# 					return True
+# 			if RR_order and not RW_order and not WR_order:
+# 				# check whether a read from a1[1] is followed by a read from a2[1] on a safe subtrace
+# 				# if RW_order or WR_order, then those checks have already established that this condition cannot be satisfied.
+
+# 				# find statement with first read from a1[1]
+# 				start = -1
+# 				end = -1
+# 				for i in range(0,len(t)):
+# 					ap = accesspattern[i]
+# 					if a1[1] in ap[0] or a1[1] in ap[1]:
+# 						start = i
+# 						break
+# 				if start != -1:
+# 					# find statement with last read from a2[1]
+# 					for i in reversed(range(0,len(t))):
+# 						if i < start:
+# 							break
+# 						if a2[1] in ap[0] or a2[1] in ap[1]:
+# 							end = i
+# 							break
+# 				if end != -1:
+# 					subtrace = []
+# 					for i in range(start,end):
+# 						subtrace.append(t[i])
+# 					return P_trace_is_safe(('R',a1[1]), ('R', a2[1]), subtrace)
+# 			return False
+# 		if a1[0] == 'W' and a2[0] != 'W':
+# 			if not RW_order and not WR_order and not RR_order and not WW_order:
+# 				return False
+# 			if RR_order:
+# 				if access_is_on_trace(('R',a1[1]), a1, i1, a2, i2, t_accesses):
+# 					return True
+# 			if WW_order:
+# 				if access_is_on_trace(('W',a2[1]), a1, i1, a2, i2, t_accesses):
+# 					return True
+# 			if RW_order and not RR_order and not WW_order:
+# 				# check whether a read from a1[1] is followed by a write to a2[1] on a safe subtrace
+# 				# if RW_order or WR_order, then those checks have already established that this condition cannot be satisfied.
+
+# 				# find statement with first read from a1[1]
+# 				start = -1
+# 				end = -1
+# 				for i in range(0,len(t)):
+# 					ap = accesspattern[i]
+# 					if a1[1] in ap[0] or a1[1] in ap[1]:
+# 						start = i
+# 						break
+# 				if start != -1:
+# 					# find statement with last write to a2[1]
+# 					for i in reversed(range(0,len(t))):
+# 						if i < start:
+# 							break
+# 						if a2[1] in ap[2]:
+# 							end = i
+# 							break
+# 				if end != -1:
+# 					subtrace = []
+# 					for i in range(start,end):
+# 						subtrace.append(t[i])
+# 					return P_trace_is_safe(('R',a1[1]), ('W', a2[1]), subtrace)
+# 			return False
 
 def postprocess_critical_cycles():
 	"""Postprocess detected cycles to identify fence insertion suggestions"""
-	global critical_cycles, DG_P, DG_C, statements_accesses, unsafe_cyclic_P_traces, SMowner, statement_fence_suggestions, statement_fence_counter, access_fence_suggestions, accesspattern
+	global critical_cycles, DG_P, DG_C, statements_accesses, unsafe_cyclic_P_traces, SMowner, statement_fence_suggestions, statement_fence_counter, access_fence_suggestions, accesspattern, WriteAtomicity
 
 	# for efficiency: set of P-traces for which a critical cycle has already been found
 	critical_P_traces = set([])
@@ -865,6 +1047,8 @@ def postprocess_critical_cycles():
 				# depth-first like access cycle construction
 				number_of_accesses = len(CY_summary)*2
 				#print("*** " + str(CY) + " " + str(CY_summary))
+
+				callstack = []
 				for ti in range(0,len(CY_summary)):
 					t = CY_summary[ti]
 					if tuple(P_traces[tuple(t)]) not in critical_P_traces:
@@ -890,7 +1074,6 @@ def postprocess_critical_cycles():
 								move_to_next = False
 								while len(A) > 0:
 									a = A.pop()
-									#print("selecting " + str(a))
 									# increment counter if we are not considering the same access as the one in the previous step (in which case
 									# we stay at the same access in the same statement)
 									if a != previous_access:
@@ -909,6 +1092,7 @@ def postprocess_critical_cycles():
 										#print("checking safety")
 										t_start = callstack[0][0]
 										t_end = v
+										print(v)
 										if t_start == t_end:
 											if P_trace_is_safe(first_access, a, P_traces[tuple([(t_start)])]):
 												#print("safe!")
@@ -916,6 +1100,8 @@ def postprocess_critical_cycles():
 											else:
 												second_access = a
 										else:
+											print(P_traces)
+											print(CY_summary)
 											if P_trace_is_safe(first_access, a, P_traces[(t_start,t_end)]):
 												continue
 											else:
@@ -928,7 +1114,7 @@ def postprocess_critical_cycles():
 												AS.add((first_access, second_access))
 												access_fence_suggestions[t[0]] = AS
 												# add fence suggestion to statement access order
-												#update_bigger_than(first_access, second_access, t[0])
+												#(first_access, second_access, t[0])
 												#print(first_access)
 												#print(second_access)
 											else:
@@ -942,6 +1128,8 @@ def postprocess_critical_cycles():
 												#print(trace)
 											critical_P_traces.add(tuple(P_traces[tuple(t)]))
 											cycle_found = True
+											# update current access on callstack
+											callstack[len(callstack)-1] = (v, A, a, previous_access)
 											break
 										else:
 											continue
@@ -964,7 +1152,8 @@ def postprocess_critical_cycles():
 											# take a out of accesses in case we are processing t
 											if len(callstack) == 1:
 												accesses = set(accesses)
-												accesses.remove(a)
+												if a in accesses:
+													accesses.remove(a)
 												accesses = list(accesses)
 										# filter accesses
 										if find_conflicts:
@@ -994,9 +1183,37 @@ def postprocess_critical_cycles():
 											var_counter[current_access[1]] = count
 									if Ppos == 1:
 										Ppos = 0
-									else:
+									elif previous_access == ():
 										i = (i-1)%len(CY_summary)
 										Ppos = len(CY_summary[i])-1
+				# process write atomicity issues, if applicable
+				if len(callstack) > 0 and not WriteAtomicity:
+					i = 0
+					first = True
+					while i != 0 or first:
+						first = False
+						j = (i+1)%len(callstack)
+						v1 = callstack[i][0]
+						v2 = callstack[j][0]
+						if SMowner[statements_accesses[v1][1]] != SMowner[statements_accesses[v2][1]]:
+							# from Write to Read?
+							print(callstack[i][2])
+							if callstack[i][2][0] == 'W' and callstack[j][2][0] != 'W':
+								# check for fences
+								found = False
+								for t in P_traces:
+									St = set(t)
+									if v1 in St or v2 in St:
+										found = True
+										break
+								if not found:
+									# we need to add a fence. We will do so on the succeeding trace
+									for t in CY_summary:
+										if v2 in set(t):
+											print("adding a fence to handle write non-atomicity")
+											critical_P_traces.add(tuple(P_traces[tuple(t)]))
+											break
+						i = (i+1)%len(callstack)
 			# Postprocess P-traces of length one
 			if check_P_length_one:
 				print("optimising transaction and intra-instruction fence placement")
@@ -1032,6 +1249,10 @@ def optimise_transactions():
 		for a1, a2 in S:
 			if SCCdict[a1] != SCCdict[a2]:
 				S_filtered.append[(a1,a2)]
+		# add remaining suggestions to access relations to strengthen them
+		for a1, a2 in S_filtered:
+			update_smaller_than(a2, a1, i)
+			update_bigger_than(a1, a2, i)
 		# group accesses in i into equivalence classes based on their predecessors and successors
 		EC_counter = 0
 		EC_numbers = {}
@@ -1159,7 +1380,7 @@ def readAut(autfile):
 
 def read_statespace(m):
 	"""Read the state space of the model"""
-	global model_statespace
+	global model_statespace, WR_order
 
 	statespace_name = m[:-4] + "aut"
 	model_statespace = readAut(statespace_name)
@@ -1242,6 +1463,113 @@ def get_largest_accesses(id):
 			wset |= instr[2][i][1]
 		return (set([]),wset)
 
+def access_can_be_moved_over_set(s, a, t, A2, to_right):
+	"""Return whether access a can be swapped with set A2. to_right indicates the direction of moving.
+	s and t are owners of a and A2, respectively."""
+	global RR_order, RW_order, WR_order, WW_order, StoreBuffering, access_smaller_than, access_bigger_than
+	print(s)
+	print(a)
+	print(t)
+	print(A2)
+	print(to_right)
+	print(RW_order)
+	print(WR_order)
+	if a[0] != 'W':
+		if RR_order:
+			if A2[0] != set([]) or A2[1] != set([]):
+				print("here1")
+				return False
+		if (to_right and RW_order) or ((not to_right) and WR_order):
+			if A2[2] != set([]):
+				print("here2")
+				return False
+		# no speculative writing
+		if to_right and a[0] == 'C' and A2[2] != set([]):
+			print("here3")
+			return False
+		# no dependent accesses reordering inside an instruction
+		if to_right and s == t:
+			S = access_bigger_than[s].get(a, set([]))
+			for a2 in S:
+				if a2[1] in A2[2]:
+					print("here4")
+					return False
+		# conflict with read (unless moving to the left and StoreBuffering is supported)
+		print("here5")
+		print((a[1] not in A2[2]) or ((not to_right) and StoreBuffering))
+		return (a[1] not in A2[2]) or ((not to_right) and StoreBuffering)
+	else:
+		if (to_right and WR_order) or ((not to_right) and RW_order):
+			if A2[0] != set([]) or A2[1] != set([]):
+				print("here6")
+				return False
+		if WW_order:
+			if A2[2] != set([]):
+				print("here7")
+				return False
+		# no speculative writing
+		if (not to_right) and A2[0] != set([]):
+			print("here8")
+			return False
+		# conflict with identical write
+		if a[1] in A2[2]:
+			print("here9")
+			return False
+		# no dependent accesses reordering inside an instruction
+		if (not to_right) and s == t:
+			S = access_smaller_than[s].get(a, set([]))
+			for a2 in S:
+				if a2[1] in A2[1]:
+					print("here10")
+					return False
+		# conflict with read (unless moving to the right and StoreBuffering is supported)
+		print("here11")
+		return (a[1] not in A2[0] and a[1] not in A2[1]) or (to_right and StoreBuffering)
+
+def reorder_accesses(A1, A2):
+	"""Reorder access sets A1 and A2. Produces a tuple of four access patterns: (Part of A2 moved over A1), (left over of A1), (left over of A2),
+	(Part of A1 moved over A2)"""
+	L = (set([]), set([]), set([]))
+	R = (set([]), set([]), set([]))
+	newA1 = (set([]), set([]), set([]))
+	newA2 = (set([]), set([]), set([]))
+	s = A1[0]
+	t = A2[0]
+	ap1 = A1[1]
+	ap2 = A2[1]
+	for a in ap1[0]:
+		if access_can_be_moved_over_set(s, ('C',a), t, ap2, True):
+			R[0].add(a)
+		else:
+			newA1[0].add(a)
+	for a in ap1[1]:
+		if access_can_be_moved_over_set(s, ('R',a), t, ap2, True):
+			R[1].add(a)
+		else:
+			newA1[1].add(a)
+	for a in ap1[2]:
+		if access_can_be_moved_over_set(s, ('W',a), t, ap2, True):
+			R[2].add(a)
+		else:
+			newA1[2].add(a)
+	for a in ap2[0]:
+		if access_can_be_moved_over_set(s, ('C',a), t, newA1, False):
+			L[0].add(a)
+		else:
+			newA2[0].add(a)
+	for a in ap2[1]:
+		if access_can_be_moved_over_set(s, ('R',a), t, newA1, False):
+			L[1].add(a)
+		else:
+			newA2[1].add(a)
+	for a in ap2[2]:
+		if access_can_be_moved_over_set(s, ('W',a), t, newA1, False):
+			L[2].add(a)
+		else:
+			newA2[2].add(a)
+	print("((" + str(t) + ", " + str(L) + "), (" + str(s) + ", " + str(newA1) + "), (" + str(t) + ", " + str(newA2) + "), (" + str(s) + ", " + str(R) + "))")
+	return ((t, L), (s, newA1), (t, newA2), (s, R))
+
 def statements_are_conflicting(i1, i2):
 	"""Return whether the first statement conflicts with the second"""
 	global accesspattern
@@ -1288,17 +1616,17 @@ def accesses_are_conflicting(a1, a2):
 	if not pure_static_analysis:
 		return (a1[1] == a2[1])
 	else:
-		a1_splitted = a1[1].split("[")
-		a2_splitted = a2[1].split("[")
+		a1_splitted = a1[1].split("(")
+		a2_splitted = a2[1].split("(")
 		if len(a1_splitted) == 1 and len(a2_splitted) == 1:
 			return (a1[1] == a2[1])
 		if (len(a1_splitted) == 1 and len(a2_splitted) > 1) or (len(a1_splitted) > 1 and len(a2_splitted) == 1):
 			return False
-		a1_splitted = a1[1].split("[*]")
+		a1_splitted = a1[1].split("(*)")
 		if len(a1_splitted) > 1:
 			return (a1_splitted[0] == a2_splitted[0])
-		a1_splitted = a1[1].split("[")
-		a2_splitted = a2[1].split("[*]")
+		a1_splitted = a1[1].split("(")
+		a2_splitted = a2[1].split("(*)")
 		if len(a2_splitted) > 1:
 			return (a1_splitted[0] == a2_splitted[0])
 		return False
@@ -1314,12 +1642,12 @@ def conflicting_accesses(a, iswrite, ins):
 	array_static_access = False
 	array_dynamic_access = False
 	if pure_static_analysis:
-		a_splitted = a.split("[*]")
+		a_splitted = a.split("(*)")
 		if len(a_splitted[0]) > 1:
 			array_dynamic_access = True
 			a2 = a_splitted[0]
 		else:
-			a_splitted = a.split("[")
+			a_splitted = a.split("(")
 			if len(a_splitted[0]) > 1:
 				array_static_access = True
 				a2 = a_splitted[0]
@@ -1327,14 +1655,14 @@ def conflicting_accesses(a, iswrite, ins):
 		if array_static_access:
 			if a in readsap:
 				conflicting[0].add(a)
-			elif a2 + "[*]" in readsap:
+			elif a2 + "(*)" in readsap:
 				conflicting[0].add(a)
 		elif array_dynamic_access:
 			if a in readsap:
 				conflicting[0].add(a)
 			else:
 				for a3 in readsap:
-					a3_splitted = a3.split("[")
+					a3_splitted = a3.split("(")
 					if len(a3_splitted[0]) > 1:
 						if a2 == a3:
 							conflicting[0].add(a)
@@ -1344,14 +1672,14 @@ def conflicting_accesses(a, iswrite, ins):
 	if array_static_access:
 		if a in writesap:
 			conflicting[1].add(a)
-		elif a2 + "[*]" in writesap:
+		elif a2 + "(*)" in writesap:
 			conflicting[1].add(a)
 	elif array_dynamic_access:
 		if a in writesap:
 			conflicting[1].add(a)
 		else:
 			for a3 in writesap:
-				a3_splitted = a3.split("[")
+				a3_splitted = a3.split("(")
 				if len(a3_splitted[0]) > 1:
 					if a2 == a3:
 						conflicting[1].add(a)
@@ -1450,7 +1778,7 @@ def accesses_minus(A1, A2):
 	else:
 		newA1 = set([])
 		for a in A1:
-			if "[*]" in a:
+			if "(*)" in a:
 				newA1.add(a)
 			elif a not in A2:
 				newA1.add(a)
@@ -1462,7 +1790,7 @@ def access_is_in_set(a, A):
 	if not pure_static_analysis:
 		return a in A
 	else:
-		if "[*]" in a:
+		if "(*)" in a:
 			return False
 		else:
 			return a in A
@@ -1471,7 +1799,8 @@ def filter_accesses(A, V):
 	"""Filter the accesses in A, only keep those that are also in V"""
 	newA = set([])
 	for a in A:
-		a_splitted = a.split("[")
+		print(a)
+		a_splitted = a.split("(")
 		if len(a_splitted) > 1:
 			a2 = a_splitted[0]
 		else:
@@ -1502,6 +1831,10 @@ def analyse_statements():
 			writes |= filter_accesses(ap[j][1], V)
 			j += 1
 		accesspattern[i] = (condreads, reads, writes)
+		print(i)
+		print(condreads)
+		print(reads)
+		print(writes)
 
 	# build a dictionary for each instruction, indicating the successor and predecessor accesses of each access
 	access_smaller_than = {}
@@ -1537,7 +1870,7 @@ def analyse_statements():
 				wa_reads = set([])
 				for ra in reads_j:
 					if pure_static_analysis:
-						if "[*]" in ra:
+						if "(*)" in ra:
 							wa_reads.add(('R',ra))
 							continue
 					R = read_pred_tmp.get(ra, set([]))
@@ -1559,6 +1892,7 @@ def analyse_statements():
 		for a in access_predecessors_i.keys():
 			if not var_is_local(a[1], i):
 				new_access_predecessors_i[a] = get_global_accesses(a, access_predecessors_i, i)
+		access_predecessors_i = new_access_predecessors_i
 		# build transitive closure of predecessor relation
 		access_smaller_than_i = {}
 		openset = set([])
@@ -1586,13 +1920,15 @@ def analyse_statements():
 				R.add(a1)
 				access_bigger_than_i[a2] = R
 		access_bigger_than[i] = access_bigger_than_i
+	print("<: " + str(access_smaller_than))
+	print(">: " + str(access_bigger_than))
 
 def get_global_accesses(a, D, i):
 	"""From the dependency relation encoded by dictionary D, get the global accesses on which access a depends. i is statement performing a."""
 	V = D.get(a, set([]))
 	newV = set([])
 	for v in V:
-		if var_is_local(a[1], i):
+		if var_is_local(v[1], i):
 			newV |= get_global_accesses(v, D, i)
 		else:
 			newV.add(v)
@@ -1866,7 +2202,6 @@ def constructDG():
 			# Take speculative reading into account?
 			if not RR_order:
 				spreads = speculative_reads[i]
-				print(spreads)
 				for k, accs in spreads.items():
 					if k not in parallel_statements.get(j, set([])):
 						conflicting_reads_k = set([])
@@ -1954,7 +2289,7 @@ def static_constructDG():
 
 def main(args):
 	"""The main function"""
-	global modelname, model, memory_model, model_statespace, RW_order, RW_order, RR_order, WW_order, critical_cycles, transaction_counter, fence_counter_intra, fence_counter_inter, pure_static_analysis, statements_IDs
+	global modelname, model, memory_model, model_statespace, WR_order, RW_order, RR_order, WW_order, StoreBuffering, WriteAtomicity, critical_cycles, transaction_counter, fence_counter_intra, fence_counter_inter, pure_static_analysis, statements_IDs
 	if len(args) == 0:
 		print("Missing arguments: SLCO model")
 		sys.exit(1)
@@ -1976,6 +2311,8 @@ def main(args):
 						RW_order = True
 						RR_order = True
 						WW_order = True
+						StoreBuffering = False
+						WriteAtomicity = True
 						print("memory model set to SC")						
 					if args[i+1] == "PSO":
 						memory_model = MemoryModel.PSO
@@ -1983,6 +2320,8 @@ def main(args):
 						RW_order = True
 						RR_order = True
 						WW_order = False
+						StoreBuffering = True
+						WriteAtomicity = True
 						print("memory model set to PSO")
 					elif args[i+1] == "ARM":
 						memory_model = MemoryModel.ARM
@@ -1990,13 +2329,17 @@ def main(args):
 						RW_order = False
 						RR_order = False
 						WW_order = False
+						StoreBuffering = True
+						WriteAtomicity = False
 						print("memory model set to ARM")
 					else:
 						memory_model = MemoryModel.TSO
 						WR_order = False
 						RW_order = True
 						RR_order = True
-						WW_order = True				
+						WW_order = True
+						StoreBuffering = True
+						WriteAtomicity = True		
 						print("memory model set to TSO")
 					i += 1
 				elif args[i] == '-s':
