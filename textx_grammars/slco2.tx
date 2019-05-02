@@ -28,11 +28,11 @@ Initialisation:
 Channel:
   name=NID '(' type*=Type[','] ')'
   ((synctype='async' ('[' size=INT ']')? (losstype='lossless'|losstype='lossy')
-  'from' source=[Object]'.'ports=[Port] 'to'
-  target=[Object]'.'ports=[Port])
+  'from' source=[Object]'.'port0=[Port] 'to'
+  target=[Object]'.'port1=[Port])
   |
-  (synctype='sync' 'between' source=[Object]'.'ports=[Port] 'and'
-  target=[Object]'.'ports=[Port])
+  (synctype='sync' 'between' source=[Object]'.'port0=[Port] 'and'
+  target=[Object]'.'port1=[Port])
   )
 ;
 

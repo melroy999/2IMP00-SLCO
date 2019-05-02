@@ -1,0 +1,51 @@
+// type of elements used
+{% if vectorsize < 31 %}
+#define inttype uint32_t
+{% else %}
+#define inttype uint64_t
+{% endif %}
+// types of data elements
+#define elem_inttype uint32_t
+#define elem_chartype uint8_t
+
+// state vector size
+inttype sv_nints = {{vectorsize}};
+
+// structure of state vector:
+// {{vectorstructure_string}}
+
+{% if vectorsize > 62 %}
+// function to traverse one step in state vector tree
+inttype sv_step(inttype *d_z, inttype node, uint8_t goleft) {
+	inttype index = 0;
+	if (goleft == 1) {
+		index = ((node && 0x4FFFFFFFFFFFFFFF) >> 31);
+	}
+	else {
+		index = (node && 0x00000000FFFFFFFF);
+	}
+	return d_z[index];
+}
+{% endif %}
+
+// data retrieval functions. retrieve particular state info from a given state vector.
+{% for t in vectorstructure %}
+{% for (s,i) in t %}
+{% if i < 32 %}elem_chartype{% else %}elem_inttype{% endif %} get_{{s}}(inttype *d_z, inttype node) {
+	// first retrieve correct part of state vector
+	inttype part = node;
+	{% for b in s|get_vector_tree_navigation %}
+	part = sv_step(d_z, part, {% if b %}1{% else %}0{% endif %});
+	{% endfor %}
+	// next extract requested info
+	return part && {{s|get_bitmask}};
+}
+
+{% endfor %}
+{% endfor %}
+
+// successor function. given a state vector, construct its successor state vectors, and store them in d_z.
+// tid is the identity of the thread calling the function (id of thread inside vector group).
+void successor(inttype *d_z, inttype node, uint8_t tid) {
+	
+}

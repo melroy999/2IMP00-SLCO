@@ -973,7 +973,7 @@ def statement_structure_accesspattern(s, o):
 		readset = set([])
 		if s.guard != None:
 			readset |= expression_full_varset(s.guard,statemachine[s],smclass[statemachine[s]],{},o,False)
-		alist.append(tuple([expression_full_varset(s.guard,statemachine[s],smclass[statemachine[s]],{},o,False),set([])]))
+			alist.append(tuple([expression_full_varset(s.guard,statemachine[s],smclass[statemachine[s]],{},o,False),set([])]))
 		vardict = {}
 		writeset = set([])
 		for st in s.assignments:
@@ -988,7 +988,7 @@ def statement_structure_accesspattern(s, o):
 				vardict[varname] = "set'(" + expression(st.left.var,statemachine[s],smclass[statemachine[s]],vardict,o) + ", " + expression(st.left.index,statemachine[s],smclass[statemachine[s]],vardict,o) + ", " + newright + ")"
 			else:
 				vardict[varname] = "(" + newright + ")"
-			alist.append(tuple([readset2, writeset2]))
+			alist.append(tuple([readset2 - readset - writeset, writeset2]))
 			readset |= readset2
 			writeset |= writeset2
 		return alist
@@ -1125,7 +1125,12 @@ def mcrl2_accesspattern_to_string(access):
 
 def mcrl2_accesspatterns_to_string(alist):
 	output = "["
+	first = True
 	for a in alist:
+		if first:
+			first = False
+		else:
+			output += ", "
 		output += mcrl2_accesspattern_to_string(a)
 	output += "]"
 	return output

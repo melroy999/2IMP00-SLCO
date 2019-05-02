@@ -275,10 +275,31 @@ def add_variable_types(model, metamodel):
 				if sm.variables[i].type == None:
 					sm.variables[i].type = sm.variables[i-1].type
 
+# model processor setting sizes of types by default to one
+def set_default_type_size(model, metamodel):
+	for c in model.classes:
+		for i in range(0,len(c.variables)):
+			if c.variables[i].type != None:
+				if c.variables[i].type.size != None:
+					if c.variables[i].type.size == 0:
+						c.variables[i].type.size = 1
+		for sm in c.statemachines:
+			for i in range(0,len(sm.variables)):
+				if sm.variables[i].type != None:
+					if sm.variables[i].type.size != None:
+						if sm.variables[i].type.size == 0:
+							sm.variables[i].type.size = 1
+	for ch in model.channels:
+		for t in ch.type:
+			if t.size != None:
+				if t.size == 0:
+					t.size = 1
+
 # model processor setting sizes of channels by default to one
 def set_default_channel_size(model, metamodel):
 	for ch in model.channels:
 		if ch.size == 0:
+			print("bla")
 			ch.size = 1
 
 # model processor adding tau action to transitions without statements
@@ -427,6 +448,7 @@ def read_SLCO_model(m):
 	slco_mm.register_model_processor(check_names)
 	slco_mm.register_model_processor(add_initial_to_states)
 	slco_mm.register_model_processor(add_variable_types)
+	#slco_mm.register_model_processor(set_default_type_size)
 	slco_mm.register_model_processor(set_default_channel_size)
 	slco_mm.register_model_processor(add_taus)
 	slco_mm.register_model_processor(fix_references)
@@ -437,10 +459,10 @@ def read_SLCO_model(m):
 	slco_mm.register_scope_providers({
 		"*.*": providers.FQN(),
 		"Initialisation.left": providers.RelativeName("parent.type.variables"),
-		"Channel.ports[0]": providers.RelativeName("source.type.ports"),
-		"Channel.ports[1]": providers.RelativeName("target.type.ports"),
+		"Channel.port0": providers.RelativeName("source.type.ports"),
+		"Channel.port1": providers.RelativeName("target.type.ports"),
 		"ReceiveSignal.from": providers.RelativeName("parent.parent.parent.type.ports"),
-		"SendSignal.to": providers.RelativeName("parent.parent.parent.type.ports")
+		"SendSignal.to": providers.RelativeName("parent.parent.parent.type.ports"),
 	})
 
 	# parse and return the model

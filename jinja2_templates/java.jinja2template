@@ -25,13 +25,13 @@ public class {{model.name}} {
   // Global variables
   {% for c in model.classes %}
   {% for v in c.variables %}
-  public volatile {{v.type|javatype}} {{v.name}};
+  public volatile {{v.type|javatype(False)}} {{v.name}};
   {% endfor %}
 
 	// Lock class to handle locks of global variables
 	class java_Keeper {
     // The locks
-		ReentrantLock[] locks;
+    ReentrantLock[] locks;
     // Which locks need to be acquired?
     boolean[] lockneeded;
 
@@ -84,7 +84,7 @@ public class {{model.name}} {
 		private int[] java_lockIDs;
 		// Thread local variables
 		{% for v in sm.variables %}
-		private {{v.type|javatype}} {{v.name}};
+		private {{v.type|javatype(False)}} {{v.name}};
 		{% endfor %}
 
 		// Constructor
@@ -94,12 +94,39 @@ public class {{model.name}} {
 			java_transcounter = 0;
 			{% endif %}
 			java_currentState = {{model.name}}.java_State.{{sm.initialstate.name}};
-      java_kp = java_k;
-      java_lockIDs = new int[{{sm|maxnumbervarids}}];
+            java_kp = java_k;
+            java_lockIDs = new int[{{sm|maxnumbervarids}}];
 			{% for v in sm.variables %}
-			{{v.name}} = {% if v.type.size > 1 %}new {{v|javatype}} {% endif %}{{v|variabledefault}};
+			{{v.name}} = {% if v.type.size > 1 %}new {{v|javatype(False)}} {% endif %}{{v|variabledefault}};
 			{% endfor %}
 		}
+
+		// Transition functions
+        {% for s in sm.states %}
+        {% for t in s|outgoingtrans(sm.transitions) %}
+        
+        boolean execute_{{t.source.name}}_{{loop.index0}}() {
+          {% for st in t.statements %}
+          {% set stloop = loop %}
+          // {{st|getlabel}}
+          {% set varids = st|getvarids %}
+          {% for id in varids %}
+          //System.out.println("{{sm.name}}_{{s.name}}_{{loop.index0}}");
+          java_lockIDs[{{loop.index0}}] = {{id}};
+          {% endfor %}
+          //System.out.println("{{sm.name}}_{{s.name}}_{{i}}_sort");
+          Arrays.sort(java_lockIDs,0,{{varids|length}});
+          //System.out.println("{{sm.name}}_{{s.name}}_{{i}}_lock");
+          java_kp.lock(java_lockIDs, {{varids|length}});
+          //System.out.println("{{sm.name}}_{{s.name}}_{{i}}_stat");
+          {{st|javastatement(varids|length,10,True,o,True,False)}}
+          //System.out.println("{{sm.name}}_{{s.name}}_{{i}}_unlock");
+          java_kp.unlock(java_lockIDs, {{varids|length}});
+          {% endfor %}
+          return true;
+        }
+        {% endfor %}
+        {% endfor %}
 
 		// Execute method
 		public void exec() {
@@ -126,54 +153,30 @@ public class {{model.name}} {
 							{% for i in range(0,sout|length) %}
 							case {{i}}:
 								//System.out.println("{{sm.name}}_{{s.name}}_{{i}}");
-								{% for st in sout[i].statements %}
-								{% set stloop = loop %}
-								// {{st|getlabel}}
-								{% set varids = st|getvarids %}
-								{% for id in varids %}
-								//System.out.println("{{sm.name}}_{{s.name}}_{{loop.index0}}");
-							 	java_lockIDs[{{loop.index0}}] = {{id}};
-								{% endfor %}
-								//System.out.println("{{sm.name}}_{{s.name}}_{{i}}_sort");
-								Arrays.sort(java_lockIDs,0,{{varids|length}});
-								//System.out.println("{{sm.name}}_{{s.name}}_{{i}}_lock");
-								java_kp.lock(java_lockIDs, {{varids|length}});
-								//System.out.println("{{sm.name}}_{{s.name}}_{{i}}_stat");
-								{{st|javastatement(varids|length,16,True,o)}}
-								//System.out.println("{{sm.name}}_{{s.name}}_{{i}}_unlock");
-								java_kp.unlock(java_lockIDs, {{varids|length}});
-								{% endfor %}
-								// Change state
-								//System.out.println("{{sm.name}}_{{s.name}}_{{i}}_changestate");
-								java_currentState = {{model.name}}.java_State.{{sout[i].target.name}};
-								{% if add_counter %}
-								// Increment counter
-								//System.out.println("{{sm.name}}_{{s.name}}_{{i}}_increment");
-								java_transcounter++;
-								{% endif %}
+								if (execute_{{s.name}}_{{i}}()) {
+								  // Change state
+								  //System.out.println("{{sm.name}}_{{s.name}}_{{i}}_changestate");
+								  java_currentState = {{model.name}}.java_State.{{sout[i].target.name}};
+								  {% if add_counter %}
+								  // Increment counter
+								  //System.out.println("{{sm.name}}_{{s.name}}_{{i}}_increment");
+								  java_transcounter++;
+								  {% endif %}
+								}
 								break;
 							{% endfor %}
 						}
 					  {% else %}
-						{% for st in sout[0].statements %}
-						// {{st|getlabel}}
-						{% set varids = st|getvarids %}
-						{% for id in varids %}
-						java_lockIDs[{{loop.index0}}] = {{id}};
-						{% endfor %}
-						Arrays.sort(java_lockIDs,0,{{varids|length}});
-						java_kp.lock(java_lockIDs, {{varids|length}});
-						{{st|javastatement(varids|length,12,False,o)}}
-						java_kp.unlock(java_lockIDs, {{varids|length}});
-						{% endfor %}
-						// Change state
-						java_currentState = {{model.name}}.java_State.{{sout[0].target.name}};
-						{% if add_counter %}
-						// Increment counter
-						java_transcounter++;
-						{% endif %}
-						{% endif %}
+                        if (execute_{{s.name}}_0()) {
+						  // Change state
+						  java_currentState = {{model.name}}.java_State.{{sout[0].target.name}};
+						  {% if add_counter %}
+						  // Increment counter
+						  java_transcounter++;
+						  {% endif %}
+						}
 						break;
+                      {% endif %}
 					{% endfor %}
 					default:
 						return;
@@ -200,7 +203,7 @@ public class {{model.name}} {
 	{{model.name}}() {
 		// Instantiate global variables
 		{% for v in c.variables %}
-		{{v.name}} = {% if v.type.size > 1 %}new {{v.type|javatype}} {% endif %}{{v|initialvalue(o)}};
+		{{v.name}} = {% if v.type.size > 1 %}new {{v.type|javatype(False)}} {% endif %}{{v|initialvalue(o)}};
 		{% endfor %}
 		{{model.name}}.java_Keeper java_k = new {{model.name}}.java_Keeper();
 		{% for sm in c.statemachines %}

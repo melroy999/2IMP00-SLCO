@@ -1,6 +1,6 @@
-actions a b
-
 model Test {
+    actions a b
+
 	classes
 	P {
 	  variables Boolean[2] x Integer y

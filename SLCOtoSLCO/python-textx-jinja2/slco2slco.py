@@ -522,7 +522,7 @@ def preprocess():
 
 def translate():
 	"""The translation function"""
-	global modelname, model, check_variables, check_sequences, check_repeated
+	global modelname, model, check_variables, check_sequences, check_repeated, check_simple
 	
 	path, name = split(modelname)
 	if name.endswith('.slco'):

@@ -12,7 +12,7 @@ def identifySCCs_lower_bound(L, SCCdict, SCCs, lb):
 	'lb' is a lower-bound for the vertices in L that must be included in the analysis."""
 	# list of all states
 	states = set([])
-	for s in L.keys():
+	for s in list(L.keys()):
 		if s >= lb:
 			states.add(s)
 			for t in L[s]:

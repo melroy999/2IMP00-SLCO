@@ -2,6 +2,7 @@
 
 import sys
 import os
+from os.path import dirname, join
 import jinja2
 from textx.metamodel import metamodel_from_file
 import re
@@ -14,12 +15,23 @@ numberofelemvariables = 0
 smlocalvars = set([])
 # dictionary providing lock ids (offset) for a given variable
 varids = {}
+# set of variable names
+varnames = set([])
 # locking dictionary (provides variables to lock per object)
 lockingdict = {}
 # should a transition counter be added to the code? (to make program executions finite)
 add_counter = False
+# produce a list of transition functions for formal verification with Vercors
+vercors_verif = False
+vercors_vars = {}
 
-this_folder = os.path.dirname(__file__)
+this_folder = dirname(__file__)
+
+# import libraries
+sys.path.append(join(this_folder,'../../libraries'))
+from slcolib import *
+from SCCTarjan import *
+this_folder = dirname(__file__)
 
 def RepresentsInt(s):
     try: 
@@ -174,69 +186,201 @@ def getinstruction(s):
 			result += "[" + getinstruction(s.index) + "]"
 	return result
 
-def javatype(s):
+def getinstruction_old(s):
+	"""Get the Java instruction for the given statement s, with 'old' around each variable (for Vercors verification) """
+	global smlocalvars
+	result = ''
+	if s.__class__.__name__ == "Assignment":
+		result += "\\old(" + s.left.var.name + ")"
+		if s.left.index != None:
+			result += "[" + getinstruction_old(s.left.index) + "]"
+		result += " = "
+		if s.left.var.type.base == 'Byte':
+			result += "(byte) ("
+		result += getinstruction(s.right)
+		if s.left.var.type.base == 'Byte':
+			result += ")"
+	elif s.__class__.__name__ == "Composite":
+		result += "["
+		if s.guard != None:
+			result += getinstruction_old(s.guard)
+		if len(s.assignments) > 1:
+			result += ";"
+		for i in range(0,len(s.assignments)):
+			result += " " + getinstruction_old(s.assignments[i])
+			if i < len(s.assignments)-1:
+				result += ";"
+		result += "]"
+	elif s.__class__.__name__ == "Expression" or s.__class__.__name__ == "ExprPrec4" or s.__class__.__name__ == "ExprPrec3" or s.__class__.__name__ == "ExprPrec2" or s.__class__.__name__ == "ExprPrec1":
+		if s.op != '':
+			result += getinstruction_old(s.left) + " " + operator(s.op) + " " + getinstruction_old(s.right)
+		else:
+			result += getinstruction_old(s.left)
+	elif s.__class__.__name__ == "Primary":
+		result += sign(s.sign)
+		if s.sign == "not":
+			result += "("
+		if s.value != None:
+			newvalue = s.value
+			result += str(newvalue).lower()
+		elif s.ref != None:
+			result += "\\old(" + s.ref.ref + ")"
+			if s.ref.index != None:
+				result += "[" + getinstruction_old(s.ref.index) + "]"
+		else:
+			result += '(' + getinstruction_old(s.body) + ')'
+		if s.sign == "not":
+			result += ")"
+	elif s.__class__.__name__ == "VariableRef":
+		result += "\\old(" + s.var.name + ")"
+		if s.index != None:
+			result += "[" + getinstruction_old(s.index) + "]"
+	return result
+
+def javatype(s, ignoresize):
 	"""Maps type names from SLCO to Java"""
 	if s.base == 'Integer':
-		if s.size < 2:
+		if s.size < 1 or ignoresize:
 			return 'int'
 		else:
 			return 'int[]'
 	elif s.base == 'Boolean':
-		if s.size < 2:
+		if s.size < 1 or ignoresize:
 			return 'boolean'
 		else:
 			return 'boolean[]'
 	elif s.base == 'Byte':
-		if s.size < 2:
+		if s.size < 1 or ignoresize:
 			return 'byte'
 		else:
 			return 'byte[]'
 
-def javastatement(s,nlocks,indent,nondet,o):
+def javastatement(s,nlocks,indent,nondet,o,locking,vercors_annot):
 	"""Translates SLCO statement s to Java code. indent indicates how much every line needs to be indented, nlocks indicates how many locks need to be acquired (optional). nondet indicates whether this statement is at the head of a statement block and in a non-deterministic choice; it affects how expressions are translated.
-	o is Object owning s."""
-	global add_counter
+	o is Object owning s. Finally, boolean locking indicates whether locking instructions should be added or not. vercors_annot is a flag indicating whether Vercors annotations should be added for formal verification."""
+	global add_counter, vercors_vars
 
+	# obtain vercors vars list, if needed
+	if vercors_annot:
+		VercorsV = vercors_vars.get(s,[[],[]])
+
+	indentspace = ""
+	for i in range(0,indent):
+		indentspace += " "
 	output = ""
 	if s.__class__.__name__ == "Assignment":
+		if vercors_annot:
+			Adict = used_array_indices(s,{})
+			if Adict != {}:
+				for a, indices in Adict.items():
+					for index in indices:
+						output += "/*@ assume 0 <= " + str(index) + " < " + str(a) + ".length; @*/\n" + indentspace
 		output += getinstruction(s) + ";"
 	elif s.__class__.__name__ == "Expression":
 		if not nondet:
 #			if statement_readsfromlocked(s, o):
-			output += "if(!(" + getinstruction(s) + ")) { java_kp.unlock(java_lockIDs, "
-			output += str(nlocks)
-			output += ");"
+			if vercors_annot:
+				Adict = used_array_indices(s,{})
+				if Adict != {}:
+					for a, indices in Adict.items():
+						for index in indices:
+							output += "/*@ assume 0 <= " + str(index) + " < " + str(a) + ".length; @*/\n" + indentspace
+			output += "if(!(" + getinstruction(s) + ")) {"
+			if locking:
+				output += " java_kp.unlock(java_lockIDs, "
+				output += str(nlocks)
+				output += ");"
 			if add_counter:
 				output += " java_transcounter++;"
-			output += " break; }"
+			output += " return false; }"
 			# else:
 			# 	output += "while(!(" + getinstruction(s) + ") && java_transcounter < COUNTER_BOUND) { java_kp.unlock(java_lockIDs, "
 			# 	output += str(nlocks)
 			# 	output += "); java_transcounter++; try{ synchronized(SyncObject){SyncObject.wait(1);} } catch (InterruptedException e) { break; } java_kp.lock(java_lockIDs, "
 			# 	output += str(nlocks) + ");}"
 		else:
-			output += "if (!(" + getinstruction(s) + ")) { java_kp.unlock(java_lockIDs, "
-			output += str(nlocks)
-			output += "); "
+			if vercors_annot:
+				Adict = used_array_indices(s,{})
+				if Adict != {}:
+					for a, indices in Adict.items():
+						for index in indices:
+							output += "/*@ assume 0 <= " + str(index) + " < " + str(a) + ".length; @*/\n" + indentspace
+			output += "if (!(" + getinstruction(s) + ")) {"
+			if locking:
+				output += " java_kp.unlock(java_lockIDs, "
+				output += str(nlocks)
+				output += ");"
 			if add_counter:
-				output += "java_transcounter++; "
-			output += "break; }"
+				output += " java_transcounter++;"
+			output += " return false; }"
 	elif s.__class__.__name__ == "Composite":
-		indentspace = ""
-		for i in range(0,indent):
-			indentspace += " "
 		if s.guard != None:
-			output += javastatement(s.guard,nlocks,indent,nondet,o)
+			if vercors_annot:
+				Adict = used_array_indices(s.guard,{})
+				if Adict != {}:
+					for a, indices in Adict.items():
+						for index in indices:
+							output += "/*@ assume 0 <= " + str(index) + " < " + str(a) + ".length; @*/\n" + indentspace
+				output += "/*@ " + str(VercorsV[0][0][1]) + " = " + getinstruction(s.guard) + "; @*/\n" + indentspace
+			output += javastatement(s.guard,nlocks,indent,nondet,o,locking,vercors_annot)
 			if len(s.assignments) > 0:
 				output += "\n" + indentspace
 		first = True
+		i = 0
 		for e in s.assignments:
 			if not first:
 				output += "\n" + indentspace
 			else:
 				first = False
+			if vercors_annot:
+				Adict = used_array_indices(e,{})
+				if Adict != {}:
+					for a, indices in Adict.items():
+						for index in indices:
+							output += "/*@ assume 0 <= " + str(index) + " < " + str(a) + ".length; @*/\n" + indentspace
 			output += getinstruction(e) + ";"
+			if vercors_annot:
+				output += " /*@ "
+				j = 1
+				if e.left.index != None:
+					output += VercorsV[1][i][1][1] + " = " + getinstruction(e.left.index) + "; "
+					j = 2
+				output += VercorsV[1][i][j][1] + " = " + getinstruction(e.right) + "; @*/"
+				i += 1
 	return output
+
+def used_array_indices(s,L):
+	"""Return a list of index expressions for each array access in statement s"""
+	if s.__class__.__name__ == "Assignment":
+		if s.left.index != None:
+			I = L.get(s.left.var.name,set([]))
+			I.add(getinstruction(s.left.index))
+			L[s.left.var.name] = I
+			L = used_array_indices(s.left.index,L)
+		L = used_array_indices(s.right,L)
+	elif s.__class__.__name__ == "Composite":
+		if s.guard != None:
+			L = used_array_indices(s.guard,L)
+		for i in range(0,len(s.assignments)):
+			L = used_array_indices(s.assignments[i],L)
+	elif s.__class__.__name__ == "Expression" or s.__class__.__name__ == "ExprPrec4" or s.__class__.__name__ == "ExprPrec3" or s.__class__.__name__ == "ExprPrec2" or s.__class__.__name__ == "ExprPrec1":
+		L = used_array_indices(s.left,L)
+		if s.op != '':
+			L = used_array_indices(s.right,L)
+	elif s.__class__.__name__ == "Primary":
+		if s.ref != None:
+			if s.ref.index != None:
+				I = L.get(s.ref.ref,set([]))
+				I.add(getinstruction(s.ref.index))
+				L[s.ref.ref] = I
+				L = used_array_indices(s.ref.index,L)
+	elif s.__class__.__name__ == "VariableRef":
+		if s.index != None:
+			I = L.get(s.var.name,set([]))
+			I.add(getinstruction(s.index))
+			L[s.var.name] = I
+			L = used_array_indices(s.index,L)
+	return L
 
 def expression(s,primmap):
 	"""Maps SLCO expression to mCRL2 expression. Primmap is a dictionary for rewriting primaries."""
@@ -316,6 +460,51 @@ def statement_varids(s,primmap):
 	# sort output
 	sortedoutput = sorted(output)
 	return sortedoutput
+
+def statement_write_varobjects(s):
+	"""Return a list of objects to which the statement is writing"""
+	W = set([])
+	if s.__class__.__name__ == "Assignment":
+		W.add(s.left.var)
+	elif s.__class__.__name__ == "Composite":
+		for i in range(0,len(s.assignments)):
+			W.add(s.assignments[i].left.var)
+	return list(W)
+
+def statement_varobjects(s):
+	"""Return a list of objects from which the statement is reading"""
+	return list(set(statement_write_varobjects(s)) | statement_read_varobjects_set(s, s.parent.parent))
+
+def statement_read_varobjects_set(s, sm):
+	"""Return a set of objects from which the statement is reading. sm is the state machine owning s."""
+	R = set([])
+	if s.__class__.__name__ == "Assignment":
+		if s.left.index != None:
+			R |= statement_read_varobjects_set(s.left.index, sm)
+		R |= statement_read_varobjects_set(s.right, sm)
+	elif s.__class__.__name__ == "Composite":
+		if s.guard != None:
+			R |= statement_read_varobjects_set(s.guard, sm)
+		for i in range(0,len(s.assignments)):
+			R |= statement_read_varobjects_set(s.assignments[i], sm)
+	elif s.__class__.__name__ == "Expression" or s.__class__.__name__ == "ExprPrec4" or s.__class__.__name__ == "ExprPrec3" or s.__class__.__name__ == "ExprPrec2" or s.__class__.__name__ == "ExprPrec1":
+		R |= statement_read_varobjects_set(s.left, sm)
+		if s.op != '':
+			R |= statement_read_varobjects_set(s.right, sm)
+	elif s.__class__.__name__ == "Primary":
+		if s.ref != None:
+			if s.ref.index != None:
+				R |= statement_read_varobjects_set(s.ref.index, sm)
+			# obtain suitable object matching name s.ref.ref
+			for v1 in sm_variables(sm):
+				if v1.name == s.ref.ref:
+					R.add(v1)
+					break
+	elif s.__class__.__name__ == "VariableRef":
+		if s.index != None:
+			R |= statement_read_varobjects_set(s.index, sm)
+		R.add(s.var)
+	return R
 
 def statement_writestolocked(s, o):
 	"""Indicate whether the given statement writes to shared variables that require locking. o is owner Object of statement s."""
@@ -551,29 +740,140 @@ def hasoutgoingtrans(s,t):
 			return True
 	return False
 
+def hasglobalvariables(m):
+	"""Check whether model m has global variables"""
+	for c in m.classes:
+		if len(c.variables) > 0:
+			return True
+	return False
+
+def sm_variables(sm):
+	"""Provide list of variables accessible from current state machine sm"""
+	Ldict = {}
+	for v in sm.parent.variables:
+		Ldict[v.name] = v
+	for v in sm.variables:
+		Ldict[v.name] = v
+	return Ldict.values()
+
+def construct_vercors_auxiliary_vars(model):
+	"""Produce for all statements in model a list of required auxiliary variables for Vercors verification"""
+	global varnames, vercors_vars
+
+	vercors_vars = {}
+	for c in model.classes:
+		for sm in c.statemachines:
+			for tr in sm.transitions:
+				for s in tr.statements:
+					L = []
+					bcounter = 0
+					icounter = 0
+					bycounter = 0
+					if s.__class__.__name__ == "Composite":
+						if s.guard != None:
+							while "b" + str(bcounter) in varnames:
+								bcounter += 1
+							L.append([("boolean", "b" + str(bcounter))])
+							bcounter += 1
+						else:
+							L.append([])
+						L1 = []
+						for st in s.assignments:
+							L2 = [st.left.var]
+							if st.left.index != None:
+								while "i" + str(icounter) in varnames:
+									icounter += 1
+								L2.append(("int", "i" + str(icounter)))
+								print(icounter)
+								icounter += 1
+							if st.left.var.type.base == 'Boolean':
+								while "b" + str(bcounter) in varnames:
+									bcounter += 1
+								L2.append(("boolean", "b" + str(bcounter)))
+								bcounter += 1
+							elif st.left.var.type.base == 'Integer':
+								while "i" + str(icounter) in varnames:
+									icounter += 1
+								L2.append(("int", "i" + str(icounter)))
+								icounter += 1
+							else:
+								while "by" + str(bycounter) in varnames:
+									bycounter += 1
+								L2.append(("byte", "by" + str(bycounter)))
+								bycounter += 1
+							L1.append(L2)
+						L.append(L1)
+						vercors_vars[s] = L
+
+def get_vercors_auxiliary_vars(s):
+	"""Return the auxiliary vars needed by Vercors to verify statement s"""
+	global vercors_vars
+
+	V = vercors_vars.get(s)
+	if V == None:
+		return []
+	else:
+		L = V[0]
+		for VL in V[1]:
+			for i in range(1,len(VL)):
+				L.append(VL[i])
+		return L
+
+def get_vercors_guard_auxiliary_var(s):
+	"""Return auxiliary variable needed for guard of given statement s"""
+	global vercors_vars
+
+	if s.__class__.__name__ == "Composite":
+		V = vercors_vars.get(s)
+		if V == None:
+			return ""
+		elif len(V[0]) == 0:
+			return ""
+		else:
+			return V[0][0][1]
+	elif s.__class__.__name__ == "Expression":
+		return "(" + getinstruction(s) + ")"
+	else:
+		return ""
+
+def get_vercors_last_associated_aux_var(s, v):
+	"""Return last auxiliary variable associated with given statement s and varobject v. if no such variable exists, return instruction for right-hand side of s, which must be an assignment in that case."""
+	global vercors_vars
+
+	L = vercors_vars.get(s,[[],[]])
+	for V in reversed(L[1]):
+		if V[0] == v:
+			return V[len(V)-1][1]
+	return getinstruction_old(s.right)
+
+def get_vercors_aux_vars_list(s, v):
+	"""Return all auxiliary variables associated with given statement s and varobject v"""
+	global vercors_vars
+
+	L = vercors_vars.get(s,[[],[]])
+	L1 = []
+	for V in reversed(L[1]):
+		if V[0] == v:
+			L1.append([V[1], V[2]])
+	return L1
+
 def preprocess(model):
 	"""Preprocess the model"""
-	global states, numberofelemvariables, smlocalvars, varids
-	# for each state machine, add the initial state to its list of states
-	for c in model.classes:
-		for stm in c.statemachines:
-			stm.states = [stm.initialstate] + stm.states
-
-	# fill in types of variables
-	for c in model.classes:
-		for i in range(0,len(c.variables)):
-			if c.variables[i].type == None:
-				c.variables[i].type = c.variables[i-1].type
-		for sm in c.statemachines:
-			for i in range(0,len(sm.variables)):
-				if sm.variables[i].type == None:
-					sm.variables[i].type = sm.variables[i-1].type
+	global states, numberofelemvariables, smlocalvars, varids, varnames
 	# fill set of state names
 	states  = set([])
 	for c in model.classes:
 		for sm in c.statemachines:
 			for s in sm.states:
 				states.add(s.name)
+	# fill set of variable names
+	varnames = set([])
+	for c in model.classes:
+		for v in c.variables:
+			varnames.add(v.name)
+		for sm in c.statemachines:
+			for v in sm.variables:
+				varnames.add(v.name)
 	# compute number of elementary variables
 	numberofelemvariables = 0
 	for c in model.classes:
@@ -658,29 +958,11 @@ def read_locking_file(model,lockingfilename):
 
 def slco_to_java(modelfolder,modelname,model,lockingfilename):
 	"""The translation function"""
-	global states, varids, numberofelemvariables, lockingdict, add_counter
+	global states, varids, numberofelemvariables, lockingdict, add_counter, vercors_verif
 	outFile = open(os.path.join(modelfolder,model.name + ".java"), 'w')
 
-	# prepare lockingdict information for code generator
-	# read locking file
-	lockingdict = read_locking_file(model,lockingfilename)
-	lockids = []
-	for o in model.objects:
-		locklist = lockingdict.get(o.name,[])
-		for v in locklist:
-			vsplit = v.split('(')
-			vid = int(varids.get(vsplit[0],"0"))
-			if len(vsplit) > 1:
-				vx = vsplit[1].rstrip(')')
-				vid = vid + int(vx)
-			lockids.append(vid)
-	lockids = set(lockids)
-	lockneeded = []
-	for i in range(0,numberofelemvariables):
-		lockneeded.append(i in lockids)
-
 	# Initialize the template engine.
-	jinja_env = jinja2.Environment(loader=jinja2.FileSystemLoader(os.path.join(this_folder,'../../jinja2_templates')), trim_blocks=True, lstrip_blocks=True, extensions=['jinja2.ext.loopcontrols','jinja2.ext.do',])
+	jinja_env = jinja2.Environment(loader=jinja2.FileSystemLoader(join(this_folder,'../../jinja2_templates')), trim_blocks=True, lstrip_blocks=True, extensions=['jinja2.ext.loopcontrols','jinja2.ext.do',])
 
 	# Register the filters
 	jinja_env.filters['getvarids'] = getvarids
@@ -693,20 +975,52 @@ def slco_to_java(modelfolder,modelname,model,lockingfilename):
 	jinja_env.filters['javatype'] = javatype
 	jinja_env.filters['outgoingtrans'] = outgoingtrans
 	jinja_env.filters['javastatement'] = javastatement
+	jinja_env.filters['hasglobalvariables'] = hasglobalvariables
+	jinja_env.filters['get_vercors_auxiliary_vars'] = get_vercors_auxiliary_vars
+	jinja_env.filters['get_vercors_guard_auxiliary_var'] = get_vercors_guard_auxiliary_var
+	jinja_env.filters['get_vercors_last_associated_aux_var'] = get_vercors_last_associated_aux_var
+	jinja_env.filters['get_vercors_aux_vars_list'] = get_vercors_aux_vars_list
+	jinja_env.filters['sm_variables'] = sm_variables
+	jinja_env.filters['statement_write_varobjects'] = statement_write_varobjects
+	jinja_env.filters['statement_varobjects'] = statement_varobjects
 
 	# Register the tests
 	jinja_env.tests['hasoutgoingtrans'] = hasoutgoingtrans
 
-	# load the Java template
-	template = jinja_env.get_template('java.jinja2template')
+	if not vercors_verif:
+		# prepare lockingdict information for code generator
+		# read locking file
+		lockingdict = read_locking_file(model,lockingfilename)
+		lockids = []
+		for o in model.objects:
+			locklist = lockingdict.get(o.name,[])
+			for v in locklist:
+				vsplit = v.split('(')
+				vid = int(varids.get(vsplit[0],"0"))
+				if len(vsplit) > 1:
+					vx = vsplit[1].rstrip(')')
+					vid = vid + int(vx)
+				lockids.append(vid)
+		lockids = set(lockids)
+		lockneeded = []
+		for i in range(0,numberofelemvariables):
+			lockneeded.append(i in lockids)
 
+		# load the Java template
+		template = jinja_env.get_template('java.jinja2template')
+	else:
+		# load the Vercors template
+		lockneeded = False
+		template = jinja_env.get_template('java_vercors.jinja2template')
+		# precompute
+		construct_vercors_auxiliary_vars(model)
 	# write the program
 	outFile.write(template.render(model=model,states=states,numberofelemvariables=numberofelemvariables,lockneeded=lockneeded,add_counter=add_counter))
 	outFile.close()
 
 def main(args):
 	"""The main function"""
-	global numberofelemvariables, lockingdict, add_counter
+	global numberofelemvariables, lockingdict, add_counter, vercors_verif
 	lockingfilename = ''
 	if len(args) == 0:
 		print("Missing argument: SLCO model")
@@ -716,6 +1030,7 @@ def main(args):
 			print("Usage: pypy/python3 slco2java")
 			print("")
 			print("Transform an SLCO 2.0 model to a Java program.")
+			print("-v                                   produce a list of transition functions with Vercors annotations for formal verification")
 			print("-l <file>                            provide locking file for smart locking")
 			print("-c                                   produce a transition counter in the code, to make program executions finite")
 			sys.exit(0)
@@ -730,14 +1045,14 @@ def main(args):
 					lockingfilename = args[i];
 				elif args[i] == '-c':
 					add_counter = True
+				elif args[i] == '-v':
+					vercors_verif = True
 				else:
 					modelfolder, modelname = os.path.split(args[i])
 				i += 1
 
-	# create meta-model
-	slco_mm = metamodel_from_file(os.path.join(this_folder,'../../textx_grammars/slco2.tx'))
 	# read model
-	model = slco_mm.model_from_file(os.path.join(modelfolder,modelname))
+	model = read_SLCO_model(modelname)
 	# preprocess
 	model = preprocess(model)
 	# translate
