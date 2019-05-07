@@ -5,7 +5,7 @@ model Test {
 	P {
 	  variables Boolean[2] x Integer y
 	  state machines
-		SMC {
+		SM1 {
 		  variables Integer i
 			initial SMC0 states SMC1
 			transitions

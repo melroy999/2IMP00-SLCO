@@ -48,18 +48,18 @@ public class {{model.name}} {
 		public void lock(int[] l, int size) {
 			for (int i = 0; i < size; i++) {
 				if (lockneeded[l[i]]) {
-          locks[l[i]].lock();
-        }
-      }
+          			locks[l[i]].lock();
+        		}
+      		}
 		}
 
 		// Unlock method
 		public void unlock(int[] l, int size) {
-		  for (int i = 0; i < size; i++) {
-			  if (lockneeded[l[i]]) {
-          locks[l[i]].unlock();
-        }
-      }
+			for (int i = 0; i < size; i++) {
+				if (lockneeded[l[i]]) {
+          			locks[l[i]].unlock();
+        		}
+      		}
 		}
 	}
 	{% endfor %}
@@ -109,19 +109,22 @@ public class {{model.name}} {
           {% for st in t.statements %}
           {% set stloop = loop %}
           // {{st|getlabel}}
-          {% set varids = st|getvarids %}
+          {% set varids = st|getvarids(sm) %}
           {% for id in varids %}
           //System.out.println("{{sm.name}}_{{s.name}}_{{loop.index0}}");
           java_lockIDs[{{loop.index0}}] = {{id}};
           {% endfor %}
+          {% if varids|length > 0 %}
           //System.out.println("{{sm.name}}_{{s.name}}_{{i}}_sort");
           Arrays.sort(java_lockIDs,0,{{varids|length}});
           //System.out.println("{{sm.name}}_{{s.name}}_{{i}}_lock");
           java_kp.lock(java_lockIDs, {{varids|length}});
-          //System.out.println("{{sm.name}}_{{s.name}}_{{i}}_stat");
+          {% endif %}
           {{st|javastatement(varids|length,10,True,o,True,False)}}
+          {% if varids|length > 0 %}
           //System.out.println("{{sm.name}}_{{s.name}}_{{i}}_unlock");
           java_kp.unlock(java_lockIDs, {{varids|length}});
+          {% endif %}
           {% endfor %}
           return true;
         }

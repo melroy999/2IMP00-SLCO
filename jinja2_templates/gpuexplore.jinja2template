@@ -4,9 +4,19 @@
 {% else %}
 #define inttype uint64_t
 {% endif %}
+// type of automaton state
+{% if max_statesize <= 8 %}
+#define statetype uint8_t
+{% elif max_statesize <= 16 %}
+#define statetype uint16_t
+{% elif max_statesize <= 32 %}
+#define statetype uint32_t
+{% else %}
+#define statetype uint64_t
+{% endif %}
 // types of data elements
-#define elem_inttype uint32_t
-#define elem_chartype uint8_t
+#define elem_inttype int32_t
+#define elem_chartype int8_t
 
 // state vector size
 inttype sv_nints = {{vectorsize}};
@@ -28,24 +38,145 @@ inttype sv_step(inttype *d_z, inttype node, uint8_t goleft) {
 }
 {% endif %}
 
-// data retrieval functions. retrieve particular state info from a given state vector.
-{% for t in vectorstructure %}
-{% for (s,i) in t %}
-{% if i < 32 %}elem_chartype{% else %}elem_inttype{% endif %} get_{{s}}(inttype *d_z, inttype node) {
-	// first retrieve correct part of state vector
+// retrieval functions for vector parts.
+inttype get_vectorpart(inttype *d_z, inttype node, inttype i) {
+	switch (i) {
+	  {% for i in range(0,vectorstructure|length) %}
+	  case {{i}}:
+	  	return get_vectorpart_{{i}}(d_z, node);
+	  {% endfor %}
+	  default:
+	  	return 0;
+	}
+}
+
+{% for i in range(0,vectorstructure|length) %}
+inttype get_vectorpart_{{i}}(inttype *d_z, inttype node) {
 	inttype part = node;
-	{% for b in s|get_vector_tree_navigation %}
+	{% for b in i|get_vector_tree_navigation %}
 	part = sv_step(d_z, part, {% if b %}1{% else %}0{% endif %});
 	{% endfor %}
-	// next extract requested info
-	return part && {{s|get_bitmask}};
+	return part;
+}
+{% endfor %}
+
+// data retrieval functions. retrieve particular state info from the given state vector part.
+// precondition: the given part indeed contains the requested info.
+{% for t in vectorstructure %}
+{% for (s,i) in t %}
+{% if i < 32 %}elem_chartype{% else %}elem_inttype{% endif %} get_{{s}}(inttype part) {
+	return part & {{s|get_bitmask(False)}};
 }
 
 {% endfor %}
 {% endfor %}
+// retrieval of current state of automaton at position i in state vector.
+statetype get_current_state(inttype *d_z, inttype node, uint8_t i) {
+	inttype part;
+	switch (i):
+		{% for i in range(0,smnames|length) %}
+		case {{i}}:
+			part = get_vectorpart_{{vectorelem_in_structure_map[state_order[i]]}}(d_z, node);
+			return get_{{state_order[i]}}(d_z, part);
+		{% endfor %}
+		default:
+			return 0;
+}
 
+// data update functions. update particular state info in the given state vector part.
+// precondition: the given part indeed needs to contain the updated info.
+{% for t in vectorstructure %}
+{% for (s,i) in t %}
+inttype set_{{s}}(inttype part, {% if i < 32 %}elem_chartype{% else %}elem_inttype{% endif %} x) {
+	return part | {{s|get_bitmask(True)}};
+}
+
+{% endfor %}
+{% endfor %}
 // successor function. given a state vector, construct its successor state vectors, and store them in d_z.
-// tid is the identity of the thread calling the function (id of thread inside vector group).
-void successor(inttype *d_z, inttype node, uint8_t tid) {
-	
+// vgtid is the identity of the thread calling the function (id of thread inside vector group).
+void successor(inttype *d_z, inttype node, uint8_t vgtid) {
+	// explore the outgoing transitions of the current state of the automaton assigned to vgtid.
+	switch (vgtid) {
+		{% for i in range(0,smnames|length) %}
+		case {{i}}:
+			explore_{{state_order[i]}}(d_z, node);
+			break;
+		{% endfor %}
+		default:
+			break;
+	}
 }
+
+// exploration functions to traverse outgoing transitions of the various states.
+{% for i in range(0,smnames|length) %}
+void explore_{{state_order[i]}}(inttype *d_z, inttype node) {
+	// fetch the current state of the automaton.
+	statetype current = get_current_state(d_z, node, {{i}});
+	statetype target;
+	inttype part;
+	switch (current) {
+		{% for s in smname_to_object[state_order[i]][1].states %}
+		{% set o = smname_to_object[state_order[i]][0] %}
+		{% set sm = smname_to_object[state_order[i]][1] %}
+		case {{state_id[(sm,s)]}}:
+			{% for v in s|state_varobjects %}
+			{% if loop.first %}
+			// fetch the required data from the state vector.
+			{% endif %}
+			{{v.type|cudatype(False)}} {{v.name}};
+			{% endfor %}
+			{% for i in s|state_unguarded_varobjects|get_vectorparts(o) %}
+			part = get_vectorpart(d_z, node, {{i}});
+			{% for v in s|state_unguarded_varobjects %}
+			{% if vectorelem_in_structure_map[v|scopename(o)] == i %}
+			{{v.name}} = get_{{v|scopename(o)}}(part);
+			{% endif %}
+			{% endfor %}
+
+			{% endfor %}
+			{% for t in s|outgoingtrans(sm.transitions) %}
+			{% set st = t.statements[0] %}
+			// {{s.name}} --{ {{'; ' if not loop.first}}{{st|getlabel}} }--> {{t.target.name}}
+			{% if st|cudaguard != "" %}
+			if ({{st|cudaguard}}) {
+				{% for i in st|statement_guarded_varobjects|get_vectorparts(o) %}
+				{% if loop.first %}
+				// fetch remaining data
+				{% endif %}
+				part = get_vectorpart(d_z, node, {{i}});
+				{% for v in st|statement_guarded_varobjects %}
+				{% if vectorelem_in_structure_map[v|scopename(o)] == i %}
+				{{v.name}} = get_{{v|scopename(o)}}(part);
+				{% endif %}
+				{% endfor %}
+
+				{% endfor %}
+				{{st|cudastatement(14,o)}}
+				// set the target state.
+				target = {{state_id[(sm,t.target)]}};
+			}
+			{% else %}
+			{{st|cudastatement(12,o)}}
+			// set the target state.
+			target = {{state_id[(sm,t.target)]}};
+			{% endif %}
+			// set new vector parts and hash them in shared memory hash table.
+			{% for i in ((st|statement_write_varobjects)+[sm])|get_vectorparts(o) %}
+			part = get_vectorpart(d_z, node, {{i}});
+			{% for v in st|statement_write_varobjects+[sm] %}
+			{% if vectorelem_in_structure_map[v|scopename(o)] == i %}
+			part = set_{{v|scopename(o)}}(part, {% if v == sm %}target{% else %}{{v.name}}{% endif %});
+			{% endif %}
+			{% endfor %}
+
+			{% endfor %}			
+			break;
+			{% endfor %}
+		{% endfor %}
+		default:
+			break;
+	}
+}
+
+{% endfor %}

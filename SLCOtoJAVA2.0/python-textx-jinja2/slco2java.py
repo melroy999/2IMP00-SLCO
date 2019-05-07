@@ -6,13 +6,14 @@ from os.path import dirname, join
 import jinja2
 from textx.metamodel import metamodel_from_file
 import re
+from copy import copy, deepcopy
 
 # Set of all state names in the model
 states = set([])
 # number of elementary global variables in the model
 numberofelemvariables = 0
-# names of state machine local variables
-smlocalvars = set([])
+# dictionary providing for each state machine its local variables
+smlocalvars = {}
 # dictionary providing lock ids (offset) for a given variable
 varids = {}
 # set of variable names
@@ -69,75 +70,8 @@ def sign(s):
 	else:
 		return s
 
-def getlabel(s):
-	"""Get the label for the given statement s"""
-	result = ''
-	if s.__class__.__name__ == "Assignment":
-		result += s.left.var.name
-		if s.left.index != None:
-			result += "[" + getlabel(s.left.index) + "]"
-		result += " := " + getlabel(s.right)
-	elif s.__class__.__name__ == "Composite":
-		result += "["
-		if s.guard != None:
-			result += getlabel(s.guard)
-			result += ";"
-		for i in range(0,len(s.assignments)):
-			result += " " + getlabel(s.assignments[i])
-			if i < len(s.assignments)-1:
-				result += ";"
-		result += "]"
-	elif s.__class__.__name__ == "Delay":
-		result += "<b>after </b>" + str(s.length) + "<b> ms</b>"
-	elif s.__class__.__name__ == "SendSignal":
-		result += "<b>send </b>" + s.signal + "("
-		first = True
-		for p in s.params:
-			if not first:
-				result += ","
-			else:
-				first = False
-			result += getlabel(p)
-		result += ") <b>to </b>" + s.target.name
-	elif s.__class__.__name__ == "ReceiveSignal":
-		result += "<b>receive </b>" + s.signal + "("
-		first = True
-		for p in s.params:
-			if not first:
-				result += ","
-			else:
-				first = False
-			result += getlabel(p)
-		if s.guard != None:
-			result += " | " + getlabel(s.guard)
-		result += ") <b>from </b>" + s.target.name
-	elif s.__class__.__name__ == "Expression" or s.__class__.__name__ == "ExprPrec4" or s.__class__.__name__ == "ExprPrec3" or s.__class__.__name__ == "ExprPrec2" or s.__class__.__name__ == "ExprPrec1":
-		if s.op != '':
-			result += getlabel(s.left) + " " + operator(s.op) + " " + getlabel(s.right)
-		else:
-			result += getlabel(s.left)
-	elif s.__class__.__name__ == "Primary":
-		result += s.sign
-		if s.sign == "not":
-			result += " "
-		if s.value != None:
-			newvalue = s.value
-			result += str(newvalue)
-		elif s.ref != None:
-			result += s.ref.ref
-			if s.ref.index != None:
-				result += "[" + getlabel(s.ref.index) + "]"
-		else:
-			result += '(' + getlabel(s.body) + ')'
-	elif s.__class__.__name__ == "VariableRef":
-		result += s.var.name
-		if s.index != None:
-			result += "[" + getlabel(s.index) + "]"
-	return result
-
 def getinstruction(s):
 	"""Get the Java instruction for the given statement s"""
-	global smlocalvars
 	result = ''
 	if s.__class__.__name__ == "Assignment":
 		result += s.left.var.name
@@ -186,36 +120,38 @@ def getinstruction(s):
 			result += "[" + getinstruction(s.index) + "]"
 	return result
 
-def getinstruction_old(s):
-	"""Get the Java instruction for the given statement s, with 'old' around each variable (for Vercors verification) """
-	global smlocalvars
+def getinstruction_old(s, v, vname):
+	"""Get the Java instruction for the given statement s, with variable v referred to with name vname (for Vercors verification) """
 	result = ''
 	if s.__class__.__name__ == "Assignment":
-		result += "\\old(" + s.left.var.name + ")"
+		if s.left.var == v:
+			result += vname
+		else:
+			result += s.left.var.name
 		if s.left.index != None:
-			result += "[" + getinstruction_old(s.left.index) + "]"
+			result += "[" + getinstruction_old(s.left.index, v, vname) + "]"
 		result += " = "
 		if s.left.var.type.base == 'Byte':
 			result += "(byte) ("
-		result += getinstruction(s.right)
+		result += getinstruction_old(s.right, v, vname)
 		if s.left.var.type.base == 'Byte':
 			result += ")"
 	elif s.__class__.__name__ == "Composite":
 		result += "["
 		if s.guard != None:
-			result += getinstruction_old(s.guard)
+			result += getinstruction_old(s.guard, v, vname)
 		if len(s.assignments) > 1:
 			result += ";"
 		for i in range(0,len(s.assignments)):
-			result += " " + getinstruction_old(s.assignments[i])
+			result += " " + getinstruction_old(s.assignments[i], v, vname)
 			if i < len(s.assignments)-1:
 				result += ";"
 		result += "]"
 	elif s.__class__.__name__ == "Expression" or s.__class__.__name__ == "ExprPrec4" or s.__class__.__name__ == "ExprPrec3" or s.__class__.__name__ == "ExprPrec2" or s.__class__.__name__ == "ExprPrec1":
 		if s.op != '':
-			result += getinstruction_old(s.left) + " " + operator(s.op) + " " + getinstruction_old(s.right)
+			result += getinstruction_old(s.left, v, vname) + " " + operator(s.op) + " " + getinstruction_old(s.right, v, vname)
 		else:
-			result += getinstruction_old(s.left)
+			result += getinstruction_old(s.left, v, vname)
 	elif s.__class__.__name__ == "Primary":
 		result += sign(s.sign)
 		if s.sign == "not":
@@ -224,17 +160,23 @@ def getinstruction_old(s):
 			newvalue = s.value
 			result += str(newvalue).lower()
 		elif s.ref != None:
-			result += "\\old(" + s.ref.ref + ")"
+			if s.ref.ref == v.name:
+				result += vname
+			else:
+				result += s.ref.ref
 			if s.ref.index != None:
-				result += "[" + getinstruction_old(s.ref.index) + "]"
+				result += "[" + getinstruction_old(s.ref.index, v, vname) + "]"
 		else:
-			result += '(' + getinstruction_old(s.body) + ')'
+			result += '(' + getinstruction_old(s.body, v, vname) + ')'
 		if s.sign == "not":
 			result += ")"
 	elif s.__class__.__name__ == "VariableRef":
-		result += "\\old(" + s.var.name + ")"
+		if s.var == v:
+			result += vname
+		else:
+			result += s.var.name
 		if s.index != None:
-			result += "[" + getinstruction_old(s.index) + "]"
+			result += "[" + getinstruction_old(s.index, v, vname) + "]"
 	return result
 
 def javatype(s, ignoresize):
@@ -275,6 +217,9 @@ def javastatement(s,nlocks,indent,nondet,o,locking,vercors_annot):
 				for a, indices in Adict.items():
 					for index in indices:
 						output += "/*@ assume 0 <= " + str(index) + " < " + str(a) + ".length; @*/\n" + indentspace
+			vold = vercors_vars.get(s, "")
+			if vold != "":
+				output += "/*@ " + vold[1] + " = " + s.left.var.name + "; @*/\n" + indentspace
 		output += getinstruction(s) + ";"
 	elif s.__class__.__name__ == "Expression":
 		if not nondet:
@@ -286,7 +231,7 @@ def javastatement(s,nlocks,indent,nondet,o,locking,vercors_annot):
 						for index in indices:
 							output += "/*@ assume 0 <= " + str(index) + " < " + str(a) + ".length; @*/\n" + indentspace
 			output += "if(!(" + getinstruction(s) + ")) {"
-			if locking:
+			if locking and nlocks > 0:
 				output += " java_kp.unlock(java_lockIDs, "
 				output += str(nlocks)
 				output += ");"
@@ -306,7 +251,7 @@ def javastatement(s,nlocks,indent,nondet,o,locking,vercors_annot):
 						for index in indices:
 							output += "/*@ assume 0 <= " + str(index) + " < " + str(a) + ".length; @*/\n" + indentspace
 			output += "if (!(" + getinstruction(s) + ")) {"
-			if locking:
+			if locking and nlocks > 0:
 				output += " java_kp.unlock(java_lockIDs, "
 				output += str(nlocks)
 				output += ");"
@@ -322,7 +267,7 @@ def javastatement(s,nlocks,indent,nondet,o,locking,vercors_annot):
 						for index in indices:
 							output += "/*@ assume 0 <= " + str(index) + " < " + str(a) + ".length; @*/\n" + indentspace
 				output += "/*@ " + str(VercorsV[0][0][1]) + " = " + getinstruction(s.guard) + "; @*/\n" + indentspace
-			output += javastatement(s.guard,nlocks,indent,nondet,o,locking,vercors_annot)
+			output += javastatement(s.guard,nlocks,indent,nondet,o,locking,False)
 			if len(s.assignments) > 0:
 				output += "\n" + indentspace
 		first = True
@@ -338,15 +283,14 @@ def javastatement(s,nlocks,indent,nondet,o,locking,vercors_annot):
 					for a, indices in Adict.items():
 						for index in indices:
 							output += "/*@ assume 0 <= " + str(index) + " < " + str(a) + ".length; @*/\n" + indentspace
-			output += getinstruction(e) + ";"
-			if vercors_annot:
 				output += " /*@ "
 				j = 1
 				if e.left.index != None:
 					output += VercorsV[1][i][1][1] + " = " + getinstruction(e.left.index) + "; "
 					j = 2
-				output += VercorsV[1][i][j][1] + " = " + getinstruction(e.right) + "; @*/"
+				output += VercorsV[1][i][j][1] + " = " + getinstruction(e.right) + "; @*/\n" + indentspace
 				i += 1
+			output += getinstruction(e) + ";"
 	return output
 
 def used_array_indices(s,L):
@@ -374,6 +318,8 @@ def used_array_indices(s,L):
 				I.add(getinstruction(s.ref.index))
 				L[s.ref.ref] = I
 				L = used_array_indices(s.ref.index,L)
+		if s.body != None:
+			L = used_array_indices(s.body,L)
 	elif s.__class__.__name__ == "VariableRef":
 		if s.index != None:
 			I = L.get(s.var.name,set([]))
@@ -417,44 +363,52 @@ def expression(s,primmap):
 			output += '(' + expression(s.body,primmap) + ')'
 	return output
 
-def statement_varids(s,primmap):
-	"""Produce for the given statement a list of sorted lock ids to be acquired"""
-	global varids
+def statement_varids(s,sm,primmap):
+	"""Produce for the given statement a list of sorted lock ids to be acquired. sm is statemachine owning s."""
+	global varids, smlocalvars
 	output = []
 	if s.__class__.__name__ == "VariableRef":
 		# is the variable not local to state machine?
-		if varids.get(s.var.name) != None:
-			varid = varids[s.var.name]
-			if s.index != None:
-				varid += " + " + expression(s.index,primmap)
-			output.append(varid)
+		if s.var.name not in smlocalvars[sm]:
+			if varids.get(s.var.name) != None:
+				varid = varids[s.var.name]
+				if s.index != None:
+					varid += " + " + expression(s.index,primmap)
+				output.append(varid)
+		if s.index != None:
+			output += statement_varids(s.index,sm,primmap)
 	elif s.__class__.__name__ == "Composite":
 		# update primmap
 		if s.guard != None:
-			output += statement_varids(s.guard,primmap)
+			output += statement_varids(s.guard,sm,primmap)
 		for e in s.assignments:
-			output += statement_varids(e.left,primmap)
-			output += statement_varids(e.right,primmap)
+			output += statement_varids(e.left,sm,primmap)
+			output += statement_varids(e.right,sm,primmap)
 			newright = expression(e.right,primmap)
 			varname = e.left.var.name
 			if e.left.index != None:
 				varname += "[" + expression(e.left.index,primmap) + "]"
 			primmap[varname] = "(" + newright + ")"
 	elif s.__class__.__name__ == "Assignment":
-		output += statement_varids(s.left,primmap)
-		output += statement_varids(s.right,primmap)
+		output += statement_varids(s.left,sm,primmap)
+		output += statement_varids(s.right,sm,primmap)
 	elif s.__class__.__name__ != "Primary":
-		output += statement_varids(s.left,primmap)
+		output += statement_varids(s.left,sm,primmap)
 		if s.op != '':
-			output += statement_varids(s.right,primmap)
+			output += statement_varids(s.right,sm,primmap)
 	else:
 		if s.ref != None:
 			# IGNORE STATE MACHINE LOCAL VARS!
-			if varids.get(s.ref.ref) != None:
-				varid = varids[s.ref.ref]
-				if s.ref.index != None:
-					varid += " + " + expression(s.ref.index,primmap)
-				output.append(varid)
+			if s.ref.ref not in smlocalvars[sm]:
+				if varids.get(s.ref.ref) != None:
+					varid = varids[s.ref.ref]
+					if s.ref.index != None:
+						varid += " + " + expression(s.ref.index,primmap)
+					output.append(varid)
+			if s.ref.index != None:
+				output += statement_varids(s.ref.index,sm,primmap)
+		if s.body != None:
+			output += statement_varids(s.body,sm,primmap)
 	# remove duplicates
 	output = list(set(output))
 	# sort output
@@ -500,6 +454,8 @@ def statement_read_varobjects_set(s, sm):
 				if v1.name == s.ref.ref:
 					R.add(v1)
 					break
+		if s.body != None:
+			R |= statement_read_varobjects_set(s.body, sm)
 	elif s.__class__.__name__ == "VariableRef":
 		if s.index != None:
 			R |= statement_read_varobjects_set(s.index, sm)
@@ -601,17 +557,17 @@ def statement_readsfromlocked(s, o):
 				else:
 					return False
 
-def getvarids(s):
-	return statement_varids(s,{})
+def getvarids(s,sm):
+	return statement_varids(s,sm,{})
 
 def maxnumbervarids(s):
 	"""For the given state machine s, determine max number of varids required for a statement contained in it"""
 	maxnumber = 0
 	for tr in s.transitions:
 		for st in tr.statements:
-			varids = statement_varids(st,{})
-			if len(varids) > maxnumber:
-				maxnumber = len(varids)
+			V = statement_varids(st,s,{})
+			if len(V) > maxnumber:
+				maxnumber = len(V)
 	return maxnumber
 
 def variabledefault(s):
@@ -784,7 +740,6 @@ def construct_vercors_auxiliary_vars(model):
 								while "i" + str(icounter) in varnames:
 									icounter += 1
 								L2.append(("int", "i" + str(icounter)))
-								print(icounter)
 								icounter += 1
 							if st.left.var.type.base == 'Boolean':
 								while "b" + str(bcounter) in varnames:
@@ -804,6 +759,22 @@ def construct_vercors_auxiliary_vars(model):
 							L1.append(L2)
 						L.append(L1)
 						vercors_vars[s] = L
+					elif s.__class__.__name__ == "Assignment":
+						# for each variable that we access both for reading and writing, create an auxiliary 'old' variable, to refer to the old value before writing
+						R = set(statement_write_varobjects(s)) & statement_read_varobjects_set(s,sm)
+						print(statement_write_varobjects(s))
+						if len(R) > 0:
+							v = s.left.var
+							newvar = v.name + "_old"
+							counter = 0
+							while newvar + str(counter) in varnames:
+								counter += 1
+							if s.left.var.type.base == 'Boolean':
+								vercors_vars[s] = ("boolean", newvar)
+							elif s.left.var.type.base == 'Integer':
+								vercors_vars[s] = ("int", newvar)
+							else:
+								vercors_vars[s] = ("byte", newvar)
 
 def get_vercors_auxiliary_vars(s):
 	"""Return the auxiliary vars needed by Vercors to verify statement s"""
@@ -813,11 +784,16 @@ def get_vercors_auxiliary_vars(s):
 	if V == None:
 		return []
 	else:
-		L = V[0]
-		for VL in V[1]:
-			for i in range(1,len(VL)):
-				L.append(VL[i])
-		return L
+		if s.__class__.__name__ == "Composite":
+			L = deepcopy(V[0])
+			for VL in V[1]:
+				for i in range(1,len(VL)):
+					L.append(VL[i])
+			return L
+		elif s.__class__.__name__ == "Assignment":
+			return [V]
+		else:
+			return []
 
 def get_vercors_guard_auxiliary_var(s):
 	"""Return auxiliary variable needed for guard of given statement s"""
@@ -840,11 +816,16 @@ def get_vercors_last_associated_aux_var(s, v):
 	"""Return last auxiliary variable associated with given statement s and varobject v. if no such variable exists, return instruction for right-hand side of s, which must be an assignment in that case."""
 	global vercors_vars
 
-	L = vercors_vars.get(s,[[],[]])
-	for V in reversed(L[1]):
-		if V[0] == v:
-			return V[len(V)-1][1]
-	return getinstruction_old(s.right)
+	if s.__class__.__name__ == "Composite":
+		L = vercors_vars.get(s,[[],[]])
+		for V in reversed(L[1]):
+			if V[0] == v:
+				return V[len(V)-1][1]
+	elif s.__class__.__name__ == "Assignment":
+		oldvarname = vercors_vars.get(s,s.left.var.name)
+		return getinstruction_old(s.right, s.left.var, oldvarname[1])
+	else:
+		return ""
 
 def get_vercors_aux_vars_list(s, v):
 	"""Return all auxiliary variables associated with given statement s and varobject v"""
@@ -883,11 +864,10 @@ def preprocess(model):
 			else:
 				numberofelemvariables += 1
 	# build set of state machine local variable names
-	smlocalvars = set([])
+	smlocalvars = {}
 	for c in model.classes:
 		for sm in c.statemachines:
-			for v in sm.variables:
-				smlocalvars.add(v.name)
+			smlocalvars[sm] = set([v.name for v in sm.variables])
 	# build dictionary of global variables with ids
 	varids = {}
 	# first create list of global variables and sort it

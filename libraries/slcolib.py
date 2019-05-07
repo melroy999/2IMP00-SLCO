@@ -182,6 +182,138 @@ def construct_action_set(model, metamodel):
 	for a in model.actions:
 		actions.add(a.name)
 
+def getlabel_colored(s):
+	"""Get the label for the given statement s"""
+	result = ''
+	if s.__class__.__name__ == "Assignment":
+		result += s.left.var.name
+		if s.left.index != None:
+			result += "[" + getlabel(s.left.index) + "]"
+		result += " := " + getlabel(s.right)
+	elif s.__class__.__name__ == "Composite":
+		result += "["
+		if s.guard != None:
+			result += getlabel(s.guard)
+			result += ";"
+		for i in range(0,len(s.assignments)):
+			result += " " + getlabel(s.assignments[i])
+			if i < len(s.assignments)-1:
+				result += ";"
+		result += "]"
+	elif s.__class__.__name__ == "Delay":
+		result += "<b>after </b>" + str(s.length) + "<b> ms</b>"
+	elif s.__class__.__name__ == "SendSignal":
+		result += "<b>send </b>" + s.signal + "("
+		first = True
+		for p in s.params:
+			if not first:
+				result += ","
+			else:
+				first = False
+			result += getlabel(p)
+		result += ") <b>to </b>" + s.target.name
+	elif s.__class__.__name__ == "ReceiveSignal":
+		result += "<b>receive </b>" + s.signal + "("
+		first = True
+		for p in s.params:
+			if not first:
+				result += ","
+			else:
+				first = False
+			result += getlabel(p)
+		if s.guard != None:
+			result += " | " + getlabel(s.guard)
+		result += ") <b>from </b>" + s.target.name
+	elif s.__class__.__name__ == "Expression" or s.__class__.__name__ == "ExprPrec4" or s.__class__.__name__ == "ExprPrec3" or s.__class__.__name__ == "ExprPrec2" or s.__class__.__name__ == "ExprPrec1":
+		if s.op != '':
+			result += getlabel(s.left) + " " + s.op + " " + getlabel(s.right)
+		else:
+			result += getlabel(s.left)
+	elif s.__class__.__name__ == "Primary":
+		result += s.sign
+		if s.sign == "not":
+			result += " "
+		if s.value != None:
+			newvalue = s.value
+			result += str(newvalue)
+		elif s.ref != None:
+			result += s.ref.ref
+			if s.ref.index != None:
+				result += "[" + getlabel(s.ref.index) + "]"
+		else:
+			result += '(' + getlabel(s.body) + ')'
+	elif s.__class__.__name__ == "VariableRef":
+		result += s.var.name
+		if s.index != None:
+			result += "[" + getlabel(s.index) + "]"
+	return result
+
+def getlabel(s):
+	"""Get the label for the given statement s"""
+	result = ''
+	if s.__class__.__name__ == "Assignment":
+		result += s.left.var.name
+		if s.left.index != None:
+			result += "[" + getlabel(s.left.index) + "]"
+		result += " := " + getlabel(s.right)
+	elif s.__class__.__name__ == "Composite":
+		result += "["
+		if s.guard != None:
+			result += getlabel(s.guard)
+			result += ";"
+		for i in range(0,len(s.assignments)):
+			result += " " + getlabel(s.assignments[i])
+			if i < len(s.assignments)-1:
+				result += ";"
+		result += "]"
+	elif s.__class__.__name__ == "Delay":
+		result += "after " + str(s.length) + " ms"
+	elif s.__class__.__name__ == "SendSignal":
+		result += "send " + s.signal + "("
+		first = True
+		for p in s.params:
+			if not first:
+				result += ","
+			else:
+				first = False
+			result += getlabel(p)
+		result += ") to " + s.target.name
+	elif s.__class__.__name__ == "ReceiveSignal":
+		result += "receive " + s.signal + "("
+		first = True
+		for p in s.params:
+			if not first:
+				result += ","
+			else:
+				first = False
+			result += getlabel(p)
+		if s.guard != None:
+			result += " | " + getlabel(s.guard)
+		result += ") from " + s.target.name
+	elif s.__class__.__name__ == "Expression" or s.__class__.__name__ == "ExprPrec4" or s.__class__.__name__ == "ExprPrec3" or s.__class__.__name__ == "ExprPrec2" or s.__class__.__name__ == "ExprPrec1":
+		if s.op != '':
+			result += getlabel(s.left) + " " + s.op + " " + getlabel(s.right)
+		else:
+			result += getlabel(s.left)
+	elif s.__class__.__name__ == "Primary":
+		result += s.sign
+		if s.sign == "not":
+			result += " "
+		if s.value != None:
+			newvalue = s.value
+			result += str(newvalue)
+		elif s.ref != None:
+			result += s.ref.ref
+			if s.ref.index != None:
+				result += "[" + getlabel(s.ref.index) + "]"
+		else:
+			result += '(' + getlabel(s.body) + ')'
+	elif s.__class__.__name__ == "VariableRef":
+		result += s.var.name
+		if s.index != None:
+			result += "[" + getlabel(s.index) + "]"
+	return result
+
 # model processor to check for name clashes and remove duplicates in lists
 # invalid name clashes:
 # - action names cannot be used for variable names
@@ -299,7 +431,6 @@ def set_default_type_size(model, metamodel):
 def set_default_channel_size(model, metamodel):
 	for ch in model.channels:
 		if ch.size == 0:
-			print("bla")
 			ch.size = 1
 
 # model processor adding tau action to transitions without statements
@@ -356,6 +487,13 @@ def fix_references(model, metamodel):
 				# check references to actions and variables in statements
 				for st in tr.statements:
 					statement_check_refs(st, V, model)
+
+# # model processor to check initialisation of variables: TODO
+# def check_inits(model, metamodel):
+# 	for o in model.objects:
+# 		for i in o.assignments:
+# 			t = i.left.type
+# 			if t.base == 'Integer' and t.size == 0 and not i.right == 
 
 def statement_check_refs(s, V, model):
 	"""Auxiliary function used to check references in statements.
