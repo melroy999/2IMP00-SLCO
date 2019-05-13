@@ -72,16 +72,18 @@ def sign(s):
 
 def getinstruction(s):
 	"""Get the Java instruction for the given statement s"""
+	global vercors_verif
+
 	result = ''
 	if s.__class__.__name__ == "Assignment":
 		result += s.left.var.name
 		if s.left.index != None:
 			result += "[" + getinstruction(s.left.index) + "]"
 		result += " = "
-		if s.left.var.type.base == 'Byte':
+		if s.left.var.type.base == 'Byte' and not vercors_verif:
 			result += "(byte) ("
 		result += getinstruction(s.right)
-		if s.left.var.type.base == 'Byte':
+		if s.left.var.type.base == 'Byte' and not vercors_verif:
 			result += ")"
 	elif s.__class__.__name__ == "Composite":
 		result += "["
@@ -122,6 +124,8 @@ def getinstruction(s):
 
 def getinstruction_old(s, v, vname):
 	"""Get the Java instruction for the given statement s, with variable v referred to with name vname (for Vercors verification) """
+	global vercors_verif
+
 	result = ''
 	if s.__class__.__name__ == "Assignment":
 		if s.left.var == v:
@@ -131,10 +135,10 @@ def getinstruction_old(s, v, vname):
 		if s.left.index != None:
 			result += "[" + getinstruction_old(s.left.index, v, vname) + "]"
 		result += " = "
-		if s.left.var.type.base == 'Byte':
+		if s.left.var.type.base == 'Byte' and not vercors_verif:
 			result += "(byte) ("
 		result += getinstruction_old(s.right, v, vname)
-		if s.left.var.type.base == 'Byte':
+		if s.left.var.type.base == 'Byte' and not vercors_verif:
 			result += ")"
 	elif s.__class__.__name__ == "Composite":
 		result += "["
@@ -181,6 +185,8 @@ def getinstruction_old(s, v, vname):
 
 def javatype(s, ignoresize):
 	"""Maps type names from SLCO to Java"""
+	global vercors_verif
+
 	if s.base == 'Integer':
 		if s.size < 1 or ignoresize:
 			return 'int'
@@ -193,9 +199,15 @@ def javatype(s, ignoresize):
 			return 'boolean[]'
 	elif s.base == 'Byte':
 		if s.size < 1 or ignoresize:
-			return 'byte'
+			if not vercors_verif:
+				return 'byte'
+			else:
+				return 'int'
 		else:
-			return 'byte[]'
+			if not vercors_verif:
+				return 'byte[]'
+			else:
+				return 'int[]'
 
 def javastatement(s,nlocks,indent,nondet,o,locking,vercors_annot):
 	"""Translates SLCO statement s to Java code. indent indicates how much every line needs to be indented, nlocks indicates how many locks need to be acquired (optional). nondet indicates whether this statement is at the head of a statement block and in a non-deterministic choice; it affects how expressions are translated.
@@ -224,12 +236,12 @@ def javastatement(s,nlocks,indent,nondet,o,locking,vercors_annot):
 	elif s.__class__.__name__ == "Expression":
 		if not nondet:
 #			if statement_readsfromlocked(s, o):
-			if vercors_annot:
-				Adict = used_array_indices(s,{})
-				if Adict != {}:
-					for a, indices in Adict.items():
-						for index in indices:
-							output += "/*@ assume 0 <= " + str(index) + " < " + str(a) + ".length; @*/\n" + indentspace
+			# if vercors_annot:
+			# 	Adict = used_array_indices(s,{})
+			# 	if Adict != {}:
+			# 		for a, indices in Adict.items():
+			# 			for index in indices:
+			# 				output += "/*@ assume 0 <= " + str(index) + " < " + str(a) + ".length; @*/\n" + indentspace
 			output += "if(!(" + getinstruction(s) + ")) {"
 			if locking and nlocks > 0:
 				output += " java_kp.unlock(java_lockIDs, "
@@ -244,12 +256,12 @@ def javastatement(s,nlocks,indent,nondet,o,locking,vercors_annot):
 			# 	output += "); java_transcounter++; try{ synchronized(SyncObject){SyncObject.wait(1);} } catch (InterruptedException e) { break; } java_kp.lock(java_lockIDs, "
 			# 	output += str(nlocks) + ");}"
 		else:
-			if vercors_annot:
-				Adict = used_array_indices(s,{})
-				if Adict != {}:
-					for a, indices in Adict.items():
-						for index in indices:
-							output += "/*@ assume 0 <= " + str(index) + " < " + str(a) + ".length; @*/\n" + indentspace
+			# if vercors_annot:
+			# 	Adict = used_array_indices(s,{})
+			# 	if Adict != {}:
+			# 		for a, indices in Adict.items():
+			# 			for index in indices:
+			# 				output += "/*@ assume 0 <= " + str(index) + " < " + str(a) + ".length; @*/\n" + indentspace
 			output += "if (!(" + getinstruction(s) + ")) {"
 			if locking and nlocks > 0:
 				output += " java_kp.unlock(java_lockIDs, "
@@ -261,11 +273,11 @@ def javastatement(s,nlocks,indent,nondet,o,locking,vercors_annot):
 	elif s.__class__.__name__ == "Composite":
 		if s.guard != None:
 			if vercors_annot:
-				Adict = used_array_indices(s.guard,{})
-				if Adict != {}:
-					for a, indices in Adict.items():
-						for index in indices:
-							output += "/*@ assume 0 <= " + str(index) + " < " + str(a) + ".length; @*/\n" + indentspace
+				# Adict = used_array_indices(s.guard,{})
+				# if Adict != {}:
+				# 	for a, indices in Adict.items():
+				# 		for index in indices:
+				# 			output += "/*@ assume 0 <= " + str(index) + " < " + str(a) + ".length; @*/\n" + indentspace
 				output += "/*@ " + str(VercorsV[0][0][1]) + " = " + getinstruction(s.guard) + "; @*/\n" + indentspace
 			output += javastatement(s.guard,nlocks,indent,nondet,o,locking,False)
 			if len(s.assignments) > 0:
@@ -283,7 +295,7 @@ def javastatement(s,nlocks,indent,nondet,o,locking,vercors_annot):
 					for a, indices in Adict.items():
 						for index in indices:
 							output += "/*@ assume 0 <= " + str(index) + " < " + str(a) + ".length; @*/\n" + indentspace
-				output += " /*@ "
+				output += "/*@ "
 				j = 1
 				if e.left.index != None:
 					output += VercorsV[1][i][1][1] + " = " + getinstruction(e.left.index) + "; "
@@ -327,6 +339,18 @@ def used_array_indices(s,L):
 			L[s.var.name] = I
 			L = used_array_indices(s.index,L)
 	return L
+
+def used_array_indices_for_guard(s,L):
+	"""Return a list of index expressions for each array access in statement s as part of a guard evaluation"""
+	if s.__class__.__name__ == "Expression":
+		return used_array_indices(s,L)
+	elif s.__class__.__name__ == "Composite":
+		if s.guard != None:
+			return used_array_indices(s.guard,L)
+		else:
+			return {}
+	else:
+		return {}
 
 def expression(s,primmap):
 	"""Maps SLCO expression to mCRL2 expression. Primmap is a dictionary for rewriting primaries."""
@@ -746,16 +770,16 @@ def construct_vercors_auxiliary_vars(model):
 									bcounter += 1
 								L2.append(("boolean", "b" + str(bcounter)))
 								bcounter += 1
-							elif st.left.var.type.base == 'Integer':
+							elif st.left.var.type.base == 'Integer' or st.left.var.type.base == 'Byte':
 								while "i" + str(icounter) in varnames:
 									icounter += 1
 								L2.append(("int", "i" + str(icounter)))
 								icounter += 1
-							else:
-								while "by" + str(bycounter) in varnames:
-									bycounter += 1
-								L2.append(("byte", "by" + str(bycounter)))
-								bycounter += 1
+							# else:
+							# 	while "by" + str(bycounter) in varnames:
+							# 		bycounter += 1
+							# 	L2.append(("byte", "by" + str(bycounter)))
+							# 	bycounter += 1
 							L1.append(L2)
 						L.append(L1)
 						vercors_vars[s] = L
@@ -771,10 +795,10 @@ def construct_vercors_auxiliary_vars(model):
 								counter += 1
 							if s.left.var.type.base == 'Boolean':
 								vercors_vars[s] = ("boolean", newvar)
-							elif s.left.var.type.base == 'Integer':
+							elif s.left.var.type.base == 'Integer' or s.left.var.type.base == 'Byte':
 								vercors_vars[s] = ("int", newvar)
-							else:
-								vercors_vars[s] = ("byte", newvar)
+							# else:
+							# 	vercors_vars[s] = ("byte", newvar)
 
 def get_vercors_auxiliary_vars(s):
 	"""Return the auxiliary vars needed by Vercors to verify statement s"""
@@ -963,6 +987,7 @@ def slco_to_java(modelfolder,modelname,model,lockingfilename):
 	jinja_env.filters['sm_variables'] = sm_variables
 	jinja_env.filters['statement_write_varobjects'] = statement_write_varobjects
 	jinja_env.filters['statement_varobjects'] = statement_varobjects
+	jinja_env.filters['used_array_indices_for_guard'] = used_array_indices_for_guard
 
 	# Register the tests
 	jinja_env.tests['hasoutgoingtrans'] = hasoutgoingtrans
