@@ -83,7 +83,7 @@ classes
 					}
 
 					from Moravak to Burian {
-						[done[0]=0 and solved[19] and solved[17]; done[0] := 1]
+						[done[0]=0 and solved[19]=1 and solved[17]=1; done[0] := 1]
 					}
 
 					from Moravak to Moravak {
@@ -91,7 +91,7 @@ classes
 					}
 
 					from Moravak to Moravak {
-						[solved[16] and done[0]=0; done[0] := 1;solved[18] := 1]
+						[solved[16]=1 and done[0]=0; done[0] := 1;solved[18] := 1]
 					}
 
 					from Tyrs to Moravak {
@@ -115,7 +115,7 @@ classes
 					}
 
 					from Jaroska to Jaroska {
-						[solved[18] and done[0]=0; done[0] := 1;solved[19] := 1]
+						[solved[18]=1 and done[0]=0; done[0] := 1;solved[19] := 1]
 					}
 
 					from Svobodak to Moravak {
@@ -267,7 +267,7 @@ classes
 					}
 
 					from Moravak to Burian {
-						[done[1]=0 and solved[19] and solved[17]; done[1] := 1]
+						[done[1]=0 and solved[19]=1 and solved[17]=1; done[1] := 1]
 					}
 
 					from Moravak to Moravak {
@@ -275,7 +275,7 @@ classes
 					}
 
 					from Moravak to Moravak {
-						[solved[16] and done[1]=0; done[1] := 1;solved[18] := 1]
+						[solved[16]=1 and done[1]=0; done[1] := 1;solved[18] := 1]
 					}
 
 					from Tyrs to Moravak {
@@ -299,7 +299,7 @@ classes
 					}
 
 					from Jaroska to Jaroska {
-						[solved[18] and done[1]=0; done[1] := 1;solved[19] := 1]
+						[solved[18]=1 and done[1]=0; done[1] := 1;solved[19] := 1]
 					}
 
 					from Svobodak to Moravak {
@@ -451,7 +451,7 @@ classes
 					}
 
 					from Moravak to Burian {
-						[done[2]=0 and solved[19] and solved[17]; done[2] := 1]
+						[done[2]=0 and solved[19]=1 and solved[17]=1; done[2] := 1]
 					}
 
 					from Moravak to Moravak {
@@ -459,7 +459,7 @@ classes
 					}
 
 					from Moravak to Moravak {
-						[solved[16] and done[2]=0; done[2] := 1;solved[18] := 1]
+						[solved[16]=1 and done[2]=0; done[2] := 1;solved[18] := 1]
 					}
 
 					from Tyrs to Moravak {
@@ -483,7 +483,7 @@ classes
 					}
 
 					from Jaroska to Jaroska {
-						[solved[18] and done[2]=0; done[2] := 1;solved[19] := 1]
+						[solved[18]=1 and done[2]=0; done[2] := 1;solved[19] := 1]
 					}
 
 					from Svobodak to Moravak {

@@ -10,6 +10,8 @@ from copy import copy, deepcopy
 
 # Set of all state names in the model
 states = set([])
+# number of transitions in the model
+nrtrans = 0
 # number of elementary global variables in the model
 numberofelemvariables = 0
 # dictionary providing for each state machine its local variables
@@ -224,11 +226,10 @@ def javastatement(s,nlocks,indent,nondet,o,locking,vercors_annot):
 	output = ""
 	if s.__class__.__name__ == "Assignment":
 		if vercors_annot:
-			Adict = used_array_indices(s,{})
-			if Adict != {}:
-				for a, indices in Adict.items():
-					for index in indices:
-						output += "/*@ assume 0 <= " + str(index) + " < " + str(a) + ".length; @*/\n" + indentspace
+			Alist = used_array_indices(s)
+			if Adict != []:
+				for a, index in Alist:
+					output += "/*@ assume 0 <= " + str(index) + " < " + str(a) + ".length; @*/\n" + indentspace
 			vold = vercors_vars.get(s, "")
 			if vold != "":
 				output += "/*@ " + vold[1] + " = " + s.left.var.name + "; @*/\n" + indentspace
@@ -273,11 +274,10 @@ def javastatement(s,nlocks,indent,nondet,o,locking,vercors_annot):
 	elif s.__class__.__name__ == "Composite":
 		if s.guard != None:
 			if vercors_annot:
-				# Adict = used_array_indices(s.guard,{})
-				# if Adict != {}:
-				# 	for a, indices in Adict.items():
-				# 		for index in indices:
-				# 			output += "/*@ assume 0 <= " + str(index) + " < " + str(a) + ".length; @*/\n" + indentspace
+				Alist = used_array_indices(s.guard)
+				if Alist != []:
+					for a, index in Alist:
+						output += "/*@ assume 0 <= " + str(index) + " < " + str(a) + ".length; @*/\n" + indentspace
 				output += "/*@ " + str(VercorsV[0][0][1]) + " = " + getinstruction(s.guard) + "; @*/\n" + indentspace
 			output += javastatement(s.guard,nlocks,indent,nondet,o,locking,False)
 			if len(s.assignments) > 0:
@@ -290,11 +290,10 @@ def javastatement(s,nlocks,indent,nondet,o,locking,vercors_annot):
 			else:
 				first = False
 			if vercors_annot:
-				Adict = used_array_indices(e,{})
-				if Adict != {}:
-					for a, indices in Adict.items():
-						for index in indices:
-							output += "/*@ assume 0 <= " + str(index) + " < " + str(a) + ".length; @*/\n" + indentspace
+				Alist = used_array_indices(e)
+				if Alist != []:
+					for a, index in Alist:
+						output += "/*@ assume 0 <= " + str(index) + " < " + str(a) + ".length; @*/\n" + indentspace
 				output += "/*@ "
 				j = 1
 				if e.left.index != None:
@@ -305,52 +304,56 @@ def javastatement(s,nlocks,indent,nondet,o,locking,vercors_annot):
 			output += getinstruction(e) + ";"
 	return output
 
-def used_array_indices(s,L):
+def concat_unique(L1, L2):
+	"""Concatenate list L2 to L1, but ensure that no duplicate elements are present"""
+	L1set = set(L1)
+	L = L1
+	for e in L2:
+		if e not in L1set:
+			L.append(e)
+	return L
+
+def used_array_indices(s):
 	"""Return a list of index expressions for each array access in statement s"""
+	L = []
 	if s.__class__.__name__ == "Assignment":
 		if s.left.index != None:
-			I = L.get(s.left.var.name,set([]))
-			I.add(getinstruction(s.left.index))
-			L[s.left.var.name] = I
-			L = used_array_indices(s.left.index,L)
-		L = used_array_indices(s.right,L)
+			L = concat_unique(L, used_array_indices(s.left.index))
+			L = concat_unique(L, [(s.left.var.name,getinstruction(s.left.index))])
+		L = concat_unique(L, used_array_indices(s.right))
 	elif s.__class__.__name__ == "Composite":
 		if s.guard != None:
-			L = used_array_indices(s.guard,L)
+			L = concat_unique(L, used_array_indices(s.guard))
 		for i in range(0,len(s.assignments)):
-			L = used_array_indices(s.assignments[i],L)
+			L = concat_unique(L, used_array_indices(s.assignments[i]))
 	elif s.__class__.__name__ == "Expression" or s.__class__.__name__ == "ExprPrec4" or s.__class__.__name__ == "ExprPrec3" or s.__class__.__name__ == "ExprPrec2" or s.__class__.__name__ == "ExprPrec1":
-		L = used_array_indices(s.left,L)
+		L = concat_unique(L, used_array_indices(s.left))
 		if s.op != '':
-			L = used_array_indices(s.right,L)
+			L = concat_unique(L, used_array_indices(s.right))
 	elif s.__class__.__name__ == "Primary":
 		if s.ref != None:
 			if s.ref.index != None:
-				I = L.get(s.ref.ref,set([]))
-				I.add(getinstruction(s.ref.index))
-				L[s.ref.ref] = I
-				L = used_array_indices(s.ref.index,L)
+				L = concat_unique(L, used_array_indices(s.ref.index))
+				L = concat_unique(L, [(s.ref.ref, getinstruction(s.ref.index))])
 		if s.body != None:
-			L = used_array_indices(s.body,L)
+			L = concat_unique(L, used_array_indices(s.body))
 	elif s.__class__.__name__ == "VariableRef":
 		if s.index != None:
-			I = L.get(s.var.name,set([]))
-			I.add(getinstruction(s.index))
-			L[s.var.name] = I
-			L = used_array_indices(s.index,L)
+			L = concat_unique(L, used_array_indices(s.index))
+			L = concat_unique(L, [(s.var.name, getinstruction(s.index))])
 	return L
 
-def used_array_indices_for_guard(s,L):
+def used_array_indices_for_guard(s):
 	"""Return a list of index expressions for each array access in statement s as part of a guard evaluation"""
 	if s.__class__.__name__ == "Expression":
-		return used_array_indices(s,L)
-	elif s.__class__.__name__ == "Composite":
-		if s.guard != None:
-			return used_array_indices(s.guard,L)
-		else:
-			return {}
+		return used_array_indices(s)
+	# elif s.__class__.__name__ == "Composite":
+	# 	if s.guard != None:
+	# 		return used_array_indices(s.guard,L)
+	# 	else:
+	# 		return {}
 	else:
-		return {}
+		return []
 
 def expression(s,primmap):
 	"""Maps SLCO expression to mCRL2 expression. Primmap is a dictionary for rewriting primaries."""
@@ -416,6 +419,8 @@ def statement_varids(s,sm,primmap):
 	elif s.__class__.__name__ == "Assignment":
 		output += statement_varids(s.left,sm,primmap)
 		output += statement_varids(s.right,sm,primmap)
+	elif s.__class__.__name__ == "ActionRef":
+		return []
 	elif s.__class__.__name__ != "Primary":
 		output += statement_varids(s.left,sm,primmap)
 		if s.op != '':
@@ -677,7 +682,7 @@ def initialvalue(s,o):
 		defv += '}'
 		return defv
 	elif s.type.base == 'Integer' or s.type.base == 'Byte':
-		if s.type.size < 2:
+		if s.type.size == 0:
 			return '0'
 		else:
 			type = '{'
@@ -691,7 +696,7 @@ def initialvalue(s,o):
 			type += '}'
 			return type
 	elif s.type.base == 'Boolean':
-		if s.type.size < 2:
+		if s.type.size == 0:
 			return 'true'
 		else:
 			type = '{'
@@ -864,7 +869,7 @@ def get_vercors_aux_vars_list(s, v):
 
 def preprocess(model):
 	"""Preprocess the model"""
-	global states, numberofelemvariables, smlocalvars, varids, varnames
+	global states, numberofelemvariables, smlocalvars, varids, varnames, nrtrans
 	# fill set of state names
 	states  = set([])
 	for c in model.classes:
@@ -908,6 +913,12 @@ def preprocess(model):
 			count += v.type.size
 		else:
 			count += 1
+	# determine number of transitions in the model
+	nrtrans = 0
+	for o in model.objects:
+		c = o.type
+		for sm in c.statemachines:
+			nrtrans += len(sm.transitions)
 	return model
 
 lockscanner=re.Scanner([
@@ -1025,7 +1036,7 @@ def slco_to_java(modelfolder,modelname,model,lockingfilename):
 
 def main(args):
 	"""The main function"""
-	global numberofelemvariables, lockingdict, add_counter, vercors_verif
+	global numberofelemvariables, lockingdict, add_counter, vercors_verif, nrtrans
 	lockingfilename = ''
 	if len(args) == 0:
 		print("Missing argument: SLCO model")
@@ -1067,7 +1078,9 @@ def main(args):
 		lockedvars = lockingdict.get(o.name,[])
 		lockedvars = set(lockedvars)
 	print("SLCO model translated to Java")
-	print("Ratio of locked variables/total number: " + str(len(lockedvars)) + "/" + str(numberofelemvariables))
+	print("number of transition methods in program: " + str(nrtrans))
+	if not vercors_verif:
+		print("Ratio of locked variables/total number: " + str(len(lockedvars)) + "/" + str(numberofelemvariables))
 
 if __name__ == '__main__':
 	args = []

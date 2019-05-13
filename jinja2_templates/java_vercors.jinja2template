@@ -39,12 +39,10 @@ public class {{model.name}} {
   {% endif %}
   {% endfor %}
   {% endfor %}
-  {% set Adict = t.statements[0]|used_array_indices_for_guard({}) %}
-  {% if Adict != {} %}
-  {% for a, indices in Adict.items() %}
-  {% for index in indices %}
-  context 0 <= {{index}} < {{a}}.length;
-  {% endfor %}
+  {% set Alist = t.statements[0]|used_array_indices_for_guard %}
+  {% if Alist != [] %}
+  {% for a, index in Alist %}
+  requires 0 <= {{index}} < {{a}}.length;
   {% endfor %}
   {% endif %}
   {% set g = t.statements[0]|get_vercors_guard_auxiliary_var %}
