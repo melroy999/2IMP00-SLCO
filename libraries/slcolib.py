@@ -593,6 +593,7 @@ def read_SLCO_model(m):
 	#slco_mm.register_model_processor(simplify_statements)
 
 # To do: Check receive statements for not receiving multiple values in the same variable
+# To do: Check for absence of arrays (not single elements) as part of messages
 
 	slco_mm.register_scope_providers({
 		"*.*": providers.FQN(),

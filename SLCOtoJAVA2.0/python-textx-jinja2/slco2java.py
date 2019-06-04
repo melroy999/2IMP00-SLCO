@@ -227,7 +227,7 @@ def javastatement(s,nlocks,indent,nondet,o,locking,vercors_annot):
 	if s.__class__.__name__ == "Assignment":
 		if vercors_annot:
 			Alist = used_array_indices(s)
-			if Adict != []:
+			if Alist != []:
 				for a, index in Alist:
 					output += "/*@ assume 0 <= " + str(index) + " < " + str(a) + ".length; @*/\n" + indentspace
 			vold = vercors_vars.get(s, "")
