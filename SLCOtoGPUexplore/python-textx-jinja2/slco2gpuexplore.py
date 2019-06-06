@@ -16,8 +16,9 @@ this_folder = dirname(__file__)
 # import libraries
 sys.path.append(join(this_folder,'../../libraries'))
 from slcolib import *
-from SCCTarjan import *
 this_folder = dirname(__file__)
+
+actions = set([])
 
 # state vector size (in bits)
 vectorsize = 0
@@ -50,6 +51,16 @@ max_buffer_allocs = 0
 
 # set of statemachine names in the system
 smnames = set([])
+
+# action alphabet of each state machine
+alphabet = {}
+# set of actions requiring synchronisation
+syncactions = set([])
+# dictionary providing target states when an action is performed in a given state
+actiontargets = {}
+
+# dictionary indicating which (Object,StateMachine) pairs are potentially receiving messages from a given synchronous channel
+syncreccomm = {}
 
 # list of array names in model (with types)
 arraynames = []
@@ -147,15 +158,19 @@ def getlogarraysize(t):
 def scopename(v,i,o):
 	"""Return full name of variable v, possibly with index i, if constant. in case a Port is given, return name of connected Channel"""
 	if v.__class__.__name__ == "Channel":
-		name = v.name + str(i)
+		if v.synctype == 'async':
+			name = v.name + str(i)
+		else:
+			name = i
 	else:
 		name = o.name
 		if v.parent.__class__.__name__ == "StateMachine":
 			name += "'" + v.parent.name
 		name += "'" + v.name
-		i_str = getinstruction(i, {}, {})
-		if i != None and RepresentsInt(i_str):
-			name += "[" + i_str + "]"
+		if v.__class__.__name__ != "StateMachine":
+			i_str = getinstruction(i, {}, {})
+			if i != None and RepresentsInt(i_str):
+				name += "[" + i_str + "]"
 	return name
 
 def get_vector_tree_navigation(p):
@@ -254,10 +269,10 @@ def vectorstructure_to_string(D):
 		vs += "]"
 	return vs
 
-def cudarecsizeguard(s, D):
-	"""Given a ReceiveSignal statement s, return a guard referring to the size of the buffer, in case the connected channel is asynchronous"""
+def cudarecsizeguard(s, D, o):
+	"""Given a ReceiveSignal statement s, return a guard referring to the size of the buffer, in case the connected channel is asynchronous. o is Object owning s."""
 	global connected_channel
-	c = connected_channel[s.target]
+	c = connected_channel[(o, s.target)]
 	if c.synctype == 'async':
 		sizevar = D.get((c, "_size"))
 		if sizevar != None:
@@ -265,10 +280,25 @@ def cudarecsizeguard(s, D):
 	else:
 		return ""
 
-def cudaguard(s,D):
-	"""Returns the guard of the given statement s. D is a dictionary mapping variable refs to variable names"""
-	global connected_channel, signalsize, signalnr
-	if s.__class__.__name__ == "Expression":
+def cudaguard(s,D,o):
+	"""Returns the guard of the given statement s. D is a dictionary mapping variable refs to variable names. o is Object owning s."""
+	global connected_channel, signalsize, signalnr, smnames, smname_to_object, alphabet, syncactions
+	if statement_is_actionref(s):
+		a = getlabel(s)
+		if a in syncactions:
+			sm = s.parent.parent
+			guard = ""
+			# obtain list of state machines on which this action depends (with which it synchronises)
+			S = []
+			for m in smnames:
+				(o2,sm2) = smname_to_object[m]
+				if o == o2 and sm != sm2:
+					if a in alphabet[sm2]:
+						if guard != "":
+							guard += " && "
+						guard += "get_target_" + sm2.name + "_" + a + "((statetype) " + D[(sm2,"src")][0] + "[" + str(D[(sm2,"src")][1]) + "], -1) != -1"
+			return guard
+	elif s.__class__.__name__ == "Expression":
 		return getinstruction(s, D, {})
 	elif s.__class__.__name__ == "Composite":
 		if s.guard:
@@ -276,13 +306,20 @@ def cudaguard(s,D):
 		else:
 			return ""
 	elif s.__class__.__name__ == "SendSignal":
-		c = connected_channel[s.target]
-		print("D: " + str(D))
-		sizevar = D.get((c, "_size"))
-		if sizevar != None:
-			return sizevar[0] + "[" + str(sizevar[1]) + "] < " + str(c.size)
+		c = connected_channel[(o, s.target)]
+		if c.synctype == 'async':
+			sizevar = D.get((c, "_size"))
+			if sizevar != None:
+				return sizevar[0] + "[" + str(sizevar[1]) + "] < " + str(c.size)
+		else:
+			guard = ""
+			for (o2,sm2) in get_syncrec_sms(o, c, s.signal):
+				if guard != "":
+					guard += " && "
+				guard += "get_target_" + o2.name + "_" + sm2.name + "_" + s.signal + "(" + D[(c, o2.name + "'" + sm2.name)][0] + "[" + str(D[(c, o2.name + "'" + sm2.name)][1]) + "], -1) != -1"
+			return guard
 	elif s.__class__.__name__ == "ReceiveSignal":
-		c = connected_channel[s.target]
+		c = connected_channel[(o, s.target)]
 		if c.synctype == 'async':
 			guard = ""
 			if signalsize[c] > 0:
@@ -304,12 +341,45 @@ def cudaguard(s,D):
 
 def cudastatement(s,indent,o,D):
 	"""Translates the unguarded part of SLCO statement s to CUDA code. indent indicates how much every line needs to be indented. o is Object owning s. D is a dictionary mapping variable refs to variable names"""
-	global connected_channel
+	global connected_channel, syncactions, alphabet, smnames, smname_to_object
 
 	indentspace = ""
 	for i in range(0,indent):
 		indentspace += "\t"
 	output = ""
+	if statement_is_actionref(s):
+		sm = s.parent.parent
+		a = getlabel(s)
+		if a in syncactions:
+			# construct list of statemachines with which synchronisation is required
+			SMs = []
+			for m in smnames:
+				(o2,sm2) = smname_to_object[m]
+				if o == o2 and sm != sm2:
+					if a in alphabet[sm2]:
+						SMs.append(sm2)
+			for m in SMs:
+				output += D[(m,"tgt")][0] + "[" + str(D[(m,"tgt")][1]) + "] = get_target_" + m.name + "_" + a + "(" + D[(m,"src")][0] + "[" + str(D[(m,"src")][1]) + "), -1);\n" + indentspace
+			output += "uint8_t i = " + str(len(SMs)) + ";\n" + indentspace
+			output += "while (i > 0) {\n" + indentspace
+			output += "\tswitch (i) {\n" + indentspace
+			for i in range(1,len(SMs)+1):
+				output += "\t\tcase " + str(i) + ":\n" + indentspace
+				output += "\t\t\t" + D[(SMs[i-1],"tgt")][0] + "[" + str(D[(SMs[i-1],"tgt")][1]) + "] = get_target_" + SMs[i-1].name + "_" + a + "((statetype) " + D[(SMs[i-1],"src")][0] + "[" + str(D[(SMs[i-1],"src")][1]) + "), " + D[(SMs[i-1],"tgt")][0] + "[" + str(D[(SMs[i-1],"tgt")][1]) + "]);\n" + indentspace
+				output += "\t\t\tif (" + D[(SMs[i-1],"tgt")][0] + "[" + str(D[(SMs[i-1],"tgt")][1]) + "] != -1) {\n" + indentspace
+				output += "\t\t\t\tif (i < " + str(len(SMs)) + ") {\n" + indentspace
+				output += "\t\t\t\t\ti++;\n" + indentspace
+				output += "\t\t\t\t}\n" + indentspace
+				output += "\t\t\t}\n" + indentspace
+				output += "\t\t\telse {\n" + indentspace
+				output += "\t\t\t\t" + D[(m,"tgt")][0] + "[" + str(D[(m,"tgt")][1]) + "] = get_target_" + m.name + "_" + a + "((statetype) " + D[(m,"src")][0] + "[" + str(D[(m,"src")][1]) + "), -1);\n" + indentspace
+				output += "\t\t\t\ti--;\n" + indentspace
+				output += "\t\t\t}\n" + indentspace
+				output += "\t\t\tbreak;\n" + indentspace
+				output += "\t\tdefault:\n" + indentspace
+				output += "\t\t\tbreak;\n" + indentspace
+				output += "\t}\n" + indentspace
+				output += "}"
 	if s.__class__.__name__ == "Assignment":
 		output += getinstruction(s, D, {}) + ";"
 	elif s.__class__.__name__ == "Composite":
@@ -321,13 +391,20 @@ def cudastatement(s,indent,o,D):
 				first = False
 			output += getinstruction(e, D, {}) + ";"
 	elif s.__class__.__name__ == "SendSignal":
-		c = connected_channel[s.target]
-		for i in range(0,len(s.params)):
-			p = s.params[i]
-			if output != "":
-				output += "\n" + indent
-			print(D)
-			output += D[(c, "[" + str(i+1) + "][0]")][0] + "[" + str(D[(c, "[" + str(i+1) + "][0]")][1]) + "] = " + getinstruction(p, D, {}) + ";"
+		c = connected_channel[(o, s.target)]
+		if c.synctype == 'async':
+			for i in range(0,len(s.params)):
+				p = s.params[i]
+				if output != "":
+					output += "\n" + indentspace
+				output += D[(c, "[" + str(i+1) + "][0]")][0] + "[" + str(D[(c, "[" + str(i+1) + "][0]")][1]) + "] = " + getinstruction(p, D, {}) + ";"
+		else:
+			for (o2,sm2) in get_syncrec_sms(o, c, s.signal):
+				output += D[(c,"state")][0] + "[" + str(D[(c,"state")][1]) + "] = get_target_" + o2.name + "_" + sm2.name + "_" + s.signal + "(" + D[(c, o2.name + "'" + sm2.name)][0] + "[" + str(D[(c, o2.name + "'" + sm2.name)][1]) + "], -1);\n" + indentspace
+				output += "while (" + D[(c,"state")][0] + "[" + str(D[(c,"state")][1]) + "] != -1) {\n" + indentspace
+				output += "\t...\n" + indentspace
+				output += "\t" + D[(c,"state")][0] + "[" + str(D[(c,"state")][1]) + "] = get_target_" + o2.name + "_" + sm2.name + "_" + s.signal + "(" + D[(c, o2.name + "'" + sm2.name)][0] + "[" + str(D[(c, o2.name + "'" + sm2.name)][1]) + "], " + D[(c,"state")][0] + "[" + str(D[(c,"state")][1]) + "]);\n" + indentspace
+				output += "}"
 	return output
 
 def getinstruction(s, D, Drec):
@@ -380,10 +457,7 @@ def getinstruction(s, D, Drec):
 			if vname == s.ref.ref:
 				# look for a match on s.ref.ref in D
 				for r in D.keys():
-					print("here")
-					print(s.ref.ref)
 					if not isinstance(r, tuple):
-						print(s.ref.ref + " " + r.name)
 						if s.ref.ref == r.name:
 							vname = D[r][0]
 							offset = D[r][1]
@@ -426,12 +500,12 @@ def getinstruction(s, D, Drec):
 			result += "]"
 	return result
 
-def transition_read_varrefs(t, only_unguarded):
+def transition_read_varrefs(t, o, only_unguarded):
 	"""Return a set of variable refs appearing in block of transition t"""
 	R = set([])
 	sm = t.parent
 	for st in t.statements:
-		R |= statement_read_varrefs(st, sm, only_unguarded)
+		R |= statement_read_varrefs(st, o, sm, only_unguarded)
 	filtered_R = set([])
 	Vseen = set([])
 	for (v,i) in R:
@@ -441,20 +515,20 @@ def transition_read_varrefs(t, only_unguarded):
 			filtered_R.add((v,i))
 	return filtered_R
 
-def transition_sorted_dynamic_read_varrefs(t, only_unguarded):
+def transition_sorted_dynamic_read_varrefs(t, o, only_unguarded):
 	"""Return a sorted list of variable refs involving dynamic indexing, in block of transition t. They are sorted on dependency."""
 	R = set([])
 	sm = t.parent
 	for st in t.statements:
-		Rtmp = statement_read_varrefs(st, sm, True)
+		Rtmp = statement_read_varrefs(st, o, sm, True)
 		if not only_unguarded:
-			Rtmp_all = statement_read_varrefs(st, sm, False)
+			Rtmp_all = statement_read_varrefs(st, o, sm, False)
 			Rtmp = Rtmp_all - Rtmp
 		R |= Rtmp
 	# only keep refs with dynamic indexing
 	R2 = set([])
 	for (v,i) in R:
-		if v.__class__.__name__ != "Channel":
+		if v.__class__.__name__ != "Channel" and v.__class__.__name__ != "StateMachine":
 			i_str = getinstruction(i, {}, {})
 			if i != None and not RepresentsInt(i_str):
 				R2.add((v,i))
@@ -462,7 +536,7 @@ def transition_sorted_dynamic_read_varrefs(t, only_unguarded):
 	R = set([])
 	while R2 != set([]):
 		for (v,i) in R2:
-			R3 = statement_read_varrefs(i, sm, only_unguarded)
+			R3 = statement_read_varrefs(i, o, sm, only_unguarded)
 			add = True
 			for (v2,i2) in R3:
 				if (v2,i2) in R2:
@@ -476,22 +550,22 @@ def transition_sorted_dynamic_read_varrefs(t, only_unguarded):
 		R = set([])
 	return L
 
-def statement_varrefs(s, sm):
-	"""Return a set of variable refs appearing in statement s. sm is the state machine owning s."""
-	global connected_channel, signalsize
+def statement_varrefs(s, o, sm):
+	"""Return a set of variable refs appearing in statement s. o is the object owning s, and sm is the state machine owning s."""
+	global connected_channel, signalsize, actions, syncactions, alphabet, smnames, smname_to_object
 	R = set([])
 	if s.__class__.__name__ == "Assignment":
 		R.add((s.left.var, s.left.index))
 		if s.left.index != None:
-			R |= statement_varrefs(s.left.index, sm)
-		R |= statement_varrefs(s.right, sm)
+			R |= statement_varrefs(s.left.index, o, sm)
+		R |= statement_varrefs(s.right, o, sm)
 	elif s.__class__.__name__ == "Composite":
 		if s.guard != None:
-			R |= statement_varrefs(s.guard, sm)
+			R |= statement_varrefs(s.guard, o, sm)
 		for i in range(0,len(s.assignments)):
-			R |= statement_varrefs(s.assignments[i], sm)
+			R |= statement_varrefs(s.assignments[i], o, sm)
 	elif s.__class__.__name__ == "SendSignal":
-		c = connected_channel[s.target]
+		c = connected_channel[(o, s.target)]
 		if c.synctype == 'async':
 			# add channel with index '_size' to represent 'size' variable
 			R.add((c, "_size"))
@@ -500,10 +574,18 @@ def statement_varrefs(s, sm):
 				R.add((c, "[0][0]"))
 			for i in range(1,len(c.type)+1):
 				R.add((c, "[" + str(i) + "][0]"))
-			for p in s.params:
-				R |= statement_varrefs(p, sm)
+		else:
+			for i in range(0,len(c.type)):
+				R.add((c, i))
+			# add variable to temporary state storage
+			R.add((c, "state"))
+			# add (Object,StateMachine) pairs for state machines that can potentially receive messages
+			for (o2,sm2) in get_syncrec_sms(o, c, s.signal):
+				R.add((c, scopename(sm2,None,o2)))
+		for p in s.params:
+			R |= statement_varrefs(p, o, sm)
 	elif s.__class__.__name__ == "ReceiveSignal":
-		c = connected_channel[s.target]
+		c = connected_channel[(o, s.target)]
 		if c.synctype == 'async':
 			# add channel with index "_size" to represent 'size' variable
 			R.add((c, "_size"))
@@ -516,8 +598,8 @@ def statement_varrefs(s, sm):
 			for p in s.params:
 				Messagerefs.add((p.var.name, getinstruction(p.index, {}, {})))
 				if p.index != None:
-					R |= statement_varrefs(p.index, sm)
-			Rguard = statement_varrefs(s.guard, sm)
+					R |= statement_varrefs(p.index, o, sm)
+			Rguard = statement_varrefs(s.guard, o, sm)
 			for (v,j) in Rguard:
 				if (v.name, getinstruction(j, {}, {})) not in Messagerefs:
 					R.add((v,j))
@@ -526,23 +608,35 @@ def statement_varrefs(s, sm):
 		# 		R |= statement_varrefs(p, sm)
 		# 	R |= statement_varrefs(s.guard, sm)
 	elif s.__class__.__name__ == "Expression" or s.__class__.__name__ == "ExprPrec4" or s.__class__.__name__ == "ExprPrec3" or s.__class__.__name__ == "ExprPrec2" or s.__class__.__name__ == "ExprPrec1":
-		R |= statement_varrefs(s.left, sm)
+		R |= statement_varrefs(s.left, o, sm)
 		if s.op != '':
-			R |= statement_varrefs(s.right, sm)
+			R |= statement_varrefs(s.right, o, sm)
 	elif s.__class__.__name__ == "Primary":
 		if s.ref != None:
+			if s.ref.ref in actions:
+				# we have a user-defined action
+				if s.ref.ref in syncactions:
+					# add references to other state machines in Object o that have the action in their alphabet
+					# (i.e., we add a reference to their current state variable)
+					for sname in smnames:
+						(o2,sm2) = smname_to_object[sname]
+						if o == o2 and sm != sm2:
+								if s.ref.ref in alphabet[sm2]:
+									# add two variables: src to store the current state of sm2, tgt to store target state of a transition
+									R.add((sm2,"src"))
+									R.add((sm2,"tgt"))
 			if s.ref.index != None:
-				R |= statement_varrefs(s.ref.index, sm)
+				R |= statement_varrefs(s.ref.index, o, sm)
 			# obtain suitable object matching name s.ref.ref
 			for v1 in sm_variables(sm):
 				if v1.name == s.ref.ref:
 					R.add((v1, s.ref.index))
 					break
 		if s.body != None:
-			R |= statement_varrefs(s.body, sm)
+			R |= statement_varrefs(s.body, o, sm)
 	elif s.__class__.__name__ == "VariableRef":
 		if s.index != None:
-			R |= statement_varrefs(s.index, sm)
+			R |= statement_varrefs(s.index, o, sm)
 		R.add((s.var, s.index))
 	return R
 
@@ -556,31 +650,34 @@ def statement_write_varrefs(s):
 			W.add((s.assignments[i].left.var, s.assignments[i].left.index))
 	return W
 
-def statement_read_varrefs(s, sm, only_unguarded):
-	"""Return a set of variable refs from which the statement is reading. sm is the state machine owning s. only_unguarded indicates whether only the unguarded objects (true) or all objects (false) should be returned."""
-	global connected_channel, signalsize
+def statement_read_varrefs(s, o, sm, only_unguarded):
+	"""Return a set of variable refs from which the statement is reading. o is Object owning s. sm is the state machine owning s. only_unguarded indicates whether only the unguarded objects (true) or all objects (false) should be returned."""
+	global connected_channel, signalsize, smname_to_object, smnames, alphabet
 	R = set([])
 	if s.__class__.__name__ == "Assignment":
 		if s.left.index != None:
-			R |= statement_read_varrefs(s.left.index, sm, only_unguarded)
-		R |= statement_read_varrefs(s.right, sm, only_unguarded)
+			R |= statement_read_varrefs(s.left.index, o, sm, only_unguarded)
+		R |= statement_read_varrefs(s.right, o, sm, only_unguarded)
 	elif s.__class__.__name__ == "Composite":
 		if s.guard != None:
-			R |= statement_read_varrefs(s.guard, sm, only_unguarded)
+			R |= statement_read_varrefs(s.guard, o, sm, only_unguarded)
 		if s.guard == None or not only_unguarded:
 			for i in range(0,len(s.assignments)):
-				R |= statement_read_varrefs(s.assignments[i], sm, only_unguarded)
+				R |= statement_read_varrefs(s.assignments[i], o, sm, only_unguarded)
 	elif s.__class__.__name__ == "SendSignal":
-		c = connected_channel[s.target]
+		c = connected_channel[(o, s.target)]
 		if c.synctype == 'async':
 			# add channel with index "_size" to represent 'size' variable
 			R.add((c, "_size"))
-			# below: also holds for sync
-			if not only_unguarded:
-				for p in s.params:
-					R |= statement_read_varrefs(p, sm, only_unguarded)			
+		if c.synctype == 'sync':
+			# add (Object,StateMachine) pairs for state machines that can potentially receive messages
+			for (o2,sm2) in get_syncrec_sms(o, c, s.signal):
+				R.add((c, scopename(sm2,None,o2)))
+		if not only_unguarded:
+			for p in s.params:
+				R |= statement_read_varrefs(p, o, sm, only_unguarded)
 	elif s.__class__.__name__ == "ReceiveSignal":
-		c = connected_channel[s.target]
+		c = connected_channel[(o, s.target)]
 		if c.synctype == 'async':
 			# Note: checking size of buffer is NOT part of unguarded behaviour! (instead, this is checked in an earlier stage)
 			# add channel with indices to represent the various items in a Message
@@ -593,29 +690,39 @@ def statement_read_varrefs(s, sm, only_unguarded):
 			for p in s.params:
 				Messagerefs.add((p.var.name, getinstruction(p.index, {}, {})))
 				if p.index != None:
-					R |= statement_read_varrefs(p.index, sm, only_unguarded)
-			R1 = statement_read_varrefs(s.guard, sm, only_unguarded)
+					R |= statement_read_varrefs(p.index, o, sm, only_unguarded)
+			R1 = statement_read_varrefs(s.guard, o, sm, only_unguarded)
 			for (v,j) in R1:
 				if (v.name, getinstruction(j, {}, {})) not in Messagerefs:
 					R.add((v,j))
 	elif s.__class__.__name__ == "Expression" or s.__class__.__name__ == "ExprPrec4" or s.__class__.__name__ == "ExprPrec3" or s.__class__.__name__ == "ExprPrec2" or s.__class__.__name__ == "ExprPrec1":
-		R |= statement_read_varrefs(s.left, sm, only_unguarded)
+		R |= statement_read_varrefs(s.left, o, sm, only_unguarded)
 		if s.op != '':
-			R |= statement_read_varrefs(s.right, sm, only_unguarded)
+			R |= statement_read_varrefs(s.right, o, sm, only_unguarded)
 	elif s.__class__.__name__ == "Primary":
 		if s.ref != None:
+			if s.ref.ref in actions:
+				# we have a user-defined action
+				if s.ref.ref in syncactions:
+					# add references to other state machines in Object o that have the action in their alphabet
+					# (i.e., we add a reference to their current state variable)
+					for sname in smnames:
+						(o2,sm2) = smname_to_object[sname]
+						if o == o2 and sm != sm2:
+							if s.ref.ref in alphabet[sm2]:
+								R.add((sm2,"src"))
 			if s.ref.index != None:
-				R |= statement_read_varrefs(s.ref.index, sm, only_unguarded)
+				R |= statement_read_varrefs(s.ref.index, o, sm, only_unguarded)
 			# obtain suitable object matching name s.ref.ref
 			for v1 in sm_variables(sm):
 				if v1.name == s.ref.ref:
 					R.add((v1, s.ref.index))
 					break
 		if s.body != None:
-			R |= statement_read_varrefs(s.body, sm, only_unguarded)
+			R |= statement_read_varrefs(s.body, o, sm, only_unguarded)
 	elif s.__class__.__name__ == "VariableRef":
 		if s.index != None:
-			R |= statement_read_varrefs(s.index, sm, only_unguarded)
+			R |= statement_read_varrefs(s.index, o, sm, only_unguarded)
 		R.add((s.var, s.index))
 	return R
 
@@ -655,9 +762,9 @@ def statement_guarded_varobjects(s):
 	"""Return a list of guarded objects the statement is accessing."""
 	return list(set(statement_varobjects(s)) - set(state_unguarded_varobjects(s.parent.source)))
 
-def get_buffer_allocs(s):
-	"""Return info on number of variable allocations to do for evaluation of transition blocks of outgoing transitions of state s"""
-	global vectorelem_in_structure_map, signalsize
+def get_buffer_allocs(s, o):
+	"""Return info on number of variable allocations to do for evaluation of transition blocks of outgoing transitions of state s. o is Object owning s."""
+	global vectorelem_in_structure_map, signalsize, max_statesize
 	sm = s.parent
 	max_32 = 0
 	max_16 = 0
@@ -668,26 +775,40 @@ def get_buffer_allocs(s):
 		O = set([])
 		for st in t.statements:
 			# O is set of variable refs occurring in block of t
-			O |= statement_varrefs(st, sm)
+			O |= statement_varrefs(st, o, sm)
 		nr_32 = 0
 		nr_8 = 0
 		nr_bool = 0
-		print(O)
+		dict_arrays_8 = {}
+		dict_arrays_bool = {}
 		for (v,i) in O:
-			if v.__class__.__name__ != "Channel":
+			if v.__class__.__name__ != "Channel" and v.__class__.__name__ != "StateMachine":
 				i_str = getinstruction(i, {}, {})
 			else:
 				i_str = i
 			if (v,i_str) not in Vseen:
 				Vseen.add((v,i_str))
 				if v.__class__.__name__ == "Channel":
-					# access channel buffer item or its size
-					size = vectorelem_in_structure_map[v.name + i][0]
-					print(i)
-					print(size)
+					if v.synctype == 'async':
+						# access channel buffer item or the buffer's size variable
+						size = vectorelem_in_structure_map[v.name + i][0]
+					else: # synchronous channel
+						if isinstance(i, int):
+							size = gettypesize(v.type[i])
+						elif i == "state":
+							size = max_statesize
+						else:
+							size = vectorelem_in_structure_map[i][0]
 					if size <= 1:
 						nr_bool += 1
 					elif size <= 8:
+						nr_8 += 1
+					else:
+						nr_32 += 1
+				elif v.__class__.__name__ == "StateMachine":
+					if max_statesize <= 1:
+						nr_bool += 1
+					elif max_statesize <= 8:
 						nr_8 += 1
 					else:
 						nr_32 += 1
@@ -695,15 +816,15 @@ def get_buffer_allocs(s):
 					nr_32 += 1
 				elif v.type.base == 'Byte':
 					nr_8 += 1
+					if v.size > 0:
+						count = dict_arrays_8.get(v, 0)
+						count += 1
+						dict_arrays_8[v] = count
 				else:
 					nr_bool += 1
-		# record maxima
-		if nr_32 > max_32:
-			max_32 = nr_32
-		if nr_8 > max_8:
-			max_8 = nr_8
-		if nr_bool > max_bool:
-			max_bool = nr_bool
+					count = dict_arrays_bool.get(v, 0)
+					count += 1
+					dict_arrays_bool[v] = count
 		# add additional 16-bit integers (if needed) for pointers to store new vector trees
 		Vseen = set([])
 		O = set([])
@@ -712,12 +833,51 @@ def get_buffer_allocs(s):
 		for (v,i) in O:
 			i_str = getinstruction(i, {}, {})
 			Vseen.add((v,i_str))
-		if len(Vseen) > 2*max_32 + max_16:
-			max_16 += (2*max_32 + max_16) - len(Vseen)
+		nr_16 = len(Vseen)
+		# record maxima
+		if nr_32 > max_32:
+			max_32 = nr_32
+			diff = 0
+		else:
+			diff = max_32 - nr_32
+		if nr_16 > max_16 + diff:
+			max_16 = nr_16 - diff
+			diff = 0
+		else:
+			if nr_16 > max_16:
+				diff = diff - (nr_16 - max_16)
+			else:
+				diff = (max_16 + diff) - nr_16
+		# iterate over byte arrays first
+		tmp = 0
+		for (v,nr) in dict_arrays_8.items():
+			tmp += nr
+		if tmp > max_8:
+			max_8 = tmp
+		nr_8 = nr_8 - tmp
+		left = max_8 - tmp
+		if nr_8 > left + diff:
+			max_8 += nr_8 - left - diff
+			diff = 0
+		else:
+			if nr_8 > left:
+				diff -= (nr_8 - left)
+			else:
+				diff += (left - nr_8)
+		# iterate over bool arrays first
+		tmp = 0
+		for (v,nr) in dict_arrays_bool.items():
+			tmp += nr
+		if tmp > max_bool:
+			max_bool = tmp
+		nr_bool = nr_bool - tmp
+		left = max_bool - tmp
+		if nr_bool > left + diff:
+			max_bool += nr_bool - left - diff
 	return (max_32, max_16, max_8, max_bool)
 
-def get_buffer_arrayindex_allocs(s):
-	"""Return info on variable allocations needed to do bookkeeping on dynamically accessing SLCO array elements, for outgoing transitions of state s"""
+def get_buffer_arrayindex_allocs(s, o):
+	"""Return info on variable allocations needed to do bookkeeping on dynamically accessing SLCO array elements, for outgoing transitions of state s. o is Object owning s."""
 	sm = s.parent
 	allocs = {}
 	for t in outgoingtrans(s, sm.transitions):
@@ -726,10 +886,10 @@ def get_buffer_arrayindex_allocs(s):
 		dynamic_access_seen = set([])
 		O = set([])
 		for st in t.statements:
-			O |= statement_varrefs(st, sm)
+			O |= statement_varrefs(st, o, sm)
 		for (v,i) in O:
 			# is v an array?
-			if v.__class__.__name__ != "Channel": 
+			if v.__class__.__name__ != "Channel" and v.__class__.__name__ != "StateMachine": 
 				if v.type.size > 0:
 					i_str = getinstruction(i, {}, {})
 					if (v,i_str) not in Vseen:
@@ -746,72 +906,151 @@ def get_buffer_arrayindex_allocs(s):
 				allocs[v] = count2
 	return allocs
 
-def map_variables_on_buffer(t):
-	"""Construct for block of given transition t a mapping from variables to buffer variables"""
-	global vectorelem_in_structure_map, connected_channel
+def map_variables_on_buffer(t, o):
+	"""Construct for block of given transition t a mapping from variables to buffer variables. o is Object owning t."""
+	global vectorelem_in_structure_map, max_statesize
 	sm = t.parent
 	# counters
 	current_32 = 0
+	current_16 = 0
 	current_8 = 0
 	current_bool = 0
 	O = set([])
 	for st in t.statements:
-		O |= statement_varrefs(st, sm)
+		O |= statement_varrefs(st, o, sm)
 	M = {}
 	access_counters = {}
 	Vseen = set([])
 	for (v,i) in O:
-		if not is_async_channel(v):
+		if not is_async_channel(v) and v.__class__.__name__ != "StateMachine":
 			i_str = getinstruction(i, {}, {})
 			if (v,i_str) not in Vseen:
 				Vseen.add((v,i_str))
 				count = access_counters.get(v, 0)
 				count += 1
 				access_counters[v] = count
+		elif v.__class__.__name__ == "StateMachine":
+			access_counters[v] = 2
 		else:
 			access_counters[v] = 1
-	for v in access_counters.keys():
+	
+	# get buffer allocs for the source state of s
+	buffer_allocs = get_buffer_allocs(t.source, o)
+
+	# iterate over elements in descending order w.r.t. nr of items (arrays have multiple items)
+	for (v, ac) in sorted(access_counters.items(), key=(lambda x: x[1]), reverse=True):
 		if v.__class__.__name__ == "Channel":
-			size = vectorelem_in_structure_map[v.name + "_size"][0]
-			if size <= 1:
-				M[(v, "_size")] = ("buf1", current_bool)
-				current_bool += 1
-			elif size <= 8:
-				M[(v, "_size")] = ("buf8", current_8)
-				current_8 += 1
-			else:
-				M[(v, "_size")] = ("buf32", current_32)
-				current_32 += 1
-			for i in range(0,len(v.type)+1):
-				if i == 0:
-					size = signalsize[v]
+			if v.synctype == 'async':
+				size = vectorelem_in_structure_map[v.name + "_size"][0]
+				if size <= 1 and current_bool < buffer_allocs[3]:
+					M[(v, "_size")] = ("buf1", current_bool)
+					current_bool += 1
+				elif size <= 8 and current_8 < buffer_allocs[2]:
+					M[(v, "_size")] = ("buf8", current_8)
+					current_8 += 1
+				elif size <= 16 and current_16 < buffer_allocs[1]:
+					M[(v, "_size")] = ("buf16", current_16)
+					current_16 += 1
 				else:
-					size = gettypesize(v.type[i-1])
-				vindex = "[" + str(i) + "][0]"
-				if size > 0:
-					if size == 1:
-						M[(v, vindex)] = ("buf1", current_bool)
-						current_bool += 1
-					elif size <= 8:
-						M[(v, vindex)] = ("buf8", current_8)
-						current_8 += 1
+					M[(v, "_size")] = ("buf32", current_32)
+					current_32 += 1
+				for i in range(0,len(v.type)+1):
+					if i == 0:
+						size = signalsize[v]
 					else:
-						M[(v, vindex)] = ("buf32", current_32)
+						size = gettypesize(v.type[i-1])
+					vindex = "[" + str(i) + "][0]"
+					if size > 0:
+						if size == 1 and current_bool < buffer_allocs[3]:
+							M[(v, vindex)] = ("buf1", current_bool)
+							current_bool += 1
+						elif size <= 8 and current_8 < buffer_allocs[2]:
+							M[(v, vindex)] = ("buf8", current_8)
+							current_8 += 1
+						elif size <= 16 and current_16 < buffer_allocs[1]:
+							M[(v, vindex)] = ("buf16", current_8)
+							current_16 += 1
+						else:
+							M[(v, vindex)] = ("buf32", current_32)
+							current_32 += 1
+			else: # synchronous channel
+				for i in range(0,len(v.type)):
+					size = gettypesize(v.type[i])
+					if size <= 1 and current_bool < buffer_allocs[3]:
+						M[(v,i)] = ("buf1", current_bool)
+						current_bool += 1
+					elif size <= 8 and current_8 < buffer_allocs[2]:
+						M[(v,i)] = ("buf8", current_8)
+						current_8 += 1
+					elif size <= 16 and current_16 < buffer_allocs[1]:
+						M[(v,i)] = ("buf16", current_16)
+						current_16 += 1
+					else:
+						M[(v,i)] = ("buf32", current_32)
 						current_32 += 1
-		elif gettypesize(v.type) == 32:
-			M[v] = ("buf32", current_32)
-			current_32 += access_counters[v]
-		elif gettypesize(v.type) == 8:
-			M[v] = ("buf8", current_8)
-			current_8 += access_counters[v]
+				size = max_statesize
+				if size <= 1 and current_bool < buffer_allocs[3]:
+					M[(v,"state")] = ("buf1", current_bool)
+					current_bool += 1
+				elif size <= 8 and current_8 < buffer_allocs[2]:
+					M[(v,"state")] = ("buf8", current_8)
+					current_8 += 1
+				elif size <= 16 and current_16 < buffer_allocs[1]:
+					M[(v,"state")] = ("buf16", current_16)
+					current_16 += 1
+				else:
+					M[(v,"state")] = ("buf32", current_32)
+					current_32 += 1
+				# handle (Object,StateMachine) pairs for state machines that can potentially receive messages
+				for (o2,sm2) in get_syncrec_sms(o, v, st.signal):
+					size = vectorelem_in_structure_map[o2.name + "'" + sm2.name][0]
+					if size <= 1 and current_bool < buffer_allocs[3]:
+						M[(v,o2.name + "'" + sm2.name)] = ("buf1", current_bool)
+						current_bool += 1
+					elif size <= 8 and current_8 < buffer_allocs[2]:
+						M[(v,o2.name + "'" + sm2.name)] = ("buf8", current_8)
+						current_8 += 1
+					elif size <= 16 and current_16 < buffer_allocs[1]:
+						M[(v,o2.name + "'" + sm2.name)] = ("buf16", current_16)
+						current_16 += 1
+					else:
+						M[(v,o2.name + "'" + sm2.name)] = ("buf32", current_32)
+						current_32 += 1
 		else:
-			M[v] = ("buf1", current_bool)
-			current_bool += access_counters[v]
+			if v.__class__.__name__ == "StateMachine":
+				size = max_statesize
+				for x in ["src","tgt"]:
+					if size <= 1 and current_bool < buffer_allocs[3]:
+						M[(v,x)] = ("buf1", current_bool)
+						current_bool += 1
+					elif size <= 8 and current_8 < buffer_allocs[2]:
+						M[(v,x)] = ("buf8", current_8)
+						current_8 += 1
+					elif size <= 16 and current_16 < buffer_allocs[1]:
+						M[(v,x)] = ("buf16", current_16)
+						current_16 += 1
+					else:
+						M[(v,x)] = ("buf32", current_32)
+						current_32 += 1
+			else:
+				size = gettypesize(v.type)
+				if size <= 1 and current_bool < buffer_allocs[3]:
+					M[v] = ("buf1", current_bool)
+					current_bool += access_counters[v]
+				elif size <= 8 and current_8 < buffer_allocs[2]:
+					M[v] = ("buf8", current_8)
+					current_8 += access_counters[v]
+				elif size <= 16 and current_16 < buffer_allocs[1]:
+					M[v] = ("buf16", current_16)
+					current_16 += access_counters[v]
+				else:
+					M[v] = ("buf32", current_32)
+					current_32 += access_counters[v]
 	return M
 
 def get_vectorparts(L, o):
 	"""For the given set of variable refs (of given Object o), return a sorted list of vector parts that contain that info"""
-	global vectorelem_in_structure_map, connected_channel
+	global vectorelem_in_structure_map
 
 	P = set([])
 	for (v,i) in L:
@@ -846,10 +1085,12 @@ def get_remaining_vectorparts(L, o, VPs):
 				P |= S
 	return sorted(list(P))
 
-def vectorparts_not_covered((v, i), o, VPs):
+def vectorparts_not_covered(vi, o, VPs):
 	"""Return whether or not the vectorparts needed for variable ref (v,i) are in list of vector parts VPs"""
 	global vectorelem_in_structure_map
 
+	v = vi[0]
+	i = vi[1]
 	if v.__class__.__name__ == "Channel":
 		return False
 	VPset = set(VPs)
@@ -903,18 +1144,20 @@ def is_async(c):
 def no_dynamic_indexing(v):
 	if v[0].__class__.__name__ == "Channel":
 		return True
+	if v[0].__class__.__name__ == "StateMachine":
+		return True
 	if v[1] == None:
 		return True
 	i_str = getinstruction(v[1], {}, {})
 	return RepresentsInt(i_str)
 
-def has_dynamic_indexing(v, t):
-	"""Returns whether for array v, dynamic indexing is done in the block of transition t"""
-	if v.__class__.__name__ != "Channel":
+def has_dynamic_indexing(v, t, o):
+	"""Returns whether for array v, dynamic indexing is done somewhere in the block of transition t. o is Object owning s."""
+	if v.__class__.__name__ != "Channel" and v.__class__.__name__ != "StateMachine":
 		sm = t.parent
 		O = set([])
 		for st in t.statements:
-			O |= statement_varrefs(st, sm)
+			O |= statement_varrefs(st, o, sm)
 		for (v1,i) in O:
 			if v1 == v:
 				if i != None:
@@ -923,6 +1166,71 @@ def has_dynamic_indexing(v, t):
 						return True
 	return False
 
+def must_be_processed_by(t, i, o):
+	"""Return whether or not the given transition must be processed by the thread associated to the state machine with id i in the vector state order. o is Object owning t."""
+	global state_order, smname_to_object, alphabet, syncactions, connected_channel
+
+	st = t.statements[0]
+	if st.__class__.__name__ == "ReceiveSignal":
+		c = connected_channel[(o, st.target)]
+		if c.synctype == 'sync':
+			return False
+	if not statement_is_actionref(st):
+		return True
+	else:
+		a = getlabel(st)
+		if a not in syncactions:
+			return True
+		else:
+			for j in range(0,i):
+				smname = state_order[j]
+				(o2,sm2) = smname_to_object[smname]
+				if o.name == o2.name:
+					if a in alphabet[sm2]:
+						return False
+			return True
+
+def get_syncrec_sms(o, c, signal):
+	"""Return a list of (Object,StateMachine) pairs that can potentially receive messages from a StateMachine in the given Object o via the given synchronous channel c"""
+	global syncreccomm
+	S = syncreccomm[c]
+	L = []
+	for (o2,sm2) in S:
+		if o2 != o:
+			L.append((o2,sm2))
+	return L
+
+def get_all_syncrecs(c):
+	"""Return a list of (Object,StateMachine,signal) triples of StateMachines that can potentially receive messages with signal 'signal' via the given synchronous channel c"""
+	global connected_channel
+
+	L = set([])
+	for o in model.objects:
+		for sm in o.type.statemachines:
+			for t in sm.transitions:
+				for st in t.statements:
+					if st.__class__.__name__ == "ReceiveSignal":
+						if c == connected_channel[(o,st.target)]:
+							L.add((o,sm,st.signal))
+	return sorted(list(L), key=lambda x: (x[0].name, x[1].name, x[2]))
+
+def get_reccomm_trans(o, sm, c, signal):
+	"""Return for the given (Object, StateMachine) pair a dictionary providing the transitions (state pairs) on which a message with signal 'signal' can be received over synchronous channel c"""
+	global connected_channel, state_id
+
+	L = {}
+	for t in sm.transitions:
+		for st in t.statements:
+			if st.__class__.__name__ == "ReceiveSignal":
+				if c == connected_channel[(o, st.target)]:
+					if signal == st.signal:
+						src = state_id[(sm, t.source)]
+						tgt = state_id[(sm, t.target)]
+						tgts = L.get(src, [])
+						tgts.append(tgt)
+						L[src] = tgts
+	return L
+
 # Filter for debugging
 def debug(text):
 	print(text)
@@ -930,7 +1238,7 @@ def debug(text):
 
 def preprocess():
 	"""Preprocessing of model"""
-	global model, vectorsize, vectorstructure, vectorstructure_string, smnames, vectorelem_in_structure_map, max_statesize, state_order, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, connected_channel, signalsize, signalnr
+	global model, vectorsize, vectorstructure, vectorstructure_string, smnames, vectorelem_in_structure_map, max_statesize, state_order, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, connected_channel, signalsize, signalnr, alphabet, syncactions, actiontargets, actions, syncreccomm
 
 	# construct set of statemachine names in the system
 	# also construct a map from names to objects
@@ -947,19 +1255,39 @@ def preprocess():
 	# construct dictionary providing connected channel of given port
 	connected_channel = {}
 	for c in model.channels:
-		connected_channel[c.port0] = c
-		connected_channel[c.port1] = c
+		connected_channel[(c.source, c.port0)] = c
+		connected_channel[(c.target, c.port1)] = c
+
+	# construct dictionary to obtain (Object,StateMachine) pairs that are potentially receiving messages from a given synchronous channel
+	syncreccomm = {}
+	for ch in model.channels:
+		if ch.synctype == 'sync':
+			S = set([])
+			for o in [ch.source,ch.target]:
+				for sm in o.type.statemachines:
+					found = False
+					for t in sm.transitions:
+						for st in t.statements:
+							if st.__class__.__name__ == "ReceiveSignal":
+								if (o == ch.source and st.target == ch.port0) or (o == ch.target and st.target == ch.port1):
+									S.add((o,sm))
+									found = True
+									break
+						if found:
+							break
+			syncreccomm[ch] = S
 
 	# determine number of bits needed to represent channel signals for each channel, and encode for each channel the possible signals
 	signalsize = {}
 	signalnr = {}
 	signals = {}
-	for c in model.classes:
+	for o in model.objects:
+		c = o.type
 		for sm in c.statemachines:
 			for t in sm.transitions:
 				for st in t.statements:
 					if st.__class__.__name__ == "ReceiveSignal" or st.__class__.__name__ == "SendSignal":
-						c = connected_channel[st.target]
+						c = connected_channel[(o,st.target)]
 						S = signals.get(c, set([]))
 						S.add(st.signal)
 						signals[c] = S
@@ -1167,24 +1495,61 @@ def preprocess():
 				arraynames.append((c.name + "[" + str(i+1) + "]", c.type[i], c.size))
 	# compute maximum number of buffer variable allocs needed for transition block processing
 	max_buffer_allocs = [0,0,0]
-	for c in model.classes:
-		for sm in c.statemachines:
-			for s in sm.states:
-				allocs = get_buffer_allocs(s)
-				if allocs[0] > max_buffer_allocs[0]:
-					max_buffer_allocs[0] = allocs[0]
-				if allocs[2] > max_buffer_allocs[1]:
-					max_buffer_allocs[1] = allocs[2]
-				if allocs[3] > max_buffer_allocs[2]:
-					max_buffer_allocs[2] = allocs[3]
+	Cseen = set([])
+	for o in model.objects:
+		c = o.type
+		if c not in Cseen:
+			Cseen.add(c)
+			for sm in c.statemachines:
+				for s in sm.states:
+					allocs = get_buffer_allocs(s, o)
+					if allocs[0] > max_buffer_allocs[0]:
+						max_buffer_allocs[0] = allocs[0]
+					if allocs[2] > max_buffer_allocs[1]:
+						max_buffer_allocs[1] = allocs[2]
+					if allocs[3] > max_buffer_allocs[2]:
+						max_buffer_allocs[2] = allocs[3]
 	max_buffer_allocs = max(max_buffer_allocs)
 	# define set of vector parts
 	vectorpartlist = [i for i in range(0,len(vectorstructure))]
-	print(vectorelem_in_structure_map)
+	# create action alphabets and construct dictionary providing target states when performing a given action in a given state
+	alphabet = {}
+	Adict = {}
+	actiontargets = {}
+	actions = set([])
+	for c in model.classes:
+		for sm in c.statemachines:
+			A = set([])
+			smtrans = {}
+			for t in sm.transitions:
+				for st in t.statements:
+					if statement_is_actionref(st):
+						a = getlabel(st)
+						A.add(a)
+						atrans = smtrans.get(a, {})
+						src = state_id[(sm,t.source)]
+						tgt = state_id[(sm,t.target)]
+						tgts = atrans.get(src, [])
+						tgts.append(tgt)
+						tgts = list(set(tgts))
+						atrans[src] = tgts
+						smtrans[a] = atrans
+			actiontargets[sm] = smtrans
+			alphabet[sm] = A
+			for a in A:
+				actions.add(a)
+				count = Adict.get(a, 0)
+				count += 1
+				Adict[a] = count
+	# construct set of actions requiring synchronisation
+	syncactions = set([])
+	for a in actions:
+		if Adict[a] > 1:
+			syncactions.add(a)
 
 def translate():
 	"""The translation function"""
-	global modelname, model, vectorstructure_string, vectorelem_in_structure_map, state_order, max_statesize, smnames, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, signalsize, connected_channel
+	global modelname, model, vectorstructure_string, vectorelem_in_structure_map, state_order, max_statesize, smnames, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, signalsize, connected_channel, alphabet, syncactions, actiontargets
 	
 	path, name = split(modelname)
 	if name.endswith('.slco'):
@@ -1223,6 +1588,10 @@ def translate():
 	jinja_env.filters['has_dynamic_indexing'] = has_dynamic_indexing
 	jinja_env.filters['difference'] = difference
 	jinja_env.filters['get_vars'] = get_vars
+	jinja_env.filters['must_be_processed_by'] = must_be_processed_by
+	jinja_env.filters['get_syncrec_sms'] = get_syncrec_sms
+	jinja_env.filters['get_all_syncrecs'] = get_all_syncrecs
+	jinja_env.filters['get_reccomm_trans'] = get_reccomm_trans
 	jinja_env.filters['debug'] = debug
 
 	# Register the tests
@@ -1232,7 +1601,7 @@ def translate():
 
 	# load the GPUexplore template
 	template = jinja_env.get_template('gpuexplore.jinja2template')
-	out = template.render(model=model, vectorsize=vectorsize, vectorstructure=vectorstructure, vectorstructure_string=vectorstructure_string, max_statesize=max_statesize, vectorelem_in_structure_map=vectorelem_in_structure_map, state_order=state_order, smnames=smnames, smname_to_object=smname_to_object, state_id=state_id, arraynames=arraynames, max_arrayindexsize=max_arrayindexsize, max_buffer_allocs=max_buffer_allocs, vectorpartlist=vectorpartlist, connected_channel=connected_channel)
+	out = template.render(model=model, vectorsize=vectorsize, vectorstructure=vectorstructure, vectorstructure_string=vectorstructure_string, max_statesize=max_statesize, vectorelem_in_structure_map=vectorelem_in_structure_map, state_order=state_order, smnames=smnames, smname_to_object=smname_to_object, state_id=state_id, arraynames=arraynames, max_arrayindexsize=max_arrayindexsize, max_buffer_allocs=max_buffer_allocs, vectorpartlist=vectorpartlist, connected_channel=connected_channel, alphabet=alphabet, syncactions=syncactions, actiontargets=actiontargets, syncreccomm=syncreccomm)
 	# write new SLCO model
 	outFile.write(out)
 	outFile.close()

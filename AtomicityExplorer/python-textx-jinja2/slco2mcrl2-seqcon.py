@@ -497,26 +497,6 @@ def expression_variables(s,stm,c,primmap,owner,ignore_indices,add_local):
 			output |= expression_variables(s.body,stm,c,primmap,owner,ignore_indices,add_local)
 	return output
 
-def expression_is_actionref(s):
-	"""Determine whether the given expression is an action reference"""
-	global actions
-	if s.__class__.__name__ == "Expression":
-		if s.op == '':
-			snext = s.left
-			if snext.op == '':
-				snext = snext.left
-				if snext.op == '':
-					snext = snext.left
-					if snext.op == '':
-						snext = snext.left
-						if snext.op == '':
-							snext = snext.left
-							if snext.ref != None and snext.sign == '':
-								snext = snext.ref
-								if snext.ref in actions:
-									return True
-	return False
-
 def expression_mcrl2type(s,stm,c):
 	"""Provide the mCRL2 type of the given expression"""
 	global vartypes

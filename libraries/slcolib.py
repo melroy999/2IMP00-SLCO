@@ -555,6 +555,9 @@ def statement_check_refs(s, V, model):
 						# replace with a single class of type ActionRef
 						# TODO
 
+def statement_is_actionref(s):
+	return expression_is_actionref(s)
+
 def expression_is_actionref(s):
 	"""Determine whether the given expression is an action reference"""
 	global actions

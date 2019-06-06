@@ -39,17 +39,17 @@
 #define buffer_indextype int32_t
 {% endif %}
 
-// constant representing empty array index entry
+// Constant representing empty array index entry.
 #define EMPTY_INDEX -1
 
-// state vector size
+// State vector size.
 inttype sv_nints = {{vectorsize}};
 
-// structure of state vector:
+// Structure of state vector:
 // {{vectorstructure_string}}
 
 {% if vectorsize > 62 %}
-// function to traverse one step in state vector tree (stored in shared memory)
+// Function to traverse one step in state vector tree (stored in shared memory).
 inline __device__ shared_indextype sv_step(shared_inttype *d_z, shared_indextype node_index, bool goleft) {
 	shared_indextype index = 0;
 	shared_inttype tmp = d_z[node_index+2];
@@ -70,7 +70,7 @@ inline __device__ shared_indextype sv_step(shared_inttype *d_z, shared_indextype
 }
 {% endif %}
 
-// retrieval functions for vector parts.
+// Retrieval functions for vector parts.
 inline __device__ inttype get_vectorpart(inttype *d_z, shared_indextype node_index, inttype i) {
 	switch (i) {
 	  {% for i in range(0,vectorstructure|length) %}
@@ -100,11 +100,11 @@ inline __device__ inttype get_vectorpart_{{i}}(inttype *d_z, shared_indextype no
 }
 {% endfor %}
 
-// data retrieval functions. retrieve particular state info from the given state vector part(s).
-// precondition: the given parts indeed contain the requested info.
+// Data retrieval functions. Retrieve particular state info from the given state vector part(s).
+// Precondition: the given parts indeed contain the requested info.
 {% for s in vectorelem_in_structure_map.keys() %}
 {% set size = vectorelem_in_structure_map[s][0] %}
-inline __device__ void get_{{s|replace("[","_")|replace("]","")}}({% if s|is_state %}elem_statetype{% elif size < 32 %}elem_chartype{% else %}elem_inttype{% endif %} b, inttype part1, inttype part2) {
+inline __device__ void get_{{s|replace("[","_")|replace("]","")|replace("'","_")}}({% if s|is_state %}elem_statetype{% elif size < 32 %}elem_chartype{% else %}elem_inttype{% endif %} b, inttype part1, inttype part2) {
 	asm("{\n\t"
 {% if size < 32 %}
 		" .reg .u32 t1;\n\t"
@@ -130,20 +130,20 @@ inline __device__ void get_{{s|replace("[","_")|replace("]","")}}({% if s|is_sta
 
 {% endfor %}
 {% if arraynames|length > 0 %}
-// data retrieval functions, including the fetching of required vector parts, for array elements with dynamic indexing, and channel buffer elements.
+// Data retrieval functions, including the fetching of required vector parts, for array elements with dynamic indexing, and channel buffer elements.
 {% for vname, t, size in arraynames %}
 inline __device__ void get_{{vname|replace("[","_")|replace("]","")}}(inttype *d_z, shared_indextype node_index, {% if t|gettypesize < 32 %}elem_chartype{% else %}elem_inttype{% endif %} b, array_indextype index) {
 	inttype part1, part2;
 	switch (index) {
 		{% for i in range(0, size) %}
 		case {{i}}:
-			// Retrieve correct vector part(s)
+			// Retrieve correct vector part(s).
 			{% set PIDs = vectorelem_in_structure_map[vname + "[" + i|string + "]"] %}
 			part1 = get_vectorpart_{{PIDs[1][0]}}(d_z, node_index);
 			{% if PIDs|length > 2 %}
 			part2 = get_vectorpart_{{PIDs[2][0]}}(d_z, node_index);
 			{% endif %}
-			// Get the data
+			// Get the data.
 			get_{{vname|replace("[","_")|replace("]","") + "_" + i|string}}(b, part1, part2);
 			break;
 		{% endfor %}
@@ -154,7 +154,7 @@ inline __device__ void get_{{vname|replace("[","_")|replace("]","")}}(inttype *d
 
 {% endfor %}
 {% endif %}
-// retrieval of current state of automaton at position i in state vector.
+// Retrieval of current state of automaton at position i in state vector.
 inline __device__ void get_current_state(statetype b, inttype *d_z, shared_indextype node_index, elem_chartype i) {
 	inttype part1, part2;
 	switch (i) {
@@ -172,8 +172,8 @@ inline __device__ void get_current_state(statetype b, inttype *d_z, shared_index
 	}
 }
 
-// data update functions. update particular state info in the given state vector part(s).
-// precondition: the given parts indeed need to contain the updated info.
+// Data update functions. Update particular state info in the given state vector part(s).
+// Precondition: the given parts indeed need to contain the updated info.
 {% for s in vectorelem_in_structure_map.keys() %}
 {% set size = vectorelem_in_structure_map[s][0] %}
 inline __device__ void set_{{s|replace("[","_")|replace("]","")|replace("'","_")}}(inttype part1, inttype part2, {% if size < 32 %}elem_chartype{% else %}elem_inttype{% endif %} x) {
@@ -195,24 +195,9 @@ inline __device__ void set_{{s|replace("[","_")|replace("]","")|replace("'","_")
 }
 
 {% endfor %}
-// successor function. given a state vector, construct its successor state vectors, and store them in d_z.
-// vgtid is the identity of the thread calling the function (id of thread inside vector group).
-inline __device__ void successor(inttype *d_z, shared_indextype node_index, uint8_t vgtid) {
-	// explore the outgoing transitions of the current state of the automaton assigned to vgtid.
-	switch (vgtid) {
-		{% for i in range(0,smnames|length) %}
-		case {{i}}:
-			explore_{{state_order[i]|replace("'","_")}}(d_z, node_index);
-			break;
-		{% endfor %}
-		default:
-			break;
-	}
-}
-
-// auxiliary functions to check for and obtain offset for given array index in the appropriate buffer. the given array of indices is scanned to retrieve the offset.
-// check for presence of offset. if not present, store the index, and return position. if present, return -1.
-// this function is used for the retrieval of array elements.
+// Auxiliary functions to check for and obtain offset for given array index in the appropriate buffer. The given array of indices is scanned to retrieve the offset.
+// Check for presence of offset. If not present, store the index, and return position. if present, return -1.
+// This function is used for the retrieval of array elements.
 inline __device__ buffer_indextype add_idx(array_indextype *indices, array_indextype index) {
 	for (buffer_indextype i;; i++) {
 		if (indices[i] == index) {
@@ -226,8 +211,8 @@ inline __device__ buffer_indextype add_idx(array_indextype *indices, array_index
 	return -1;
 }
 
-// check for index and return position in indices array. this function is used for processing statements.
-// precondition: provided array contains the requested element.
+// Check for index and return position in indices array. This function is used for processing statements.
+// Precondition: provided array contains the requested element.
 inline __device__ buffer_indextype idx(array_indextype *indices, array_indextype index) {
 	for (buffer_indextype i;; i++) {
 		if (indices[i] == index) {
@@ -240,7 +225,100 @@ inline __device__ buffer_indextype idx(array_indextype *indices, array_indextype
 	return -1;
 }
 
-// exploration functions to traverse outgoing transitions of the various states.
+{% for c in model.classes %}
+{% set cloop = loop %}
+{% for sm in c.statemachines %}
+{% set smloop = loop %}
+{% for a in alphabet[sm] if a in syncactions %}
+{% if cloop.first and smloop.first and loop.first %}
+// Action execution functions. For each state machine and action requiring synchronisation, there is a function returning for a given
+// source state a target state that can be reached by performing the action. In case of non-determinism, repeated calls of the function
+// will produce each of the different reachable states.
+{% endif %}
+inline __device__ statetype get_target_{{sm.name}}_{{a}}(statetype src, statetype prev_tgt) {
+	switch (src) {
+		{% set atrans = actiontargets[sm][a] %}
+		{% for src, tgts in atrans|dictsort %}
+		case {{src}}:
+			switch (prev_tgt) {
+				{% for j in range(0, tgts|length+1) %}
+				{% if j == 0 %}
+				case -1:
+				{% else %}
+				case {{tgts[j-1]}}:
+				{% endif %}
+					{% if j == tgts|length %}
+					return -1;
+					{% else %}
+					return {{tgts[j]}};
+					{% endif %}
+				{% endfor %}
+				default:
+					return -1;
+			}
+		{% endfor %}
+		default:
+			return -1;
+	}
+}
+
+{% endfor %}
+{% endfor %}
+{% endfor %}
+{% for ch in model.channels if ch.synctype == 'sync' %}
+{% set chloop = loop %}
+{% for (o2,sm2,signal) in ch|get_all_syncrecs %}
+{% if chloop.first and loop.first %}
+// Synchronous message receive functions. For each (object, statemachine) pair, synchronous channel, and message signal, there is a
+// function returning for a given source state a target state that can be reached by receiving a message with that signal over that
+// channel. in case of non-determinism, repeated calls of the function will produce each of the different reachable states.
+{% endif %}
+inline __device__ statetype get_target_{{o2.name}}_{{sm2.name}}_{{signal}}(statetype src, statetype prev_tgt) {
+	switch (src) {
+		{% set trans = o2|get_reccomm_trans(sm2,ch,signal) %}
+		{% for s2 in trans.keys()|sort %}
+		case {{s2}}:
+			switch (prev_tgt) {
+				{% set strans = trans[s2] %}
+				{% for j in range(0, strans|length) %}
+				{% if j == 0 %}
+				case -1:
+				{% else %}
+				case {{strans[j-1]}}:
+				{% endif %}
+					{% if j == strans|length %}
+					return -1;
+					{% else %}
+					return {{strans[j]}};
+					{% endif %}
+				{% endfor %}
+				default:
+					return -1;
+			}
+		{% endfor %}
+		default:
+			return -1;
+	}
+}
+
+{% endfor %}
+{% endfor %}
+// Successor function. Given a state vector, construct its successor state vectors, and store them in d_z.
+// Vgtid is the identity of the thread calling the function (id of thread inside vector group).
+inline __device__ void successor(inttype *d_z, shared_indextype node_index, uint8_t vgtid) {
+	// explore the outgoing transitions of the current state of the automaton assigned to vgtid.
+	switch (vgtid) {
+		{% for i in range(0,smnames|length) %}
+		case {{i}}:
+			explore_{{state_order[i]|replace("'","_")}}(d_z, node_index);
+			break;
+		{% endfor %}
+		default:
+			break;
+	}
+}
+
+// Exploration functions to traverse outgoing transitions of the various states.
 {% for i in range(0,smnames|length) %}
 inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_z, shared_indextype node_index) {
 	// fetch the current state of the automaton.
@@ -252,9 +330,9 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_z,
 		{% set o = smname_to_object[state_order[i]][0] %}
 		{% set sm = smname_to_object[state_order[i]][1] %}
 		case {{state_id[(sm,s)]}}:
-			{% set allocs = s|get_buffer_allocs %}
+			{% set allocs = s|get_buffer_allocs(o) %}
 			{% if allocs[0] + allocs[1] + allocs[2] + allocs[3] > 0 %}
-			// allocate register memory to process transition(s).
+			// Allocate register memory to process transition(s).
 			{% endif %}
 			{% if allocs[0] > 0 %}
 			elem_inttype buf32[{{allocs[0]}}];
@@ -268,24 +346,25 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_z,
 			{% if allocs[3] > 0 %}
 			bool buf1[{{allocs[3]}}];
 			{% endif %}
-			{% set allocs = s|get_buffer_arrayindex_allocs %}
+			{% set allocs = s|get_buffer_arrayindex_allocs(o) %}
 			{% if allocs|length > 0 %}
-			// allocate register memory for dynamic array indexing.
+			// Allocate register memory for dynamic array indexing.
 			{% for v in allocs.keys() %}
 			array_indextype idx_{{v.name}}[{{allocs[v]}}];
 			{% endfor %}
 			{% endif %}
 			{% for t in s|outgoingtrans(sm.transitions) %}
+			{% if t|must_be_processed_by(i,o) %}
 			{% set st = t.statements[0] %}
 			// {{s.name}} --{ {{st|getlabel}} }--> {{t.target.name}}
-			{% set M = t|map_variables_on_buffer %}
+			{% set M = t|map_variables_on_buffer(o) %}
 			{% set indent = "" %}
 			{% set fetched = [-1,-1] %}
 			{% if st.__class__.__name__ == 'ReceiveSignal' %}
-			{% if st|cudarecsizeguard(M) != "" %}
+			{% if st|cudarecsizeguard(M,o) != "" %}
 			{% set indent = "\t" %}
-			// fetch buffer size value.
-			{% set ch = connected_channel[st.target] %}
+			// Fetch buffer size value.
+			{% set ch = connected_channel[(o, st.target)] %}
 			{% set VP = [(ch,"_size")]|get_vectorparts(o) %}
 			{% set fetched = VP %}
 			part1 = get_vectorpart(d_z, node_index, {{VP[0]}});
@@ -293,18 +372,18 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_z,
 			part2 = get_vectorpart(d_z, node_index, {{VP[1]}});
 			{% endif %}
 			get_{{ch.name}}_size({{M[(ch,"_size")][0]}}[{{M[(ch,"_size")][1]}}], part1, part2);
-			if ({{st|cudarecsizeguard(M)}}) {
+			if ({{st|cudarecsizeguard(M,o)}}) {
 			{% endif %}
 			{% endif %}
-			{% for v in st|statement_varrefs(sm)|get_vars if v|has_dynamic_indexing(t) %}
+			{% for v in st|statement_varrefs(o,sm)|get_vars if v|has_dynamic_indexing(t,o) %}
 			{% if loop.first %}
-			// reset storage of array indices.
+			// Reset storage of array indices.
 			{% endif %}
 			for (array_indextype i = 0; i < {{allocs[v]}}; i++) {
 				idx_{{v.name}}[i] = EMPTY_INDEX;
 			}
 			{% endfor %}
-			{% set VP = t|transition_read_varrefs(True)|select("no_dynamic_indexing")|get_vectorparts(o) %}
+			{% set VP = t|transition_read_varrefs(o,True)|select("no_dynamic_indexing")|get_vectorparts(o) %}
 			{% if VP|length > 0 %}
 			{{indent}}// fetch values of unguarded variables.
 			{% endif %}
@@ -319,7 +398,7 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_z,
 			{{indent}}part1 = part2;
 			{% endif %}
 			{% endif %}
-			{% for (v,j) in t|transition_read_varrefs(False)|select("no_dynamic_indexing") if vectorelem_in_structure_map[v|scopename(j,o)][1][0] == VP[i] and (vectorelem_in_structure_map[v|scopename(j,o)]|length == 2 or vectorelem_in_structure_map[v|scopename(j,o)][vectorelem_in_structure_map[v|scopename(j,o)]|length-1][0] == VP[i+1]) %}
+			{% for (v,j) in t|transition_read_varrefs(o,False)|select("no_dynamic_indexing") if vectorelem_in_structure_map[v|scopename(j,o)][1][0] == VP[i] and (vectorelem_in_structure_map[v|scopename(j,o)]|length == 2 or vectorelem_in_structure_map[v|scopename(j,o)][vectorelem_in_structure_map[v|scopename(j,o)]|length-1][0] == VP[i+1]) %}
 			{% if (not VPloop.first) and loop.first %}
 			{{indent}}part1 = part2;
 			{% endif %}
@@ -332,37 +411,44 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_z,
 			{{indent}}part2 = part1;
 			{% endif %}
 			{% endif %}
-			{% if v.__class__.__name__ != "Channel" %}
-			{{indent}}get_{{v|scopename(None,o)}}{% if j != None %}_{{j|getinstruction({},{})}}{% endif %}({{M[v][0]}}[{{M[v][1]}}{% if j != None %} + {{j|getinstruction({},{})}}{% endif %}], part1, part2);
+			{% if v.__class__.__name__ != "Channel" and v.__class__.__name__ != "StateMachine" %}
+			{{indent}}get_{{v|scopename(None,o)|replace("'","_")}}{% if j != None %}_{{j|getinstruction({},{})}}{% endif %}({{M[v][0]}}[{{M[v][1]}}{% if j != None %} + {{j|getinstruction({},{})}}{% endif %}], part1, part2);
 			{% else %}
-			{{indent}}get_{{v|scopename(j,o)|replace("[","_")|replace("]","")}}({{M[(v,j)][0]}}[{{M[(v,j)][1]}}], part1, part2);
+			{{indent}}get_{{v|scopename(j,o)|replace("[","_")|replace("]","")|replace("'","_")}}({{M[(v,j)][0]}}[{{M[(v,j)][1]}}], part1, part2);
 			{% endif %}
-			{% if v|has_dynamic_indexing(t) %}
+			{% if v|has_dynamic_indexing(t,o) %}
 			{{indent}}// Store array index
 			{{indent}}add_idx(idx_{{v.name}}, {{j|getinstruction({},{})}});
 			{% endif %}
 			{% endfor %}
 			{% endfor %}
-			{% for (v,j) in t|transition_sorted_dynamic_read_varrefs(True) %}
+			{% for (v,j) in t|transition_sorted_dynamic_read_varrefs(o,True) %}
 			{% if loop.first %}
 			{{indent}}// fetch values of unguarded variables involving dynamic array indexing.
 			{% endif %}
 			{{indent}}// check for presence of index in buffer indices.
-			{{indent}}buffer_indextype i = add_idx(idx_{{v.name}}, {{j|getinstruction(M),{}}});
+			{{indent}}buffer_indextype i = add_idx(idx_{{v.name}}, {{j|getinstruction(M,{})}});
 			{{indent}}if (i != -1) {
 			{{indent}}	// fetch value.
 			{{indent}}	get_{{v|scopename(None,o)}}(d_z, node_index, buf{{v.type|gettypesize}}[{{M[v][1]}}+i], {{j|getinstruction(M),{}}});
 			{{indent}}}
 			{% endfor %}
 			{{indent}}// statement computation.
-			{% if st|cudaguard(M) != "" %}
-			{{indent}}if ({{st|cudaguard(M)}}) {
+			{% if st|cudaguard(M,o) != "" %}
+			{{indent}}if ({{st|cudaguard(M,o)}}) {
 			{% set indent = indent + "\t" %}
 			{% endif %}
-			{% set VPrem = t|transition_read_varrefs(False)|select("no_dynamic_indexing")|get_remaining_vectorparts(o,VPs) %}
+			{% if st.__class__.__name__ == "SendSignal" %}
+			{% if connected_channel[(o, st.target)].losstype == 'lossy' %}
+			{{indent}}// handle lossy case in which message is lost.
+			{{indent}}// set target state.
+			{{indent}}target = {{state_id[(sm,t.target)]}};
+			{% endif %}
+			{% endif %}
+			{% set VPrem = t|transition_read_varrefs(o,False)|select("no_dynamic_indexing")|get_remaining_vectorparts(o,VPs) %}
 			{% for i in range(0,VPrem|length) %}
 			{% set VPremloop = loop %}
-			{% for (v,j) in t|transition_read_varrefs(False)|select("no_dynamic_indexing")|select("vectorparts_not_covered", o, VP) if vectorelem_in_structure_map[v|scopename(j,o)][1][0] == VPrem[i] and (vectorelem_in_structure_map[v|scopename(j,o)]|length == 2 or vectorelem_in_structure_map[v|scopename(j,o)][vectorelem_in_structure_map[v|scopename(j,o)]|length-1][0] == VPrem[i+1]) %}
+			{% for (v,j) in t|transition_read_varrefs(o,False)|select("no_dynamic_indexing")|select("vectorparts_not_covered", o, VP) if vectorelem_in_structure_map[v|scopename(j,o)][1][0] == VPrem[i] and (vectorelem_in_structure_map[v|scopename(j,o)]|length == 2 or vectorelem_in_structure_map[v|scopename(j,o)][vectorelem_in_structure_map[v|scopename(j,o)]|length-1][0] == VPrem[i+1]) %}
 			{% if VPremloop.first and loop.first %}
 			{{indent}}// fetch remaining values of unguarded variables (without dynamic array indexing)
 			{% if VPrem[i] != fetched[0] and VPrem[i] != fetched[1] %}
@@ -386,13 +472,13 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_z,
 			{% endif %}
 			{% endif %}
 			{{indent}}get_{{v|scopename(None,o)}}{% if j != None %}_{{j|getinstruction({},{})}}{% endif %}({{M[v][0]}}[{{M[v][1]}}{% if j != None %} + {{j|getinstruction({},{})}}{% endif %}], part1, part2);
-			{% if v|has_dynamic_indexing(t) %}
+			{% if v|has_dynamic_indexing(t,o) %}
 			{{indent}}// Store array index
 			{{indent}}add_idx(idx_{{v.name}}, {{j|getinstruction({},{})}});
 			{% endif %}
 			{% endfor %}
 			{% endfor %}
-			{% for (v,j) in t|transition_sorted_dynamic_read_varrefs(False) %}
+			{% for (v,j) in t|transition_sorted_dynamic_read_varrefs(o,False) %}
 			{% if loop.first %}
 			{{indent}}// fetch remaining values of unguarded variables involving dynamic array indexing.
 			{% endif %}
@@ -403,18 +489,19 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_z,
 			{{indent}}	get_{{v|scopename(None,o)}}(d_z, node_index, buf{{v.type|gettypesize}}[{{M[v][1]}}+i], {{j|getinstruction(M,{})}});
 			{{indent}}}
 			{% endfor %}
-			{% if st|cudastatement(1,o,M) != "" %}
-			{{indent}}{{st|cudastatement(1,o,M)}}
-			{% endif %}
 			{{indent}}// set target state.
 			{{indent}}target = {{state_id[(sm,t.target)]}};
-			{% if st|cudaguard(M) != "" %}
+			{% if st|cudastatement(1,o,M) != "" %}
+			{{indent}}{{st|cudastatement(indent|length+3,o,M)}}
+			{% endif %}
+			{% if st|cudaguard(M,o) != "" %}
 			{% set indent = indent[:-1] %}
 			{{indent}}}
 			{% endif %}
 			{% if st.__class__.__name__ == "ReceiveSignal" %}
-			{% if st|cudarecsizeguard(M) != "" %}
+			{% if st|cudarecsizeguard(M,o) != "" %}
 			}
+			{% endif %}
 			{% endif %}
 			{% endif %}
 			{% endfor %}
