@@ -20,6 +20,13 @@ check_rc = False
 modelname = ""
 model = ""
 this_folder = dirname(__file__)
+
+# import libraries
+sys.path.append(join(this_folder,'../../libraries'))
+from slcolib import *
+from SCCTarjan import identifySCCs
+this_folder = dirname(__file__)
+
 porttypes = {}
 # statemachine names used in the model
 statemachinenames = set([])
@@ -1344,26 +1351,6 @@ def nonemptydict(s):
 
 # *** END TRANSLATION TESTS ***
 
-def expression_is_actionref(s):
-	"""Determine whether the given expression is an action reference"""
-	global actions
-	if s.__class__.__name__ == "Expression":
-		if s.op == '':
-			snext = s.left
-			if snext.op == '':
-				snext = snext.left
-				if snext.op == '':
-					snext = snext.left
-					if snext.op == '':
-						snext = snext.left
-						if snext.op == '':
-							snext = snext.left
-							if snext.ref != None and snext.sign == '':
-								snext = snext.ref
-								if snext.ref in actions:
-									return True
-	return False
-
 def preprocess():
 	"""preprocessing method"""
 	global model, porttypes, scopedvars, smlocalvars, signaltypes, states, channeltypes, asynclosslesstypes, asynclossytypes, synctypes, actions, visibleactions, syncactionlabelsdict, classobjects, class_receives, statemachine, tr, check_rc, modelvars, statemachinenames
@@ -1374,36 +1361,6 @@ def preprocess():
 				for stat in trn.statements:
 					statemachine[stat] = stm
 					tr[stat] = trn
-	# for each state machine, add the initial state to its list of states
-	for c in model.classes:
-		for stm in c.statemachines:
-			stm.states = [stm.initialstate] + stm.states
-	# fill in types of variables
-	for c in model.classes:
-		for i in range(0,len(c.variables)):
-			if c.variables[i].type == None:
-				c.variables[i].type = c.variables[i-1].type
-		for sm in c.statemachines:
-			for i in range(0,len(sm.variables)):
-				if sm.variables[i].type == None:
-					sm.variables[i].type = sm.variables[i-1].type
-	# add tau action to all transitions without statements
-	for c in model.classes:
-		for stm in c.statemachines:
-			for trn in stm.transitions:
-				if len(trn.statements) == 0:
-					trn.statements.append("tau'")
-	# fix wrong references from transitions to states (scope errors)
-	for c in model.classes:
-		for sm in c.statemachines:
-			sdict = {}
-			for s in sm.states:
-				sdict[s.name] = s
-			for tr in sm.transitions:
-				if tr.source != sdict[tr.source.name]:
-					tr.source = sdict[tr.source.name]
-				if tr.target != sdict[tr.target.name]:
-					tr.target = sdict[tr.target.name]
 	# build a set of used statemachine names
 	statemachinenames = set([])
 	for c in model.classes:
@@ -1682,7 +1639,7 @@ def main(args):
 	for file in batch:
 		# read model
 		modelname = file
-		model = slco_mm.model_from_file(file)
+		model = read_SLCO_model(file)
 		print("processing model %s" % basename(file))
 		try:
 			# preprocess model

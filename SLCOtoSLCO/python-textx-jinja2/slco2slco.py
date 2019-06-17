@@ -509,6 +509,8 @@ def make_simple(m):
 					# update transition list
 					sm.transitions += newtransitions
 
+# TODO: removal of 'dead model': when using transition priorities, lower priority alternatives to unguarded transitions will never be fired, and can be safely removed.
+
 def preprocess():
 	global model, actions, statemachine, tr
 

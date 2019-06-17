@@ -49,6 +49,11 @@ smname_to_object = {}
 # maximum allocations needed to process a transition block
 max_buffer_allocs = 0
 
+# constant representing 'no state'; high enough to not coincide with an existing state id
+no_state_constant = 0
+# constant representing no priority; higher than the highest (lowest in interpretation) priority
+no_prio_constant = 0
+
 # set of statemachine names in the system
 smnames = set([])
 
@@ -128,11 +133,12 @@ def sign(s):
 		return s
 
 def outgoingtrans(s,t):
-	"""Return the set of transitions with s as source"""
+	"""Return the set of transitions with s as source in a list sorted by transition priority"""
 	tlist = []
 	for tr in t:
 		if tr.source.name == s.name:
 			tlist.append(tr)
+	tlist = sorted(tlist, key=(lambda x: x.priority))
 	return tlist
 
 def gettypesize(t):
@@ -1238,7 +1244,7 @@ def debug(text):
 
 def preprocess():
 	"""Preprocessing of model"""
-	global model, vectorsize, vectorstructure, vectorstructure_string, smnames, vectorelem_in_structure_map, max_statesize, state_order, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, connected_channel, signalsize, signalnr, alphabet, syncactions, actiontargets, actions, syncreccomm
+	global model, vectorsize, vectorstructure, vectorstructure_string, smnames, vectorelem_in_structure_map, max_statesize, state_order, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, connected_channel, signalsize, signalnr, alphabet, syncactions, actiontargets, actions, syncreccomm, no_state_constant, no_prio_constant
 
 	# construct set of statemachine names in the system
 	# also construct a map from names to objects
@@ -1546,10 +1552,22 @@ def preprocess():
 	for a in actions:
 		if Adict[a] > 1:
 			syncactions.add(a)
+	# determine values for constants
+	no_state_constant = 0
+	for c in model.classes:
+		for sm in c.statemachines:
+			if no_state_constant < len(sm.states):
+				no_state_constant = len(sm.states)
+	no_prio_constant = 0
+	for c in model.classes:
+		for sm in c.statemachines:
+			for t in sm.transitions:
+				if no_prio_constant < t.priority:
+					no_prio_constant = t.priority
 
 def translate():
 	"""The translation function"""
-	global modelname, model, vectorstructure_string, vectorelem_in_structure_map, state_order, max_statesize, smnames, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, signalsize, connected_channel, alphabet, syncactions, actiontargets
+	global modelname, model, vectorstructure_string, vectorelem_in_structure_map, state_order, max_statesize, smnames, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, signalsize, connected_channel, alphabet, syncactions, actiontargets, no_state_constant, no_prio_constant
 	
 	path, name = split(modelname)
 	if name.endswith('.slco'):
@@ -1601,7 +1619,7 @@ def translate():
 
 	# load the GPUexplore template
 	template = jinja_env.get_template('gpuexplore.jinja2template')
-	out = template.render(model=model, vectorsize=vectorsize, vectorstructure=vectorstructure, vectorstructure_string=vectorstructure_string, max_statesize=max_statesize, vectorelem_in_structure_map=vectorelem_in_structure_map, state_order=state_order, smnames=smnames, smname_to_object=smname_to_object, state_id=state_id, arraynames=arraynames, max_arrayindexsize=max_arrayindexsize, max_buffer_allocs=max_buffer_allocs, vectorpartlist=vectorpartlist, connected_channel=connected_channel, alphabet=alphabet, syncactions=syncactions, actiontargets=actiontargets, syncreccomm=syncreccomm)
+	out = template.render(model=model, vectorsize=vectorsize, vectorstructure=vectorstructure, vectorstructure_string=vectorstructure_string, max_statesize=max_statesize, vectorelem_in_structure_map=vectorelem_in_structure_map, state_order=state_order, smnames=smnames, smname_to_object=smname_to_object, state_id=state_id, arraynames=arraynames, max_arrayindexsize=max_arrayindexsize, max_buffer_allocs=max_buffer_allocs, vectorpartlist=vectorpartlist, connected_channel=connected_channel, alphabet=alphabet, syncactions=syncactions, actiontargets=actiontargets, syncreccomm=syncreccomm, no_state_constant=no_state_constant, no_prio_constant=no_prio_constant)
 	# write new SLCO model
 	outFile.write(out)
 	outFile.close()

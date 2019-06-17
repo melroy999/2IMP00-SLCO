@@ -41,6 +41,8 @@
 
 // Constant representing empty array index entry.
 #define EMPTY_INDEX -1
+// Constant used to initialise state variables.
+#define NO_STATE {{no_state_constant}}
 
 // State vector size.
 inttype sv_nints = {{vectorsize}};
@@ -321,15 +323,16 @@ inline __device__ void successor(inttype *d_z, shared_indextype node_index, uint
 // Exploration functions to traverse outgoing transitions of the various states.
 {% for i in range(0,smnames|length) %}
 inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_z, shared_indextype node_index) {
-	// fetch the current state of the automaton.
+	// fetch the current state of the state machine.
 	statetype current = get_current_state(d_z, node_index, {{i}});
-	statetype target;
+	statetype target = NO_STATE;
 	inttype part1, part2;
 	switch (current) {
 		{% for s in smname_to_object[state_order[i]][1].states %}
 		{% set o = smname_to_object[state_order[i]][0] %}
 		{% set sm = smname_to_object[state_order[i]][1] %}
 		case {{state_id[(sm,s)]}}:
+			{% set indent = "" %}
 			{% set allocs = s|get_buffer_allocs(o) %}
 			{% if allocs[0] + allocs[1] + allocs[2] + allocs[3] > 0 %}
 			// Allocate register memory to process transition(s).
@@ -353,31 +356,36 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_z,
 			array_indextype idx_{{v.name}}[{{allocs[v]}}];
 			{% endfor %}
 			{% endif %}
+			{% set ns = namespace(lastprio=100, prio_nestings=0) %}
 			{% for t in s|outgoingtrans(sm.transitions) %}
 			{% if t|must_be_processed_by(i,o) %}
+			{% if t.priority > ns.lastprio %}
+			if (target == NO_STATE) {
+			{% set ns.prio_nestings = ns.prio_nestings + 1 %}
+			{% set indent = indent + "\t" %}
+			{% endif %}
+			{% set ns.lastprio = t.priority %}
 			{% set st = t.statements[0] %}
-			// {{s.name}} --{ {{st|getlabel}} }--> {{t.target.name}}
+			{{indent}}// {{s.name}} --{ {{st|getlabel}} }--> {{t.target.name}}
 			{% set M = t|map_variables_on_buffer(o) %}
-			{% set indent = "" %}
 			{% set fetched = [-1,-1] %}
 			{% if st.__class__.__name__ == 'ReceiveSignal' %}
 			{% if st|cudarecsizeguard(M,o) != "" %}
-			{% set indent = "\t" %}
-			// Fetch buffer size value.
+			{{indent}}// Fetch buffer size value.
 			{% set ch = connected_channel[(o, st.target)] %}
 			{% set VP = [(ch,"_size")]|get_vectorparts(o) %}
 			{% set fetched = VP %}
-			part1 = get_vectorpart(d_z, node_index, {{VP[0]}});
+			{{indent}}part1 = get_vectorpart(d_z, node_index, {{VP[0]}});
 			{% if VP|length > 1 %}
-			part2 = get_vectorpart(d_z, node_index, {{VP[1]}});
+			{{indent}}part2 = get_vectorpart(d_z, node_index, {{VP[1]}});
 			{% endif %}
-			get_{{ch.name}}_size({{M[(ch,"_size")][0]}}[{{M[(ch,"_size")][1]}}], part1, part2);
-			if ({{st|cudarecsizeguard(M,o)}}) {
+			{{indent}}get_{{ch.name}}_size({{M[(ch,"_size")][0]}}[{{M[(ch,"_size")][1]}}], part1, part2);
+			{{indent}}if ({{st|cudarecsizeguard(M,o)}}) {
 			{% endif %}
 			{% endif %}
 			{% for v in st|statement_varrefs(o,sm)|get_vars if v|has_dynamic_indexing(t,o) %}
 			{% if loop.first %}
-			// Reset storage of array indices.
+			{{indent}}// Reset storage of array indices.
 			{% endif %}
 			for (array_indextype i = 0; i < {{allocs[v]}}; i++) {
 				idx_{{v.name}}[i] = EMPTY_INDEX;
@@ -504,6 +512,10 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_z,
 			{% endif %}
 			{% endif %}
 			{% endif %}
+			{% for j in range(0, ns.prio_nestings) %}
+			{% set indent = indent[:-1] %}
+			{{indent}}}
+			{% endfor %}
 			{% endfor %}
 			break;
 		{% endfor %}

@@ -8,13 +8,13 @@ eqn xor(a,b) = (a || b) && !(a && b);
 
 map update: List(Int) # Nat # Int -> List(Int);
     updatestep: List(Int) # Nat # Int # Nat -> List(Int);
-		update: List(Bool) # Nat # Bool -> List(Bool);
-		updatestep: List(Bool) # Nat # Bool # Nat -> List(Bool);
+    update: List(Bool) # Nat # Bool -> List(Bool);
+    updatestep: List(Bool) # Nat # Bool # Nat -> List(Bool);
 var li: List(Int);
-		lb: List(Bool);
+    lb: List(Bool);
     i,j: Nat;
-	  vi: Int;
-	  vb: Bool;
+    vi: Int;
+    vb: Bool;
 eqn (i >= #li) -> update(li,i,vi) = li;
     (i < #li) -> update(li,i,vi) = updatestep(li,i,vi,0);
     (j == i) -> updatestep(li,i,vi,j) = [vi] ++ tail(li);
