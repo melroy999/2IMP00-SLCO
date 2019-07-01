@@ -443,9 +443,9 @@ def circuit(L, s, o):
 				# unfold trace on stack, and add to list of critical cycles (at least two threads are involved)
 				trace = []
 				for n, tgt, f2, nt in callstack:
-					trace.append(n)
+					trace.append((n,SMowner[statements_accesses[n][1]]))
 				# print(callstack)
-				# print("adding " + str(trace) + " to list of critical cycles")
+				print("adding " + str(trace) + " to list of critical cycles")
 				critlist = critical_cycles.get(o, [])
 				critlist.append(trace)
 				critical_cycles[o] = critlist
