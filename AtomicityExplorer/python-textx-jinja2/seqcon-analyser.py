@@ -1006,6 +1006,10 @@ def postprocess_critical_cycles():
 				for i in range(0, len(CY)):
 					s = CY[i]
 					t = CY[(i+1)%len(CY)]
+					print(SMowner)
+					print(statements_accesses)
+					print(s)
+					print(t)
 					if SMowner[statements_accesses[s][1]] != SMowner[statements_accesses[t][1]]:
 						# here we should start scanning for P-traces
 						scanning_start = (i+1)%len(CY)
