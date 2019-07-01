@@ -427,7 +427,7 @@ def circuit(L, s, o):
 	outgoing = L.get(s, set([]))
 	callstack.append((s, list(outgoing), False, initial_thread))
 	blocked[s] = True
-	print("initial: " + str(initial_thread.name))
+	#print("initial: " + str(initial_thread.name))
 	while callstack != []:
 		v, targets, f, current_thread = peek(callstack)
 		# print(v)
@@ -453,10 +453,10 @@ def circuit(L, s, o):
 			elif not blocked[w]:
 				# condition for criticality (thread visitation)
 				w_thread = SMowner[statements_accesses[w][1]]
-				print(w_thread.name)
-				print(T)
+				#print(w_thread.name)
+				#print(T)
 				if (w_thread not in T or w_thread == current_thread) and not (T != set([]) and current_thread == initial_thread and w_thread != initial_thread):
-					print("here")
+					#print("here")
 					# store f value on callstack
 					callstack[len(callstack)-1] = (v, targets, f, current_thread)
 					if w_thread != current_thread and w_thread != initial_thread:
@@ -486,7 +486,7 @@ def circuit(L, s, o):
 				if nt != current_thread:
 					if current_thread in T:
 						T.remove(current_thread)
-	print(critical_cycles)
+	#print(critical_cycles)
 
 def detect_critical_cycles():
 	"""Detect conflict cycles in given graph. Based on Johnson's algorithm for the detection of elementary circuits"""
@@ -514,10 +514,10 @@ def detect_critical_cycles():
 		while s < max_state+1:
 			# compute subgraph of DG induced by {s, ..., n}
 			SCCs = list()
-			print(s)
-			print("call")
+			#print(s)
+			#print("call")
 			identifySCCs_lower_bound(DG, {}, SCCs, s)
-			print(SCCs)
+			#print(SCCs)
 			# Detect SCC with minimal vertex number
 			scc_index = 0
 			minimal_vertex = max_state+1
