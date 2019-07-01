@@ -51,7 +51,7 @@ def printstatement(s):
 		result += "["
 		if s.guard != None:
 			result += printstatement(s.guard)
-			if len(s.assignments) > 1:
+			if len(s.assignments) > 0:
 				result += ";"
 		for i in range(0,len(s.assignments)):
 			result += " " + printstatement(s.assignments[i])
