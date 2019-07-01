@@ -467,7 +467,7 @@ def circuit(L, s, o):
 						current_thread = w_thread
 					# put w on the callstack
 					woutgoing = L.get(w, set([]))
-					callstack.append((w, list(woutgoing), False, current_thread))
+					callstack.append((w, list(woutgoing), False, w_thread))
 					blocked[w] = True
 					move_to_next = True
 					break
