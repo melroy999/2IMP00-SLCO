@@ -1176,10 +1176,10 @@ def postprocess_critical_cycles():
 												find_conflicts = True
 											accesses = deepcopy(cycle_accesses[CY_summary[i][Ppos]][0])
 										elif previous_access == ():
-											print(i)
-											print(Ppos)
-											print(CY_summary)
-											print(cycle_accesses)
+											#print(i)
+											#print(Ppos)
+											#print(CY_summary)
+											#print(cycle_accesses)
 											accesses = deepcopy(cycle_accesses[CY_summary[i][Ppos]][1])
 											new_previous = current_access
 											find_conflicts = False
