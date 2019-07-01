@@ -437,7 +437,9 @@ def circuit(L, s, o):
 		move_to_next = False
 		while len(targets) > 0:
 			w = targets.pop()
-			# print(w)
+			print(w)
+			print(s)
+			print(T)
 			# print(blocked)
 			if w == s and T != set([]):
 				# unfold trace on stack, and add to list of critical cycles (at least two threads are involved)
@@ -453,10 +455,11 @@ def circuit(L, s, o):
 			elif not blocked[w]:
 				# condition for criticality (thread visitation)
 				w_thread = SMowner[statements_accesses[w][1]]
-				#print(w_thread.name)
-				#print(T)
+				print("wthread: " + str(w_thread.name))
+				print("current thread: " + str(current_thread.name))
+				print(T)
 				if (w_thread not in T or w_thread == current_thread) and not (T != set([]) and current_thread == initial_thread and w_thread != initial_thread):
-					#print("here")
+					print("appending " + str(w))
 					# store f value on callstack
 					callstack[len(callstack)-1] = (v, targets, f, current_thread)
 					if w_thread != current_thread and w_thread != initial_thread:
