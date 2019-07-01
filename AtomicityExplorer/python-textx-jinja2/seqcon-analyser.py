@@ -23,10 +23,10 @@ class MemoryModel(Enum):
 
 # Characteristics of memory model
 RW_order = True
-WR_order = True
+WR_order = False
 RR_order = True
 WW_order = True
-StoreBuffering = False
+StoreBuffering = True
 WriteAtomicity = True
 
 # purely apply static analysis
@@ -50,6 +50,8 @@ smclass = {}
 smlocalvars = {}
 # per class / statemachine, give a dictionary, making the scope of variables explicit
 scopedvars = {}
+# dictionary providing statement object, given the ID of its transition
+STID_to_object = {}
 
 # Access patterns of statements
 accesspattern = {}
@@ -65,6 +67,8 @@ statements_objects = {}
 statements_IDs = {}
 statements_accesses = {}
 SMowner = {}
+# dictionary providing a set of variables accessed to compute the index of a given array access
+index_accesses = {}
 
 # structures for Johnson's algorithm
 blocked = {}
@@ -277,6 +281,7 @@ def statement_structure_accesspattern(s, o):
 	global statemachine, smclass
 
 	if s.__class__.__name__ == "Assignment":
+		print(smclass)
 		readset = expression_full_varset(s.right,statemachine[s],smclass[statemachine[s]],{},o,False)
 		if s.left.index != None:
 			readset |= expression_full_varset(s.left.index,statemachine[s],smclass[statemachine[s]],{},o,False)
@@ -422,6 +427,7 @@ def circuit(L, s, o):
 	outgoing = L.get(s, set([]))
 	callstack.append((s, list(outgoing), False, initial_thread))
 	blocked[s] = True
+	print("initial: " + str(initial_thread.name))
 	while callstack != []:
 		v, targets, f, current_thread = peek(callstack)
 		# print(v)
@@ -447,11 +453,14 @@ def circuit(L, s, o):
 			elif not blocked[w]:
 				# condition for criticality (thread visitation)
 				w_thread = SMowner[statements_accesses[w][1]]
-				if (w_thread not in T or w_thread == initial_thread) and not (initial_thread in T and current_thread == initial_thread and w_thread != initial_thread):
+				print(w_thread.name)
+				print(T)
+				if (w_thread not in T or w_thread == current_thread) and not (T != set([]) and current_thread == initial_thread and w_thread != initial_thread):
+					print("here")
 					# store f value on callstack
 					callstack[len(callstack)-1] = (v, targets, f, current_thread)
-					if w_thread != current_thread:
-						T.add(current_thread)
+					if w_thread != current_thread and w_thread != initial_thread:
+						T.add(w_thread)
 						current_thread = w_thread
 					# put w on the callstack
 					woutgoing = L.get(w, set([]))
@@ -475,8 +484,9 @@ def circuit(L, s, o):
 				if f:
 					callstack[len(callstack)-1] = (n, tgt, f, nt)
 				if nt != current_thread:
-					if nt in T:
-						T.remove(nt)
+					if current_thread in T:
+						T.remove(current_thread)
+	print(critical_cycles)
 
 def detect_critical_cycles():
 	"""Detect conflict cycles in given graph. Based on Johnson's algorithm for the detection of elementary circuits"""
@@ -484,7 +494,7 @@ def detect_critical_cycles():
 	global blocked, B, DG_P, DG_C, T, model, statements_accesses, SMowner
 
 	for o in model.objects:
-		# Conbine the C and P relations
+		# Combine the C and P relations
 		DG = deepcopy(DG_P[o])
 		for i, tgts in DG_C[o].items():
 			p_tgts = DG.get(i, set([]))
@@ -504,7 +514,10 @@ def detect_critical_cycles():
 		while s < max_state+1:
 			# compute subgraph of DG induced by {s, ..., n}
 			SCCs = list()
+			print(s)
+			print("call")
 			identifySCCs_lower_bound(DG, {}, SCCs, s)
+			print(SCCs)
 			# Detect SCC with minimal vertex number
 			scc_index = 0
 			minimal_vertex = max_state+1
@@ -676,6 +689,9 @@ def get_access_classes_trace(t, a, b):
 
 def P_trace_is_safe(a1, a2, t):
 	"""Returns whether the trace t from statement executing a1 to statement executing a2 via accesses in t is safe or not."""
+	# In case a1 and a2 stem from the same statement, the P-trace is by default considered unsafe (to detect atomicity violations)
+	if len(t) == 1:
+		return False
 	# First construct list of access patterns for the involved statements, together with a dictionary to indicate their ordering in t
 	C = get_access_classes_trace(t, a1, a2)
 	Cnext = {}
@@ -1103,7 +1119,7 @@ def postprocess_critical_cycles():
 										t_end = v
 										# print(v)
 										if t_start == t_end:
-											if P_trace_is_safe(first_access, a, P_traces[tuple([(t_start)])]):
+											if  P_trace_is_safe(first_access, a, P_traces[tuple([(t_start)])]):
 												#print("safe!")
 												continue
 											else:
@@ -1312,7 +1328,7 @@ def optimise_fences():
 		# pick first item to put a fence in front of it (todo: store this list somewhere)
 		# and remove all associated trace entries
 		select = L[0]
-		# print("fence before: " + str(select))
+		print("fence before: " + str(select))
 		fence_counter_inter += 1
 		S = statement_fence_suggestions[select]
 		sug_tmp = {}
@@ -1398,31 +1414,30 @@ def read_statespace(m):
 	model_statespace = readAut(statespace_name)
 
 def preprocess():
-	global statements_objects, SMowner, model, globalvars, statemachine, smlocalvars, pure_static_analysis
-	if pure_static_analysis:
-		# build dictionaries providing for a given statement the state machine owning it, and for a given state machine, the class owning it
-		for c in model.classes:
-			for stm in c.statemachines:
-				smclass[stm] = c
-				for trn in stm.transitions:
-					for stat in trn.statements:
-						statemachine[stat] = stm
-		# build a dictionary providing sets of variables local for given state machines
-		for c in model.classes:
-			for stm in c.statemachines:
-				varset = set([])
-				for var in stm.variables:
-					varset.add(var.name)
-				smlocalvars[c.name + "'" + stm.name] = varset
-		# build dictionary making variable scopes explicit
-		for c in model.classes:
-			for stm in c.statemachines:
-				vdict = {}
-				for var in c.variables:
-					vdict[var.name] = var.name
-				for var in stm.variables:
-					vdict[var.name] = stm.name + "'" + var.name
-				scopedvars[c.name + "'" + stm.name] = vdict
+	global statements_objects, SMowner, model, globalvars, statemachine, smclass, smlocalvars, pure_static_analysis, STID_to_object
+	# build dictionaries providing for a given statement the state machine owning it, and for a given state machine, the class owning it
+	for c in model.classes:
+		for stm in c.statemachines:
+			smclass[stm] = c
+			for trn in stm.transitions:
+				for stat in trn.statements:
+					statemachine[stat] = stm
+	# build a dictionary providing sets of variables local for given state machines
+	for c in model.classes:
+		for stm in c.statemachines:
+			varset = set([])
+			for var in stm.variables:
+				varset.add(var.name)
+			smlocalvars[c.name + "'" + stm.name] = varset
+	# build dictionary making variable scopes explicit
+	for c in model.classes:
+		for stm in c.statemachines:
+			vdict = {}
+			for var in c.variables:
+				vdict[var.name] = var.name
+			for var in stm.variables:
+				vdict[var.name] = stm.name + "'" + var.name
+			scopedvars[c.name + "'" + stm.name] = vdict
 	# construct list of statement names with pointers to the objects
 	statements_objects = {}
 	for c in model.classes:
@@ -1442,6 +1457,12 @@ def preprocess():
 		for v in c.variables:
 			V.add("var_" + o.name + "'" + v.name)
 		globalvars[o] = V
+	# build dictionary providing statement object, given the ID of its transition
+	STID_to_object = {}
+	for c in model.classes:
+		for sm in c.statemachines:
+			for tr in sm.transitions:
+				STID_to_object["ST'" + str(tr._tx_position)] = tr.statements[0]
 
 def get_smallest_accesses(id):
 	global statements_accesses
@@ -1708,8 +1729,8 @@ def print_STIDs():
 				print("ST'" + str(tr._tx_position) + ": " + printstatement(tr.statements[0]))
 
 def obtain_statements_accesses():
-	"""Analyse the statements occurring in the state space, and construct list of IDs and accesses"""
-	global model, model_statespace, statements_IDs, statements_accesses, accesspattern, access_smaller_than, access_bigger_than, globalvars
+	"""Analyse the statements occurring in the state space, and construct lists of IDs and accesses"""
+	global model, model_statespace, statements_IDs, statements_accesses, accesspattern, access_smaller_than, access_bigger_than, globalvars, index_accesses, STID_to_object
 
 	# construct dictionary of statement IDs
 	L = list(model_statespace[2])
@@ -1722,6 +1743,8 @@ def obtain_statements_accesses():
 
 	# construct dictionary of accesses for the statements
 	statements_accesses = {}
+	# construct dictionary of accesses needed to compute the index of an array element access
+	index_accesses = {}
 	for a in model_statespace[2]:
 		if a != '\"tau\"':
 			rw, remainder = rwscanner.scan(a)
@@ -1763,7 +1786,66 @@ def obtain_statements_accesses():
 				if o.name == rw[0][1]:
 					owner = o
 					break
-			statements_accesses[statements_IDs[a]] = (owner, rw[2][1], alist)
+			# record index_accesses
+			# first obtain corresponding static access pattern
+			static_alist = statement_structure_accesspattern(STID_to_object[rw[2][1]], o)
+			print(alist)
+			print(static_alist)
+			for (reads,writes) in alist:
+				for r in reads:
+					print("here")
+			# filter out-of-bound array accesses
+			alist_filtered = []
+			for (reads,writes) in alist:
+				newreads = set([])
+				newwrites = set([])
+				for r in reads:
+					if r.find("(") != -1:
+						access = r.split("(")
+						access = access[0].split("'")
+						V = owner.type.variables
+						# possibly look up variables of state machine (if access is to state machine local variable)
+						if len(access) > 2:
+							for sm in owner.type.statemachines:
+								if sm.name == access[1]:
+									V = sm.variables
+									break
+						# look up variable
+						for v in V:
+							if v.name == access[len(access)-1]:
+								break
+						# check for dimension of array v
+						access = r.split("(")
+						index = int(access[1][:-1])
+						if index >= 0 and index < v.type.size:
+							newreads.add(r)
+					else:
+						newreads.add(r)
+				for w in writes:
+					if w.find("(") != -1:
+						access = w.split("(")
+						access = access[0].split("'")
+						V = owner.type.variables
+						# possibly look up variables of state machine (if access is to state machine local variable)
+						if len(access) > 2:
+							for sm in owner.type.statemachines:
+								if sm.name == access[1]:
+									V = sm.variables
+									break
+						# look up variable
+						for v in V:
+							if v.name == access[len(access)-1]:
+								break
+						# check for dimension of array v
+						access = w.split("(")
+						index = int(access[1][:-1])
+						if index >= 0 and index < v.type.size:
+							newwrites.add(w)
+					else:
+						newwrites.add(w)
+				if newreads != set([]) or newwrites != set([]):
+					alist_filtered.append((newreads, newwrites))
+			statements_accesses[statements_IDs[a]] = (owner, rw[2][1], alist_filtered)
 
 def static_obtain_statements_accesses():
 	"""Analyse the statements occurring in the model statically, and construct list of IDs and accesses"""
@@ -1855,6 +1937,7 @@ def analyse_statements():
 		read_pred_tmp = {}
 		access_predecessors_i = {}
 		ap = statements_accesses[i][2]
+		print(statements_accesses[i])
 		j = 0
 		if statement_has_guard(i):
 			condreads = set([])
@@ -1868,7 +1951,7 @@ def analyse_statements():
 			reads.add(ra[1])
 		writes = set([])
 		while j < len(ap):
-			reads_j = ap[j][0] - reads - writes
+			reads_j = ap[j][0] - writes #- reads
 			writes_j = ap[j][1]
 			# handle the case that a variable is being read after having been written to: take over dependencies of write for the read
 			for ra in reads_j:
@@ -1877,6 +1960,12 @@ def analyse_statements():
 				if access_is_in_set(ra, writes):
 					R = access_predecessors_i.get(('W',ra), set([]))
 					read_pred_tmp[ra] = R
+			# handle address dependencies; a read from an array may depend on previous reads to compute the index
+			for ra in reads_j:
+				# are we accessing an array?
+				if ra.find("(") != -1:
+					# walk through both the current access pattern and a static version of it to retrieve the dependencies
+					print("TODO")
 			# handle the write access of an assignment: reads are predecessors, handle special case of read after write occurrences
 			for wa in writes_j:
 				wa_reads = set([])
@@ -2165,11 +2254,11 @@ def constructDG():
 						continue
 				while len(tgts) > 0:
 					k = peek(tgts)
-					if not k in onstack and (blocked_vars.get(k) == None or not (blocked_vars.get(k, set([])) <= blocked)):
+					(condreads,reads,writes) = accesspattern[k]
+					if not k in onstack and (blocked_vars.get(k) == None or ((blocked | writes) < blocked_vars.get(k, set([])))):
 						# - any variables read from by k, not yet written to along the trace, and not read from by i can be done speculatively
 						# - any variables written to by k should be blocked from speculative reading further down the trace. If WR is guaranteed
 						# by the memory model, further searching is actually not needed.
-						(condreads,reads,writes) = accesspattern[k]
 						kblocked = deepcopy(blocked)
 						for a in condreads | reads:
 							if (a not in blocked or StoreBuffering):
@@ -2187,8 +2276,11 @@ def constructDG():
 						tgts.pop()
 				if len(tgts) == 0:
 					# close j
-					B = blocked_vars.get(j, set([]))
-					blocked_vars[j] = (B & blocked)
+					B = blocked_vars.get(j)
+					if B == None:
+						blocked_vars[j] = blocked
+					else:
+						blocked_vars[j] = (B & blocked)
 					# pop j off call stack
 					callstack.pop()
 					onstack.remove(j)
@@ -2260,6 +2352,9 @@ def constructDG():
 						#conflicts = DG_C_spec_conflicts.get(k, {})
 						#conflicts[j] = (conflicting_reads_k, set([]))
 						#DG_C_spec_conflicts[k] = conflicts
+	print("statements: ")
+	for (name, nid) in statements_IDs.items():
+		print(name + ": " + str(nid))
 	print("P-relation: " + str(DG_P))
 	print("C-relation with spec reads: " + str(DG_C))
 
@@ -2318,6 +2413,9 @@ def static_constructDG():
 										out = DG_C[o].get(trid, set([]))
 										out.add(trid2)
 										DG_C[o][trid] = out
+	print("statements: ")
+	for (name, nid) in statements_IDs.items():
+		print(name + ": " + str(nid))
 	print("P-relation: " + str(DG_P))
 	print("C-relation: " + str(DG_C))
 
@@ -2348,7 +2446,7 @@ def main(args):
 						StoreBuffering = False
 						WriteAtomicity = True
 						print("memory model set to SC")						
-					if args[i+1] == "PSO":
+					elif args[i+1] == "PSO":
 						memory_model = MemoryModel.PSO
 						WR_order = False
 						RW_order = True

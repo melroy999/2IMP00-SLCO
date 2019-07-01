@@ -44,6 +44,16 @@
 // Constant used to initialise state variables.
 #define NO_STATE {{no_state_constant}}
 
+// CONSTANTS FOR SHARED MEMORY CACHES
+// Number of retries in local cache
+#define CACHERETRYFREQ 20
+// Empty local cache element
+#define EMPTYVECT32 0
+// offset in shared memory from which loaded data can be read
+#define SH_OFFSET 5
+// offset in shared memory from which hash function constants can be read
+#define HASHCONSTANTSOFFSET (SH_OFFSET)
+
 // State vector size.
 inttype sv_nints = {{vectorsize}};
 
@@ -201,7 +211,7 @@ inline __device__ void set_{{s|replace("[","_")|replace("]","")|replace("'","_")
 // Check for presence of offset. If not present, store the index, and return position. if present, return -1.
 // This function is used for the retrieval of array elements.
 inline __device__ buffer_indextype add_idx(array_indextype *indices, array_indextype index) {
-	for (buffer_indextype i;; i++) {
+	for (buffer_indextype i = 0;; i++) {
 		if (indices[i] == index) {
 			return -1;
 		}
@@ -216,7 +226,7 @@ inline __device__ buffer_indextype add_idx(array_indextype *indices, array_index
 // Check for index and return position in indices array. This function is used for processing statements.
 // Precondition: provided array contains the requested element.
 inline __device__ buffer_indextype idx(array_indextype *indices, array_indextype index) {
-	for (buffer_indextype i;; i++) {
+	for (buffer_indextype i = 0;; i++) {
 		if (indices[i] == index) {
 			return i;
 		}
@@ -323,7 +333,7 @@ inline __device__ void successor(inttype *d_z, shared_indextype node_index, uint
 // Exploration functions to traverse outgoing transitions of the various states.
 {% for i in range(0,smnames|length) %}
 inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_z, shared_indextype node_index) {
-	// fetch the current state of the state machine.
+	// Fetch the current state of the state machine.
 	statetype current = get_current_state(d_z, node_index, {{i}});
 	statetype target = NO_STATE;
 	inttype part1, part2;
@@ -393,7 +403,7 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_z,
 			{% endfor %}
 			{% set VP = t|transition_read_varrefs(o,True)|select("no_dynamic_indexing")|get_vectorparts(o) %}
 			{% if VP|length > 0 %}
-			{{indent}}// fetch values of unguarded variables.
+			{{indent}}// Fetch values of unguarded variables.
 			{% endif %}
 			{% for i in range(0,VP|length) %}
 			{% set VPloop = loop %}
@@ -425,31 +435,31 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_z,
 			{{indent}}get_{{v|scopename(j,o)|replace("[","_")|replace("]","")|replace("'","_")}}({{M[(v,j)][0]}}[{{M[(v,j)][1]}}], part1, part2);
 			{% endif %}
 			{% if v|has_dynamic_indexing(t,o) %}
-			{{indent}}// Store array index
+			{{indent}}// Store array index.
 			{{indent}}add_idx(idx_{{v.name}}, {{j|getinstruction({},{})}});
 			{% endif %}
 			{% endfor %}
 			{% endfor %}
 			{% for (v,j) in t|transition_sorted_dynamic_read_varrefs(o,True) %}
 			{% if loop.first %}
-			{{indent}}// fetch values of unguarded variables involving dynamic array indexing.
+			{{indent}}// Fetch values of unguarded variables involving dynamic array indexing.
 			{% endif %}
-			{{indent}}// check for presence of index in buffer indices.
+			{{indent}}// Check for presence of index in buffer indices.
 			{{indent}}buffer_indextype i = add_idx(idx_{{v.name}}, {{j|getinstruction(M,{})}});
 			{{indent}}if (i != -1) {
-			{{indent}}	// fetch value.
+			{{indent}}	// Fetch value.
 			{{indent}}	get_{{v|scopename(None,o)}}(d_z, node_index, buf{{v.type|gettypesize}}[{{M[v][1]}}+i], {{j|getinstruction(M),{}}});
 			{{indent}}}
 			{% endfor %}
-			{{indent}}// statement computation.
+			{{indent}}// Statement computation.
 			{% if st|cudaguard(M,o) != "" %}
 			{{indent}}if ({{st|cudaguard(M,o)}}) {
 			{% set indent = indent + "\t" %}
 			{% endif %}
 			{% if st.__class__.__name__ == "SendSignal" %}
 			{% if connected_channel[(o, st.target)].losstype == 'lossy' %}
-			{{indent}}// handle lossy case in which message is lost.
-			{{indent}}// set target state.
+			{{indent}}// Handle lossy case in which message is lost.
+			{{indent}}// Set target state.
 			{{indent}}target = {{state_id[(sm,t.target)]}};
 			{% endif %}
 			{% endif %}
@@ -488,16 +498,16 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_z,
 			{% endfor %}
 			{% for (v,j) in t|transition_sorted_dynamic_read_varrefs(o,False) %}
 			{% if loop.first %}
-			{{indent}}// fetch remaining values of unguarded variables involving dynamic array indexing.
+			{{indent}}// Fetch remaining values of unguarded variables involving dynamic array indexing.
 			{% endif %}
 			{{indent}}// check for presence of index in buffer indices.
 			{{indent}}buffer_indextype i = add_idx(idx_{{v.name}}, {{j|getinstruction(M,{})}});
 			{{indent}}if (i != -1) {
-			{{indent}}	// fetch value.
+			{{indent}}	// Fetch value.
 			{{indent}}	get_{{v|scopename(None,o)}}(d_z, node_index, buf{{v.type|gettypesize}}[{{M[v][1]}}+i], {{j|getinstruction(M,{})}});
 			{{indent}}}
 			{% endfor %}
-			{{indent}}// set target state.
+			{{indent}}// Set target state.
 			{{indent}}target = {{state_id[(sm,t.target)]}};
 			{% if st|cudastatement(1,o,M) != "" %}
 			{{indent}}{{st|cudastatement(indent|length+3,o,M)}}

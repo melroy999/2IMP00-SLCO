@@ -451,8 +451,8 @@ eqn rwpattern_structure_st(o',st_,L'{{model|mcrl2_model_vars(True)}}) = [A'([],[
 {% for o in model.objects %}
 {% for stm in o.type.statemachines %}
 {% for tr in stm.transitions %}
-(filter' == []) -> rwpattern_structure_st({{o.name}},ST'{{tr._tx_position}},filter'{{model|mcrl2_model_vars(True)}}) = remove_invalid_accesses_list'({{tr.statements[0]|mcrl2_structure_accesspattern(o)}});
-(filter' != []) -> rwpattern_structure_st({{o.name}}, ST'{{tr._tx_position}},filter'{{model|mcrl2_model_vars(True)}}) = remove_invalid_accesses_list'(setminus_list({{tr.statements[0]|mcrl2_structure_accesspattern(o)}}, filter'));
+(filter' == []) -> rwpattern_structure_st({{o.name}},ST'{{tr._tx_position}},filter'{{model|mcrl2_model_vars(True)}}) = {{tr.statements[0]|mcrl2_structure_accesspattern(o)}};
+(filter' != []) -> rwpattern_structure_st({{o.name}}, ST'{{tr._tx_position}},filter'{{model|mcrl2_model_vars(True)}}) = setminus_list({{tr.statements[0]|mcrl2_structure_accesspattern(o)}}, filter');
 {% endfor %}
 {% endfor %}
 {% endfor %}
@@ -469,15 +469,10 @@ eqn remove_invalid_accesses'1([]) = [];
 map remove_invalid_accesses'2: Var' -> List(Var');
 var n': Int;
 {% for v in sorted_variables %}
-{% if loop.first %}eqn {% else %}{% if v is hasindex %}(n' >= 0 && n' < {{v[2]}}) -> {% else %}    {% endif %}{% endif %}remove_invalid_accesses'2({{mcrl2varprefix}}{{v[1]}}{{'(n\')' if v is hasindex}}) = {% if v is hasindex %}[{{mcrl2varprefix}}{{v[1]}}(n')]{% else %}[{{mcrl2varprefix}}{{v[1]}}]{% endif %};
+{% if loop.first %}eqn {% endif %}{% if v is hasindex %}(n' >= 0 && n' < {{v[2]}}) -> {% else %}    {% endif %}remove_invalid_accesses'2({{mcrl2varprefix}}{{v[1]}}{{'(n\')' if v is hasindex}}) = {% if v is hasindex %}[{{mcrl2varprefix}}{{v[1]}}(n')]{% else %}[{{mcrl2varprefix}}{{v[1]}}]{% endif %};
 {% if v is hasindex %}(n' < 0 || n' >= {{v[2]}}) -> remove_invalid_accesses'2({{mcrl2varprefix}}{{v[1]}}(n')) = [];
 {% endif %}
 {% endfor %}
-
-map remove_invalid_accesses_list': List(AccessPattern') -> List(AccessPattern');
-var L': List(AccessPattern');
-eqn remove_invalid_accesses_list'([]) = [];
-(L' != []) -> remove_invalid_accesses_list'(L') = [remove_invalid_accesses'(head(L'))] ++ remove_invalid_accesses_list'(tail(L'));
 
 % *** FUNCTIONS TO DETERMINE WHETHER TWO OBJECT/STATEMENT PAIRS ARE CONFLICTING ***
 

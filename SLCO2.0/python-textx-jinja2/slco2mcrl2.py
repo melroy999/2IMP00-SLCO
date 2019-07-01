@@ -1173,6 +1173,8 @@ def operator(s):
 	"""Maps SLCO expression operators to mCRL2 operators"""
 	if s == '=':
 		return '=='
+	elif s == '!=':
+		return '!='
 	elif s == '<>':
 		return '!='
 	elif s == '<=':

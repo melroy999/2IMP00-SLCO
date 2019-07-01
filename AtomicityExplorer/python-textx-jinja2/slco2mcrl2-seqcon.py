@@ -242,6 +242,8 @@ def operator(s):
 	"""Maps SLCO expression operators to mCRL2 operators"""
 	if s == '=':
 		return '=='
+	elif s == '!=':
+		return '!='
 	elif s == '<>':
 		return '!='
 	elif s == '<=':
@@ -1048,21 +1050,21 @@ def mcrl2_structure_accesspattern(s, o):
 def mcrl2_accesspattern_to_string(access):
 	"""Convert given access pattern to string"""
 	output = "A'("
-	sorted_access = sorted(list(access[0]))
+	sorted_access = list(access[0]) #sorted(list(access[0]))
 	# if the list requires dynamic sorting (it contains more than one dynamic accesses to an array), indicate this
-	occurrences = set([])
-	found = False
-	for v in sorted_access:
-		v_splitted = v.split("(index\'(")
-		if len(v_splitted) > 1:
-			if not RepresentsInt(v_splitted[1][:-2]):
-				if v_splitted[0] in occurrences:
-					found = True
-					break
-				else:
-					occurrences.add(v_splitted[0])
-	if found:
-		output += "sorted_array_accesses("
+	# occurrences = set([])
+	# found = False
+	# for v in sorted_access:
+	# 	v_splitted = v.split("(index\'(")
+	# 	if len(v_splitted) > 1:
+	# 		if not RepresentsInt(v_splitted[1][:-2]):
+	# 			if v_splitted[0] in occurrences:
+	# 				found = True
+	# 				break
+	# 			else:
+	# 				occurrences.add(v_splitted[0])
+	# if found:
+	# 	output += "sorted_array_accesses("
 	output += "["
 	first = True
 	for v in sorted_access:
@@ -1072,23 +1074,23 @@ def mcrl2_accesspattern_to_string(access):
 			first = False
 		output += mcrl2varprefix + v
 	output += "]"
-	if found:
-		output += ")"
+	# if found:
+	# 	output += ")"
 	output += ", "
-	sorted_access = sorted(list(access[1]))
-	occurrences = set([])
-	found = False
-	for v in sorted_access:
-		v_splitted = v.split("(index\'(")
-		if len(v_splitted) > 1:
-			if not RepresentsInt(v_splitted[1][:-2]):
-				if v_splitted[0] in occurrences:
-					found = True
-					break
-				else:
-					occurrences.add(v_splitted[0])
-	if found:
-		output += "sorted_array_accesses("
+	sorted_access = list(access[1]) #sorted(list(access[1]))
+	# occurrences = set([])
+	# found = False
+	# for v in sorted_access:
+	# 	v_splitted = v.split("(index\'(")
+	# 	if len(v_splitted) > 1:
+	# 		if not RepresentsInt(v_splitted[1][:-2]):
+	# 			if v_splitted[0] in occurrences:
+	# 				found = True
+	# 				break
+	# 			else:
+	# 				occurrences.add(v_splitted[0])
+	# if found:
+	# 	output += "sorted_array_accesses("
 	output += "["
 	first = True
 	for v in sorted_access:
@@ -1098,8 +1100,8 @@ def mcrl2_accesspattern_to_string(access):
 			first = False
 		output += mcrl2varprefix + v
 	output += "]"
-	if found:
-		output += ")"
+	# if found:
+	# 	output += ")"
 	output += ")"
 	return output
 

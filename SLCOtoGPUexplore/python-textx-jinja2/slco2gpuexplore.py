@@ -387,6 +387,10 @@ def cudastatement(s,indent,o,D):
 				output += "\t}\n" + indentspace
 				output += "}"
 	if s.__class__.__name__ == "Assignment":
+		if s.left.index != None:
+			if has_dynamic_indexing(s.left, s.parent, o):
+				# add line to obtain index offset
+				output += "add_idx(idx_" + s.left.name + ", " + getinstruction(s.left.index, D, {}) + ");\n" + indentspace
 		output += getinstruction(s, D, {}) + ";"
 	elif s.__class__.__name__ == "Composite":
 		first = True
@@ -395,6 +399,10 @@ def cudastatement(s,indent,o,D):
 				output += "\n" + indentspace
 			else:
 				first = False
+			if e.left.index != None:
+				if has_dynamic_indexing(e.left.var, e.parent.parent, o):
+					# add line to obtain index offset
+					output += "add_idx(idx_" + e.left.var.name + ", " + getinstruction(e.left.index, D, {}) + ");\n" + indentspace
 			output += getinstruction(e, D, {}) + ";"
 	elif s.__class__.__name__ == "SendSignal":
 		c = connected_channel[(o, s.target)]
@@ -415,6 +423,8 @@ def cudastatement(s,indent,o,D):
 
 def getinstruction(s, D, Drec):
 	"""Get the CUDA instruction for the given statement s. D and Drec are dictionaries mapping variable refs to variable names. Drec is used for ReceiveSignal statements, and overrides D where applicable."""
+	global model
+
 	result = ''
 	if s.__class__.__name__ == "Assignment":
 		(vname,offset) = D.get(s.left.var, (s.left.var.name, None))
@@ -427,10 +437,17 @@ def getinstruction(s, D, Drec):
 				result += " + "
 		if s.left.index != None:
 			indexresult = getinstruction(s.left.index, D, Drec)
-			if (RepresentsInt(indexresult)):
+			# find a suitable object (object is irrelevant for outcome)
+			t = s.parent
+			if t.__class__.__name__ != "Transition":
+				t = t.parent
+			for o in model.objects:
+				if o.type == s.parent.parent:
+					break
+			if has_dynamic_indexing(s.left, t, o):
 				result += indexresult
 			else:
-				result += "idx(buffer_" + s.left.var.name + ", " + indexresult + ")"
+				result += "idx(idx_" + s.left.var.name + ", " + indexresult + ")"
 		if offset != None or s.left.index != None:
 			result += "]"
 		result += " = "
@@ -480,7 +497,7 @@ def getinstruction(s, D, Drec):
 				if (RepresentsInt(indexresult)):
 					result += indexresult
 				else:
-					result += "idx(buffer_" + s.ref.ref + ", " + indexresult + ")"
+					result += "idx(idx_" + s.ref.ref + ", " + indexresult + ")"
 			if offset != None or s.ref.index != None:
 				result += "]"
 		else:
@@ -501,7 +518,7 @@ def getinstruction(s, D, Drec):
 			if (RepresentsInt(indexresult)):
 				result += indexresult
 			else:
-				result += "idx(buffer_" + s.var.name + ", " + indexresult + ")"
+				result += "idx(idx_" + s.var.name + ", " + indexresult + ")"
 		if offset != None or s.index != None:
 			result += "]"
 	return result
@@ -648,12 +665,24 @@ def statement_varrefs(s, o, sm):
 
 def statement_write_varrefs(s):
 	"""Return a list of variable refs to which the statement is writing"""
+	global connected_channel
+
 	W = set([])
 	if s.__class__.__name__ == "Assignment":
 		W.add((s.left.var, s.left.index))
 	elif s.__class__.__name__ == "Composite":
 		for i in range(0,len(s.assignments)):
 			W.add((s.assignments[i].left.var, s.assignments[i].left.index))
+	elif s.__class__.__name__ == "ReceiveSignal":
+		for i in range(0,len(s.params)):
+			W.add((s.params[i].var, s.params[i].index))
+	elif s.__class__.__name__ == "SendSignal":
+		c = connected_channel[s.target]
+		if c.synctype == 'async':
+			if signalsize[c] > 0:
+				W.add((c, "[0][0]"))
+			for i in range(1,len(c.type)+1):
+				W.add((c, "[" + str(i) + "][0]"))
 	return W
 
 def statement_read_varrefs(s, o, sm, only_unguarded):
@@ -1109,6 +1138,10 @@ def vectorparts_not_covered(vi, o, VPs):
 	if len(PIDs) > 2:
 		S.add(PIDs[2][0])
 	return not S.issubset(VPset)
+
+def get_write_vectorparts(s, o):
+	"""Return a sorted list of vectorparts that need to be accessed to write the values for statement s"""
+
 
 # filter to produce difference between two lists
 def difference(L1, L2):
