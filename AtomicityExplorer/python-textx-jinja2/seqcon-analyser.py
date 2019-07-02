@@ -1250,10 +1250,12 @@ def postprocess_critical_cycles():
 						i = (i+1)%len(callstack)
 			# Postprocess P-traces of length one
 			if check_P_length_one:
-				print("optimising transaction and intra-instruction fence placement", flush=True)
+				print("optimising transaction and intra-instruction fence placement")
+				sys.stdout.flush()
 				optimise_transactions()
 			else:
-				print("optimising inter-instruction fence placement", flush=True)
+				print("optimising inter-instruction fence placement")
+				sys.stdout.flush()
 				optimise_fences()
 
 def optimise_transactions():
@@ -1277,7 +1279,8 @@ def optimise_transactions():
 		for scc in SCCs:
 			if scc[0] > 1:
 				transaction_counter += 1
-				print("transaction in " + str(i) + ": " + str(scc), flush=True)
+				print("transaction in " + str(i) + ": " + str(scc))
+				sys.stdout.flush()
 		# filter suggestions, removing edges within an SCC
 		S_filtered = []
 		for a1, a2 in S:
@@ -1335,7 +1338,8 @@ def optimise_fences():
 		# pick first item to put a fence in front of it (todo: store this list somewhere)
 		# and remove all associated trace entries
 		select = L[0]
-		print("fence before: " + str(select), flush=True)
+		print("fence before: " + str(select))
+		sys.stdout.flush()
 		fence_counter_inter += 1
 		S = statement_fence_suggestions[select]
 		sug_tmp = {}
@@ -1353,7 +1357,8 @@ def readAut(autfile):
 	try:
 		inFile = open(autfile,'r')
 	except IOError:
-		print_error(".aut file of SLCO model does not exist!", flush=True)
+		print_error(".aut file of SLCO model does not exist!")
+		sys.stdout.flush()
 		return {}
 	# scan the first line
 	line = inFile.readline()
@@ -1363,7 +1368,8 @@ def readAut(autfile):
 
 	# read the header
 	if results[0][0] != 'HEADER':
-		print_error("unexpected start of .aut description!", flush=True)
+		print_error("unexpected start of .aut description!")
+		sys.stdout.flush()
 	transheader = []
 	# an aut file has three values in the header
 	for index in range(1,4):
@@ -1733,7 +1739,8 @@ def print_STIDs():
 	for c in model.classes:
 		for sm in c.statemachines:
 			for tr in sm.transitions:
-				print("ST'" + str(tr._tx_position) + ": " + printstatement(tr.statements[0]), flush=True)
+				print("ST'" + str(tr._tx_position) + ": " + printstatement(tr.statements[0]))
+				sys.stdout.flush()
 
 def obtain_statements_accesses():
 	"""Analyse the statements occurring in the state space, and construct lists of IDs and accesses"""
@@ -2430,15 +2437,17 @@ def main(args):
 	"""The main function"""
 	global modelname, model, memory_model, model_statespace, WR_order, RW_order, RR_order, WW_order, StoreBuffering, WriteAtomicity, critical_cycles, transaction_counter, fence_counter_intra, fence_counter_inter, pure_static_analysis, statements_IDs
 	if len(args) == 0:
-		print("Missing arguments: SLCO model", flush=True)
+		print("Missing arguments: SLCO model")
+		sys.stdout.flush()
 		sys.exit(1)
 	else:
 		if args[0] == '-h' or args[0] == '-help':
-			print("Usage: pypy/python3 slco2mcrl2", flush=True)
-			print("", flush=True)
-			print("Check given SLCO model for sequentially inconsistent behaviour. For the model, a .aut file containing its state space is required, unless '-s' is used.", flush=True)
-			print(" -w                                    weak memory model to consider (SC,TSO,PSO,ARM)  (default: TSO)", flush=True)
-			print(" -s                                    apply only static analysis (ignore state space) (default: no)", flush=True)
+			print("Usage: pypy/python3 slco2mcrl2")
+			print("")
+			print("Check given SLCO model for sequentially inconsistent behaviour. For the model, a .aut file containing its state space is required, unless '-s' is used.")
+			print(" -w                                    weak memory model to consider (SC,TSO,PSO,ARM)  (default: TSO)")
+			print(" -s                                    apply only static analysis (ignore state space) (default: no)")
+			sys.stdout.flush()
 			sys.exit(0)
 		else:
 			i = 0
@@ -2452,7 +2461,8 @@ def main(args):
 						WW_order = True
 						StoreBuffering = False
 						WriteAtomicity = True
-						print("memory model set to SC", flush=True)						
+						print("memory model set to SC")
+						sys.stdout.flush()						
 					elif args[i+1] == "PSO":
 						memory_model = MemoryModel.PSO
 						WR_order = False
@@ -2461,7 +2471,8 @@ def main(args):
 						WW_order = False
 						StoreBuffering = True
 						WriteAtomicity = True
-						print("memory model set to PSO", flush=True)
+						print("memory model set to PSO")
+						sys.stdout.flush()
 					elif args[i+1] == "ARM":
 						memory_model = MemoryModel.ARM
 						WR_order = False
@@ -2470,7 +2481,8 @@ def main(args):
 						WW_order = False
 						StoreBuffering = True
 						WriteAtomicity = False
-						print("memory model set to ARM", flush=True)
+						print("memory model set to ARM")
+						sys.stdout.flush()
 					else:
 						memory_model = MemoryModel.TSO
 						WR_order = False
@@ -2479,7 +2491,8 @@ def main(args):
 						WW_order = True
 						StoreBuffering = True
 						WriteAtomicity = True		
-						print("memory model set to TSO", flush=True)
+						print("memory model set to TSO")
+						sys.stdout.flush()
 					i += 1
 				elif args[i] == '-s':
 					pure_static_analysis = True
@@ -2508,40 +2521,51 @@ def main(args):
 		modelname = file
 		model = read_SLCO_model(file)
 		try:
-			print("extracting relevant info from the SLCO model", flush=True)
+			print("extracting relevant info from the SLCO model")
+			sys.stdout.flush()
 			preprocess()
 			print_STIDs()
 			# read state space
 			if not pure_static_analysis:
-				print("reading the state space of the SLCO model", flush=True)
+				print("reading the state space of the SLCO model")
+				sys.stdout.flush()
 				read_statespace(modelname)
 				start = time.time()
-				print("analysing the statements occurring in the state space", flush=True)
+				print("analysing the statements occurring in the state space")
+				sys.stdout.flush()
 				obtain_statements_accesses()
 				analyse_statements()
-				print("constructing dependency graph", flush=True)
+				print("constructing dependency graph")
+				sys.stdout.flush()
 				constructDG()
 			else:
 				start = time.time()
-				print("statically analysing the statements", flush=True)
+				print("statically analysing the statements")
+				sys.stdout.flush()
 				static_obtain_statements_accesses()
 				analyse_statements()
-				print("statically constructing dependency graph", flush=True)
+				print("statically constructing dependency graph")
+				sys.stdout.flush()
 				static_constructDG()
 			# print(statements_IDs)
-			print("detecting critical cycles in dependency graph", flush=True)
+			print("detecting critical cycles in dependency graph")
+			sys.stdout.flush()
 			detect_critical_cycles()
 			print("postprocessing cycles", flush=True)
 			postprocess_critical_cycles()
 			print("report: ")
-			print("number of transactions to create: " + str(transaction_counter), flush=True)
-			print("number of fences to place inside statements: " + str(fence_counter_intra), flush=True)
-			print("number of fences to place between statements: " + str(fence_counter_inter), flush=True)
+			print("number of transactions to create: " + str(transaction_counter))
+			print("number of fences to place inside statements: " + str(fence_counter_intra))
+			print("number of fences to place between statements: " + str(fence_counter_inter))
+			sys.stdout.flush()
 			end = time.time()
-			print("runtime: " + str(end-start), flush=True)
+			print("runtime: " + str(end-start))
+			sys.stdout.flush()
 		except Exception:
-			print("failed to process model %s" % basename(file), flush=True)
-			print(traceback.format_exc(), flush=True)
+			print("failed to process model %s" % basename(file))
+			sys.stdout.flush()
+			print(traceback.format_exc())
+			sys.stdout.flush()
 
 if __name__ == '__main__':
 	args = []

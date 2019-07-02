@@ -556,7 +556,7 @@ def statement_check_refs(s, V, model):
 						# TODO
 
 def statement_is_actionref(s):
-	return expression_is_actionref(s)
+	return expression_is_actionref()
 
 def expression_is_actionref(s):
 	"""Determine whether the given expression is an action reference"""
