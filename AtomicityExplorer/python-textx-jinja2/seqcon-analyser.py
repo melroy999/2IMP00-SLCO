@@ -1975,9 +1975,9 @@ def analyse_statements():
 					R = access_predecessors_i.get(('W',ra), set([]))
 					read_pred_tmp[ra] = R
 			# handle address dependencies; a read from an array may depend on previous reads to compute the index
-			for ra in reads_j:
+			#for ra in reads_j:
 				# are we accessing an array?
-				if ra.find("(") != -1:
+				#if ra.find("(") != -1:
 					# walk through both the current access pattern and a static version of it to retrieve the dependencies
 					#print("TODO")
 			# handle the write access of an assignment: reads are predecessors, handle special case of read after write occurrences
