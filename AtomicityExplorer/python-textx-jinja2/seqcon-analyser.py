@@ -2547,6 +2547,8 @@ def main(args):
 				print("statically constructing dependency graph")
 				sys.stdout.flush()
 				static_constructDG()
+			# flush state space from memory to reduce memory use
+			model_statespace = {}
 			# print(statements_IDs)
 			print("detecting critical cycles in dependency graph")
 			sys.stdout.flush()
