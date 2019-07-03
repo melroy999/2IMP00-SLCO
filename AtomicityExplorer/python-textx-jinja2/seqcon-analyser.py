@@ -410,9 +410,11 @@ def unblock(u):
 	blocked[u] = False
 	Bu = B.get(u, set([]))
 	for w in Bu:
+		Bup = deepcopy(Bu)
+		Bup.remove(w)
+		B[u] = Bup
 		if blocked[w]:
 			unblock(w)
-	B[u] = set([])
 
 def circuit(L, s, o):
 	"""Procedure for Johnson's algorithm"""
@@ -427,16 +429,27 @@ def circuit(L, s, o):
 	outgoing = L.get(s, set([]))
 	callstack.append((s, list(outgoing), False, initial_thread))
 	blocked[s] = True
+	# Note: stackset should not be required, but blocked does not prevent element duplicates on the stack (check bakery.3.slco)
+	stackset = set([s])
 	#print("initial: " + str(initial_thread.name))
 	while callstack != []:
+		#print(callstack)
+		#print(blocked[2])
 		v, targets, f, current_thread = peek(callstack)
 		# print(v)
 		# print(targets)
 		# print(f)
 		# print(current_thread)
 		move_to_next = False
+		#if v == 2:
+		#	if len(callstack) > 2 and targets != []:
+		#		if targets[len(targets)-1] == 2 and blocked[v] == False:
+		#			print(callstack)
+		#			print(blocked[v])
 		while len(targets) > 0:
 			w = targets.pop()
+			#if v == 2 and w == 2 and blocked[w] == False:
+			#	print("next2: " + str(callstack))
 			#print(w)
 			#print(s)
 			#print(T)
@@ -452,7 +465,7 @@ def circuit(L, s, o):
 				critlist.append(trace)
 				critical_cycles[o] = critlist
 				f = True
-			elif not blocked[w]:
+			elif not blocked[w] and w not in stackset:
 				# condition for criticality (thread visitation)
 				w_thread = SMowner[statements_accesses[w][1]]
 				#print("wthread: " + str(w_thread.name))
@@ -468,12 +481,20 @@ def circuit(L, s, o):
 					# put w on the callstack
 					woutgoing = L.get(w, set([]))
 					callstack.append((w, list(woutgoing), False, w_thread))
+					stackset.add(w)
+					#print("pushing " + str(w))
+					#print(callstack)
 					blocked[w] = True
 					move_to_next = True
 					break
 		if not move_to_next:
 			if f:
 				unblock(v)
+				# if v == 2:
+				# 	if len(callstack) > 1:
+				# 		if callstack[1][0] == 2:
+		 	# 				print("unblock2: " + str(callstack))
+		 	# 				exit(1)
 			else:
 				# put v in B sets of successors
 				for w in L.get(v, set([])):
@@ -481,6 +502,7 @@ def circuit(L, s, o):
 					Bw.add(v)
 					B[w] = Bw
 			callstack.pop()
+			stackset.remove(v)
 			# update predecessor
 			if len(callstack) > 0:
 				n, tgt, f2, nt = peek(callstack)
@@ -1053,6 +1075,7 @@ def postprocess_critical_cycles():
 
 				# first limit the accesses per statement to take C-edges into account
 				cycle_accesses = {}
+				#print(CY_summary)
 				for i in range(0,len(CY_summary)):
 					t_start = CY_summary[i][0]
 					t_end = CY_summary[i][len(CY_summary[i])-1]
@@ -1061,8 +1084,10 @@ def postprocess_critical_cycles():
 					predecessor = CY_summary[previous][len(CY_summary[previous])-1]
 					successor = CY_summary[next][0]
 					ap = accesspattern[t_start]
+					#print(t_start)
 					L = [('C',a) for a in ap[0]] + [('R',a) for a in ap[1]] + [('W',a) for a in ap[2]]
 					cycle_accesses[t_start] = tuple([L])
+					#print(L)
 					if t_start != t_end:
 						ap = accesspattern[t_end]
 						L = [('C',a) for a in ap[0]] + [('R',a) for a in ap[1]] + [('W',a) for a in ap[2]]
@@ -1072,6 +1097,7 @@ def postprocess_critical_cycles():
 					for a,x in A:
 						if conflicting_accesses(x, (a == 'W'), predecessor) != (set([]),set([])):
 							A_filtered.append((a,x))
+					#print("filtered: " + str(A_filtered))
 					cycle_accesses[t_start] = tuple([A_filtered])
 					if t_start != t_end:
 						A = cycle_accesses[t_end][0]
@@ -1111,7 +1137,7 @@ def postprocess_critical_cycles():
 							# variable counter to avoid C-chords (condition 2 of Shasha & Snir's critical cycle definition)
 							var_counter = {}
 							while callstack != []:
-								# print(CY_summary)
+								#print(CY_summary)
 								v, A, current_access, previous_access = peek(callstack)
 								move_to_next = False
 								while len(A) > 0:
@@ -1140,6 +1166,7 @@ def postprocess_critical_cycles():
 												#print("safe!")
 												continue
 											else:
+												#print("unsafe!")
 												second_access = a
 										else:
 											# print(P_traces)
@@ -1676,26 +1703,43 @@ def accesses_are_conflicting(a1, a2):
 	if not pure_static_analysis:
 		return (a1[1] == a2[1])
 	else:
-		a1_splitted = a1[1].split("(")
-		a2_splitted = a2[1].split("(")
-		if len(a1_splitted) == 1 and len(a2_splitted) == 1:
-			return (a1[1] == a2[1])
-		if (len(a1_splitted) == 1 and len(a2_splitted) > 1) or (len(a1_splitted) > 1 and len(a2_splitted) == 1):
-			return False
-		a1_splitted = a1[1].split("(*)")
-		if len(a1_splitted) > 1:
-			return (a1_splitted[0] == a2_splitted[0])
-		a1_splitted = a1[1].split("(")
-		a2_splitted = a2[1].split("(*)")
-		if len(a2_splitted) > 1:
-			return (a1_splitted[0] == a2_splitted[0])
-		return False
+		if "(*)" in a1[1]:
+			if "(*)" in a2[1]:
+				return (a1[1] == a2[1])
+			else:
+				a1_splitted = a1[1].split("(*)")
+				a2_splitted = a2[1].split("(")
+				return a1_splitted[0] == a2_splitted[0]
+		else:
+			if "(*)" in a2[1]:
+				a1_splitted = a1[1].split("(")
+				a2_splitted = a2[1].split("(*)")
+				return a1_splitted[0] == a2_splitted[0]
+			else:
+				return (a1[1] == a2[1])
+		# a1_splitted = a1[1].split("(")
+		# a2_splitted = a2[1].split("(")
+		# if len(a1_splitted) == 1 and len(a2_splitted) == 1:
+		# 	return (a1[1] == a2[1])
+		# if (len(a1_splitted) == 1 and len(a2_splitted) > 1) or (len(a1_splitted) > 1 and len(a2_splitted) == 1):
+		# 	return False
+		# a1_splitted = a1[1].split("(*)")
+		# if a1_splitted[0] != a1[1]:
+		# 	return (a1_splitted[0] == a2_splitted[0])
+		# a1_splitted = a1[1].split("(")
+		# a2_splitted = a2[1].split("(*)")
+		# if a2_splitted[0] != a2[1]:
+		# 	return (a1_splitted[0] == a2_splitted[0])
+		# return False
 
 def conflicting_accesses(a, iswrite, ins):
 	global accesspattern, pure_static_analysis
 	"""For the given access a, provide the accesses of statement ins conflicting with a. Boolean iswrite indicates whether a is a write or not"""
+	#print("a: " + str(a))
+	#print(iswrite)
 	ap = accesspattern[ins]
-	# merge reads and writes
+	#print(ap)
+	# merge conditional reads and reads
 	readsap = ap[0] | ap[1]
 	writesap = ap[2]
 	conflicting = (set([]), set([]))
@@ -1703,29 +1747,31 @@ def conflicting_accesses(a, iswrite, ins):
 	array_dynamic_access = False
 	if pure_static_analysis:
 		a_splitted = a.split("(*)")
-		if len(a_splitted[0]) > 1:
+		if a_splitted[0] != a:
 			array_dynamic_access = True
 			a2 = a_splitted[0]
 		else:
 			a_splitted = a.split("(")
-			if len(a_splitted[0]) > 1:
+			if len(a_splitted) > 1:
 				array_static_access = True
 				a2 = a_splitted[0]
+		#print("a_splitted: " + str(a_splitted))
+		#print("a2: " + str(a2))
 	if iswrite:
 		if array_static_access:
 			if a in readsap:
 				conflicting[0].add(a)
 			elif a2 + "(*)" in readsap:
-				conflicting[0].add(a)
+				conflicting[0].add(a2 + "(*)")
 		elif array_dynamic_access:
 			if a in readsap:
 				conflicting[0].add(a)
 			else:
 				for a3 in readsap:
 					a3_splitted = a3.split("(")
-					if len(a3_splitted[0]) > 1:
-						if a2 == a3:
-							conflicting[0].add(a)
+					if len(a3_splitted) > 1:
+						if a2 == a3_splitted[0]:
+							conflicting[0].add(a3)
 							break
 		elif a in readsap:
 			conflicting[0].add(a)
@@ -1733,19 +1779,20 @@ def conflicting_accesses(a, iswrite, ins):
 		if a in writesap:
 			conflicting[1].add(a)
 		elif a2 + "(*)" in writesap:
-			conflicting[1].add(a)
+			conflicting[1].add(a2 + "(*)")
 	elif array_dynamic_access:
 		if a in writesap:
 			conflicting[1].add(a)
 		else:
 			for a3 in writesap:
 				a3_splitted = a3.split("(")
-				if len(a3_splitted[0]) > 1:
-					if a2 == a3:
-						conflicting[1].add(a)
+				if len(a3_splitted) > 1:
+					if a2 == a3_splitted[0]:
+						conflicting[1].add(a3)
 						break
 	elif a in writesap:
 		conflicting[1].add(a)
+	#print(conflicting)
 	return conflicting
 
 def print_STIDs():
