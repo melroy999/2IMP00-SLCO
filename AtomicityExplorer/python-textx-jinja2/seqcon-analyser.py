@@ -1003,10 +1003,10 @@ def postprocess_critical_cycles():
 			else:
 				print("postprocessing cycles on P-paths of length greater than one")
 				sys.stdout.flush()
-			count = 0
+			crit_count = 0
 			for CY in critical_cycles[o_name]:
-				print(count)
-				count += 1
+				print(crit_count)
+				crit_count += 1
 				#print("here: " + str(CY))
 				# Compress the P-traces
 				CY_summary = []
