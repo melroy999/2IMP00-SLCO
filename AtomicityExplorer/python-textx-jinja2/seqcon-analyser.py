@@ -609,9 +609,9 @@ def get_access_classes(s, a, b):
 	done = set([])
 	todo1 = []
 	todo2 = []
-	# print("to obtain: " + str(s))
-	# print(a)
-	# print(access_smaller_than[s])
+	#print("to obtain: " + str(s))
+	#print(a)
+	#print(access_smaller_than[s])
 	ap = accesspattern[s]
 	# print(ap)
 	if a != None:
@@ -629,13 +629,14 @@ def get_access_classes(s, a, b):
 			todo1.append(('W',a))
 	# print(todo1)
 	while todo1 != []:
-		# print(todo1)
-		# print("done: " + str(done))
+		#print(todo1)
+		#print("done: " + str(done))
 		C = (set([]), set([]), set([]))
 		done_tmp = set([])
 		for a1 in todo1:
 			S = access_smaller_than[s].get(a1, set([]))
-			# print("smaller than " + str(a1) + ": " + str(S))
+			#print("smaller than " + str(a1) + ": " + str(S))
+			#print(S - done)
 			if S - done == set([]):
 				if a1[0] == 'C':
 					C[0].add(a1[1])
@@ -645,10 +646,14 @@ def get_access_classes(s, a, b):
 					C[2].add(a1[1])
 				done_tmp.add(a1)
 			else:
+				#print("add " + str(a1) + " to todo2")
 				todo2.append(a1)
 		todo1 = todo2
 		todo2 = []
 		done |= done_tmp
+		#print(todo1)
+		#print(todo2)
+		#print(done)
 		if C != (set([]), set([]), set([])):
 			if b != None:
 				if b[0] == 'C':
@@ -1003,10 +1008,10 @@ def postprocess_critical_cycles():
 			else:
 				print("postprocessing cycles on P-paths of length greater than one")
 				sys.stdout.flush()
-			crit_count = 0
+			#crit_count = 0
 			for CY in critical_cycles[o_name]:
-				print(crit_count)
-				crit_count += 1
+				#print(crit_count)
+				#crit_count += 1
 				#print("here: " + str(CY))
 				# Compress the P-traces
 				CY_summary = []
@@ -1769,8 +1774,10 @@ def obtain_statements_accesses():
 	# construct dictionary of accesses needed to compute the index of an array element access
 	index_accesses = {}
 	for a in model_statespace[2]:
+		#print(a)
 		if a != '\"tau\"':
 			rw, remainder = rwscanner.scan(a)
+			#print(rw)
 			i = 4
 			reads = set([])
 			writes = set([])
@@ -1791,6 +1798,7 @@ def obtain_statements_accesses():
 							read = True
 						else:
 							alist.append((reads, writes))
+							read = False
 							accessmode = False
 					else:
 						break
@@ -1869,6 +1877,7 @@ def obtain_statements_accesses():
 				if newreads != set([]) or newwrites != set([]):
 					alist_filtered.append((newreads, newwrites))
 			statements_accesses[statements_IDs[a]] = (owner, rw[2][1], alist_filtered)
+			#print(statements_accesses[statements_IDs[a]])
 
 def static_obtain_statements_accesses():
 	"""Analyse the statements occurring in the model statically, and construct list of IDs and accesses"""
@@ -1960,18 +1969,17 @@ def analyse_statements():
 		read_pred_tmp = {}
 		access_predecessors_i = {}
 		ap = statements_accesses[i][2]
-		#print(statements_accesses[i])
+		#print("access pattern: " + str(statements_accesses[i]))
 		j = 0
+		condreads = set([])
 		if statement_has_guard(i):
 			condreads = set([])
 			for ra in ap[0][0]:
-				condreads.add(('C',ra))
+				condreads.add(ra)
 			j = 1
-		else:
-			condreads = set([])
 		reads = set([])
-		for ra in condreads:
-			reads.add(ra[1])
+		#for ra in condreads:
+		#	reads.add(ra[1])
 		writes = set([])
 		while j < len(ap):
 			reads_j = ap[j][0] - writes #- reads
@@ -2003,11 +2011,21 @@ def analyse_statements():
 					else:
 						wa_reads.add(('R',ra))
 				# add conditional reads
-				wa_reads |= condreads
+				#wa_reads |= condreads
+				for ra in condreads:
+					if pure_static_analysis:
+						if "(*)" in ra:
+							wa_reads.add(('C',ra))
+							continue
+					R = read_pred_tmp.get(ra, set([]))
+					if R != set([]):
+						wa_reads |= R
+					else:
+						wa_reads.add(('C',ra))
 				# if read from before, add this read to dependencies
 				if access_is_in_set(wa, reads):
-					if not access_is_in_set(wa, ap[0][0]):
-						wa_reads.add(('R',wa))
+					#if not access_is_in_set(wa, ap[0][0]):
+					wa_reads.add(('R',wa))
 				W = access_predecessors_i.get(('W',wa), set([]))
 				access_predecessors_i[('W',wa)] = W | wa_reads
 			j += 1
@@ -2036,6 +2054,7 @@ def analyse_statements():
 						openset.add(v2)
 			access_smaller_than_i[a] = V
 		access_smaller_than[i] = access_smaller_than_i
+		#print("smaller than: " + str(access_smaller_than[i]))
 
 		# reverse
 		access_bigger_than_i = {}
