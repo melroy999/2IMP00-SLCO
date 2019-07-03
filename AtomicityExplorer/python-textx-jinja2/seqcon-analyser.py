@@ -997,7 +997,16 @@ def postprocess_critical_cycles():
 	for o_name in critical_cycles.keys():
 		# Perform the following loop twice: first for single instruction P-traces, then for multiple instruction P-traces
 		for check_P_length_one in [True, False]:
+			if check_P_length_one:
+				print("postprocessing cycles on P-paths of length one")
+				sys.stdout.flush()
+			else:
+				print("postprocessing cycles on P-paths of length greater than one")
+				sys.stdout.flush()
+			count = 0
 			for CY in critical_cycles[o_name]:
+				print(count)
+				count += 1
 				#print("here: " + str(CY))
 				# Compress the P-traces
 				CY_summary = []
