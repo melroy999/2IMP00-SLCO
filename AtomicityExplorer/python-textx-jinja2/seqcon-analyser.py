@@ -460,7 +460,7 @@ def circuit(L, s, o):
 				for n, tgt, f2, nt in callstack:
 					trace.append(n)
 				# print(callstack)
-				print("adding " + str(trace) + " to list of critical cycles")
+				#print("adding " + str(trace) + " to list of critical cycles")
 				critlist = critical_cycles.get(o, [])
 				critlist.append(trace)
 				critical_cycles[o] = critlist
