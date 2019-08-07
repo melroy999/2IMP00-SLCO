@@ -37,6 +37,8 @@ signalnr = {}
 # structure of vector
 vectorstructure = []
 vectorstructure_string = ""
+# vector tree, to navigate from leaves to root
+vectortree = {}
 
 # dictionary indicating in which part of the vector (which integer) a given vector element can be found
 vectorelem_in_structure_map = {}
@@ -1297,7 +1299,7 @@ def debug(text):
 
 def preprocess():
 	"""Preprocessing of model"""
-	global model, vectorsize, vectorstructure, vectorstructure_string, smnames, vectorelem_in_structure_map, max_statesize, state_order, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, connected_channel, signalsize, signalnr, alphabet, syncactions, actiontargets, actions, syncreccomm, no_state_constant, no_prio_constant
+	global model, vectorsize, vectorstructure, vectortree, vectorstructure_string, smnames, vectorelem_in_structure_map, max_statesize, state_order, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, connected_channel, signalsize, signalnr, alphabet, syncactions, actiontargets, actions, syncreccomm, no_state_constant, no_prio_constant
 
 	# construct set of statemachine names in the system
 	# also construct a map from names to objects
@@ -1543,6 +1545,16 @@ def preprocess():
 	if tmp != []:
 		vectorstructure.append(tmp)
 	vectorstructure_string = vectorstructure_to_string(elements_strings)
+	# create a vectortree structure, indicating how to navigate from the leaves to the root.
+	vectortree = {}
+	# number of nodes
+	nrnodes = 2*len(vectorstructure) - 1
+	# compensate for a final vector part integrated into a non-leaf node
+	if vectorpart_is_combined_with_nonleaf_node(len(vectorstructure)-1):
+		nrnodes -= 1
+	# build the tree in a downwards direction first
+	down_vectortree = {}
+	current = 0
 	# create list of array names and channel buffer names
 	arraynames = []
 	for o in model.objects:
@@ -1627,7 +1639,7 @@ def preprocess():
 
 def translate():
 	"""The translation function"""
-	global modelname, model, vectorstructure_string, vectorelem_in_structure_map, state_order, max_statesize, smnames, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, signalsize, connected_channel, alphabet, syncactions, actiontargets, no_state_constant, no_prio_constant
+	global modelname, model, vectorstructure, vectorstructure_string, vectortree, vectorelem_in_structure_map, state_order, max_statesize, smnames, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, signalsize, connected_channel, alphabet, syncactions, actiontargets, no_state_constant, no_prio_constant
 	
 	path, name = split(modelname)
 	if name.endswith('.slco'):
@@ -1680,7 +1692,7 @@ def translate():
 
 	# load the GPUexplore template
 	template = jinja_env.get_template('gpuexplore.jinja2template')
-	out = template.render(model=model, vectorsize=vectorsize, vectorstructure=vectorstructure, vectorstructure_string=vectorstructure_string, max_statesize=max_statesize, vectorelem_in_structure_map=vectorelem_in_structure_map, state_order=state_order, smnames=smnames, smname_to_object=smname_to_object, state_id=state_id, arraynames=arraynames, max_arrayindexsize=max_arrayindexsize, max_buffer_allocs=max_buffer_allocs, vectorpartlist=vectorpartlist, connected_channel=connected_channel, alphabet=alphabet, syncactions=syncactions, actiontargets=actiontargets, syncreccomm=syncreccomm, no_state_constant=no_state_constant, no_prio_constant=no_prio_constant)
+	out = template.render(model=model, vectorsize=vectorsize, vectorstructure=vectorstructure, vectorstructure_string=vectorstructure_string, vectortree=vectortree, max_statesize=max_statesize, vectorelem_in_structure_map=vectorelem_in_structure_map, state_order=state_order, smnames=smnames, smname_to_object=smname_to_object, state_id=state_id, arraynames=arraynames, max_arrayindexsize=max_arrayindexsize, max_buffer_allocs=max_buffer_allocs, vectorpartlist=vectorpartlist, connected_channel=connected_channel, alphabet=alphabet, syncactions=syncactions, actiontargets=actiontargets, syncreccomm=syncreccomm, no_state_constant=no_state_constant, no_prio_constant=no_prio_constant)
 	# write new SLCO model
 	outFile.write(out)
 	outFile.close()

@@ -62,27 +62,28 @@ inttype sv_nints = {{vectorsize}};
 
 {% if vectorsize > 62 %}
 // Function to traverse one step in state vector tree (stored in shared memory).
-inline __device__ shared_indextype sv_step(shared_inttype *d_z, shared_indextype node_index, bool goleft) {
+inline __device__ shared_indextype sv_step(shared_inttype *d_z, shared_indextype node_index, bool goright) {
 	shared_indextype index = 0;
 	shared_inttype tmp = d_z[node_index+2];
-	if (goleft) {
+	if (!goright) {
 		asm("{\n\t"
 			" .reg .u32 t1;\n\t"
 			" bfe.u32 t1, %1, 15, 15;\n\t"
 			" cvt.u16.u32 %0, t1;\n\t"
-			"}" : "=l"(index) : "l"(tmp));
+			"}" : "=r"(index) : "r"(tmp));
 	}
 	else {
 		asm("{\n\t"
 			" .reg .u32 t1;\n\t"
 			" bfe.u32 t1, %1, 0, 15;\n\t"
-			"}" : "=l"(index) : "l"(tmp));
+			" cvt.u16.u32 %0, t1;\n\t"
+			"}" : "=r"(index) : "r"(tmp));
 	}
 	return index;
 }
 {% endif %}
 
-// Retrieval functions for vector parts.
+// Retrieval functions for vector parts from shared memory, ignoring shared memory node pointers (cache pointers).
 inline __device__ inttype get_vectorpart(inttype *d_z, shared_indextype node_index, inttype i) {
 	switch (i) {
 	  {% for i in range(0,vectorstructure|length) %}
@@ -108,9 +109,30 @@ inline __device__ inttype get_vectorpart_{{i}}(inttype *d_z, shared_indextype no
 	inttype part;
 	asm("{\n\t"
 		" mov.b64 %0,{ %1, %2 };\n\t"
-		"}" : "=r"(part) : "r"(d_z[{% if i|get_vector_tree_navigation|length > 0 %}index{% else %}node_index{% endif %}]), "r"(d_z[{% if i|get_vector_tree_navigation|length > 0 %}index{% else %}node_index{% endif %}+1]));
+		"}" : "={% if vectorsize < 31 %}r{% else %}l{% endif %}"(part) : "r"(d_z[{% if i|get_vector_tree_navigation|length > 0 %}index{% else %}node_index{% endif %}]), "r"(d_z[{% if i|get_vector_tree_navigation|length > 0 %}index{% else %}node_index{% endif %}+1]));
 	return part;
 	{% endif %}
+}
+{% endfor %}
+
+// Retrieval functions for vector tree nodes from shared memory, including shared memory node pointers (cache pointers).
+inline __device__ void get_vectortree_node(inttype &node, shared_inttype &cachepointers, inttype *d_z, shared_indextype node_index, inttype i) {
+	switch (i) {
+	  {% for i in range(0,vectortree|length) %}
+	  case {{i}}:
+	  	return get_vectortree_node_{{i}}(node, cachepointers, d_z, node_index);
+	  {% endfor %}
+	  default:
+	  	return 0;
+	}
+}
+{% for i in range(0,vectortree|length) %}
+
+inline __device__ void get_vectortree_node_{{i}}(inttype &node, shared_inttype &cachepointers, inttype *d_z, shared_indextype node_index) {
+	asm("{\n\t"
+		" mov.b64 %0,{ %1, %2 };\n\t"
+		"}" : "={% if vectorsize < 31 %}r{% else %}l{% endif %}"(node) : "r"(d_z[node_index]), "r"(d_z[node_index+1]));
+	cachepointers = d_z[node_index+2];
 }
 {% endfor %}
 
