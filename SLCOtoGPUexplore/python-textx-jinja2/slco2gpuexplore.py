@@ -297,6 +297,10 @@ def vectorstructure_to_string(D):
 		vs += "]"
 	return vs
 
+def cudastore_new_vector(s,D,o):
+	"""Return CUDA code to store new vector resulting from executing statement s. D is a dictionary mapping variable refs to variable names. o is Object owning s."""
+	
+
 def cudarecsizeguard(s, D, o):
 	"""Given a ReceiveSignal statement s, return a guard referring to the size of the buffer, in case the connected channel is asynchronous. o is Object owning s."""
 	global connected_channel
@@ -516,10 +520,7 @@ def getinstruction(s, D, Drec):
 					result += " + "
 			if s.ref.index != None:
 				indexresult = getinstruction(s.ref.index, D, Drec)
-				if (RepresentsInt(indexresult)):
-					result += indexresult
-				else:
-					result += "idx(idx_" + s.ref.ref + ", " + indexresult + ")"
+				result += "idx(idx_" + s.ref.ref + ", " + indexresult + ")"
 			if offset != None or s.ref.index != None:
 				result += "]"
 		else:
@@ -1554,7 +1555,26 @@ def preprocess():
 		nrnodes -= 1
 	# build the tree in a downwards direction first
 	down_vectortree = {}
-	current = 0
+	openlist = [0]
+	nextnode = 1
+	while openlist != []:
+		current = openlist.pop()
+		children = []
+		# child one
+		if nextnode < nrnodes:
+			children.append(nextnode)
+			openlist.append(nextnode)
+		nextnode += 1
+		# child two
+		if nextnode < nrnodes:
+			children.append(nextnode)
+			openlist.append(nextnode)
+		down_vectortree[current] = children
+	# now transpose this tree
+	for v in down_vectortree.keys():
+		C1 = down_vectortree[v]
+		for w in C1:
+			vectortree[w] = v
 	# create list of array names and channel buffer names
 	arraynames = []
 	for o in model.objects:
