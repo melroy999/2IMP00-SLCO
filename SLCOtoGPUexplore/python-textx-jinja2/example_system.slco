@@ -2,7 +2,7 @@ model Test {
 	actions a b
 	classes
 	P {
-	  variables Boolean v Integer m
+	  variables Boolean v Byte m
 	  ports In1 In2 InOut
 	  state machines
 		REC1 {
@@ -37,7 +37,7 @@ model Test {
 		}
 	}
 	Q {
-		variables Integer y
+		variables Byte[2] y
 		ports Out1 Out2 InOut
 		state machines
 			COM {
@@ -48,14 +48,14 @@ model Test {
 						send P(false) to Out1
 					}
 					from Com1 to Com1 {
-						send Q(y) to Out2;
-						y := y + 1;
+						send Q(y[0]) to Out2;
+						y[0] := y[0] + 1;
 					}
 					from Com1 to Com2 {
 						receive S() from InOut
 					}
 					from Com2 to Com0 {
-						y := 0;
+						y[x] := 0;
 						send T() to InOut
 					}
 			}

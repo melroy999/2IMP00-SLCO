@@ -99,14 +99,16 @@ inline __device__ inttype get_vectorpart_{{i}}(inttype *d_z, shared_indextype no
 	{% if vectorsize < 63 %}
 	return d_z[node_index];
 	{% else %}
+	{% if i|get_vector_tree_navigation|length > 0 %}
 	shared_indextype index = node_index;
+	{% endif %}
 	{% for b in i|get_vector_tree_navigation %}
 	index = sv_step(d_z, index, {% if b %}true{% else %}false{% endif %});
 	{% endfor %}
 	inttype part;
 	asm("{\n\t"
 		" mov.b64 %0,{ %1, %2 };\n\t"
-		"}" : "=r"(part) : "r"(d_z[index]) : "r"(d_z[index+1]));
+		"}" : "=r"(part) : "r"(d_z[{% if i|get_vector_tree_navigation|length > 0 %}index{% else %}node_index{% endif %}]), "r"(d_z[{% if i|get_vector_tree_navigation|length > 0 %}index{% else %}node_index{% endif %}+1]));
 	return part;
 	{% endif %}
 }
@@ -127,15 +129,15 @@ inline __device__ void get_{{s|replace("[","_")|replace("]","")|replace("'","_")
 		" bfi.b32 t1, %1, t1, {{vectorelem_in_structure_map[s][2][2]}}, {{vectorelem_in_structure_map[s][1][2]}};\n\t"
 {% endif %}
 		" cvt.s8.u32 %0, t1;\n\t"
-	    "}" : "=r"(b) : "l"(part1) : "l"(part2));
+	    "}" : "=r"(b) : "l"(part1), "l"(part2));
 {% else %}
 {% if vectorelem_in_structure_map[s]|length == 2 %}
 		" bfe.s32 %0, %1, {{vectorelem_in_structure_map[s][1][1]}}, {{vectorelem_in_structure_map[s][1][2]}};\n\t"
-	    "}" : "=r"(b) : "l"(part1) : "l"(part2));
+	    "}" : "=r"(b) : "l"(part1), "l"(part2));
 {% else %}
 		" bfe.s32 %0, %2, {{vectorelem_in_structure_map[s][2][1]}}, {{vectorelem_in_structure_map[s][2][2]}};\n\t"
 		" bfi.b32 %0, %1, %0, {{vectorelem_in_structure_map[s][2][2]}}, {{vectorelem_in_structure_map[s][1][2]}};\n\t"
-	    "}" : "+r"(b) : "l"(part1) : "l"(part2));
+	    "}" : "+r"(b) : "l"(part1), "l"(part2));
 {% endif %}
 {% endif %}
 }
@@ -192,18 +194,18 @@ inline __device__ void set_{{s|replace("[","_")|replace("]","")|replace("'","_")
 	asm("{\n\t"
 		" .reg .u64 t1;\n\t"
 {% if size < 32 %}
-		" cvt.u64.u8 t1, %0\n\t"
+		" cvt.u64.u8 t1, %2\n\t"
 {% else %}
-		" cvt.u64.u32 t1, %0\n\t"
+		" cvt.u64.u32 t1, %2\n\t"
 {% endif %}
 {% if vectorelem_in_structure_map[s]|length == 2 %}
-		" bfi.b64 %1, t1, %1, {{vectorelem_in_structure_map[s][1][1]}}, {{vectorelem_in_structure_map[s][1][2]}};\n\t"
+		" bfi.b64 %0, t1, %0, {{vectorelem_in_structure_map[s][1][1]}}, {{vectorelem_in_structure_map[s][1][2]}};\n\t"
 {% else %}
-		" bfi.b64 %2, t1, %2, {{vectorelem_in_structure_map[s][2][1]}}, {{vectorelem_in_structure_map[s][2][2]}};\n\t"
+		" bfi.b64 %1, t1, %1, {{vectorelem_in_structure_map[s][2][1]}}, {{vectorelem_in_structure_map[s][2][2]}};\n\t"
 		" shr.b64 t1, t1, {{vectorelem_in_structure_map[s][2][2]}};\n\t"
-		" bfi.b64 %1, t1, %1, {{vectorelem_in_structure_map[s][1][1]}}, {{vectorelem_in_structure_map[s][1][2]}};\n\t"
+		" bfi.b64 %0, t1, %0, {{vectorelem_in_structure_map[s][1][1]}}, {{vectorelem_in_structure_map[s][1][2]}};\n\t"
 {% endif %}
-		"}" + "r"(x) : "+l"(part1) : "+l"(part2));
+		"}" : "+l"(part1), "+l"(part2)) : "r"(x);
 }
 
 {% endfor %}

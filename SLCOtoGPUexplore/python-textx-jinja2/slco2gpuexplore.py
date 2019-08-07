@@ -179,6 +179,11 @@ def scopename(v,i,o):
 				name += "[" + i_str + "]"
 	return name
 
+def vectorpart_is_combined_with_nonleaf_node(p):
+	"""Return whether or not the given part (number) is combined with a non-leaf node in the vector tree"""
+	global vectorstructure
+	return p == len(vectorstructure)-1 and len(vectorstructure) > 1 and vectorstructure_part_size(vectorstructure[p]) <= 31
+
 def get_vector_tree_navigation(p):
 	"""For the given vector part (number), provide how to navigate to it from a root node"""
 	global vectorstructure, smnames
@@ -208,6 +213,10 @@ def get_vector_tree_navigation(p):
 		else:
 			lowerbound = split+1
 			nav.append(True)
+	# if the requested part is the final one in the vector, there are multiple parts in a vector, and the requested part is sufficiently small, it is actually combined
+	# with a non-leaf node of the vector tree, and the final navigation step should be removed again.
+	if vectorpart_is_combined_with_nonleaf_node(p):
+		del nav[-1]
 	return nav
 
 # def get_bitmask(s, write):
@@ -253,18 +262,29 @@ def get_startbit(o):
 	"""Return starting bit of object o tuple ((object, index) pair) in its corresponding part of the statevector"""
 	global vectorstructure, vectorsize
 
+def vectorstructure_part_size(t):
+	"""Return the size (in bits) of the given vectorstructure part"""
+	size = 0
+	for (s,i) in t:
+		size += i
+	return size
+
 def vectorstructure_to_string(D):
 	"""Convert vectorstructure to string. D is dictionary to look up strings for individual elements."""
 	global vectorstructure
 
 	vs = ""
 	tfirst = True
+	nr_of_parts = len(vectorstructure)
 	for t in vectorstructure:
 		if not tfirst:
 			vs += ",\n// "
 		else:
 			tfirst = False
-		vs += "[two bits reserved, "
+		if nr_of_parts == 1 or vectorstructure_part_size(t) > 31:
+			vs += "[two bits reserved, "
+		else:
+			vs += "Combined with a non-leaf vector tree node: [ "
 		first = True
 		for (s,i) in t:
 			if not first:
@@ -663,8 +683,8 @@ def statement_varrefs(s, o, sm):
 		R.add((s.var, s.index))
 	return R
 
-def statement_write_varrefs(s):
-	"""Return a list of variable refs to which the statement is writing"""
+def statement_write_varrefs(s, o):
+	"""Return a list of variable refs to which the statement is writing. o is Object owning s."""
 	global connected_channel
 
 	W = set([])
@@ -677,7 +697,7 @@ def statement_write_varrefs(s):
 		for i in range(0,len(s.params)):
 			W.add((s.params[i].var, s.params[i].index))
 	elif s.__class__.__name__ == "SendSignal":
-		c = connected_channel[s.target]
+		c = connected_channel[(o, s.target)]
 		if c.synctype == 'async':
 			if signalsize[c] > 0:
 				W.add((c, "[0][0]"))
@@ -851,7 +871,7 @@ def get_buffer_allocs(s, o):
 					nr_32 += 1
 				elif v.type.base == 'Byte':
 					nr_8 += 1
-					if v.size > 0:
+					if v.type.size > 0:
 						count = dict_arrays_8.get(v, 0)
 						count += 1
 						dict_arrays_8[v] = count
@@ -864,7 +884,7 @@ def get_buffer_allocs(s, o):
 		Vseen = set([])
 		O = set([])
 		for st in t.statements:
-			O |= statement_write_varrefs(st)
+			O |= statement_write_varrefs(st,o)
 		for (v,i) in O:
 			i_str = getinstruction(i, {}, {})
 			Vseen.add((v,i_str))
@@ -1353,10 +1373,12 @@ def preprocess():
 		# object global variables
 		for v in o.type.variables:
 			size = gettypesize(v.type)
+			print(v.name)
+			print(size)
 			dimension = 0
 			if v.type.size > 1:
 				dimension = v.type.size
-			vectorsize += (size*dimension)
+			vectorsize += (size*max(1,dimension))
 			dataelements.add((o.name + "'" + v.name, tuple([size]), dimension))
 		for sm in o.type.statemachines:
 			# number of bits needed to encode states
@@ -1369,17 +1391,22 @@ def preprocess():
 				dimension = 0
 				if v.type.size > 1:
 					dimension = v.type.size
-				vectorsize += (size*dimension)
+				vectorsize += (size*max(1,dimension))
 				dataelements.add((o.name + "'" + sm.name + "'" + v.name, tuple([size]), dimension))
 	# add buffers for channels
 	for ch in model.channels:
 		if ch.synctype == 'async':
 			typelist = [signalsize[ch]]
+			typesize = 0
 			for t in ch.type:
 				typelist.append(gettypesize(t))
+				typesize += gettypesize(t)
 			dimension = 1
 			if ch.size > 1:
 				dimension = ch.size
+			vectorsize += typesize*dimension
+			# take buffer counter into account
+			vectorsize += int(max(1,math.ceil(math.log(dimension, 2))))
 			dataelements.add((ch.name, tuple(typelist), dimension))
 	# store maximum number of bits needed to encode an automaton state
 	max_statesize = 0
@@ -1628,6 +1655,7 @@ def translate():
 	jinja_env.filters['statement_guarded_varobjects'] = statement_guarded_varobjects
 	jinja_env.filters['cudatype'] = cudatype
 	jinja_env.filters['get_vectorparts'] = get_vectorparts
+	jinja_env.filters['vectorpart_is_combined_with_nonleaf_node'] = vectorpart_is_combined_with_nonleaf_node
 	jinja_env.filters['get_remaining_vectorparts'] = get_remaining_vectorparts
 	jinja_env.filters['scopename'] = scopename
 	jinja_env.filters['gettypesize'] = gettypesize
