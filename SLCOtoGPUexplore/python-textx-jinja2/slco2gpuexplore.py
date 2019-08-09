@@ -37,8 +37,10 @@ signalnr = {}
 # structure of vector
 vectorstructure = []
 vectorstructure_string = ""
-# vector tree, to navigate from leaves to root
+# vector tree, to navigate from root to leaves
 vectortree = {}
+# transposed vector tree
+vectortree_T = {}
 
 # dictionary indicating in which part of the vector (which integer) a given vector element can be found
 vectorelem_in_structure_map = {}
@@ -71,6 +73,10 @@ syncreccomm = {}
 
 # list of array names in model (with types)
 arraynames = []
+
+# dictionary for arrays that are dynamically written to in the model. For each such array, an item (name,range) is provided, with name the scopename
+# of the array, and range the range of vector parts in which the array is stored in vectors.
+dynamic_write_arrays = {}
 
 # dictionary providing the channels to which a given port is connected
 connected_channel = {}
@@ -176,7 +182,7 @@ def scopename(v,i,o):
 			name += "'" + v.parent.name
 		name += "'" + v.name
 		if v.__class__.__name__ != "StateMachine":
-			i_str = getinstruction(i, {}, {})
+			i_str = getinstruction(i, o, {}, {})
 			if i != None and RepresentsInt(i_str):
 				name += "[" + i_str + "]"
 	return name
@@ -186,15 +192,25 @@ def vectorpart_is_combined_with_nonleaf_node(p):
 	global vectorstructure
 	return p == len(vectorstructure)-1 and len(vectorstructure) > 1 and vectorstructure_part_size(vectorstructure[p]) <= 31
 
-def get_vector_tree_navigation(p):
+def vector_has_nonstate_parts():
+	"""Return whether the vectorstructure contains parts without state machine states"""
+	global vectorstructure, smnames
+
+	for t in vectorstructure:
+		if t[0][0] not in smnames:
+			return True
+	return False
+
+def get_vector_tree_to_part_navigation(p):
 	"""For the given vector part (number), provide how to navigate to it from a root node"""
 	global vectorstructure, smnames
 
 	nav = []
-	# are there states at this position? if so, go initially left
+	# are there states at this position? if so, go initially left, unless no parts without states exist
 	t = vectorstructure[p]
 	move = t[0][0] not in smnames
-	nav.append(move)
+	if vector_has_nonstate_parts():
+		nav.append(move)
 	lowerbound = -1
 	upperbound = -1
 	for ti in range(0,len((vectorstructure))):
@@ -219,6 +235,30 @@ def get_vector_tree_navigation(p):
 	# with a non-leaf node of the vector tree, and the final navigation step should be removed again.
 	if vectorpart_is_combined_with_nonleaf_node(p):
 		del nav[-1]
+	return nav
+
+def get_vector_tree_to_node_navigation(p):
+	"""For the given tree node (number), provide how to navigate to it from the root node"""
+	global vectortree, vectortree_T
+
+	trace = []
+	# find path from p to root first
+	current = p
+	while current != 0:
+		parent = vectortree_T[current]
+		trace.append(parent)
+		current = parent
+	# reverse list
+	trace = trace[::-1]
+	# construct navigation instructions
+	nav = []
+	for i in range(0,len(trace)):
+		if i < len(trace)-1:
+			nextnode = trace[i+1]
+		else:
+			nextnode = p
+		children = vectortree[trace[i]]
+		nav.append(children[0] != nextnode)
 	return nav
 
 # def get_bitmask(s, write):
@@ -297,10 +337,6 @@ def vectorstructure_to_string(D):
 		vs += "]"
 	return vs
 
-def cudastore_new_vector(s,D,o):
-	"""Return CUDA code to store new vector resulting from executing statement s. D is a dictionary mapping variable refs to variable names. o is Object owning s."""
-	
-
 def cudarecsizeguard(s, D, o):
 	"""Given a ReceiveSignal statement s, return a guard referring to the size of the buffer, in case the connected channel is asynchronous. o is Object owning s."""
 	global connected_channel
@@ -331,10 +367,10 @@ def cudaguard(s,D,o):
 						guard += "get_target_" + sm2.name + "_" + a + "((statetype) " + D[(sm2,"src")][0] + "[" + str(D[(sm2,"src")][1]) + "], -1) != -1"
 			return guard
 	elif s.__class__.__name__ == "Expression":
-		return getinstruction(s, D, {})
+		return getinstruction(s, o, D, {})
 	elif s.__class__.__name__ == "Composite":
 		if s.guard:
-			return getinstruction(s.guard, D, {})
+			return getinstruction(s.guard, o, D, {})
 		else:
 			return ""
 	elif s.__class__.__name__ == "SendSignal":
@@ -363,13 +399,168 @@ def cudaguard(s,D,o):
 			for i in range(0,len(s.params)):
 				p = s.params[i]
 				if p.index != None:
-					index_str = getinstruction(p.index, {}, {})
+					index_str = getinstruction(p.index, o, {}, {})
 				else:
 					index_str = p.index
 				Drec[(p.var.name, index_str)] = D[(c, "[" + str(i+1) + "][0]")]
-			guard += getinstruction(s.guard, D, Drec)
+			guard += getinstruction(s.guard, o, D, Drec)
 			return guard
 	return ""
+
+def is_vectorpart(pid):
+	"""Return whether the given vectortree node with id pid is a vectorpart or not"""
+	global vectorstructure
+	size = len(vectorstructure)
+	if pid >= size-1:
+		return True
+	if pid == size-2 and vectorpart_is_combined_with_nonleaf_node(len(vectorstructure)-1):
+		return True
+	return False
+
+def is_non_leaf(pid):
+	"""Return whether the given vectortree node with id pid is a non-leaf node"""
+	global vectorstructure
+	return (pid < len(vectorstructure)-1)
+
+def store_new_vectortree_nodes(node_stack, nav, W):
+	"""Produce CUDA code to produce and store new vectortree nodes. node_stack is a stack containing node ids that have been successfully processed before. nav is a list of nodes still to be processed.
+	   W is a dictionary defining for all vectorparts which values need to be written to it."""
+	result = ""
+	(p,f) = nav.pop(0)
+	if is_vectorpart(p):
+		output += "get_vectortree_node(&part1, &part_cachepointers, d_z, node_index, " + str(p) + ");\n" + indentspace
+		output += "// Store new values.\n" + indentspace
+		output += "part2 = part1;\n" + indentspace
+		refs = W[p]
+		for (v,i,isnotfirstpart) in refs:
+			if i != '*':
+				result = ""
+				offset = None
+				# look for an exact (name, index) match in Drec
+				if i != None:
+					index_str = getinstruction(i, o, {}, {})
+				else:
+					index_str = i
+				(vname,offset) = Drec.get((v.name, index_str), (v.name, None))
+				if vname == v.name:
+					# look for a match on v in D
+					(vname,offset) = D.get(v, (v.name, None))
+				result += vname
+				if offset != None or i != None:
+					result += "["
+					if offset != None:
+						result += str(offset)
+						if i != None:
+							result += " + "
+					if i != None:
+						if has_dynamic_indexing(v, s.parent, o):
+							result += "idx(idx_" + v.name + ", " + index_str + ")"
+						else:
+							indexdict = get_constant_indices(v, s.parent, o)
+							result += indexdict[index_str]
+					result += "]"
+				# code to update the current vector part
+				set_methodname = scopename(v,None,o)
+				set_methodname = set_methodname.replace("'","_")
+				if i != None:
+					set_methodname += "_" + index_str
+				if not isnotfirstpart:
+					output += "set_" + set_methodname + "(&part2, &part_tmp, " + result + ");\n" + indentspace
+				else:
+					output += "set_" + set_methodname + "(&part_tmp, &part2, " + result + ");\n" + indentspace
+			else:
+				# dynamic indexing into an array. use a special set function for this.
+				set_methodname = scopename(v,None,o)
+				set_methodname = set_methodname.replace("'","_")
+				(vname, offset) = D.get(v, (v.name, None))
+				output += "set_" + set_methodname + "(&part2, &part_tmp, idx_" + v.name + ", " + vname + ", " + str(offset) + ");\n" + indentspace
+		output += "if (part2 != part1) {\n" + indentspace
+		output += "// This part has been altered. Store it in shared memory and remember address of new part.\n" + indentspace
+		output += "bla = store_in_cache(part2, part_cachepointers, &buf16[pointer_cnt]);\n" + indentspace
+		output += "pointer_cnt++;"
+		indentspace -= "\t"
+		output += store_new_vectortree_nodes(node_stack + [p], nav, W)
+		indentspace += "\t"
+		output += "}\n"  + indentspace
+		indentspace += "\t"
+		output += "else {\n" + indentspace
+		output += 
+		output += store_new_vectortree_nodes(node_stack, nav, W)
+
+def cudastore_new_vector(s,indent,o,D):
+	"""Return CUDA code to store new vector resulting from executing statement s. D is a dictionary mapping variable refs to variable names. o is Object owning s."""
+	global connected_channel, scopename, vectorstructure, vectortree, vectortree_T
+
+	indentspace = ""
+	for i in range(0,indent):
+		indentspace += "\t"
+	output = ""
+
+	# create a dictionary to map the params of s to buffer variables, in case we are dealing with a ReceiveSignal statement connected to an asynchronous channel
+	Drec = {}
+	if s.__class__.__name__ == "ReceiveSignal":
+		c = connected_channel[(o, s.target)]
+		if c.synctype == 'async':
+			for i in range(0,len(s.params)):
+				p = s.params[i]
+				if p.index != None:
+					index_str = getinstruction(p.index, o, {}, {})
+				else:
+					index_str = p.index
+				Drec[(p.var.name, index_str)] = D[(c, "[" + str(i+1) + "][0]")]
+
+	W = get_write_vectorparts_info(s,o)
+	if len(W) != 0:
+		output += "// Store new state vector in shared memory.\n" + indentspace
+		# obtain list of nodes in the tree to update
+		L = list(W.keys())
+		n = len(vectorstructure)-1
+		Lnew = []
+		Wnew = {}
+		extranode = -1
+		for v in L:
+			if vectorpart_is_combined_with_nonleaf_node(v):
+				extranode = n-1
+				Wnew[n-1] = W[v]
+			else:
+				Lnew.append(v+n)
+				Wnew[v+n] = W[v]
+		L = sorted(Lnew)
+		if extranode != -1:
+			L.append(extranode)
+		# explore vectortree to construct list of nodes to be updated
+		navcounters = {}
+		waiting = set([])
+		nav = []
+		for v in L:
+			current = v
+			while current != 0:
+				nextnode = vectortree_T[current]
+				C = navcounters.get(nextnode, 0)
+				navcounters[nextnode] = C+1
+				current = nextnode
+		nav = []
+		if len(L) > 0:
+			current = L.pop(0)
+			nav.append((current,False))
+			while current != 0:
+				parent = vectortree_T[current]
+				navcounters[parent] -= 1
+				if navcounters[parent] == 0:
+					current = parent
+					if parent in waiting:
+						nav.append((parent,True))
+						waiting.remove(parent)
+					else:
+						nav.append((parent,False))
+				else:
+					waiting.add(parent)
+					current = L.pop(0)
+		# stack for processing nodes
+		node_stack = []
+		# process the nav list of nodes
+		store_new_vectortree_nodes(node_stack, nav)
+	return output
 
 def cudastatement(s,indent,o,D):
 	"""Translates the unguarded part of SLCO statement s to CUDA code. indent indicates how much every line needs to be indented. o is Object owning s. D is a dictionary mapping variable refs to variable names"""
@@ -414,10 +605,11 @@ def cudastatement(s,indent,o,D):
 				output += "}"
 	if s.__class__.__name__ == "Assignment":
 		if s.left.index != None:
-			if has_dynamic_indexing(s.left, s.parent, o):
+			if has_dynamic_indexing(s.left.var, s.parent, o):
 				# add line to obtain index offset
-				output += "add_idx(idx_" + s.left.name + ", " + getinstruction(s.left.index, D, {}) + ");\n" + indentspace
-		output += getinstruction(s, D, {}) + ";"
+				output += "add_idx(idx_" + s.left.var.name + ", " + getinstruction(s.left.index, o, D, {}) + ");\n" + indentspace
+		output += getinstruction(s, o, D, {}) + ";\n" + indentspace
+		output += cudastore_new_vector(s,indent,o,D)
 	elif s.__class__.__name__ == "Composite":
 		first = True
 		for e in s.assignments:
@@ -428,8 +620,8 @@ def cudastatement(s,indent,o,D):
 			if e.left.index != None:
 				if has_dynamic_indexing(e.left.var, e.parent.parent, o):
 					# add line to obtain index offset
-					output += "add_idx(idx_" + e.left.var.name + ", " + getinstruction(e.left.index, D, {}) + ");\n" + indentspace
-			output += getinstruction(e, D, {}) + ";"
+					output += "add_idx(idx_" + e.left.var.name + ", " + getinstruction(e.left.index, o, D, {}) + ");\n" + indentspace
+			output += getinstruction(e, o, D, {}) + ";"
 	elif s.__class__.__name__ == "SendSignal":
 		c = connected_channel[(o, s.target)]
 		if c.synctype == 'async':
@@ -437,18 +629,18 @@ def cudastatement(s,indent,o,D):
 				p = s.params[i]
 				if output != "":
 					output += "\n" + indentspace
-				output += D[(c, "[" + str(i+1) + "][0]")][0] + "[" + str(D[(c, "[" + str(i+1) + "][0]")][1]) + "] = " + getinstruction(p, D, {}) + ";"
+				output += D[(c, "[" + str(i+1) + "][0]")][0] + "[" + str(D[(c, "[" + str(i+1) + "][0]")][1]) + "] = " + getinstruction(p, o, D, {}) + ";"
 		else:
 			for (o2,sm2) in get_syncrec_sms(o, c, s.signal):
 				output += D[(c,"state")][0] + "[" + str(D[(c,"state")][1]) + "] = get_target_" + o2.name + "_" + sm2.name + "_" + s.signal + "(" + D[(c, o2.name + "'" + sm2.name)][0] + "[" + str(D[(c, o2.name + "'" + sm2.name)][1]) + "], -1);\n" + indentspace
 				output += "while (" + D[(c,"state")][0] + "[" + str(D[(c,"state")][1]) + "] != -1) {\n" + indentspace
-				output += "\t...\n" + indentspace
+				output += "\t" + cudastore_new_vector(s,indent,o,D) + "\n" + indentspace
 				output += "\t" + D[(c,"state")][0] + "[" + str(D[(c,"state")][1]) + "] = get_target_" + o2.name + "_" + sm2.name + "_" + s.signal + "(" + D[(c, o2.name + "'" + sm2.name)][0] + "[" + str(D[(c, o2.name + "'" + sm2.name)][1]) + "], " + D[(c,"state")][0] + "[" + str(D[(c,"state")][1]) + "]);\n" + indentspace
 				output += "}"
 	return output
 
-def getinstruction(s, D, Drec):
-	"""Get the CUDA instruction for the given statement s. D and Drec are dictionaries mapping variable refs to variable names. Drec is used for ReceiveSignal statements, and overrides D where applicable."""
+def getinstruction(s, o, D, Drec):
+	"""Get the CUDA instruction for the given statement s. o is Object owning s, D and Drec are dictionaries mapping variable refs to variable names. Drec is used for ReceiveSignal statements, and overrides D where applicable."""
 	global model
 
 	result = ''
@@ -462,31 +654,32 @@ def getinstruction(s, D, Drec):
 			if s.left.index != None:
 				result += " + "
 		if s.left.index != None:
-			indexresult = getinstruction(s.left.index, D, Drec)
+			indexresult = getinstruction(s.left.index, o, D, Drec)
 			# find a suitable object (object is irrelevant for outcome)
 			t = s.parent
-			if t.__class__.__name__ != "Transition":
+			while t.__class__.__name__ != "Transition":
 				t = t.parent
 			for o in model.objects:
 				if o.type == s.parent.parent:
 					break
-			if has_dynamic_indexing(s.left, t, o):
-				result += indexresult
-			else:
+			if has_dynamic_indexing(s.left.var, t, o):
 				result += "idx(idx_" + s.left.var.name + ", " + indexresult + ")"
+			else:
+				indexdict = get_constant_indices(s.left.var, t, o)
+				result += indexdict[indexresult]
 		if offset != None or s.left.index != None:
 			result += "]"
 		result += " = "
 		if s.left.var.type.base == 'Byte':
 			result += "(elem_chartype) ("
-		result += getinstruction(s.right, D, Drec)
+		result += getinstruction(s.right, o, D, Drec)
 		if s.left.var.type.base == 'Byte':
 			result += ")"
 	elif s.__class__.__name__ == "Expression" or s.__class__.__name__ == "ExprPrec4" or s.__class__.__name__ == "ExprPrec3" or s.__class__.__name__ == "ExprPrec2" or s.__class__.__name__ == "ExprPrec1":
 		if s.op != '':
-			result += getinstruction(s.left, D, Drec) + " " + operator(s.op) + " " + getinstruction(s.right, D, Drec)
+			result += getinstruction(s.left, o, D, Drec) + " " + operator(s.op) + " " + getinstruction(s.right, o, D, Drec)
 		else:
-			result += getinstruction(s.left, D, Drec)
+			result += getinstruction(s.left, o, D, Drec)
 	elif s.__class__.__name__ == "Primary":
 		result += sign(s.sign)
 		if s.sign == "not":
@@ -499,7 +692,7 @@ def getinstruction(s, D, Drec):
 			offset = None
 			# look for an exact (name, index) match in Drec
 			if s.ref.index != None:
-				index_str = getinstruction(s.ref.index, {}, {})
+				index_str = getinstruction(s.ref.index, o, {}, {})
 			else:
 				index_str = s.ref.index
 			(vname,offset) = Drec.get((s.ref.ref, index_str), (s.ref.ref, None))
@@ -519,12 +712,20 @@ def getinstruction(s, D, Drec):
 				if s.ref.index != None:
 					result += " + "
 			if s.ref.index != None:
-				indexresult = getinstruction(s.ref.index, D, Drec)
-				result += "idx(idx_" + s.ref.ref + ", " + indexresult + ")"
+				indexresult = getinstruction(s.ref.index, o, D, Drec)
+				# find parent transition object
+				t = s.parent
+				while t.__class__.__name__ != "Transition":
+					t = t.parent
+				if has_dynamic_indexing(r, t, o):
+					result += "idx(idx_" + s.ref.ref + ", " + indexresult + ")"
+				else:
+					indexdict = get_constant_indices(r, t, o)
+					result += indexdict[indexresult]
 			if offset != None or s.ref.index != None:
 				result += "]"
 		else:
-			result += '(' + getinstruction(s.body, D, Drec) + ')'
+			result += '(' + getinstruction(s.body, o, D, Drec) + ')'
 		if s.sign == "not":
 			result += ")"
 	elif s.__class__.__name__ == "VariableRef":
@@ -537,7 +738,7 @@ def getinstruction(s, D, Drec):
 			if s.index != None:
 				result += " + "
 		if s.index != None:
-			indexresult = getinstruction(s.index, D, Drec)
+			indexresult = getinstruction(s.index, o, D, Drec)
 			if (RepresentsInt(indexresult)):
 				result += indexresult
 			else:
@@ -555,7 +756,7 @@ def transition_read_varrefs(t, o, only_unguarded):
 	filtered_R = set([])
 	Vseen = set([])
 	for (v,i) in R:
-		i_str = getinstruction(i, {}, {})
+		i_str = getinstruction(i, o, {}, {})
 		if (v,i_str) not in Vseen:
 			Vseen.add((v,i_str))
 			filtered_R.add((v,i))
@@ -575,7 +776,7 @@ def transition_sorted_dynamic_read_varrefs(t, o, only_unguarded):
 	R2 = set([])
 	for (v,i) in R:
 		if v.__class__.__name__ != "Channel" and v.__class__.__name__ != "StateMachine":
-			i_str = getinstruction(i, {}, {})
+			i_str = getinstruction(i, o, {}, {})
 			if i != None and not RepresentsInt(i_str):
 				R2.add((v,i))
 	L = []
@@ -598,7 +799,7 @@ def transition_sorted_dynamic_read_varrefs(t, o, only_unguarded):
 
 def statement_varrefs(s, o, sm):
 	"""Return a set of variable refs appearing in statement s. o is the object owning s, and sm is the state machine owning s."""
-	global connected_channel, signalsize, actions, syncactions, alphabet, smnames, smname_to_object
+	global connected_channel, signalsize, actions, syncactions, alphabet, smnames, smname_to_object, scopename
 	R = set([])
 	if s.__class__.__name__ == "Assignment":
 		R.add((s.left.var, s.left.index))
@@ -642,12 +843,12 @@ def statement_varrefs(s, o, sm):
 				R.add((c, "[" + str(i) + "][0]"))
 			Messagerefs = set([])
 			for p in s.params:
-				Messagerefs.add((p.var.name, getinstruction(p.index, {}, {})))
+				Messagerefs.add((p.var.name, getinstruction(p.index, o, {}, {})))
 				if p.index != None:
 					R |= statement_varrefs(p.index, o, sm)
 			Rguard = statement_varrefs(s.guard, o, sm)
 			for (v,j) in Rguard:
-				if (v.name, getinstruction(j, {}, {})) not in Messagerefs:
+				if (v.name, getinstruction(j, o, {}, {})) not in Messagerefs:
 					R.add((v,j))
 		# else:
 		# 	for p in s.params:
@@ -746,12 +947,12 @@ def statement_read_varrefs(s, o, sm, only_unguarded):
 			# below: also holds for sync
 			Messagerefs = set([])
 			for p in s.params:
-				Messagerefs.add((p.var.name, getinstruction(p.index, {}, {})))
+				Messagerefs.add((p.var.name, getinstruction(p.index, o, {}, {})))
 				if p.index != None:
 					R |= statement_read_varrefs(p.index, o, sm, only_unguarded)
 			R1 = statement_read_varrefs(s.guard, o, sm, only_unguarded)
 			for (v,j) in R1:
-				if (v.name, getinstruction(j, {}, {})) not in Messagerefs:
+				if (v.name, getinstruction(j, o, {}, {})) not in Messagerefs:
 					R.add((v,j))
 	elif s.__class__.__name__ == "Expression" or s.__class__.__name__ == "ExprPrec4" or s.__class__.__name__ == "ExprPrec3" or s.__class__.__name__ == "ExprPrec2" or s.__class__.__name__ == "ExprPrec1":
 		R |= statement_read_varrefs(s.left, o, sm, only_unguarded)
@@ -822,7 +1023,7 @@ def statement_guarded_varobjects(s):
 
 def get_buffer_allocs(s, o):
 	"""Return info on number of variable allocations to do for evaluation of transition blocks of outgoing transitions of state s. o is Object owning s."""
-	global vectorelem_in_structure_map, signalsize, max_statesize
+	global vectorelem_in_structure_map, signalsize, max_statesize, vectortree, vectortree_T, vectorstructure
 	sm = s.parent
 	max_32 = 0
 	max_16 = 0
@@ -841,7 +1042,7 @@ def get_buffer_allocs(s, o):
 		dict_arrays_bool = {}
 		for (v,i) in O:
 			if v.__class__.__name__ != "Channel" and v.__class__.__name__ != "StateMachine":
-				i_str = getinstruction(i, {}, {})
+				i_str = getinstruction(i, o, {}, {})
 			else:
 				i_str = i
 			if (v,i_str) not in Vseen:
@@ -884,28 +1085,66 @@ def get_buffer_allocs(s, o):
 					count += 1
 					dict_arrays_bool[v] = count
 		# add additional 16-bit integers (if needed) for pointers to store new vector trees
-		Vseen = set([])
 		O = set([])
 		for st in t.statements:
-			O |= statement_write_varrefs(st,o)
-		for (v,i) in O:
-			i_str = getinstruction(i, {}, {})
-			Vseen.add((v,i_str))
-		nr_16 = len(Vseen)
+			O = get_write_vectorparts_info(st,o)
+			O = list(O.keys())
+			n = len(vectorstructure)-1
+			Onew = []
+			extranode = -1
+			for v in O:
+				if vectorpart_is_combined_with_nonleaf_node(v):
+					extranode = n-1
+				else:
+					Onew.append(v+n)
+			O = sorted(Onew)
+			if extranode != -1:
+				O.append(extranode)
+			# explore vectortree to find maximum number of required pointers to store (the delta of) a new state vector tree
+			navcounters = {}
+			waiting = set([])
+			for v in O:
+				current = v
+				while current != 0:
+					nextnode = vectortree_T[current]
+					C = navcounters.get(nextnode, 0)
+					navcounters[nextnode] = C+1
+					current = nextnode
+			maximum = 0
+			nr_of_pointers = 0
+			if len(O) > 0:
+				current = O.pop(0)
+				nr_of_pointers = 1
+				maximum = 1
+				while current != 0:
+					parent = vectortree_T[current]
+					navcounters[parent] -= 1
+					if navcounters[parent] == 0:
+						current = parent
+						if parent in waiting:
+							nr_of_pointers -= 1
+							waiting.remove(parent)
+					else:
+						waiting.add(parent)
+						current = O.pop(0)
+						nr_of_pointers += 1
+						if nr_of_pointers > maximum:
+							maximum = nr_of_pointers
+		max_16 = maximum
 		# record maxima
 		if nr_32 > max_32:
 			max_32 = nr_32
 			diff = 0
 		else:
 			diff = max_32 - nr_32
-		if nr_16 > max_16 + diff:
-			max_16 = nr_16 - diff
-			diff = 0
-		else:
-			if nr_16 > max_16:
-				diff = diff - (nr_16 - max_16)
-			else:
-				diff = (max_16 + diff) - nr_16
+		# if nr_16 > max_16 + diff:
+		# 	max_16 = nr_16 - diff
+		# 	diff = 0
+		# else:
+		# 	if nr_16 > max_16:
+		# 		diff = diff - (nr_16 - max_16)
+		# 	else:
+		# 		diff = (max_16 + diff) - nr_16
 		# iterate over byte arrays first
 		tmp = 0
 		for (v,nr) in dict_arrays_8.items():
@@ -922,7 +1161,7 @@ def get_buffer_allocs(s, o):
 				diff -= (nr_8 - left)
 			else:
 				diff += (left - nr_8)
-		# iterate over bool arrays first
+		# iterate over bool arrays
 		tmp = 0
 		for (v,nr) in dict_arrays_bool.items():
 			tmp += nr
@@ -949,7 +1188,7 @@ def get_buffer_arrayindex_allocs(s, o):
 			# is v an array?
 			if v.__class__.__name__ != "Channel" and v.__class__.__name__ != "StateMachine": 
 				if v.type.size > 0:
-					i_str = getinstruction(i, {}, {})
+					i_str = getinstruction(i, o, {}, {})
 					if (v,i_str) not in Vseen:
 						Vseen.add((v,i_str))
 						count = access_counters.get(v, 0)
@@ -981,7 +1220,7 @@ def map_variables_on_buffer(t, o):
 	Vseen = set([])
 	for (v,i) in O:
 		if not is_async_channel(v) and v.__class__.__name__ != "StateMachine":
-			i_str = getinstruction(i, {}, {})
+			i_str = getinstruction(i, o, {}, {})
 			if (v,i_str) not in Vseen:
 				Vseen.add((v,i_str))
 				count = access_counters.get(v, 0)
@@ -1026,7 +1265,7 @@ def map_variables_on_buffer(t, o):
 							M[(v, vindex)] = ("buf8", current_8)
 							current_8 += 1
 						elif size <= 16 and current_16 < buffer_allocs[1]:
-							M[(v, vindex)] = ("buf16", current_8)
+							M[(v, vindex)] = ("buf16", current_16)
 							current_16 += 1
 						else:
 							M[(v, vindex)] = ("buf32", current_32)
@@ -1112,10 +1351,10 @@ def get_vectorparts(L, o):
 
 	P = set([])
 	for (v,i) in L:
-		if v.__class__.__name__ != "Channel":
-			i_str = getinstruction(i, {}, {})
-		else:
-			i_str = i
+		# if v.__class__.__name__ != "Channel":
+		# 	i_str = getinstruction(i, {}, {})
+		# else:
+		# 	i_str = i
 		name = scopename(v,i,o)
 		PIDs = vectorelem_in_structure_map[name]
 		P.add(PIDs[1][0])
@@ -1131,7 +1370,7 @@ def get_remaining_vectorparts(L, o, VPs):
 	P = set([])
 	for (v,i) in L:
 		if v.__class__.__name__ != "Channel":
-			i_str = getinstruction(i, {}, {})
+			i_str = getinstruction(i, o, {}, {})
 			name = scopename(v,None,o)
 			if RepresentsInt(i_str):
 				name += "[" + i_str + "]"
@@ -1152,7 +1391,7 @@ def vectorparts_not_covered(vi, o, VPs):
 	if v.__class__.__name__ == "Channel":
 		return False
 	VPset = set(VPs)
-	i_str = getinstruction(i, {}, {})
+	i_str = getinstruction(i, o, {}, {})
 	name = scopename(v,None,o)
 	if RepresentsInt(i_str):
 		name += "[" + i_str + "]"
@@ -1162,9 +1401,46 @@ def vectorparts_not_covered(vi, o, VPs):
 		S.add(PIDs[2][0])
 	return not S.issubset(VPset)
 
-def get_write_vectorparts(s, o):
-	"""Return a sorted list of vectorparts that need to be accessed to write the values for statement s"""
+def get_write_vectorparts_info(s, o):
+	"""Return a dictionary of (vectorpart,varrefs) tuples indicating how the new values produced when executing statement s have to be stored in vector parts"""
+	global vectorelem_in_structure_map
 
+	Refs = statement_write_varrefs(s,o)
+	D = {}
+	for (v,i) in Refs:
+		if v.__class__.__name__ != "Channel":
+			i_str = getinstruction(i, o, {}, {})
+			name = scopename(v,i,o)
+			if i == None or RepresentsInt(i_str):
+				PIDs = vectorelem_in_structure_map[name]
+				p = PIDs[1][0]
+				Dv = D.get(p,set([]))
+				# Boolean flag indicates that this is the first part (of possibly two) in which the variable is stored
+				Dv.add((v,i,False))
+				D[p] = Dv
+				if len(PIDs) > 2:
+					p = PIDs[2][0]
+					Dv = D.get(p,set([]))
+					Dv.add((v,i,True))
+					D[p] = Dv
+			else:
+				# obtain all parts that contain a part of array v
+				size = v.type.size
+				S = set([])
+				for j in range(0,size):
+					i_str = "[" + str(j) + "]"
+					PIDs = vectorelem_in_structure_map[name + i_str]
+					S.add(PIDs[1][0])
+					if len(PIDs) > 2:
+						S.add(PIDs[2][0])
+				for p in S:
+					Dv = D.get(p,set([]))
+					# We write '*' as index to indicate dynamic indexing
+					Dv.add((v,'*',False))
+					D[p] = Dv
+		else:
+			i_str = i
+	return D
 
 # filter to produce difference between two lists
 def difference(L1, L2):
@@ -1202,15 +1478,15 @@ def is_state(name):
 def is_async(c):
 	return c.synctype == 'async'
 
-# Test to check if given variable ref has dynamic indexing
-def no_dynamic_indexing(v):
+# Test to check if given variable ref has dynamic indexing. o is Object owning s.
+def no_dynamic_indexing(v, o):
 	if v[0].__class__.__name__ == "Channel":
 		return True
 	if v[0].__class__.__name__ == "StateMachine":
 		return True
 	if v[1] == None:
 		return True
-	i_str = getinstruction(v[1], {}, {})
+	i_str = getinstruction(v[1], o, {}, {})
 	return RepresentsInt(i_str)
 
 def has_dynamic_indexing(v, t, o):
@@ -1223,10 +1499,51 @@ def has_dynamic_indexing(v, t, o):
 		for (v1,i) in O:
 			if v1 == v:
 				if i != None:
-					i_str = getinstruction(i, {}, {})
+					i_str = getinstruction(i, o, {}, {})
 					if not RepresentsInt(i_str):
 						return True
 	return False
+
+def get_constant_indices(v, t, o):
+	"""Returns for array v a dictionary for constant indices used in the block of transition t, to map these to thread buffer variables in CUDA code. o is Object owning s."""
+	L = set([])
+	if v.__class__.__name__ != "Channel" and v.__class__.__name__ != "StateMachine":
+		sm = t.parent
+		O = set([])
+		for st in t.statements:
+			O |= statement_varrefs(st, o, sm)
+		for (v1,i) in O:
+			if v1 == v:
+				if i != None:
+					i_str = getinstruction(i, o, {}, {})
+					if RepresentsInt(i_str):
+						L.add(i_str)
+	L = sorted(list(L))
+	D = {}
+	counter = 0
+	for i in L:
+		D[i] = str(counter)
+		counter += 1
+	return D
+
+def get_array_range_in_vectorpart(v, vname, pid):
+	"""Return, for the given array with the given name and vectorpart pid, the range of the former's elements that are (partially) stored in part pid"""
+	global vectorstructure
+
+	size = v.type.size
+	I = set([])
+	S = vectorstructure[pid]
+	for (name,size) in S:
+		if vname in name:
+			# extract index from name
+			index = name.split("[")
+			index = index[1]
+			index = index[:-1]
+			I.add(index)
+	# pick maximum and minimum values
+	lower = min(I)
+	upper = max(I)
+	return (lower,upper)
 
 def must_be_processed_by(t, i, o):
 	"""Return whether or not the given transition must be processed by the thread associated to the state machine with id i in the vector state order. o is Object owning t."""
@@ -1300,7 +1617,7 @@ def debug(text):
 
 def preprocess():
 	"""Preprocessing of model"""
-	global model, vectorsize, vectorstructure, vectortree, vectorstructure_string, smnames, vectorelem_in_structure_map, max_statesize, state_order, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, connected_channel, signalsize, signalnr, alphabet, syncactions, actiontargets, actions, syncreccomm, no_state_constant, no_prio_constant
+	global model, vectorsize, vectorstructure, vectortree, vectortree_T, vectorstructure_string, smnames, vectorelem_in_structure_map, max_statesize, state_order, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, connected_channel, signalsize, signalnr, alphabet, syncactions, actiontargets, actions, syncreccomm, no_state_constant, no_prio_constant, dynamic_write_arrays
 
 	# construct set of statemachine names in the system
 	# also construct a map from names to objects
@@ -1546,35 +1863,74 @@ def preprocess():
 	if tmp != []:
 		vectorstructure.append(tmp)
 	vectorstructure_string = vectorstructure_to_string(elements_strings)
-	# create a vectortree structure, indicating how to navigate from the leaves to the root.
-	vectortree = {}
+	# create vectortree structures, indicating how to navigate between the leaves and the root.
 	# number of nodes
 	nrnodes = 2*len(vectorstructure) - 1
 	# compensate for a final vector part integrated into a non-leaf node
 	if vectorpart_is_combined_with_nonleaf_node(len(vectorstructure)-1):
 		nrnodes -= 1
+	# number of vector parts with state machine states
+	nrstatenodes = 0
+	for t in vectorstructure:
+		if t[0][0] in smnames:
+			nrstatenodes += 1
+	nrstatenodes += nrstatenodes-1
 	# build the tree in a downwards direction first
-	down_vectortree = {}
-	openlist = [0]
-	nextnode = 1
+	vectortree = {}
+	vectortree_T = {}
+	openlist = []
+	statenodes = set([])
+	datanodes = set([])
+	statecount = 0
+	datacount = 0
+	# distinguish different cases regarding the presence of states and data
+	if nrnodes > 1:
+		openlist = [1]
+		statenodes.add(1)
+		nextnode = 2
+		statecount += 1
+	if nrnodes > 2:
+		openlist.append(2)
+		if nrstatenodes == nrnodes:
+			statenodes.add(2)
+			statecount += 1
+		else:
+			datanodes.add(2)
+			datacount += 1
+		nextnode = 3
+	vectortree[0] = deepcopy(openlist)
 	while openlist != []:
-		current = openlist.pop()
+		current = openlist.pop(0)
 		children = []
 		# child one
-		if nextnode < nrnodes:
+		if current in statenodes and statecount < nrstatenodes:
 			children.append(nextnode)
+			statenodes.add(nextnode)
 			openlist.append(nextnode)
-		nextnode += 1
+			statecount += 1
+		elif current in datanodes and datacount < nrstatenodes:
+			children.append(nextnode)
+			datanodes.add(nextnode)
+			openlist.append(nextnode)
+			datacount += 1
 		# child two
-		if nextnode < nrnodes:
+		nextnode += 1		
+		if current in statenodes and statecount < nrstatenodes:
 			children.append(nextnode)
+			statenodes.add(nextnode)
 			openlist.append(nextnode)
-		down_vectortree[current] = children
+			statecount += 1
+		elif current in datanodes and datacount < nrstatenodes:
+			children.append(nextnode)
+			datanodes.add(nextnode)
+			openlist.append(nextnode)
+			datacount += 1
+		vectortree[current] = children
 	# now transpose this tree
-	for v in down_vectortree.keys():
-		C1 = down_vectortree[v]
+	for v in vectortree.keys():
+		C1 = vectortree[v]
 		for w in C1:
-			vectortree[w] = v
+			vectortree_T[w] = v
 	# create list of array names and channel buffer names
 	arraynames = []
 	for o in model.objects:
@@ -1656,10 +2012,39 @@ def preprocess():
 			for t in sm.transitions:
 				if no_prio_constant < t.priority:
 					no_prio_constant = t.priority
+	# construct dynamic write arrays dictionary
+	dynamic_write_arrays = {}
+	arrays = set([])
+	for o in model.objects:
+		for sm in o.type.statemachines:
+			for t in sm.transitions:
+				for st in t.statements:
+					W = statement_write_varrefs(st, o)
+					# search for dynamic accesses
+					for (v,i) in W:
+						if i != None and not isinstance(i, str):
+							i_str = getinstruction(i,o,{},{})
+							if not RepresentsInt(i_str):
+								vname = o.name + "'"
+								if v.parent.__class__.__name__ == "StateMachine":
+									vname += sm.name + "'"
+								vname += v.name
+								arrays.add((v,vname))
+	for (v,vname) in arrays:
+		size = v.type.size
+		# lower bound
+		PIDs = vectorelem_in_structure_map[vname + "[0]"]
+		lower = PIDs[1][0]
+		# upper bound
+		PIDs = vectorelem_in_structure_map[vname + "[" + str(size-1) + "]"]
+		upper = PIDs[1][0]
+		if len(PIDs) > 2:
+			upper = PIDs[2][0]
+		dynamic_write_arrays[v] = (vname,lower,upper)
 
 def translate():
 	"""The translation function"""
-	global modelname, model, vectorstructure, vectorstructure_string, vectortree, vectorelem_in_structure_map, state_order, max_statesize, smnames, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, signalsize, connected_channel, alphabet, syncactions, actiontargets, no_state_constant, no_prio_constant
+	global modelname, model, vectorstructure, vectorstructure_string, vectortree, vectorelem_in_structure_map, state_order, max_statesize, smnames, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, signalsize, connected_channel, alphabet, syncactions, actiontargets, no_state_constant, no_prio_constant, dynamic_write_arrays
 	
 	path, name = split(modelname)
 	if name.endswith('.slco'):
@@ -1672,7 +2057,8 @@ def translate():
 	jinja_env = jinja2.Environment(loader=jinja2.FileSystemLoader(join(this_folder,'../../jinja2_templates')), trim_blocks=True, lstrip_blocks=True, extensions=['jinja2.ext.loopcontrols','jinja2.ext.do',])
 
 	# Register the filters
-	jinja_env.filters['get_vector_tree_navigation'] = get_vector_tree_navigation
+	jinja_env.filters['get_vector_tree_to_part_navigation'] = get_vector_tree_to_part_navigation
+	jinja_env.filters['get_vector_tree_to_node_navigation'] = get_vector_tree_to_node_navigation
 	jinja_env.filters['outgoingtrans'] = outgoingtrans
 	jinja_env.filters['cudarecsizeguard'] = cudarecsizeguard
 	jinja_env.filters['cudaguard'] = cudaguard
@@ -1697,6 +2083,7 @@ def translate():
 	jinja_env.filters['map_variables_on_buffer'] = map_variables_on_buffer
 	jinja_env.filters['is_state'] = is_state
 	jinja_env.filters['has_dynamic_indexing'] = has_dynamic_indexing
+	jinja_env.filters['get_array_range_in_vectorpart'] = get_array_range_in_vectorpart
 	jinja_env.filters['difference'] = difference
 	jinja_env.filters['get_vars'] = get_vars
 	jinja_env.filters['must_be_processed_by'] = must_be_processed_by
@@ -1712,7 +2099,7 @@ def translate():
 
 	# load the GPUexplore template
 	template = jinja_env.get_template('gpuexplore.jinja2template')
-	out = template.render(model=model, vectorsize=vectorsize, vectorstructure=vectorstructure, vectorstructure_string=vectorstructure_string, vectortree=vectortree, max_statesize=max_statesize, vectorelem_in_structure_map=vectorelem_in_structure_map, state_order=state_order, smnames=smnames, smname_to_object=smname_to_object, state_id=state_id, arraynames=arraynames, max_arrayindexsize=max_arrayindexsize, max_buffer_allocs=max_buffer_allocs, vectorpartlist=vectorpartlist, connected_channel=connected_channel, alphabet=alphabet, syncactions=syncactions, actiontargets=actiontargets, syncreccomm=syncreccomm, no_state_constant=no_state_constant, no_prio_constant=no_prio_constant)
+	out = template.render(model=model, vectorsize=vectorsize, vectorstructure=vectorstructure, vectorstructure_string=vectorstructure_string, vectortree=vectortree, max_statesize=max_statesize, vectorelem_in_structure_map=vectorelem_in_structure_map, state_order=state_order, smnames=smnames, smname_to_object=smname_to_object, state_id=state_id, arraynames=arraynames, max_arrayindexsize=max_arrayindexsize, max_buffer_allocs=max_buffer_allocs, vectorpartlist=vectorpartlist, connected_channel=connected_channel, alphabet=alphabet, syncactions=syncactions, actiontargets=actiontargets, syncreccomm=syncreccomm, no_state_constant=no_state_constant, no_prio_constant=no_prio_constant, dynamic_write_arrays=dynamic_write_arrays)
 	# write new SLCO model
 	outFile.write(out)
 	outFile.close()

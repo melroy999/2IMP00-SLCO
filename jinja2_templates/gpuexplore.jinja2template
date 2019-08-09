@@ -38,6 +38,16 @@
 {% else %}
 #define buffer_indextype int32_t
 {% endif %}
+// type for indexing vector parts
+{% if vectortree|length < 2**8 %}
+#define vectorpart_indextype uint8_t;
+{% elif vectortree|length < 2**16 %}
+#define vectorpart_indextype uint16_t;
+{% elif vectortree|length < 2**32 %}
+#define vectorpart_indextype uint32_t;
+{% elif vectortree|length < 2**64 %}
+#define vectorpart_indextype uint32_t;
+{% endif %}
 
 // Constant representing empty array index entry.
 #define EMPTY_INDEX -1
@@ -47,12 +57,20 @@
 // CONSTANTS FOR SHARED MEMORY CACHES
 // Number of retries in local cache
 #define CACHERETRYFREQ 20
-// Empty local cache element
-#define EMPTYVECT32 0
+// Empty local cache element (exploits that a vectorpart cannot be marked 'new' without being marked 'root')
+#define EMPTYVECT32 0xBFFF
 // offset in shared memory from which loaded data can be read
 #define SH_OFFSET 5
 // offset in shared memory from which hash function constants can be read
 #define HASHCONSTANTSOFFSET (SH_OFFSET)
+
+// CONSTANTS FOR GLOBAL MEMORY HASH TABLE
+// Empty hash table element (exploits that a vectorpart cannot be marked 'new' without being marked 'root')
+{% if vectorsize < 31 %}
+#define EMPTYVECTPART_GLOBAL 0xBFFF
+{% else %}
+#define EMPTYVECTPART_GLOBAL 0xBFFFFFFF
+{% endif %}
 
 // State vector size.
 inttype sv_nints = {{vectorsize}};
@@ -84,7 +102,7 @@ inline __device__ shared_indextype sv_step(shared_inttype *d_z, shared_indextype
 {% endif %}
 
 // Retrieval functions for vector parts from shared memory, ignoring shared memory node pointers (cache pointers).
-inline __device__ inttype get_vectorpart(inttype *d_z, shared_indextype node_index, inttype i) {
+inline __device__ inttype get_vectorpart(inttype *d_z, shared_indextype node_index, vectorpart_indextype i) {
 	switch (i) {
 	  {% for i in range(0,vectorstructure|length) %}
 	  case {{i}}:
@@ -100,23 +118,23 @@ inline __device__ inttype get_vectorpart_{{i}}(inttype *d_z, shared_indextype no
 	{% if vectorsize < 63 %}
 	return d_z[node_index];
 	{% else %}
-	{% if i|get_vector_tree_navigation|length > 0 %}
+	{% if i|get_vector_tree_to_part_navigation|length > 0 %}
 	shared_indextype index = node_index;
 	{% endif %}
-	{% for b in i|get_vector_tree_navigation %}
+	{% for b in i|get_vector_tree_to_part_navigation %}
 	index = sv_step(d_z, index, {% if b %}true{% else %}false{% endif %});
 	{% endfor %}
 	inttype part;
 	asm("{\n\t"
 		" mov.b64 %0,{ %1, %2 };\n\t"
-		"}" : "={% if vectorsize < 31 %}r{% else %}l{% endif %}"(part) : "r"(d_z[{% if i|get_vector_tree_navigation|length > 0 %}index{% else %}node_index{% endif %}]), "r"(d_z[{% if i|get_vector_tree_navigation|length > 0 %}index{% else %}node_index{% endif %}+1]));
+		"}" : "={% if vectorsize < 31 %}r{% else %}l{% endif %}"(part) : "r"(d_z[{% if i|get_vector_tree_to_part_navigation|length > 0 %}index{% else %}node_index{% endif %}]), "r"(d_z[{% if i|get_vector_tree_to_part_navigation|length > 0 %}index{% else %}node_index{% endif %}+1]));
 	return part;
 	{% endif %}
 }
 {% endfor %}
 
 // Retrieval functions for vector tree nodes from shared memory, including shared memory node pointers (cache pointers).
-inline __device__ void get_vectortree_node(inttype &node, shared_inttype &cachepointers, inttype *d_z, shared_indextype node_index, inttype i) {
+inline __device__ void get_vectortree_node(inttype &node, shared_inttype &cachepointers, inttype *d_z, shared_indextype node_index, vectorpart_indextype i) {
 	switch (i) {
 	  {% for i in range(0,vectortree|length) %}
 	  case {{i}}:
@@ -129,10 +147,16 @@ inline __device__ void get_vectortree_node(inttype &node, shared_inttype &cachep
 {% for i in range(0,vectortree|length) %}
 
 inline __device__ void get_vectortree_node_{{i}}(inttype &node, shared_inttype &cachepointers, inttype *d_z, shared_indextype node_index) {
+	{% if i|get_vector_tree_to_node_navigation|length > 0 %}
+	shared_indextype index = node_index;
+	{% endif %}
+	{% for b in i|get_vector_tree_to_node_navigation %}
+	index = sv_step(d_z, index, {% if b %}true{% else %}false{% endif %});
+	{% endfor %}
 	asm("{\n\t"
 		" mov.b64 %0,{ %1, %2 };\n\t"
-		"}" : "={% if vectorsize < 31 %}r{% else %}l{% endif %}"(node) : "r"(d_z[node_index]), "r"(d_z[node_index+1]));
-	cachepointers = d_z[node_index+2];
+		"}" : "={% if vectorsize < 31 %}r{% else %}l{% endif %}"(node) : "r"(d_z[{% if i|get_vector_tree_to_node_navigation|length > 0 %}index{% else %}node_index{% endif %}]), "r"(d_z[{% if i|get_vector_tree_to_node_navigation|length > 0 %}index{% else %}node_index{% endif %}+1]));
+	cachepointers = d_z[{% if i|get_vector_tree_to_node_navigation|length > 0 %}index{% else %}node_index{% endif %}+2];
 }
 {% endfor %}
 
@@ -212,7 +236,7 @@ inline __device__ void get_current_state(statetype b, inttype *d_z, shared_index
 // Precondition: the given parts indeed need to contain the updated info.
 {% for s in vectorelem_in_structure_map.keys() %}
 {% set size = vectorelem_in_structure_map[s][0] %}
-inline __device__ void set_{{s|replace("[","_")|replace("]","")|replace("'","_")}}(inttype part1, inttype part2, {% if size < 32 %}elem_chartype{% else %}elem_inttype{% endif %} x) {
+inline __device__ void set_{{s|replace("[","_")|replace("]","")|replace("'","_")}}(inttype &part1, inttype &part2, {% if size < 32 %}elem_chartype{% else %}elem_inttype{% endif %} x) {
 	asm("{\n\t"
 		" .reg .u64 t1;\n\t"
 {% if size < 32 %}
@@ -229,6 +253,71 @@ inline __device__ void set_{{s|replace("[","_")|replace("]","")|replace("'","_")
 {% endif %}
 		"}" : "+l"(part1), "+l"(part2)) : "r"(x);
 }
+
+{% endfor %}
+// Data update functions for arrays with dynamic indexing, focussed on one specific vector part.
+{% for x in dynamic_write_arrays.keys() %}
+// Auxiliary functions for {{dynamic_write_arrays[x][0]}}.
+inline __device__ bool array_element_is_in_vectorpart_{{dynamic_write_arrays[x][0]|replace("'","_")}}(i, pid) {
+	switch (pid) {
+		{% for p in range(dynamic_write_arrays[x][1], dynamic_write_arrays[x][2]+1) %}
+		case {{p}}:
+			return (i >= {{(x|get_array_range_in_vectorpart(dynamic_write_arrays[x][0],p))[0]}} && i <= {{(x|get_array_range_in_vectorpart(dynamic_write_arrays[x][0],p))[1]}});
+		{% endfor %}
+		default:
+			return False;
+	}
+}
+
+// Precondition: array element i is (partially) stored in vector part pid.
+inline __device__ bool is_left_vectorpart_for_array_element_{{dynamic_write_arrays[x][0]|replace("'","_")}}(i, pid) {
+	switch (pid) {
+		{% for p in range(dynamic_write_arrays[x][1], dynamic_write_arrays[x][2]+1) %}
+		case {{p}}:
+			return (i >{% if loop.first %}= 0{% else %} {{(x|get_array_range_in_vectorpart(dynamic_write_arrays[x][0],p-1))[1]}}{% endif %} && i <= {{(x|get_array_range_in_vectorpart(dynamic_write_arrays[x][0],p))[1]}});
+		{% endfor %}
+		default:
+			return False;
+	}	
+}
+
+// Data update function for {{dynamic_write_arrays[x][0]}}.
+inline __device__ inttype set_{{dynamic_write_arrays[x][0]|replace("'","_")}}(inttype &part, inttype &part_tmp, array_indextype indices, {{x.type|cudatype(True)}} buf, buffer_indextype buf_offset, vectorpart_indextype part_id) {
+	if (part_id >= {{dynamic_write_arrays[x][1]}} && part_id <= {{dynamic_write_arrays[x][2]}}) {
+		for (buffer_indextype i = 0;; i++) {
+			if (indices[i] == EMPTY_INDEX) {
+				break;
+			}
+			if (array_element_is_in_vectorpart_{{dynamic_write_arrays[x][0]|replace("'","_")}}(indices[i], part_id)) {
+				if (is_left_vectorpart_for_array_element_{{dynamic_write_arrays[x][0]|replace("'","_")}}(indices[i], part_id)) {
+					switch (indices[i]) {
+						{% for i in range(dynamic_write_arrays[x][1], dynamic_write_arrays[x][2]+1) %}
+						case {{i}}:
+							set_{{dynamic_write_arrays[x][0]|replace("'","_")}}_{{i}}(&part, &part_tmp, buf[buf_offset + i]);
+						{% endfor %}
+						default:
+							part_tmp = *part;
+					}
+				}
+				else {
+					switch (indices[i]) {
+						{% for i in range(dynamic_write_arrays[x][1], dynamic_write_arrays[x][2]+1) %}
+						{% if vectorelem_in_structure_map[dynamic_write_arrays[x][0] + "[" + i|string + "]"]|length > 2 %}
+						case {{i}}:
+							set_{{dynamic_write_arrays[x][0]|replace("'","_")}}_{{i}}(&part_tmp, &part, buf[buf_offset + i]);
+						{% endif %}
+						{% endfor %}
+						default:
+							part_tmp = *part;
+					}
+				}
+			}
+		}
+	}
+}
+
+// Cache pointers reset functions.
+inline __device__ void reset_left_pointer(shared_indextype)
 
 {% endfor %}
 // Auxiliary functions to check for and obtain offset for given array index in the appropriate buffer. The given array of indices is scanned to retrieve the offset.
@@ -360,7 +449,8 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_z,
 	// Fetch the current state of the state machine.
 	statetype current = get_current_state(d_z, node_index, {{i}});
 	statetype target = NO_STATE;
-	inttype part1, part2;
+	inttype part1, part2, part_tmp;
+	shared_inttype part_cachepointers;
 	switch (current) {
 		{% for s in smname_to_object[state_order[i]][1].states %}
 		{% set o = smname_to_object[state_order[i]][0] %}
@@ -376,6 +466,7 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_z,
 			{% endif %}
 			{% if allocs[1] > 0 %}
 			uint16_t buf16[{{allocs[1]}}];
+			uint8_t pointer_cnt§	  = 0;
 			{% endif %}
 			{% if allocs[2] > 0 %}
 			elem_chartype buf8[{{allocs[2]}}];
@@ -425,7 +516,7 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_z,
 				idx_{{v.name}}[i] = EMPTY_INDEX;
 			}
 			{% endfor %}
-			{% set VP = t|transition_read_varrefs(o,True)|select("no_dynamic_indexing")|get_vectorparts(o) %}
+			{% set VP = t|transition_read_varrefs(o,True)|select("no_dynamic_indexing",o)|get_vectorparts(o) %}
 			{% if VP|length > 0 %}
 			{{indent}}// Fetch values of unguarded variables.
 			{% endif %}
@@ -440,7 +531,7 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_z,
 			{{indent}}part1 = part2;
 			{% endif %}
 			{% endif %}
-			{% for (v,j) in t|transition_read_varrefs(o,False)|select("no_dynamic_indexing") if vectorelem_in_structure_map[v|scopename(j,o)][1][0] == VP[i] and (vectorelem_in_structure_map[v|scopename(j,o)]|length == 2 or vectorelem_in_structure_map[v|scopename(j,o)][vectorelem_in_structure_map[v|scopename(j,o)]|length-1][0] == VP[i+1]) %}
+			{% for (v,j) in t|transition_read_varrefs(o,False)|select("no_dynamic_indexing",o) if vectorelem_in_structure_map[v|scopename(j,o)][1][0] == VP[i] and (vectorelem_in_structure_map[v|scopename(j,o)]|length == 2 or vectorelem_in_structure_map[v|scopename(j,o)][vectorelem_in_structure_map[v|scopename(j,o)]|length-1][0] == VP[i+1]) %}
 			{% if (not VPloop.first) and loop.first %}
 			{{indent}}part1 = part2;
 			{% endif %}
@@ -454,13 +545,13 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_z,
 			{% endif %}
 			{% endif %}
 			{% if v.__class__.__name__ != "Channel" and v.__class__.__name__ != "StateMachine" %}
-			{{indent}}get_{{v|scopename(None,o)|replace("'","_")}}{% if j != None %}_{{j|getinstruction({},{})}}{% endif %}({{M[v][0]}}[{{M[v][1]}}{% if j != None %} + {{j|getinstruction({},{})}}{% endif %}], part1, part2);
+			{{indent}}get_{{v|scopename(None,o)|replace("'","_")}}{% if j != None %}_{{j|getinstruction(o,{},{})}}{% endif %}({{M[v][0]}}[{{M[v][1]}}{% if j != None %} + {{j|getinstruction(o,{},{})}}{% endif %}], part1, part2);
 			{% else %}
 			{{indent}}get_{{v|scopename(j,o)|replace("[","_")|replace("]","")|replace("'","_")}}({{M[(v,j)][0]}}[{{M[(v,j)][1]}}], part1, part2);
 			{% endif %}
 			{% if v|has_dynamic_indexing(t,o) %}
 			{{indent}}// Store array index.
-			{{indent}}add_idx(idx_{{v.name}}, {{j|getinstruction({},{})}});
+			{{indent}}add_idx(idx_{{v.name}}, {{j|getinstruction(o,{},{})}});
 			{% endif %}
 			{% endfor %}
 			{% endfor %}
@@ -469,10 +560,10 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_z,
 			{{indent}}// Fetch values of unguarded variables involving dynamic array indexing.
 			{% endif %}
 			{{indent}}// Check for presence of index in buffer indices.
-			{{indent}}buffer_indextype i = add_idx(idx_{{v.name}}, {{j|getinstruction(M,{})}});
+			{{indent}}buffer_indextype i = add_idx(idx_{{v.name}}, {{j|getinstruction(o,M,{})}});
 			{{indent}}if (i != -1) {
 			{{indent}}	// Fetch value.
-			{{indent}}	get_{{v|scopename(None,o)}}(d_z, node_index, buf{{v.type|gettypesize}}[{{M[v][1]}}+i], {{j|getinstruction(M),{}}});
+			{{indent}}	get_{{v|scopename(None,o)}}(d_z, node_index, buf{{v.type|gettypesize}}[{{M[v][1]}}+i], {{j|getinstruction(o,M,{}),{}}});
 			{{indent}}}
 			{% endfor %}
 			{{indent}}// Statement computation.
@@ -487,10 +578,10 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_z,
 			{{indent}}target = {{state_id[(sm,t.target)]}};
 			{% endif %}
 			{% endif %}
-			{% set VPrem = t|transition_read_varrefs(o,False)|select("no_dynamic_indexing")|get_remaining_vectorparts(o,VPs) %}
+			{% set VPrem = t|transition_read_varrefs(o,False)|select("no_dynamic_indexing",o)|get_remaining_vectorparts(o,VPs) %}
 			{% for i in range(0,VPrem|length) %}
 			{% set VPremloop = loop %}
-			{% for (v,j) in t|transition_read_varrefs(o,False)|select("no_dynamic_indexing")|select("vectorparts_not_covered", o, VP) if vectorelem_in_structure_map[v|scopename(j,o)][1][0] == VPrem[i] and (vectorelem_in_structure_map[v|scopename(j,o)]|length == 2 or vectorelem_in_structure_map[v|scopename(j,o)][vectorelem_in_structure_map[v|scopename(j,o)]|length-1][0] == VPrem[i+1]) %}
+			{% for (v,j) in t|transition_read_varrefs(o,False)|select("no_dynamic_indexing",o)|select("vectorparts_not_covered", o, VP) if vectorelem_in_structure_map[v|scopename(j,o)][1][0] == VPrem[i] and (vectorelem_in_structure_map[v|scopename(j,o)]|length == 2 or vectorelem_in_structure_map[v|scopename(j,o)][vectorelem_in_structure_map[v|scopename(j,o)]|length-1][0] == VPrem[i+1]) %}
 			{% if VPremloop.first and loop.first %}
 			{{indent}}// fetch remaining values of unguarded variables (without dynamic array indexing)
 			{% if VPrem[i] != fetched[0] and VPrem[i] != fetched[1] %}
@@ -513,10 +604,10 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_z,
 			{{indent}}part2 = part1;
 			{% endif %}
 			{% endif %}
-			{{indent}}get_{{v|scopename(None,o)}}{% if j != None %}_{{j|getinstruction({},{})}}{% endif %}({{M[v][0]}}[{{M[v][1]}}{% if j != None %} + {{j|getinstruction({},{})}}{% endif %}], part1, part2);
+			{{indent}}get_{{v|scopename(None,o)}}{% if j != None %}_{{j|getinstruction(o,{},{})}}{% endif %}({{M[v][0]}}[{{M[v][1]}}{% if j != None %} + {{j|getinstruction(o,{},{})}}{% endif %}], part1, part2);
 			{% if v|has_dynamic_indexing(t,o) %}
 			{{indent}}// Store array index
-			{{indent}}add_idx(idx_{{v.name}}, {{j|getinstruction({},{})}});
+			{{indent}}add_idx(idx_{{v.name}}, {{j|getinstruction(o,{},{})}});
 			{% endif %}
 			{% endfor %}
 			{% endfor %}
@@ -525,10 +616,10 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_z,
 			{{indent}}// Fetch remaining values of unguarded variables involving dynamic array indexing.
 			{% endif %}
 			{{indent}}// check for presence of index in buffer indices.
-			{{indent}}buffer_indextype i = add_idx(idx_{{v.name}}, {{j|getinstruction(M,{})}});
+			{{indent}}buffer_indextype i = add_idx(idx_{{v.name}}, {{j|getinstruction(o,M,{})}});
 			{{indent}}if (i != -1) {
 			{{indent}}	// Fetch value.
-			{{indent}}	get_{{v|scopename(None,o)}}(d_z, node_index, buf{{v.type|gettypesize}}[{{M[v][1]}}+i], {{j|getinstruction(M,{})}});
+			{{indent}}	get_{{v|scopename(None,o)}}(d_z, node_index, buf{{v.type|gettypesize}}[{{M[v][1]}}+i], {{j|getinstruction(o,M,{})}});
 			{{indent}}}
 			{% endfor %}
 			{{indent}}// Set target state.
