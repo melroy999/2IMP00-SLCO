@@ -422,125 +422,112 @@ def is_non_leaf(pid):
 	global vectorstructure
 	return (pid < len(vectorstructure)-1)
 
-def store_new_vectortree_nodes(node_stack, nav, W, indentspace):
+def store_new_vectortree_nodes(node_stack, nav, W, s, o, D, Drec, indentspace):
 	"""Produce CUDA code to produce and store new vectortree nodes. node_stack is a stack containing node ids that have been successfully processed before. nav is a list of nodes still to be processed.
 	   W is a dictionary defining for all vectorparts which values need to be written to it."""
 	global vectortree
-	result = ""
-	(p,f) = nav.pop(0)
-	if is_vectorpart(p):
-		output += "get_vectortree_node(&part1, &part_cachepointers, d_z, node_index, " + str(p) + ");\n" + indentspace
-		output += "// Store new values.\n" + indentspace
-		output += "part2 = part1;\n" + indentspace
-		refs = W[p]
-		for (v,i,isnotfirstpart) in refs:
-			if i != '*':
-				result = ""
-				offset = None
-				# look for an exact (name, index) match in Drec
-				if i != None:
-					index_str = getinstruction(i, o, {}, {})
-				else:
-					index_str = i
-				(vname,offset) = Drec.get((v.name, index_str), (v.name, None))
-				if vname == v.name:
-					# look for a match on v in D
-					(vname,offset) = D.get(v, (v.name, None))
-				result += vname
-				if offset != None or i != None:
-					result += "["
-					if offset != None:
-						result += str(offset)
+	output = ""
+	if nav != []:
+		(p,f) = nav.pop(0)
+		print("here")
+		if is_vectorpart(p):
+			refs = W.get(p,[])
+			if refs != []:
+				output += "get_vectortree_node(&part1, &part_cachepointers, d_z, node_index, " + str(p) + ");\n" + indentspace
+				output += "// Store new values.\n" + indentspace
+				output += "part2 = part1;\n" + indentspace
+				for (v,i,isnotfirstpart) in refs:
+					if i != '*':
+						result = ""
+						offset = None
+						# look for an exact (name, index) match in Drec
 						if i != None:
-							result += " + "
-					if i != None:
-						if has_dynamic_indexing(v, s.parent, o):
-							result += "idx(idx_" + v.name + ", " + index_str + ")"
+							index_str = getinstruction(i, o, {}, {})
 						else:
-							indexdict = get_constant_indices(v, s.parent, o)
-							result += indexdict[index_str]
-					result += "]"
-				# code to update the current vector part
-				set_methodname = scopename(v,None,o)
-				set_methodname = set_methodname.replace("'","_")
-				if i != None:
-					set_methodname += "_" + index_str
-				if not isnotfirstpart:
-					output += "set_" + set_methodname + "(&part2, &part_tmp, " + result + ");\n" + indentspace
-				else:
-					output += "set_" + set_methodname + "(&part_tmp, &part2, " + result + ");\n" + indentspace
+							index_str = i
+						(vname,offset) = Drec.get((v.name, index_str), (v.name, None))
+						if vname == v.name:
+							# look for a match on v in D
+							(vname,offset) = D.get(v, (v.name, None))
+						result += vname
+						if offset != None or i != None:
+							result += "["
+							if offset != None:
+								result += str(offset)
+								if i != None:
+									result += " + "
+							if i != None:
+								if has_dynamic_indexing(v, s.parent, o):
+									result += "idx(idx_" + v.name + ", " + index_str + ")"
+								else:
+									indexdict = get_constant_indices(v, s.parent, o)
+									result += indexdict[index_str]
+							result += "]"
+						# code to update the current vector part
+						set_methodname = scopename(v,None,o)
+						set_methodname = set_methodname.replace("'","_")
+						if i != None:
+							set_methodname += "_" + index_str
+						if not isnotfirstpart:
+							output += "set_" + set_methodname + "(&part2, &part_tmp, " + result + ");\n" + indentspace
+						else:
+							output += "set_" + set_methodname + "(&part_tmp, &part2, " + result + ");\n" + indentspace
+					else:
+						# dynamic indexing into an array. use a special set function for this.
+						set_methodname = scopename(v,None,o)
+						set_methodname = set_methodname.replace("'","_")
+						(vname, offset) = D.get(v, (v.name, None))
+						output += "set_" + set_methodname + "(&part2, &part_tmp, idx_" + v.name + ", " + vname + ", " + str(offset) + ");\n" + indentspace
+			if is_non_leaf(p):
+				# node is also a non-leaf in the vectortree. update pointers.
+				if f:
+					output += "pointer_cnt--;\n" + indentspace
+					output += "if (buf16[pointer_cnt] != EMPTYCACHEPOINTER) {\n" + indentspace + "\t"
+					output += "set_left_pointer(&part_cachepointers, buf16[pointer_cnt]);\n" + indentspace + "\t"
+					output += "reset_left_in_vectorpart(&part2);\n" + indentspace
+					output += "}\n" + indentspace
+					output += "if (part2 != part1 || buf16[pointer_cnt] != EMPTYCACHEPOINTER) {\n" + indentspace + "\t"
 			else:
-				# dynamic indexing into an array. use a special set function for this.
-				set_methodname = scopename(v,None,o)
-				set_methodname = set_methodname.replace("'","_")
-				(vname, offset) = D.get(v, (v.name, None))
-				output += "set_" + set_methodname + "(&part2, &part_tmp, idx_" + v.name + ", " + vname + ", " + str(offset) + ");\n" + indentspace
-		if is_non_leaf(p):
-			# node is also a non-leaf in the vectortree. update pointers.
-			if f:
-				indentspace += "\t"
-				output += "pointer_cnt--;\n" + indentspace
-				output += "if (buf16[pointer_cnt] != EMPTYCACHEPOINTER) {\n" + indentspace
-				output += "set_left_pointer(&part_cachepointers, buf16[pointer_cnt-1]);\n" + indentspace
-				output += "reset_left_in_vectorpart(&part2);\n" + indentspace
-				output -= "\t"
-				output += "}\n" + indentspace
-				indentspace += "\t"
-				output += "if (part2 != part1 || buf16[pointer_cnt] != EMPTYCACHEPOINTER) {\n" + indentspace
-		else:
-			output += "if (part2 != part1) {\n" + indentspace
-		output += "// This part has been altered. Store it in shared memory and remember address of new part.\n" + indentspace
-		output += "bla = store_in_cache(part2, part_cachepointers, &buf16[pointer_cnt]);\n" + indentspace
-		output += "pointer_cnt++;\n" + indentspace
-		indentspace -= "\t"
-		output += "}\n"  + indentspace
-		indentspace += "\t"
-		output += "else {\n" + indentspace
-		indentspace -= "\t"
-		output += "buf16[pointer_cnt] = EMPTYCACHEPOINTER;\n" + indentspace
-		output += "}\n"  + indentspace
-		output += store_new_vectortree_nodes(node_stack + [p], nav, W, indentspace)
-	if is_non_leaf(p):
-		indentspace += "\t"
-		output += "pointer_cnt--;\n" + indentspace
-		if not f:
-			output += "if (buf16[pointer_cnt] != EMPTYCACHEPOINTER) {\n" + indentspace
-			children = vectortree[p]
-			if node_stack[len(node_stack)-1] == children[0]:
-				output += "set_left_pointer(&part_cachepointers, buf16[pointer_cnt]);\n" + indentspace
-				output += "reset_left_in_vectorpart(&part2);\n" + indentspace
-			else:
-				output += "set_right_pointer(&part_cachepointers, buf16[pointer_cnt]);\n" + indentspace
-				output += "reset_right_in_vectorpart(&part2);\n" + indentspace
-		else:
-			indentspace += "\t"
-			output += "if (buf16[pointer_cnt] != EMPTYCACHEPOINTER) {\n" + indentspace
-			output += "set_right_pointer(&part_cachepointers, buf16[pointer_cnt]);\n" + indentspace
-			output += "reset_right_in_vectorpart(&part2);\n" + indentspace
-			indentspace -= "\t"
-			output += "}\n" + indentspace
+				output += "if (part2 != part1) {\n" + indentspace + "\t"
+			output += "// This part has been altered. Store it in shared memory and remember address of new part.\n" + indentspace + "\t"
+			output += "bla = store_in_cache(part2, part_cachepointers, &buf16[pointer_cnt]);\n" + indentspace
+			output += "}\n"  + indentspace
+			output += "else {\n" + indentspace + "\t"
+			output += "buf16[pointer_cnt] = EMPTYCACHEPOINTER;\n" + indentspace
+			output += "}\n"  + indentspace
+			output += "pointer_cnt++;\n" + indentspace
+			output += store_new_vectortree_nodes(node_stack + [p], nav, W, s, o, D, Drec, indentspace)
+		elif is_non_leaf(p):
 			output += "pointer_cnt--;\n" + indentspace
-			indentspace += "\t"
-			output += "if (buf16[pointer_cnt] != EMPTYCACHEPOINTER) {\n" + indentspace
-			output += "set_left_pointer(&part_cachepointers, buf16[pointer_cnt]);\n" + indentspace
-			output += "reset_left_in_vectorpart(&part2);\n" + indentspace
-			indentspace -= "\t"
+			if not f:
+				output += "if (buf16[pointer_cnt] != EMPTYCACHEPOINTER) {\n" + indentspace + "\t"
+				children = vectortree[p]
+				if node_stack[len(node_stack)-1] == children[0]:
+					output += "set_left_pointer(&part_cachepointers, buf16[pointer_cnt]);\n" + indentspace + "\t"
+					output += "reset_left_in_vectorpart(&part2);\n" + indentspace + "\t"
+				else:
+					output += "set_right_pointer(&part_cachepointers, buf16[pointer_cnt]);\n" + indentspace + "\t"
+					output += "reset_right_in_vectorpart(&part2);\n" + indentspace + "\t"
+			else:
+				output += "if (buf16[pointer_cnt] != EMPTYCACHEPOINTER) {\n" + indentspace + "\t"
+				output += "set_right_pointer(&part_cachepointers, buf16[pointer_cnt]);\n" + indentspace + "\t"
+				output += "reset_right_in_vectorpart(&part2);\n" + indentspace + "\t"
+				output += "}\n" + indentspace
+				output += "pointer_cnt--;\n" + indentspace
+				output += "if (buf16[pointer_cnt] != EMPTYCACHEPOINTER) {\n" + indentspace + "\t"
+				output += "set_left_pointer(&part_cachepointers, buf16[pointer_cnt]);\n" + indentspace + "\t"
+				output += "reset_left_in_vectorpart(&part2);\n" + indentspace + "\t"
+				output += "}\n" + indentspace
+			output += "if() {\n" + indentspace + "\t"
+			output += "bla = store_in_cache(part2, part_cachepointers, &buf16[pointer_cnt]);\n" + indentspace + "\t"
+			output += "pointer_cnt++;\n" + indentspace + "\t"
+			output += "}\n"  + indentspace
+			output += "else {\n" + indentspace + "\t"
+			output += "buf16[pointer_cnt] = EMPTYCACHEPOINTER;\n" + indentspace
+			output += "}\n"  + indentspace		
+			output += store_new_vectortree_nodes(node_stack + [p], nav, W, s, o, D, Drec, indentspace)
 			output += "}\n" + indentspace
-		indentspace += "\t"
-		output += "if() {\n" + indentspace
-		indentspace
-		output += "bla = store_in_cache(part2, part_cachepointers, &buf16[pointer_cnt]);\n" + indentspace
-		output += "pointer_cnt++;\n" + indentspace
-		indentspace -= "\t"
-		output += "}\n"  + indentspace
-		indentspace += "\t"
-		output += "else {\n" + indentspace
-		indentspace -= "\t"
-		output += "buf16[pointer_cnt] = EMPTYCACHEPOINTER;\n" + indentspace
-		output += "}\n"  + indentspace		
-		output += store_new_vectortree_nodes(node_stack + [p], nav, W, indentspace)
-		indentspace -= "\t"
-		output += "}\n" + indentspace
+	return output
 
 def cudastore_new_vector(s,indent,o,D):
 	"""Return CUDA code to store new vector resulting from executing statement s. D is a dictionary mapping variable refs to variable names. o is Object owning s."""
@@ -617,7 +604,8 @@ def cudastore_new_vector(s,indent,o,D):
 		# stack for processing nodes
 		node_stack = []
 		# process the nav list of nodes
-		store_new_vectortree_nodes(node_stack, nav, Wnew, indentspace)
+		print(nav)
+		output += store_new_vectortree_nodes(node_stack, nav, Wnew, s, o, D, Drec, indentspace)
 	return output
 
 def cudastatement(s,indent,o,D):

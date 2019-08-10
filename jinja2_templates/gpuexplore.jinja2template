@@ -492,7 +492,7 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_z,
 			{% endif %}
 			{% if allocs[1] > 0 %}
 			uint16_t buf16[{{allocs[1]}}];
-			uint8_t pointer_cnt§	  = 0;
+			uint8_t pointer_cnt = 0;
 			{% endif %}
 			{% if allocs[2] > 0 %}
 			elem_chartype buf8[{{allocs[2]}}];
