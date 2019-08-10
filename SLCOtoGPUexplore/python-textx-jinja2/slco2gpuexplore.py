@@ -422,9 +422,10 @@ def is_non_leaf(pid):
 	global vectorstructure
 	return (pid < len(vectorstructure)-1)
 
-def store_new_vectortree_nodes(node_stack, nav, W):
+def store_new_vectortree_nodes(node_stack, nav, W, indentspace):
 	"""Produce CUDA code to produce and store new vectortree nodes. node_stack is a stack containing node ids that have been successfully processed before. nav is a list of nodes still to be processed.
 	   W is a dictionary defining for all vectorparts which values need to be written to it."""
+	global vectortree
 	result = ""
 	(p,f) = nav.pop(0)
 	if is_vectorpart(p):
@@ -477,15 +478,37 @@ def store_new_vectortree_nodes(node_stack, nav, W):
 		output += "if (part2 != part1) {\n" + indentspace
 		output += "// This part has been altered. Store it in shared memory and remember address of new part.\n" + indentspace
 		output += "bla = store_in_cache(part2, part_cachepointers, &buf16[pointer_cnt]);\n" + indentspace
-		output += "pointer_cnt++;"
+		output += "pointer_cnt++;\n" + indentspace
 		indentspace -= "\t"
-		output += store_new_vectortree_nodes(node_stack + [p], nav, W)
+		output += store_new_vectortree_nodes(node_stack + [p], nav, W, indentspace)
 		indentspace += "\t"
 		output += "}\n"  + indentspace
 		indentspace += "\t"
 		output += "else {\n" + indentspace
-		output += 
-		output += store_new_vectortree_nodes(node_stack, nav, W)
+		output += "buf16[pointer_cnt] = EMPTYCACHEPOINTER\n" + indentspace
+		output += store_new_vectortree_nodes(node_stack + [p], nav, W, indentspace)
+	if is_non_leaf(p):
+		indentspace += "\t"
+		if f == False:
+			output += "if (buf16[pointer_cnt-1] != EMPTYCACHEPOINTER) {\n" + indentspace
+			children = vectortree[p]
+			if node_stack[len(node_stack)-1] == children[0]:
+				output += "set_left_pointer(&part_cachepointers, buf16[pointer_cnt-1]);\n" + indentspace
+				output += "reset_left_in_vectorpart(&part2);\n" + indentspace
+			else:
+				output += "set_right_pointer(&part_cachepointers, buf16[pointer_cnt-1]);\n" + indentspace
+				output += "reset_right_in_vectorpart(&part2);\n" + indentspace
+			output += "pointer_cnt--;\n" + indentspace
+		else:
+			output += "set_left_pointer(&part_cachepointers, buf16[pointer_cnt-2]);\n" + indentspace
+			output += "reset_left_in_vectorpart(&part2);\n" + indentspace
+			output += "set_right_pointer(&part_cachepointers, buf16[pointer_cnt-1]);\n" + indentspace
+			output += "reset_right_in_vectorpart(&part2);\n" + indentspace
+			output += "pointer_cnt = pointer_cnt-2;\n" + indentspace
+		output += "bla = store_in_cache(part2, part_cachepointers, &buf16[pointer_cnt]);\n" + indentspace
+		output += store_new_vectortree_nodes(node_stack + [p], nav, W, indentspace)
+		output += "}\n" + indentspace
+		indentspace -= "\t"
 
 def cudastore_new_vector(s,indent,o,D):
 	"""Return CUDA code to store new vector resulting from executing statement s. D is a dictionary mapping variable refs to variable names. o is Object owning s."""
@@ -559,7 +582,7 @@ def cudastore_new_vector(s,indent,o,D):
 		# stack for processing nodes
 		node_stack = []
 		# process the nav list of nodes
-		store_new_vectortree_nodes(node_stack, nav)
+		store_new_vectortree_nodes(node_stack, nav, Wnew, indentspace)
 	return output
 
 def cudastatement(s,indent,o,D):

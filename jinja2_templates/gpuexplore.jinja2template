@@ -58,7 +58,9 @@
 // Number of retries in local cache
 #define CACHERETRYFREQ 20
 // Empty local cache element (exploits that a vectorpart cannot be marked 'new' without being marked 'root')
-#define EMPTYVECT32 0xBFFF
+#define EMPTYVECT32 0xBFFFFFFF
+// Empty cache pointer
+# define EMPTYCACHEPOINTER 0xFFFF
 // offset in shared memory from which loaded data can be read
 #define SH_OFFSET 5
 // offset in shared memory from which hash function constants can be read
@@ -67,9 +69,9 @@
 // CONSTANTS FOR GLOBAL MEMORY HASH TABLE
 // Empty hash table element (exploits that a vectorpart cannot be marked 'new' without being marked 'root')
 {% if vectorsize < 31 %}
-#define EMPTYVECTPART_GLOBAL 0xBFFF
-{% else %}
 #define EMPTYVECTPART_GLOBAL 0xBFFFFFFF
+{% else %}
+#define EMPTYVECTPART_GLOBAL 0xBFFFFFFFFFFFFFFF
 {% endif %}
 
 // State vector size.
@@ -316,8 +318,32 @@ inline __device__ inttype set_{{dynamic_write_arrays[x][0]|replace("'","_")}}(in
 	}
 }
 
-// Cache pointers reset functions.
-inline __device__ void reset_left_pointer(shared_indextype)
+// Cache pointers set functions.
+inline __device__ void set_left_pointer(shared_inttype &pointers, shared_indextype new_pointer) {
+	asm("{\n\t"
+		" bfi.u32 %0, %1, %0, 15, 15;\n\t"
+		"}" : "+r"(pointers) : "r"(new_pointer));
+}
+
+inline __device__ void set_right_pointer(shared_inttype &pointers, shared_indextype new_pointer) {
+	asm("{\n\t"
+		" bfi.u32 %0, %1, %0, 0, 15;\n\t"
+		"}" : "+r"(pointers) : "r"(new_pointer));
+}
+
+// Vectorpart reset functions.
+inline __device__ void reset_left_in_vectorpart(inttype &part) {
+	asm("{\n\t"
+		" bfi.u64 %0, 0xFFFFFFFFFFFFFFFF, %0, 31, 31;\n\t"
+		"}" : "+r"(part));
+}
+
+// Vectorpart reset functions.
+inline __device__ void reset_right_in_vectorpart(inttype &part) {
+	asm("{\n\t"
+		" bfi.u64 %0, 0xFFFFFFFFFFFFFFFF, %0, 0, 31;\n\t"
+		"}" : "+r"(part));
+}
 
 {% endfor %}
 // Auxiliary functions to check for and obtain offset for given array index in the appropriate buffer. The given array of indices is scanned to retrieve the offset.
