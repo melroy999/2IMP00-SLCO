@@ -489,7 +489,7 @@ def store_new_vectortree_nodes(node_stack, nav, W, indentspace):
 		output += store_new_vectortree_nodes(node_stack + [p], nav, W, indentspace)
 	if is_non_leaf(p):
 		indentspace += "\t"
-		if f == False:
+		if not f:
 			output += "if (buf16[pointer_cnt-1] != EMPTYCACHEPOINTER) {\n" + indentspace
 			children = vectortree[p]
 			if node_stack[len(node_stack)-1] == children[0]:
@@ -507,8 +507,15 @@ def store_new_vectortree_nodes(node_stack, nav, W, indentspace):
 			output += "pointer_cnt = pointer_cnt-2;\n" + indentspace
 		output += "bla = store_in_cache(part2, part_cachepointers, &buf16[pointer_cnt]);\n" + indentspace
 		output += store_new_vectortree_nodes(node_stack + [p], nav, W, indentspace)
-		output += "}\n" + indentspace
 		indentspace -= "\t"
+		output += "}\n" + indentspace
+		indentspace += "\t"
+		output += "else {\n" + indentspace
+		if f:
+			output += "pointer_cnt--;\n" + indentspace
+		output += store_new_vectortree_nodes(node_stack + [p], nav, W, indentspace)
+		indentspace -= "\t"
+		output += "}\n" + indentspace
 
 def cudastore_new_vector(s,indent,o,D):
 	"""Return CUDA code to store new vector resulting from executing statement s. D is a dictionary mapping variable refs to variable names. o is Object owning s."""
