@@ -475,44 +475,69 @@ def store_new_vectortree_nodes(node_stack, nav, W, indentspace):
 				set_methodname = set_methodname.replace("'","_")
 				(vname, offset) = D.get(v, (v.name, None))
 				output += "set_" + set_methodname + "(&part2, &part_tmp, idx_" + v.name + ", " + vname + ", " + str(offset) + ");\n" + indentspace
-		output += "if (part2 != part1) {\n" + indentspace
+		if is_non_leaf(p):
+			# node is also a non-leaf in the vectortree. update pointers.
+			if f:
+				indentspace += "\t"
+				output += "pointer_cnt--;\n" + indentspace
+				output += "if (buf16[pointer_cnt] != EMPTYCACHEPOINTER) {\n" + indentspace
+				output += "set_left_pointer(&part_cachepointers, buf16[pointer_cnt-1]);\n" + indentspace
+				output += "reset_left_in_vectorpart(&part2);\n" + indentspace
+				output -= "\t"
+				output += "}\n" + indentspace
+				indentspace += "\t"
+				output += "if (part2 != part1 || buf16[pointer_cnt] != EMPTYCACHEPOINTER) {\n" + indentspace
+		else:
+			output += "if (part2 != part1) {\n" + indentspace
 		output += "// This part has been altered. Store it in shared memory and remember address of new part.\n" + indentspace
 		output += "bla = store_in_cache(part2, part_cachepointers, &buf16[pointer_cnt]);\n" + indentspace
 		output += "pointer_cnt++;\n" + indentspace
 		indentspace -= "\t"
-		output += store_new_vectortree_nodes(node_stack + [p], nav, W, indentspace)
-		indentspace += "\t"
 		output += "}\n"  + indentspace
 		indentspace += "\t"
 		output += "else {\n" + indentspace
-		output += "buf16[pointer_cnt] = EMPTYCACHEPOINTER\n" + indentspace
+		indentspace -= "\t"
+		output += "buf16[pointer_cnt] = EMPTYCACHEPOINTER;\n" + indentspace
+		output += "}\n"  + indentspace
 		output += store_new_vectortree_nodes(node_stack + [p], nav, W, indentspace)
 	if is_non_leaf(p):
 		indentspace += "\t"
+		output += "pointer_cnt--;\n" + indentspace
 		if not f:
-			output += "if (buf16[pointer_cnt-1] != EMPTYCACHEPOINTER) {\n" + indentspace
+			output += "if (buf16[pointer_cnt] != EMPTYCACHEPOINTER) {\n" + indentspace
 			children = vectortree[p]
 			if node_stack[len(node_stack)-1] == children[0]:
-				output += "set_left_pointer(&part_cachepointers, buf16[pointer_cnt-1]);\n" + indentspace
+				output += "set_left_pointer(&part_cachepointers, buf16[pointer_cnt]);\n" + indentspace
 				output += "reset_left_in_vectorpart(&part2);\n" + indentspace
 			else:
-				output += "set_right_pointer(&part_cachepointers, buf16[pointer_cnt-1]);\n" + indentspace
+				output += "set_right_pointer(&part_cachepointers, buf16[pointer_cnt]);\n" + indentspace
 				output += "reset_right_in_vectorpart(&part2);\n" + indentspace
-			output += "pointer_cnt--;\n" + indentspace
 		else:
-			output += "set_left_pointer(&part_cachepointers, buf16[pointer_cnt-2]);\n" + indentspace
-			output += "reset_left_in_vectorpart(&part2);\n" + indentspace
-			output += "set_right_pointer(&part_cachepointers, buf16[pointer_cnt-1]);\n" + indentspace
+			indentspace += "\t"
+			output += "if (buf16[pointer_cnt] != EMPTYCACHEPOINTER) {\n" + indentspace
+			output += "set_right_pointer(&part_cachepointers, buf16[pointer_cnt]);\n" + indentspace
 			output += "reset_right_in_vectorpart(&part2);\n" + indentspace
-			output += "pointer_cnt = pointer_cnt-2;\n" + indentspace
+			indentspace -= "\t"
+			output += "}\n" + indentspace
+			output += "pointer_cnt--;\n" + indentspace
+			indentspace += "\t"
+			output += "if (buf16[pointer_cnt] != EMPTYCACHEPOINTER) {\n" + indentspace
+			output += "set_left_pointer(&part_cachepointers, buf16[pointer_cnt]);\n" + indentspace
+			output += "reset_left_in_vectorpart(&part2);\n" + indentspace
+			indentspace -= "\t"
+			output += "}\n" + indentspace
+		indentspace += "\t"
+		output += "if() {\n" + indentspace
+		indentspace
 		output += "bla = store_in_cache(part2, part_cachepointers, &buf16[pointer_cnt]);\n" + indentspace
-		output += store_new_vectortree_nodes(node_stack + [p], nav, W, indentspace)
+		output += "pointer_cnt++;\n" + indentspace
 		indentspace -= "\t"
-		output += "}\n" + indentspace
+		output += "}\n"  + indentspace
 		indentspace += "\t"
 		output += "else {\n" + indentspace
-		if f:
-			output += "pointer_cnt--;\n" + indentspace
+		indentspace -= "\t"
+		output += "buf16[pointer_cnt] = EMPTYCACHEPOINTER;\n" + indentspace
+		output += "}\n"  + indentspace		
 		output += store_new_vectortree_nodes(node_stack + [p], nav, W, indentspace)
 		indentspace -= "\t"
 		output += "}\n" + indentspace
@@ -578,7 +603,10 @@ def cudastore_new_vector(s,indent,o,D):
 				navcounters[parent] -= 1
 				if navcounters[parent] == 0:
 					current = parent
-					if parent in waiting:
+					if is_non_leaf(parent) and is_vectorpart(parent):
+						# this is the tail vectorpart, and it is integrated into a non-leaf node
+						nav.append((parent,True))
+					elif parent in waiting:
 						nav.append((parent,True))
 						waiting.remove(parent)
 					else:
