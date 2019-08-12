@@ -60,7 +60,7 @@
 // Empty local cache element (exploits that a vectorpart cannot be marked 'new' without being marked 'root')
 #define EMPTYVECT32 0xBFFFFFFF
 // Empty cache pointer
-# define EMPTYCACHEPOINTER 0xFFFF
+# define EMPTYCACHEPOINTERS 0xFFFF
 // offset in shared memory from which loaded data can be read
 #define SH_OFFSET 5
 // offset in shared memory from which hash function constants can be read
@@ -79,6 +79,23 @@ inttype sv_nints = {{vectorsize}};
 
 // Structure of state vector:
 // {{vectorstructure_string}}
+
+// Mark state as new or old
+inline __device__ inttype mark_new(inttype part) {
+{% if vectorsize < 31 %}
+	return part = part | 0x80000000;
+{% else %}
+	return part = part | 0x8000000000000000;
+{% endif %}
+}
+
+inline __device__ inttype mark_old(inttype part) {
+{% if vectorsize < 31 %}
+	return part = part | 0x7FFFFFFF;
+{% else %}
+	return part = part | 0x7FFFFFFFFFFFFFFF;
+{% endif %}
+}
 
 {% if vectorsize > 62 %}
 // Function to traverse one step in state vector tree (stored in shared memory).
@@ -492,7 +509,6 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_z,
 			{% endif %}
 			{% if allocs[1] > 0 %}
 			uint16_t buf16[{{allocs[1]}}];
-			uint8_t pointer_cnt = 0;
 			{% endif %}
 			{% if allocs[2] > 0 %}
 			elem_chartype buf8[{{allocs[2]}}];
@@ -532,6 +548,7 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_z,
 			{% endif %}
 			{{indent}}get_{{ch.name}}_size({{M[(ch,"_size")][0]}}[{{M[(ch,"_size")][1]}}], part1, part2);
 			{{indent}}if ({{st|cudarecsizeguard(M,o)}}) {
+			{% set indent = indent + "\t" %}
 			{% endif %}
 			{% endif %}
 			{% for v in st|statement_varrefs(o,sm)|get_vars if v|has_dynamic_indexing(t,o) %}
@@ -597,19 +614,12 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_z,
 			{{indent}}if ({{st|cudaguard(M,o)}}) {
 			{% set indent = indent + "\t" %}
 			{% endif %}
-			{% if st.__class__.__name__ == "SendSignal" %}
-			{% if connected_channel[(o, st.target)].losstype == 'lossy' %}
-			{{indent}}// Handle lossy case in which message is lost.
-			{{indent}}// Set target state.
-			{{indent}}target = {{state_id[(sm,t.target)]}};
-			{% endif %}
-			{% endif %}
 			{% set VPrem = t|transition_read_varrefs(o,False)|select("no_dynamic_indexing",o)|get_remaining_vectorparts(o,VPs) %}
 			{% for i in range(0,VPrem|length) %}
 			{% set VPremloop = loop %}
 			{% for (v,j) in t|transition_read_varrefs(o,False)|select("no_dynamic_indexing",o)|select("vectorparts_not_covered", o, VP) if vectorelem_in_structure_map[v|scopename(j,o)][1][0] == VPrem[i] and (vectorelem_in_structure_map[v|scopename(j,o)]|length == 2 or vectorelem_in_structure_map[v|scopename(j,o)][vectorelem_in_structure_map[v|scopename(j,o)]|length-1][0] == VPrem[i+1]) %}
 			{% if VPremloop.first and loop.first %}
-			{{indent}}// fetch remaining values of unguarded variables (without dynamic array indexing)
+			{{indent}}// Fetch remaining values of unguarded variables (without dynamic array indexing).
 			{% if VPrem[i] != fetched[0] and VPrem[i] != fetched[1] %}
 			{% set fetched = [VPrem[i],fetched[1]] %}
 			{{indent}}part1 = get_vectorpart(d_z, node_index, {{VPrem[i]}});

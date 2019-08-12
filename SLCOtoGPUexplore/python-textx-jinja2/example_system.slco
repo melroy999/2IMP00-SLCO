@@ -34,6 +34,9 @@ model Test {
 				from S2 to S0 {
 					receive T() from InOut
 				}
+				from S0 to S0 {
+					a
+				}
 		}
 	}
 	Q {
@@ -57,6 +60,9 @@ model Test {
 					from Com2 to Com0 {
 						y[x] := 0;
 						send T() to InOut
+					}
+					from Com2 to Com2 {
+						a
 					}
 			}
 	}
