@@ -277,7 +277,7 @@ inline __device__ void set_{{s|replace("[","_")|replace("]","")|replace("'","_")
 // Data update functions for arrays with dynamic indexing, focussed on one specific vector part.
 {% for x in dynamic_write_arrays.keys() %}
 // Auxiliary functions for {{dynamic_write_arrays[x][0]}}.
-inline __device__ bool array_element_is_in_vectorpart_{{dynamic_write_arrays[x][0]|replace("'","_")}}(i, pid) {
+inline __device__ bool array_element_is_in_vectorpart_{{dynamic_write_arrays[x][0]|replace("'","_")}}(array_indextype i, vectorpart_indextype pid) {
 	switch (pid) {
 		{% for p in range(dynamic_write_arrays[x][1], dynamic_write_arrays[x][2]+1) %}
 		case {{p}}:
@@ -289,7 +289,7 @@ inline __device__ bool array_element_is_in_vectorpart_{{dynamic_write_arrays[x][
 }
 
 // Precondition: array element i is (partially) stored in vector part pid.
-inline __device__ bool is_left_vectorpart_for_array_element_{{dynamic_write_arrays[x][0]|replace("'","_")}}(i, pid) {
+inline __device__ bool is_left_vectorpart_for_array_element_{{dynamic_write_arrays[x][0]|replace("'","_")}}(array_indextype i, vectorpart_indextype pid) {
 	switch (pid) {
 		{% for p in range(dynamic_write_arrays[x][1], dynamic_write_arrays[x][2]+1) %}
 		case {{p}}:
@@ -303,7 +303,7 @@ inline __device__ bool is_left_vectorpart_for_array_element_{{dynamic_write_arra
 // Data update function for {{dynamic_write_arrays[x][0]}}.
 inline __device__ inttype set_{{dynamic_write_arrays[x][0]|replace("'","_")}}(inttype &part, inttype &part_tmp, array_indextype indices, {{x.type|cudatype(True)}} buf, buffer_indextype buf_offset, vectorpart_indextype part_id) {
 	if (part_id >= {{dynamic_write_arrays[x][1]}} && part_id <= {{dynamic_write_arrays[x][2]}}) {
-		for (buffer_indextype i = 0;; i++) {
+		for (array_indextype i = 0;; i++) {
 			if (indices[i] == EMPTY_INDEX) {
 				break;
 			}
@@ -313,9 +313,11 @@ inline __device__ inttype set_{{dynamic_write_arrays[x][0]|replace("'","_")}}(in
 						{% for i in range(dynamic_write_arrays[x][1], dynamic_write_arrays[x][2]+1) %}
 						case {{i}}:
 							set_{{dynamic_write_arrays[x][0]|replace("'","_")}}_{{i}}(&part, &part_tmp, buf[buf_offset + i]);
+							break;
 						{% endfor %}
 						default:
 							part_tmp = *part;
+							break;
 					}
 				}
 				else {
@@ -324,17 +326,53 @@ inline __device__ inttype set_{{dynamic_write_arrays[x][0]|replace("'","_")}}(in
 						{% if vectorelem_in_structure_map[dynamic_write_arrays[x][0] + "[" + i|string + "]"]|length > 2 %}
 						case {{i}}:
 							set_{{dynamic_write_arrays[x][0]|replace("'","_")}}_{{i}}(&part_tmp, &part, buf[buf_offset + i]);
+							break;
 						{% endif %}
 						{% endfor %}
 						default:
 							part_tmp = *part;
+							break;
 					}
 				}
 			}
 		}
 	}
 }
+{% endfor %}
 
+// Data update functions for channel buffers, focussed on one specific vector part.
+{% for c in model.channels|select("is_async") %}
+// Data update function for parameter i of tail element of the buffer of {{c.name}}.
+{% for i in range(0,c.type|length+1) %}
+{% if i > 0 or signalsize[c] > 0 %}
+inline __device__ inttype set_buffer_tail_element_{{c.name}}_{{i}}(inttype &part, inttype &part_tmp, buffer_indextype size, {% if i == 0 %}{% if signalsize[c] <= 8 %}uint8_t{% elif signalsize[c] <= 16 %}uint16_t{% else %}uint32_t{% endif %}{% else %}{{(c.type[i-1])|cudatype(True)}}{% endif %} value, vectorpart_indextype part_id) {
+	switch (size) {
+		{% for n in range(0,c.size) %}
+		case {{n}}:
+			switch (part_id) {
+				{% set PIDs = vectorelem_in_structure_map.get(c.name + "[" + i|string + "][" + n|string + "]") %}
+				{% if PIDs != None %}
+				case {{PIDs[1][0]}}:
+					set_{{c.name}}_{{i}}_{{n}}(part, part_tmp, value);
+					break;
+				{% if PIDs|length > 2 %}
+				case {{PIDs[2][0]}}:
+					set_{{c.name}}_{{i}}_{{n}}(part_tmp, part, value);
+					break;
+				{% endif %}
+				{% endif %}
+				default:
+					break;
+			}
+		{% endfor %}
+		default:
+			break;
+	}
+}
+
+{% endif %}
+{% endfor %}
+{% endfor %}
 // Cache pointers set functions.
 inline __device__ void set_left_pointer(shared_inttype &pointers, shared_indextype new_pointer) {
 	asm("{\n\t"
@@ -362,7 +400,6 @@ inline __device__ void reset_right_in_vectorpart(inttype &part) {
 		"}" : "+r"(part));
 }
 
-{% endfor %}
 // Auxiliary functions to check for and obtain offset for given array index in the appropriate buffer. The given array of indices is scanned to retrieve the offset.
 // Check for presence of offset. If not present, store the index, and return position. if present, return -1.
 // This function is used for the retrieval of array elements.
@@ -498,6 +535,7 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_z,
 		{% for s in smname_to_object[state_order[i]][1].states %}
 		{% set o = smname_to_object[state_order[i]][0] %}
 		{% set sm = smname_to_object[state_order[i]][1] %}
+		{% if s|nr_of_transitions_to_be_processed_by(i,o) %}
 		case {{state_id[(sm,s)]}}:
 			{% set indent = "" %}
 			{% set allocs = s|get_buffer_allocs(o) %}
@@ -679,6 +717,7 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_z,
 			{% endfor %}
 			{% endfor %}
 			break;
+		{% endif %}
 		{% endfor %}
 		default:
 			break;

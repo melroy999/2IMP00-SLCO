@@ -611,24 +611,7 @@ def cudastore_new_vector(s,indent,o,D,deps):
 				else:
 					index_str = p.index
 				Drec[(p.var.name, index_str)] = D[(c, "[" + str(i+1) + "][0]")]
-
-	W = get_write_vectorparts_info(s,o)
-	if s.__class__.__name__ == "SendSignal":
-		c = connected_channel[(o,s.target)]
-		if c.synctype == 'sync':
-			# add reference to state of receiving SM
-			for (o2,sm2) in deps:
-				PIDs = vectorelem_in_structure_map[o2.name + "'" + sm2.name]
-				p = PIDs[1][0]
-				Wv = W.get(p,set([]))
-				# Boolean flag indicates that this is the first part (of possibly two) in which the variable is stored
-				Wv.add((c,(o2,sm2),False))
-				W[p] = Wv
-				if len(PIDs) > 2:
-					p = PIDs[2][0]
-					Wv = W.get(p,set([]))
-					Wv.add((c,(o2,sm2),True))
-					W[p] = Wv
+	W = get_write_vectorparts_info(s,o,deps)
 	if len(W) != 0:
 		output += "// Store new state vector in shared memory.\n" + indentspace
 		# obtain list of nodes in the tree to update
@@ -1221,7 +1204,7 @@ def get_buffer_allocs(s, o):
 		# add additional 16-bit integers (if needed) for pointers to store new vector trees
 		O = set([])
 		for st in t.statements:
-			O = get_write_vectorparts_info(st,o)
+			O = get_write_vectorparts_info(st,o,[])
 			O = list(O.keys())
 			n = len(vectorstructure)-1
 			Onew = []
@@ -1535,9 +1518,10 @@ def vectorparts_not_covered(vi, o, VPs):
 		S.add(PIDs[2][0])
 	return not S.issubset(VPset)
 
-def get_write_vectorparts_info(s, o):
+def get_write_vectorparts_info(s, o, deps):
 	"""Return a dictionary of (vectorpart,varrefs) tuples indicating how the new values produced when executing statement s have to be stored in vector parts"""
-	global vectorelem_in_structure_map
+	"""deps is a list of references depending on s."""
+	global vectorelem_in_structure_map, connected_channel
 
 	Refs = statement_write_varrefs(s,o)
 	D = {}
@@ -1585,6 +1569,46 @@ def get_write_vectorparts_info(s, o):
 		Dv = D.get(p,set([]))
 		Dv.add((o,s.parent.parent,True))
 		D[p] = Dv
+	# add reference to state of receiving SM in case of synchronous communication
+	if s.__class__.__name__ == "SendSignal":
+		c = connected_channel[(o,s.target)]
+		if c.synctype == 'sync':
+			# add reference to state of receiving SM
+			if deps != []:
+				for (o2,sm2) in deps:
+					PIDs = vectorelem_in_structure_map[o2.name + "'" + sm2.name]
+					p = PIDs[1][0]
+					Dv = D.get(p,set([]))
+					# Boolean flag indicates that this is the first part (of possibly two) in which the variable is stored
+					Dv.add((c,(o2,sm2),False))
+					D[p] = Dv
+					if len(PIDs) > 2:
+						p = PIDs[2][0]
+						Dv = D.get(p,set([]))
+						Dv.add((c,(o2,sm2),True))
+						D[p] = Dv
+			else:
+				# we are currently counting the number of parts we are at most interested in, as opposed to identifying them exactly.
+				# if there exist one or two parts with a state of a receiving SM that we have not yet covered, add it.
+				extra = []
+				parts = set(D.keys())
+				L = get_syncrec_sms(o, c, s.signal)
+				for (o2,sm2) in L:
+					cnt = []
+					PIDs = vectorelem_in_structure_map[o2.name + "'" + sm2.name]
+					p = PIDs[1][0]
+					if p not in parts:
+						cnt.append(p)
+					if len(PIDs) > 2:
+						p = PIDs[2][0]
+						if p not in parts:
+							cnt.append(p)
+					if len(extra) < len(cnt):
+						extra = cnt
+						if len(extra) == 2:
+							break
+				for p in extra:
+					D[p] = set([])
 	return D
 
 # filter to produce difference between two lists
@@ -1713,6 +1737,14 @@ def must_be_processed_by(t, i, o):
 					if a in alphabet[sm2]:
 						return False
 			return True
+
+def nr_of_transitions_to_be_processed_by(s,i,o):
+	"""Return the number of outgoing transitions of state s to be processed by the thread associated to the state machine with id i"""
+	nr = 0
+	for t in outgoingtrans(s,s.parent.transitions):
+		if must_be_processed_by(t,i,o):
+			nr += 1
+	return nr
 
 def get_syncrec_sms(o, c, signal):
 	"""Return a list of (Object,StateMachine) pairs that can potentially receive messages from a StateMachine in the given Object o via the given synchronous channel c"""
@@ -2238,6 +2270,7 @@ def translate():
 	jinja_env.filters['difference'] = difference
 	jinja_env.filters['get_vars'] = get_vars
 	jinja_env.filters['must_be_processed_by'] = must_be_processed_by
+	jinja_env.filters['nr_of_transitions_to_be_processed_by'] = nr_of_transitions_to_be_processed_by
 	jinja_env.filters['get_syncrec_sms'] = get_syncrec_sms
 	jinja_env.filters['get_all_syncrecs'] = get_all_syncrecs
 	jinja_env.filters['get_reccomm_trans'] = get_reccomm_trans
@@ -2250,7 +2283,7 @@ def translate():
 
 	# load the GPUexplore template
 	template = jinja_env.get_template('gpuexplore.jinja2template')
-	out = template.render(model=model, vectorsize=vectorsize, vectorstructure=vectorstructure, vectorstructure_string=vectorstructure_string, vectortree=vectortree, max_statesize=max_statesize, vectorelem_in_structure_map=vectorelem_in_structure_map, state_order=state_order, smnames=smnames, smname_to_object=smname_to_object, state_id=state_id, arraynames=arraynames, max_arrayindexsize=max_arrayindexsize, max_buffer_allocs=max_buffer_allocs, vectorpartlist=vectorpartlist, connected_channel=connected_channel, alphabet=alphabet, syncactions=syncactions, actiontargets=actiontargets, syncreccomm=syncreccomm, no_state_constant=no_state_constant, no_prio_constant=no_prio_constant, dynamic_write_arrays=dynamic_write_arrays)
+	out = template.render(model=model, vectorsize=vectorsize, vectorstructure=vectorstructure, vectorstructure_string=vectorstructure_string, vectortree=vectortree, max_statesize=max_statesize, vectorelem_in_structure_map=vectorelem_in_structure_map, state_order=state_order, smnames=smnames, smname_to_object=smname_to_object, state_id=state_id, arraynames=arraynames, max_arrayindexsize=max_arrayindexsize, max_buffer_allocs=max_buffer_allocs, vectorpartlist=vectorpartlist, connected_channel=connected_channel, alphabet=alphabet, syncactions=syncactions, actiontargets=actiontargets, syncreccomm=syncreccomm, no_state_constant=no_state_constant, no_prio_constant=no_prio_constant, dynamic_write_arrays=dynamic_write_arrays, signalsize=signalsize)
 	# write new SLCO model
 	outFile.write(out)
 	outFile.close()
