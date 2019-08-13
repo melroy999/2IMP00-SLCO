@@ -121,8 +121,8 @@ inline __device__ shared_indextype sv_step(shared_inttype *d_z, shared_indextype
 {% endif %}
 
 // Retrieval functions for vector parts from shared memory, ignoring shared memory node pointers (cache pointers).
-inline __device__ inttype get_vectorpart(inttype *d_z, shared_indextype node_index, vectorpart_indextype i) {
-	switch (i) {
+inline __device__ inttype get_vectorpart(inttype *d_z, shared_indextype node_index, vectorpart_indextype part_id) {
+	switch (part_id) {
 	  {% for i in range(0,vectorstructure|length) %}
 	  case {{i}}:
 	  	return get_vectorpart_{{i}}(d_z, node_index);
@@ -183,7 +183,7 @@ inline __device__ void get_vectortree_node_{{i}}(inttype &node, shared_inttype &
 // Precondition: the given parts indeed contain the requested info.
 {% for s in vectorelem_in_structure_map.keys() %}
 {% set size = vectorelem_in_structure_map[s][0] %}
-inline __device__ void get_{{s|replace("[","_")|replace("]","")|replace("'","_")}}({% if s|is_state %}elem_statetype{% elif size < 32 %}elem_chartype{% else %}elem_inttype{% endif %} b, inttype part1, inttype part2) {
+inline __device__ void get_{{s|replace("[","_")|replace("]","")|replace("'","_")}}({% if s|is_state %}elem_statetype{% elif size < 32 %}elem_chartype{% else %}elem_inttype{% endif %} &b, inttype part1, inttype part2) {
 	asm("{\n\t"
 {% if size < 32 %}
 		" .reg .u32 t1;\n\t"
@@ -209,9 +209,9 @@ inline __device__ void get_{{s|replace("[","_")|replace("]","")|replace("'","_")
 
 {% endfor %}
 {% if arraynames|length > 0 %}
-// Data retrieval functions, including the fetching of required vector parts, for array elements with dynamic indexing, and channel buffer elements.
+// Data retrieval functions, including the fetching of required vector parts, for array elements with dynamic indexing.
 {% for vname, t, size in arraynames %}
-inline __device__ void get_{{vname|replace("[","_")|replace("]","")}}(inttype *d_z, shared_indextype node_index, {% if t|gettypesize < 32 %}elem_chartype{% else %}elem_inttype{% endif %} b, array_indextype index) {
+inline __device__ void get_{{vname|replace("[","_")|replace("]","")}}(inttype *d_z, shared_indextype node_index, {% if t|gettypesize < 32 %}elem_chartype{% else %}elem_inttype{% endif %} &b, array_indextype index) {
 	inttype part1, part2;
 	switch (index) {
 		{% for i in range(0, size) %}
@@ -252,27 +252,38 @@ inline __device__ void get_current_state(statetype b, inttype *d_z, shared_index
 }
 
 // Data update functions. Update particular state info in the given state vector part(s).
-// Precondition: the given parts indeed need to contain the updated info.
+// Precondition: the given part indeed needs to contain the indicated fragment (left or right in case the info is split over two parts) of the updated info.
 {% for s in vectorelem_in_structure_map.keys() %}
 {% set size = vectorelem_in_structure_map[s][0] %}
-inline __device__ void set_{{s|replace("[","_")|replace("]","")|replace("'","_")}}(inttype &part1, inttype &part2, {% if size < 32 %}elem_chartype{% else %}elem_inttype{% endif %} x) {
+inline __device__ void set_left_{{s|replace("[","_")|replace("]","")|replace("'","_")}}(inttype &part, {% if size < 32 %}elem_chartype{% else %}elem_inttype{% endif %} x) {
 	asm("{\n\t"
 		" .reg .u64 t1;\n\t"
 {% if size < 32 %}
-		" cvt.u64.u8 t1, %2\n\t"
+		" cvt.u64.u8 t1, %1\n\t"
 {% else %}
-		" cvt.u64.u32 t1, %2\n\t"
+		" cvt.u64.u32 t1, %1\n\t"
 {% endif %}
-{% if vectorelem_in_structure_map[s]|length == 2 %}
-		" bfi.b64 %0, t1, %0, {{vectorelem_in_structure_map[s][1][1]}}, {{vectorelem_in_structure_map[s][1][2]}};\n\t"
-{% else %}
-		" bfi.b64 %1, t1, %1, {{vectorelem_in_structure_map[s][2][1]}}, {{vectorelem_in_structure_map[s][2][2]}};\n\t"
+{% if vectorelem_in_structure_map[s]|length > 2 %}
 		" shr.b64 t1, t1, {{vectorelem_in_structure_map[s][2][2]}};\n\t"
-		" bfi.b64 %0, t1, %0, {{vectorelem_in_structure_map[s][1][1]}}, {{vectorelem_in_structure_map[s][1][2]}};\n\t"
 {% endif %}
-		"}" : "+l"(part1), "+l"(part2)) : "r"(x);
+		" bfi.b64 %0, t1, %0, {{vectorelem_in_structure_map[s][1][1]}}, {{vectorelem_in_structure_map[s][1][2]}};\n\t"
+		"}" : "+l"(part) : "r"(x);
 }
 
+{% if vectorelem_in_structure_map[s]|length > 2 %}
+inline __device__ void set_right_{{s|replace("[","_")|replace("]","")|replace("'","_")}}(inttype &part, {% if size < 32 %}elem_chartype{% else %}elem_inttype{% endif %} x) {
+	asm("{\n\t"
+		" .reg .u64 t1;\n\t"
+{% if size < 32 %}
+		" cvt.u64.u8 t1, %1\n\t"
+{% else %}
+		" cvt.u64.u32 t1, %1\n\t"
+{% endif %}
+		" bfi.b64 %0, t1, %0, {{vectorelem_in_structure_map[s][2][1]}}, {{vectorelem_in_structure_map[s][2][2]}};\n\t"
+		"}" : "+l"(part) : "r"(x);
+}
+
+{% endif %}
 {% endfor %}
 // Data update functions for arrays with dynamic indexing, focussed on one specific vector part.
 {% for x in dynamic_write_arrays.keys() %}
@@ -301,7 +312,7 @@ inline __device__ bool is_left_vectorpart_for_array_element_{{dynamic_write_arra
 }
 
 // Data update function for {{dynamic_write_arrays[x][0]}}.
-inline __device__ inttype set_{{dynamic_write_arrays[x][0]|replace("'","_")}}(inttype &part, inttype &part_tmp, array_indextype indices, {{x.type|cudatype(True)}} buf, buffer_indextype buf_offset, vectorpart_indextype part_id) {
+inline __device__ inttype set_{{dynamic_write_arrays[x][0]|replace("'","_")}}(inttype &part, array_indextype indices, {{x.type|cudatype(True)}} buf, buffer_indextype buf_offset, vectorpart_indextype part_id) {
 	if (part_id >= {{dynamic_write_arrays[x][1]}} && part_id <= {{dynamic_write_arrays[x][2]}}) {
 		for (array_indextype i = 0;; i++) {
 			if (indices[i] == EMPTY_INDEX) {
@@ -312,7 +323,7 @@ inline __device__ inttype set_{{dynamic_write_arrays[x][0]|replace("'","_")}}(in
 					switch (indices[i]) {
 						{% for i in range(dynamic_write_arrays[x][1], dynamic_write_arrays[x][2]+1) %}
 						case {{i}}:
-							set_{{dynamic_write_arrays[x][0]|replace("'","_")}}_{{i}}(&part, &part_tmp, buf[buf_offset + i]);
+							set_left_{{dynamic_write_arrays[x][0]|replace("'","_")}}_{{i}}(&part, buf[buf_offset + i]);
 							break;
 						{% endfor %}
 						default:
@@ -325,7 +336,7 @@ inline __device__ inttype set_{{dynamic_write_arrays[x][0]|replace("'","_")}}(in
 						{% for i in range(dynamic_write_arrays[x][1], dynamic_write_arrays[x][2]+1) %}
 						{% if vectorelem_in_structure_map[dynamic_write_arrays[x][0] + "[" + i|string + "]"]|length > 2 %}
 						case {{i}}:
-							set_{{dynamic_write_arrays[x][0]|replace("'","_")}}_{{i}}(&part_tmp, &part, buf[buf_offset + i]);
+							set_right_{{dynamic_write_arrays[x][0]|replace("'","_")}}_{{i}}(&part, buf[buf_offset + i]);
 							break;
 						{% endif %}
 						{% endfor %}
@@ -345,7 +356,7 @@ inline __device__ inttype set_{{dynamic_write_arrays[x][0]|replace("'","_")}}(in
 // Data update function for parameter i of tail element of the buffer of {{c.name}}.
 {% for i in range(0,c.type|length+1) %}
 {% if i > 0 or signalsize[c] > 0 %}
-inline __device__ inttype set_buffer_tail_element_{{c.name}}_{{i}}(inttype &part, inttype &part_tmp, buffer_indextype size, {% if i == 0 %}{% if signalsize[c] <= 8 %}uint8_t{% elif signalsize[c] <= 16 %}uint16_t{% else %}uint32_t{% endif %}{% else %}{{(c.type[i-1])|cudatype(True)}}{% endif %} value, vectorpart_indextype part_id) {
+inline __device__ void set_buffer_tail_element_{{c.name}}_{{i}}(inttype &part, buffer_indextype size, {% if i == 0 %}{% if signalsize[c] <= 8 %}uint8_t{% elif signalsize[c] <= 16 %}uint16_t{% else %}uint32_t{% endif %}{% else %}{{(c.type[i-1])|cudatype(True)}}{% endif %} value, vectorpart_indextype part_id) {
 	switch (size) {
 		{% for n in range(0,c.size) %}
 		case {{n}}:
@@ -353,11 +364,11 @@ inline __device__ inttype set_buffer_tail_element_{{c.name}}_{{i}}(inttype &part
 				{% set PIDs = vectorelem_in_structure_map.get(c.name + "[" + i|string + "][" + n|string + "]") %}
 				{% if PIDs != None %}
 				case {{PIDs[1][0]}}:
-					set_{{c.name}}_{{i}}_{{n}}(part, part_tmp, value);
+					set_left_{{c.name}}_{{i}}_{{n}}(part, value);
 					break;
 				{% if PIDs|length > 2 %}
 				case {{PIDs[2][0]}}:
-					set_{{c.name}}_{{i}}_{{n}}(part_tmp, part, value);
+					set_right_{{c.name}}_{{i}}_{{n}}(part, value);
 					break;
 				{% endif %}
 				{% endif %}
@@ -372,6 +383,82 @@ inline __device__ inttype set_buffer_tail_element_{{c.name}}_{{i}}(inttype &part
 
 {% endif %}
 {% endfor %}
+// Data update function shifting each element of the buffer of {{c.name}} one position towards the head, insofar this is relevant for the given vectorpart.
+inline __device__ void shift_buffer_tail_elements_{{c.name}}(inttype *d_z, shared_indextype node_index, shared_inttype &part, buffer_indextype size, vectorpart_indextype part_id) {
+	{% if c.size > 1 %}
+	inttype part_tmp;
+	{% if signalsize[c] > 0 %}
+	{% if signalsize <= 2 %}
+	bool signal_tmp;
+	{% elif signalsize <= 8 %}
+	uint8_t signal_tmp;
+	{% elif signalsize <= 16 %}
+	uint16_t signal_tmp;
+	{% elif signalsize <= 32 %}
+	uint32_t signal_tmp;
+	{% endif %}
+	{% endif %}
+	{% for t in c.type %}
+	{% if t.base == 'Integer' %}
+	elem_inttype int_tmp;{{break}}
+	{% endif %}
+	{% endfor %}
+	{% for t in c.type %}
+	{% if t.base == 'Byte' %}
+	elem_chartype char_tmp;{{break}}
+	{% endif %}
+	{% endfor %}
+	{% for t in c.type %}
+	{% if t.base == 'Boolean' %}
+	elem_booltype bool_tmp;{{break}}
+	{% endif %}
+	{% endfor %}
+
+	switch (part_id) {
+		{% set parts = async_channel_vectorpart_buffer_range[c] %}
+		{% for p in parts.keys() %}
+		case {{p}}:
+			{% if parts.get(p+1) != None %}
+			part_tmp = get_vectorpart(d_z, node_index, part_id+1);
+			{% endif %}
+			{% set lower1 = parts[p][0][0] %}
+			{% set lower2 = parts[p][0][1] %}
+			{% set upper1 = parts[p][1][0] %}
+			{% set upper2 = parts[p][1][1] %}
+			{% for i in range(0,c.size) %}
+			{% for j in range(0,c.type|length+1) %}
+			{% if (lower2 < i or (lower2 == i and lower1 <= j)) and (upper2 > i or (upper2 == i and upper1 >= j)) and c|next_buffer_element(j,i) != (-1,-1) and (j > 0 or signalsize[c] > 0) %}
+			if ({{i+1}} < size) {
+			{% set (nj,ni) = c|next_buffer_element(j,i) %}
+			{% if upper2 > ni or (upper2 == ni and upper1 >= nj) %}
+				get_{{c.name}}_{{nj}}_{{ni}}(&{% if nj == 0 %}signal_tmp{% else %}{% if c.type[nj-1].base == 'Integer' %}int_tmp{% elif c.type[nj-1].base == 'Byte' %}char_tmp{% else %}bool_tmp{% endif %}{% endif %}, *part, part_tmp);
+			{% else %}
+				get_{{c.name}}_{{nj}}_{{ni}}(&{% if nj == 0 %}signal_tmp{% else %}{% if c.type[nj-1].base == 'Integer' %}int_tmp{% elif c.type[nj-1].base == 'Byte' %}char_tmp{% else %}bool_tmp{% endif %}{% endif %}, part_tmp, *part);
+			{% endif %}
+			{% set PIDs = vectorelem_in_structure_map[c.name + "[" + j|string + "][" + i|string + "]"] %}
+			{% if PIDs[1][0] == p %}
+				set_left_{{c.name}}_{{j}}_{{i}}(part, {% if nj == 0 %}signal_tmp{% else %}{% if c.type[nj-1].base == 'Integer' %}int_tmp{% elif c.type[nj-1].base == 'Byte' %}char_tmp{% else %}bool_tmp{% endif %}{% endif %});
+			{% else %}
+				set_right_{{c.name}}_{{j}}_{{i}}(part, {% if nj == 0 %}signal_tmp{% else %}{% if c.type[nj-1].base == 'Integer' %}int_tmp{% elif c.type[nj-1].base == 'Byte' %}char_tmp{% else %}bool_tmp{% endif %}{% endif %});
+			{% endif %}
+			}
+			else {
+				set_left_{{c.name}}_{{j}}_{{i}}(part, 0);
+				break;
+			}
+			{% endif %}
+			{% endfor %}
+			{% endfor %}
+			break;
+		{% endfor %}
+		default:
+			break;
+	}
+	{% else %}
+	return;
+	{% endif %}
+}
+
 {% endfor %}
 // Cache pointers set functions.
 inline __device__ void set_left_pointer(shared_inttype &pointers, shared_indextype new_pointer) {
@@ -529,7 +616,7 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_z,
 	// Fetch the current state of the state machine.
 	statetype current = get_current_state(d_z, node_index, {{i}});
 	statetype target = NO_STATE;
-	inttype part1, part2, part_tmp;
+	inttype part1, part2;
 	shared_inttype part_cachepointers;
 	switch (current) {
 		{% for s in smname_to_object[state_order[i]][1].states %}

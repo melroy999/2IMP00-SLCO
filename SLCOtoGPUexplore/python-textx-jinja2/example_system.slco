@@ -68,7 +68,7 @@ model Test {
 	}
 	objects p: P(), q : Q()
 	channels
-		c1(Boolean) async lossless from q.Out1 to p.In1
+		c1(Boolean) async[4] lossless from q.Out1 to p.In1
 		c2(Integer) async lossy from q.Out2 to p.In2
 		c3() sync between p.InOut and q.InOut
 }

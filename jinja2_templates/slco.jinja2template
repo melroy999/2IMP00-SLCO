@@ -32,6 +32,6 @@ model {{model.name}} {
 {% if model.channels|length > 0 %}  channels{% endif %}
 
 {% for ch in model.channels %}
-    {{ch.name}}({% for t in ch.type %}{{', ' if not loop.first }}{{t.base}}{% if t.size > 1 %}[{{t.size}}]{% endif %}{% endfor %}) {{ch.synctype}} {{ch.losstype}}{% if ch.synctype == 'async' %} from{% else %}between{% endif %} {{ch.source.name}}.{{ch.port0.name}}{% if ch.synctype == 'async' %} to{% else %} and{% endif %} {{ch.target.name}}.{{ch.port1.name}}
+    {{ch.name}}({% for t in ch.type %}{{', ' if not loop.first }}{{t.base}}{% endfor %}) {{ch.synctype}}{% if ch.size > 1 %}[{{ch.size}}]{% endif %} {{ch.losstype}}{% if ch.synctype == 'async' %} from{% else %}between{% endif %} {{ch.source.name}}.{{ch.port0.name}}{% if ch.synctype == 'async' %} to{% else %} and{% endif %} {{ch.target.name}}.{{ch.port1.name}}
 {% endfor %}
 }

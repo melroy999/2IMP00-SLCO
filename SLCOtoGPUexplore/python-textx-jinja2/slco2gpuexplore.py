@@ -77,6 +77,8 @@ arraynames = []
 # dictionary for arrays that are dynamically written to in the model. For each such array, an item (name,range) is provided, with name the scopename
 # of the array, and range the range of vector parts in which the array is stored in vectors.
 dynamic_write_arrays = {}
+# dictionary for an (asynchronous channel, vectorpart) pair the range of buffer elements of that channel stored in that part
+async_channel_vectorpart_buffer_range = {}
 
 # dictionary providing the channels to which a given port is connected
 connected_channel = {}
@@ -1787,6 +1789,25 @@ def get_reccomm_trans(o, sm, c, signal):
 						L[src] = tgts
 	return L
 
+# Function to iterate over asynchronous channel buffer elements
+def next_buffer_element(c,i,j):
+	global signalsize
+
+	elsize = len(c.type) + 1
+	size = c.size
+	ni = i
+	nj = j
+	ni += 1
+	if ni == elsize:
+		ni = 0
+		if signalsize[c] == 0:
+			ni = 1
+		nj += 1
+		if nj == size:
+			ni = -1
+			nj = -1
+	return (ni,nj)
+
 # Filter for debugging
 def debug(text):
 	print(text)
@@ -1794,7 +1815,7 @@ def debug(text):
 
 def preprocess():
 	"""Preprocessing of model"""
-	global model, vectorsize, vectorstructure, vectortree, vectortree_T, vectorstructure_string, smnames, vectorelem_in_structure_map, max_statesize, state_order, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, connected_channel, signalsize, signalnr, alphabet, syncactions, actiontargets, actions, syncreccomm, no_state_constant, no_prio_constant, dynamic_write_arrays
+	global model, vectorsize, vectorstructure, vectortree, vectortree_T, vectorstructure_string, smnames, vectorelem_in_structure_map, max_statesize, state_order, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, connected_channel, signalsize, signalnr, alphabet, syncactions, actiontargets, actions, syncreccomm, no_state_constant, no_prio_constant, dynamic_write_arrays, async_channel_vectorpart_buffer_range
 
 	# construct set of statemachine names in the system
 	# also construct a map from names to objects
@@ -2108,7 +2129,7 @@ def preprocess():
 		C1 = vectortree[v]
 		for w in C1:
 			vectortree_T[w] = v
-	# create list of array names and channel buffer names
+	# create list of array names
 	arraynames = []
 	for o in model.objects:
 		for v in o.type.variables:
@@ -2118,12 +2139,12 @@ def preprocess():
 			for v in sm.variables:
 				if v.type.size > 0:
 					arraynames.append((o.name + "'" + sm.name + "'" + v.name, v.type, v.type.size))
-	for c in model.channels:
-		if c.synctype == 'async':
-			if signalsize[c] > 0:
-				arraynames.append((c.name + "[0]", signalsize[c], c.size))
-			for i in range(0,len(c.type)):
-				arraynames.append((c.name + "[" + str(i+1) + "]", c.type[i], c.size))
+	# for c in model.channels:
+	# 	if c.synctype == 'async':
+	# 		if signalsize[c] > 0:
+	# 			arraynames.append((c.name + "[0]", signalsize[c], c.size))
+	# 		for i in range(0,len(c.type)):
+	# 			arraynames.append((c.name + "[" + str(i+1) + "]", c.type[i], c.size))
 	# compute maximum number of buffer variable allocs needed for transition block processing
 	max_buffer_allocs = [0,0,0]
 	Cseen = set([])
@@ -2224,10 +2245,58 @@ def preprocess():
 		if len(PIDs) > 2:
 			upper = PIDs[2][0]
 		dynamic_write_arrays[v] = (vname,lower,upper)
+	# construct async_channel_vectorpart_buffer_range: for all (asynchronous channel, vectorpart) pairs, provide the range of buffer elements of that channel stored in that vectorpart of a vector.
+	async_channel_vectorpart_buffer_range = {}
+	for c in model.channels:
+		if c.synctype == 'async':
+			if signalsize[c] > 0:
+				PIDs = vectorelem_in_structure_map[c.name + "[0][0]"]
+				lower = (0,0)
+				i_type = 0
+				i_dim = 0
+			else:
+				PIDs = vectorelem_in_structure_map[c.name + "[1][0]"]
+				lower = (1,0)
+				i_type = 0
+				i_dim = 0
+			current = PIDs[1][0]
+			PIDs = vectorelem_in_structure_map[c.name + "[" + str(len(c.type)) + "][" + str(c.size-1) + "]"]
+			if len(PIDs) > 2:
+				last = PIDs[2][0]
+			else:
+				last = PIDs[1][0]
+			upper = lower
+			while current <= last:
+				i_type += 1
+				if i_type == len(c.type)+1:
+					if signalsize[c] > 0:
+						i_type = 0
+					else:
+						i_type = 1
+					i_dim += 1
+				if i_dim == c.size:
+					break
+				PIDs = vectorelem_in_structure_map[c.name + "[" + str(i_type) + "][" + str(i_dim) + "]"]
+				p = PIDs[1][0]
+				if p == current:
+					upper = (i_type,i_dim)
+				else:
+					R = async_channel_vectorpart_buffer_range.get(c,{})
+					R[current] = (lower,upper)
+					async_channel_vectorpart_buffer_range[c] = R
+					current = p
+					lower = (i_type, i_dim)
+			# add final range
+			R = async_channel_vectorpart_buffer_range.get(c,{})
+			R[current] = (lower,upper)
+			async_channel_vectorpart_buffer_range[c] = R
+
+	print(async_channel_vectorpart_buffer_range)
+
 
 def translate():
 	"""The translation function"""
-	global modelname, model, vectorstructure, vectorstructure_string, vectortree, vectorelem_in_structure_map, state_order, max_statesize, smnames, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, signalsize, connected_channel, alphabet, syncactions, actiontargets, no_state_constant, no_prio_constant, dynamic_write_arrays
+	global modelname, model, vectorstructure, vectorstructure_string, vectortree, vectorelem_in_structure_map, state_order, max_statesize, smnames, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, signalsize, connected_channel, alphabet, syncactions, actiontargets, no_state_constant, no_prio_constant, async_channel_vectorpart_buffer_range
 	
 	path, name = split(modelname)
 	if name.endswith('.slco'):
@@ -2267,6 +2336,7 @@ def translate():
 	jinja_env.filters['is_state'] = is_state
 	jinja_env.filters['has_dynamic_indexing'] = has_dynamic_indexing
 	jinja_env.filters['get_array_range_in_vectorpart'] = get_array_range_in_vectorpart
+	jinja_env.filters['next_buffer_element'] = next_buffer_element
 	jinja_env.filters['difference'] = difference
 	jinja_env.filters['get_vars'] = get_vars
 	jinja_env.filters['must_be_processed_by'] = must_be_processed_by
@@ -2283,7 +2353,7 @@ def translate():
 
 	# load the GPUexplore template
 	template = jinja_env.get_template('gpuexplore.jinja2template')
-	out = template.render(model=model, vectorsize=vectorsize, vectorstructure=vectorstructure, vectorstructure_string=vectorstructure_string, vectortree=vectortree, max_statesize=max_statesize, vectorelem_in_structure_map=vectorelem_in_structure_map, state_order=state_order, smnames=smnames, smname_to_object=smname_to_object, state_id=state_id, arraynames=arraynames, max_arrayindexsize=max_arrayindexsize, max_buffer_allocs=max_buffer_allocs, vectorpartlist=vectorpartlist, connected_channel=connected_channel, alphabet=alphabet, syncactions=syncactions, actiontargets=actiontargets, syncreccomm=syncreccomm, no_state_constant=no_state_constant, no_prio_constant=no_prio_constant, dynamic_write_arrays=dynamic_write_arrays, signalsize=signalsize)
+	out = template.render(model=model, vectorsize=vectorsize, vectorstructure=vectorstructure, vectorstructure_string=vectorstructure_string, vectortree=vectortree, max_statesize=max_statesize, vectorelem_in_structure_map=vectorelem_in_structure_map, state_order=state_order, smnames=smnames, smname_to_object=smname_to_object, state_id=state_id, arraynames=arraynames, max_arrayindexsize=max_arrayindexsize, max_buffer_allocs=max_buffer_allocs, vectorpartlist=vectorpartlist, connected_channel=connected_channel, alphabet=alphabet, syncactions=syncactions, actiontargets=actiontargets, syncreccomm=syncreccomm, no_state_constant=no_state_constant, no_prio_constant=no_prio_constant, dynamic_write_arrays=dynamic_write_arrays, signalsize=signalsize, async_channel_vectorpart_buffer_range=async_channel_vectorpart_buffer_range)
 	# write new SLCO model
 	outFile.write(out)
 	outFile.close()
