@@ -419,6 +419,16 @@ def is_vectorpart(pid):
 		return True
 	return False
 
+def vectorpart_id(pid):
+	"""For the given vectortree node with id pid, return its vectorpart id"""
+	"""Precondition: node pid is a vectorpart"""
+	global vectorstructure
+	n = len(vectorstructure)
+	i = pid - (n-1)
+	if i < 0:
+		i = n-1
+	return i
+
 def is_non_leaf(pid):
 	"""Return whether the given vectortree node with id pid is a non-leaf node"""
 	global vectorstructure
@@ -431,8 +441,8 @@ def indentspace(i):
 		result += "\t"
 	return result
 
-def store_new_vectortree_nodes(node_stack, nav, pointer_cnt, W, s, o, D, Drec, indent):
-	"""Produce CUDA code to produce and store new vectortree nodes. node_stack is a stack containing node ids that have been successfully processed before. nav is a list of nodes still to be processed.
+def store_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, Drec, indent):
+	"""Construct CUDA code to produce and store new vectortree nodes. nodes_done is a list containing node ids that have been processed before. nav is a list of nodes still to be processed.
 	   W is a dictionary defining for all vectorparts which values need to be written to it."""
 	global vectortree, vectortree_T
 	ic = indent
@@ -447,24 +457,45 @@ def store_new_vectortree_nodes(node_stack, nav, pointer_cnt, W, s, o, D, Drec, i
 				output += "part2 = part1;\n" + indentspace(ic)
 				for (v,i,isnotfirstpart) in refs:
 					if i != '*':
-						# handle the case of the target state
+						# handle the case of the target state(s) of SMs
 						if v.__class__.__name__ == "Object":
 							if i.__class__.__name__ == "StateMachine":
-								if not isnotfirstpart:
-									output += "set_" + v.name + "_" + i.name + "(&part2, &part_tmp, target);\n" + indentspace(ic)
+								if i == s.parent.parent:
+									if not isnotfirstpart:
+										output += "set_left_" + v.name + "_" + i.name + "(&part2, target);\n" + indentspace(ic)
+									else:
+										output += "set_right_" + v.name + "_" + i.name + "(&part2, target);\n" + indentspace(ic)
 								else:
-									output += "set_" + v.name + "_" + i.name + "(&part_tmp, &part2, target);\n" + indentspace(ic)
-						# handle the case of synchronous communication over a channel
+									# i is an (Object,Statemachine) pair that needs to change state
+									(vname,offset) = D.get((i,"tgt"), (v.name, None))
+									result = vname
+									if offset != None:
+										result += "[" + str(offset) + "]"
+									if not isnotfirstpart:
+										output += "set_left_" + v.name + "_" + i.name + "(&part2, " + result + ");\n" + indentspace(ic)
+									else:
+										output += "set_right_" + v.name + "_" + i.name + "(&part2, " + result + ");\n" + indentspace(ic)
+						# handle the case of communication over a channel
 						elif v.__class__.__name__ == "Channel":
-							# i is an (Object,Statemachine) pair that needs to change state
-							(vname,offset) = D.get((v,"state"), (v.name, None))
-							result = vname
-							if offset != None:
-								result += "[" + str(offset) + "]"
-							if not isnotfirstpart:
-								output += "set_" + i[0].name + "_" + i[1].name + "(&part2, &part_tmp, " + result + ");\n" + indentspace(ic)
+							if v.synctype == 'sync':
+								# i is an (Object,Statemachine) pair that needs to change state
+								(vname,offset) = D.get((v,"state"), (v.name, None))
+								result = vname
+								if offset != None:
+									result += "[" + str(offset) + "]"
+								if not isnotfirstpart:
+									output += "set_left_" + i[0].name + "_" + i[1].name + "(&part2, " + result + ");\n" + indentspace(ic)
+								else:
+									output += "set_right_" + i[0].name + "_" + i[1].name + "(&part2, " + result + ");\n" + indentspace(ic)
 							else:
-								output += "set_" + i[0].name + "_" + i[1].name + "(&part_tmp, &part2, " + result + ");\n" + indentspace(ic)
+								(vname,offset) = D.get((v,"_size"), (v.name, None))
+								result = vname
+								if offset != None:
+									result += "[" + str(offset) + "]"
+								if not isnotfirstpart:
+									output += "set_left_" + v.name + "_size(&part2, " + result + ");\n" + indentspace(ic)
+								else:
+									output += "set_right_" + v.name + "_size(&part2, " + result + ");\n" + indentspace(ic)
 						else:
 							result = ""
 							offset = None
@@ -497,15 +528,26 @@ def store_new_vectortree_nodes(node_stack, nav, pointer_cnt, W, s, o, D, Drec, i
 							if i != None:
 								set_methodname += "_" + index_str
 							if not isnotfirstpart:
-								output += "set_" + set_methodname + "(&part2, &part_tmp, " + result + ");\n" + indentspace(ic)
+								output += "set_left_" + set_methodname + "(&part2, " + result + ");\n" + indentspace(ic)
 							else:
-								output += "set_" + set_methodname + "(&part_tmp, &part2, " + result + ");\n" + indentspace(ic)
+								output += "set_right_" + set_methodname + "(&part2, " + result + ");\n" + indentspace(ic)
 					else:
-						# dynamic indexing into an array. use a special set function for this.
-						set_methodname = scopename(v,None,o)
-						set_methodname = set_methodname.replace("'","_")
-						(vname, offset) = D.get(v, (v.name, None))
-						output += "set_" + set_methodname + "(&part2, &part_tmp, idx_" + v.name + ", " + vname + ", " + str(offset) + ");\n" + indentspace(ic)
+						# dynamic indexing into an array or channel buffer. use a special set function for this.
+						if v.__class__.__name__ != "Channel":
+							set_methodname = scopename(v,None,o)
+							set_methodname = set_methodname.replace("'","_")
+							(vname, offset) = D.get(v, (v.name, None))
+							output += "set_" + set_methodname + "(&part2, idx_" + v.name + ", " + vname + ", " + str(offset) + ", " + str(vectorpart_id(p)) + ");\n" + indentspace(ic)
+						else:
+							first = 0
+							if signalsize[v] == 0:
+								first = 1
+							size = D[(v,"_size")]
+							sizeref = size[0] + "[" + str(size[1]) + "]"
+							for i in range(first,len(v.type)+1):
+								var = D[(v,"[" + str(i) + "][0]")]
+								varref = var[0] + "[" + str(var[1]) + "]"
+								output += "set_buffer_tail_element_" + v.name + "_" + str(i) + "(&part2, " + sizeref + "-1, " + varref + ", " + str(vectorpart_id(p)) + ");\n" + indentspace(ic)
 			if is_non_leaf(p):
 				# node is also a non-leaf in the vectortree. update pointers.
 				if f:
@@ -516,7 +558,7 @@ def store_new_vectortree_nodes(node_stack, nav, pointer_cnt, W, s, o, D, Drec, i
 					output += "set_left_pointer(&part_cachepointers, buf16[" + str(pointer_cnt) + "]);\n" + indentspace(ic)
 					if refs != []:
 						ic -= 1
-					output += "reset_left_in_vectorpart(&part2);\n" + indentspace(ic)
+					output += "reset_left_in_vectortree_node(&part2);\n" + indentspace(ic)
 					if refs != []:
 						output += "}\n" + indentspace(ic)
 						ic += 1
@@ -541,19 +583,19 @@ def store_new_vectortree_nodes(node_stack, nav, pointer_cnt, W, s, o, D, Drec, i
 					output += "}\n"  + indentspace(ic)
 			if nav != [] and not is_non_leaf(nav[0][0]):
 				pointer_cnt += 1
-			output += store_new_vectortree_nodes(node_stack + [p], nav, pointer_cnt, W, s, o, D, Drec, ic)
+			output += store_new_vectortree_nodes(nodes_done + [p], nav, pointer_cnt, W, s, o, D, Drec, ic)
 		elif is_non_leaf(p):
 			if not f:
 				ic += 1
 				output += "if (buf16[" + str(pointer_cnt) + "] != EMPTYCACHEPOINTERS) {\n" + indentspace(ic)
 				output += "get_vectortree_node(&part1, &part_cachepointers, d_z, node_index, " + str(p) + ");\n" + indentspace(ic)
 				children = vectortree[p]
-				if node_stack[len(node_stack)-1] == children[0]:
+				if nodes_done[len(nodes_done)-1] == children[0]:
 					output += "set_left_pointer(&part_cachepointers, buf16[" + str(pointer_cnt) + "]);\n" + indentspace(ic)
-					output += "reset_left_in_vectorpart(&part2);\n" + indentspace(ic)
+					output += "reset_left_in_vectortree_node(&part2);\n" + indentspace(ic)
 				else:
 					output += "set_right_pointer(&part_cachepointers, buf16[" + str(pointer_cnt) + "]);\n" + indentspace(ic)
-					output += "reset_right_in_vectorpart(&part2);\n" + indentspace(ic)
+					output += "reset_right_in_vectortree_node(&part2);\n" + indentspace(ic)
 			else:
 				ic += 1
 				output += "if (buf16[" + str(pointer_cnt-1) + "] != EMPTYCACHEPOINTERS || buf16[" + str(pointer_cnt) + "] != EMPTYCACHEPOINTERS) {\n" + indentspace(ic)
@@ -564,13 +606,13 @@ def store_new_vectortree_nodes(node_stack, nav, pointer_cnt, W, s, o, D, Drec, i
 				output += "if (buf16[" + str(pointer_cnt-1) + "] != EMPTYCACHEPOINTERS) {\n" + indentspace(ic)
 				output += "set_right_pointer(&part_cachepointers, buf16[" + str(pointer_cnt-1) + "]);\n" + indentspace(ic)
 				ic -= 1
-				output += "reset_right_in_vectorpart(&part2);\n" + indentspace(ic)
+				output += "reset_right_in_vectortree_node(&part2);\n" + indentspace(ic)
 				output += "}\n" + indentspace(ic)
 				ic += 1
 				output += "if (buf16[" + str(pointer_cnt) + "] != EMPTYCACHEPOINTERS) {\n" + indentspace(ic)
 				output += "set_left_pointer(&part_cachepointers, buf16[" + str(pointer_cnt) + "]);\n" + indentspace(ic)
 				ic -= 1
-				output += "reset_left_in_vectorpart(&part2);\n" + indentspace(ic)
+				output += "reset_left_in_vectortree_node(&part2);\n" + indentspace(ic)
 				output += "}\n" + indentspace(ic)
 				pointer_cnt -= 1
 			if p == 0:
@@ -588,7 +630,7 @@ def store_new_vectortree_nodes(node_stack, nav, pointer_cnt, W, s, o, D, Drec, i
 				output += "}\n"  + indentspace(ic)
 			if nav != [] and not is_non_leaf(nav[0][0]):
 				pointer_cnt += 1
-			output += store_new_vectortree_nodes(node_stack + [p], nav, pointer_cnt, W, s, o, D, Drec, ic)
+			output += store_new_vectortree_nodes(nodes_done + [p], nav, pointer_cnt, W, s, o, D, Drec, ic)
 	return output
 
 def cudastore_new_vector(s,indent,o,D,deps):
@@ -663,10 +705,10 @@ def cudastore_new_vector(s,indent,o,D,deps):
 				else:
 					waiting.add(parent)
 					current = L.pop(0)
-		# stack for processing nodes
-		node_stack = []
+		# list of processed nodes
+		nodes_done = []
 		# process the nav list of nodes
-		output += store_new_vectortree_nodes(node_stack, nav, 0, Wnew, s, o, D, Drec, indent)
+		output += store_new_vectortree_nodes(nodes_done, nav, 0, Wnew, s, o, D, Drec, indent)
 	return output
 
 def cudastatement(s,indent,o,D):
@@ -689,7 +731,7 @@ def cudastatement(s,indent,o,D):
 					if a in alphabet[sm2]:
 						SMs.append(sm2)
 			for m in SMs:
-				output += D[(m,"tgt")][0] + "[" + str(D[(m,"tgt")][1]) + "] = get_target_" + m.name + "_" + a + "(" + D[(m,"src")][0] + "[" + str(D[(m,"src")][1]) + "), -1);\n" + indentspace
+				output += D[(m,"tgt")][0] + "[" + str(D[(m,"tgt")][1]) + "] = -1;\n" + indentspace
 			output += "uint8_t i = " + str(len(SMs)) + ";\n" + indentspace
 			output += "while (i > 0) {\n" + indentspace
 			output += "\tswitch (i) {\n" + indentspace
@@ -697,20 +739,23 @@ def cudastatement(s,indent,o,D):
 				output += "\t\tcase " + str(i) + ":\n" + indentspace
 				output += "\t\t\t" + D[(SMs[i-1],"tgt")][0] + "[" + str(D[(SMs[i-1],"tgt")][1]) + "] = get_target_" + SMs[i-1].name + "_" + a + "((statetype) " + D[(SMs[i-1],"src")][0] + "[" + str(D[(SMs[i-1],"src")][1]) + "), " + D[(SMs[i-1],"tgt")][0] + "[" + str(D[(SMs[i-1],"tgt")][1]) + "]);\n" + indentspace
 				output += "\t\t\tif (" + D[(SMs[i-1],"tgt")][0] + "[" + str(D[(SMs[i-1],"tgt")][1]) + "] != -1) {\n" + indentspace
-				output += "\t\t\t\tif (i < " + str(len(SMs)) + ") {\n" + indentspace
-				output += "\t\t\t\t\ti++;\n" + indentspace
-				output += "\t\t\t\t}\n" + indentspace
+				output += "\t\t\t\ti++;\n" + indentspace
 				output += "\t\t\t}\n" + indentspace
 				output += "\t\t\telse {\n" + indentspace
-				output += "\t\t\t\t" + D[(m,"tgt")][0] + "[" + str(D[(m,"tgt")][1]) + "] = get_target_" + m.name + "_" + a + "((statetype) " + D[(m,"src")][0] + "[" + str(D[(m,"src")][1]) + "), -1);\n" + indentspace
+				output += "\t\t\t\t" + D[(m,"tgt")][0] + "[" + str(D[(m,"tgt")][1]) + "] = -1;\n" + indentspace
 				output += "\t\t\t\ti--;\n" + indentspace
 				output += "\t\t\t}\n" + indentspace
 				output += "\t\t\tbreak;\n" + indentspace
 				output += "\t\tdefault:\n" + indentspace
 				output += "\t\t\tbreak;\n" + indentspace
 				output += "\t}\n" + indentspace
+				output += "\tif (i == " + str(len(SMs)+1) + ") {\n" + indentspace + "\t\t"
+				output += cudastore_new_vector(s,indent+2,o,D,[])
+				output += "i--;\n" + indentspace
+				output += "\t}\n" + indentspace
 				output += "}"
-		output += cudastore_new_vector(s,indent,o,D,[])
+		else:
+			output += cudastore_new_vector(s,indent,o,D,[])
 	elif s.__class__.__name__ == "Assignment":
 		if s.left.index != None:
 			if has_dynamic_indexing(s.left.var, s.parent, o):
@@ -734,16 +779,17 @@ def cudastatement(s,indent,o,D):
 	elif s.__class__.__name__ == "SendSignal":
 		c = connected_channel[(o, s.target)]
 		if c.synctype == 'async':
-			if s.__class__.__name__ == "SendSignal":
-				if connected_channel[(o, s.target)].losstype == 'lossy':
-					output += "// Handle lossy case in which message is lost.\n" + indentspace
-					output += cudastore_new_vector(s,indent,o,D,[])
-					output += "// Handle lossy case in which message is not lost.\n" + indentspace
+			if connected_channel[(o, s.target)].losstype == 'lossy':
+				output += "// Handle lossy case in which message is lost.\n" + indentspace
+				# pass a 'lossy' keyword to restrict new vector writing to updating the target state
+				output += cudastore_new_vector(s,indent,o,D,["lossy"])
+				output += "// Handle lossy case in which message is not lost.\n" + indentspace
 			for i in range(0,len(s.params)):
 				p = s.params[i]
 				if i > 0:
 					output += "\n" + indentspace
 				output += D[(c, "[" + str(i+1) + "][0]")][0] + "[" + str(D[(c, "[" + str(i+1) + "][0]")][1]) + "] = " + getinstruction(p, o, D, {}) + ";\n" + indentspace
+				output += D[(c, "_size")][0] + "[" + str(D[(c, "_size")][1]) + "] = " + D[(c, "_size")][0] + "[" + str(D[(c, "_size")][1]) + "] + 1;\n" + indentspace
 			output += cudastore_new_vector(s,indent,o,D,[])
 		else:
 			for (o2,sm2) in get_syncrec_sms(o, c, s.signal):
@@ -1019,13 +1065,13 @@ def statement_write_varrefs(s, o):
 	elif s.__class__.__name__ == "ReceiveSignal":
 		for i in range(0,len(s.params)):
 			W.add((s.params[i].var, s.params[i].index))
-	elif s.__class__.__name__ == "SendSignal":
-		c = connected_channel[(o, s.target)]
-		if c.synctype == 'async':
-			if signalsize[c] > 0:
-				W.add((c, "[0][0]"))
-			for i in range(1,len(c.type)+1):
-				W.add((c, "[" + str(i) + "][0]"))
+	# elif s.__class__.__name__ == "SendSignal":
+	# 	c = connected_channel[(o, s.target)]
+	# 	if c.synctype == 'async':
+	# 		if signalsize[c] > 0:
+	# 			W.add((c, "[0][0]"))
+	# 		for i in range(1,len(c.type)+1):
+	# 			W.add((c, "[" + str(i) + "][0]"))
 	return W
 
 def statement_read_varrefs(s, o, sm, only_unguarded):
@@ -1523,41 +1569,40 @@ def vectorparts_not_covered(vi, o, VPs):
 def get_write_vectorparts_info(s, o, deps):
 	"""Return a dictionary of (vectorpart,varrefs) tuples indicating how the new values produced when executing statement s have to be stored in vector parts"""
 	"""deps is a list of references depending on s."""
-	global vectorelem_in_structure_map, connected_channel
+	global vectorelem_in_structure_map, connected_channel, signalsize
 
 	Refs = statement_write_varrefs(s,o)
 	D = {}
 	for (v,i) in Refs:
-		if v.__class__.__name__ != "Channel":
-			i_str = getinstruction(i, o, {}, {})
-			name = scopename(v,i,o)
-			if i == None or RepresentsInt(i_str):
-				PIDs = vectorelem_in_structure_map[name]
-				p = PIDs[1][0]
+		i_str = getinstruction(i, o, {}, {})
+		name = scopename(v,i,o)
+		if i == None or RepresentsInt(i_str):
+			PIDs = vectorelem_in_structure_map[name]
+			p = PIDs[1][0]
+			Dv = D.get(p,set([]))
+			# Boolean flag indicates that this is the first part (of possibly two) in which the variable is stored
+			Dv.add((v,i,False))
+			D[p] = Dv
+			if len(PIDs) > 2:
+				p = PIDs[2][0]
 				Dv = D.get(p,set([]))
-				# Boolean flag indicates that this is the first part (of possibly two) in which the variable is stored
-				Dv.add((v,i,False))
+				Dv.add((v,i,True))
 				D[p] = Dv
+		else:
+			# obtain all parts that contain a part of array v
+			size = v.type.size
+			S = set([])
+			for j in range(0,size):
+				i_str = "[" + str(j) + "]"
+				PIDs = vectorelem_in_structure_map[name + i_str]
+				S.add(PIDs[1][0])
 				if len(PIDs) > 2:
-					p = PIDs[2][0]
-					Dv = D.get(p,set([]))
-					Dv.add((v,i,True))
-					D[p] = Dv
-			else:
-				# obtain all parts that contain a part of array v
-				size = v.type.size
-				S = set([])
-				for j in range(0,size):
-					i_str = "[" + str(j) + "]"
-					PIDs = vectorelem_in_structure_map[name + i_str]
-					S.add(PIDs[1][0])
-					if len(PIDs) > 2:
-						S.add(PIDs[2][0])
-				for p in S:
-					Dv = D.get(p,set([]))
-					# We write '*' as index to indicate dynamic indexing
-					Dv.add((v,'*',False))
-					D[p] = Dv
+					S.add(PIDs[2][0])
+			for p in S:
+				Dv = D.get(p,set([]))
+				# We write '*' as index to indicate dynamic indexing into array
+				Dv.add((v,'*',False))
+				D[p] = Dv
 	# add references to target state of statement
 	state = o.name + "'" + s.parent.parent.name
 	PIDs = vectorelem_in_structure_map[state]
@@ -1611,6 +1656,61 @@ def get_write_vectorparts_info(s, o, deps):
 							break
 				for p in extra:
 					D[p] = set([])
+		else:
+			# in case of asynchronous communication, add all vectorparts comtaining the buffer of the channel, unless we are handling a 'lossy' case
+			if deps == []:
+				i = 0
+				if signalsize[c] == 0:
+					i = 1
+				j = 0
+				PIDs = vectorelem_in_structure_map[c.name + "[" + str(i) + "][" + str(j) + "]"]
+				first = PIDs[1][0]
+				PIDs = vectorelem_in_structure_map[c.name + "[" + str(len(c.type)) + "][" + str(c.size-1) + "]"]
+				last = PIDs[1][0]
+				if len(PIDs) > 2:
+					last = PIDs[2][0]
+				for p in range(first,last+1):
+					Dv = D.get(p,set([]))
+					# We write '*' as index to indicate dynamic indexing into buffer
+					Dv.add((c,'*',False))
+					D[p] = Dv
+				# add the buffer size variable
+				PIDs = vectorelem_in_structure_map[c.name + "_size"]
+				p = PIDs[1][0]
+				Dv = D.get(p,set([]))
+				# Boolean flag indicates that this is the first part (of possibly two) in which the variable is stored
+				Dv.add((c,"_size",False))
+				D[p] = Dv
+				if len(PIDs) > 2:
+					p = PIDs[2][0]
+					Dv = D.get(p,set([]))
+					Dv.add((c,"_size",True))
+					D[p] = Dv
+	# handle action synchronisation
+	if statement_is_actionref(s):
+		a = getlabel(s)
+		sm = s.parent.parent
+		if a in syncactions.get(o.type,set([])):
+			# construct list of statemachines with which synchronisation is required
+			SMs = []
+			for m in smnames:
+				(o2,sm2) = smname_to_object[m]
+				if o == o2 and sm != sm2:
+					if a in alphabet[sm2]:
+						SMs.append(sm2)
+			# obtain part ids
+			for sm2 in SMs:
+				PIDs = vectorelem_in_structure_map[o.name + "'" + sm2.name]
+				p = PIDs[1][0]
+				Dv = D.get(p,set([]))
+				# Boolean flag indicates that this is the first part (of possibly two) in which the variable is stored
+				Dv.add((o,sm2,False))
+				D[p] = Dv
+				if len(PIDs) > 2:
+					p = PIDs[2][0]
+					Dv = D.get(p,set([]))
+					Dv.add((o,sm2,True))
+					D[p] = Dv				
 	return D
 
 # filter to produce difference between two lists
@@ -2201,7 +2301,7 @@ def preprocess():
 		C = Adict[a]
 		for c in C.keys():
 			if C[c] > 1:
-				CC = get.syncactions(c,set([]))
+				CC = syncactions.get(c,set([]))
 				CC.add(a)
 				syncactions[c] = CC
 	# determine values for constants

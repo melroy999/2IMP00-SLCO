@@ -11,6 +11,9 @@ model Test {
 				from R1_0 to R1_0 {
 					receive P(v|not v) from In1
 				}
+				from R1_0 to R1_0 {
+					a
+				}
 		}
 		REC2 {
 			initial R2_0 states R2_1
