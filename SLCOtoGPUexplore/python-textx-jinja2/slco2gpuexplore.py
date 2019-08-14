@@ -441,7 +441,7 @@ def indentspace(i):
 		result += "\t"
 	return result
 
-def store_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, Drec, indent):
+def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, Drec, indent):
 	"""Construct CUDA code to produce and store new vectortree nodes. nodes_done is a list containing node ids that have been processed before. nav is a list of nodes still to be processed.
 	   W is a dictionary defining for all vectorparts which values need to be written to it."""
 	global vectortree, vectortree_T
@@ -539,15 +539,21 @@ def store_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, Drec, i
 							(vname, offset) = D.get(v, (v.name, None))
 							output += "set_" + set_methodname + "(&part2, idx_" + v.name + ", " + vname + ", " + str(offset) + ", " + str(vectorpart_id(p)) + ");\n" + indentspace(ic)
 						else:
-							first = 0
-							if signalsize[v] == 0:
-								first = 1
-							size = D[(v,"_size")]
-							sizeref = size[0] + "[" + str(size[1]) + "]"
-							for i in range(first,len(v.type)+1):
-								var = D[(v,"[" + str(i) + "][0]")]
-								varref = var[0] + "[" + str(var[1]) + "]"
-								output += "set_buffer_tail_element_" + v.name + "_" + str(i) + "(&part2, " + sizeref + "-1, " + varref + ", " + str(vectorpart_id(p)) + ");\n" + indentspace(ic)
+							if s.__class__.__name__ == "SendSignal":
+								first = 0
+								if signalsize[v] == 0:
+									first = 1
+								size = D[(v,"_size")]
+								sizeref = size[0] + "[" + str(size[1]) + "]"
+								for i in range(first,len(v.type)+1):
+									var = D[(v,"[" + str(i) + "][0]")]
+									varref = var[0] + "[" + str(var[1]) + "]"
+									output += "set_buffer_tail_element_" + v.name + "_" + str(i) + "(&part2, " + sizeref + "-1, " + varref + ", " + str(vectorpart_id(p)) + ");\n" + indentspace(ic)
+							else:
+								# ReceiveSignal: shift the buffer content one position towards the head
+								size = D[(v,"_size")]
+								sizeref = size[0] + "[" + str(size[1]) + "]"
+								output += "shift_buffer_tail_elements_" + v.name + "(d_z, node_index, &part2, " + sizeref + "+1, " + str(vectorpart_id(p)) + ");\n" + indentspace(ic)
 			if is_non_leaf(p):
 				# node is also a non-leaf in the vectortree. update pointers.
 				if f:
@@ -583,7 +589,7 @@ def store_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, Drec, i
 					output += "}\n"  + indentspace(ic)
 			if nav != [] and not is_non_leaf(nav[0][0]):
 				pointer_cnt += 1
-			output += store_new_vectortree_nodes(nodes_done + [p], nav, pointer_cnt, W, s, o, D, Drec, ic)
+			output += cudastore_new_vectortree_nodes(nodes_done + [p], nav, pointer_cnt, W, s, o, D, Drec, ic)
 		elif is_non_leaf(p):
 			if not f:
 				ic += 1
@@ -630,7 +636,10 @@ def store_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, Drec, i
 				output += "}\n"  + indentspace(ic)
 			if nav != [] and not is_non_leaf(nav[0][0]):
 				pointer_cnt += 1
-			output += store_new_vectortree_nodes(nodes_done + [p], nav, pointer_cnt, W, s, o, D, Drec, ic)
+			output += cudastore_new_vectortree_nodes(nodes_done + [p], nav, pointer_cnt, W, s, o, D, Drec, ic)
+	# remove trailing tabs
+	while output[-1:] == '\t':
+		output = output[:-1]
 	return output
 
 def cudastore_new_vector(s,indent,o,D,deps):
@@ -708,7 +717,7 @@ def cudastore_new_vector(s,indent,o,D,deps):
 		# list of processed nodes
 		nodes_done = []
 		# process the nav list of nodes
-		output += store_new_vectortree_nodes(nodes_done, nav, 0, Wnew, s, o, D, Drec, indent)
+		output += cudastore_new_vectortree_nodes(nodes_done, nav, 0, Wnew, s, o, D, Drec, indent)
 	return output
 
 def cudastatement(s,indent,o,D):
@@ -750,10 +759,10 @@ def cudastatement(s,indent,o,D):
 				output += "\t\t\tbreak;\n" + indentspace
 				output += "\t}\n" + indentspace
 				output += "\tif (i == " + str(len(SMs)+1) + ") {\n" + indentspace + "\t\t"
-				output += cudastore_new_vector(s,indent+2,o,D,[])
+				output += cudastore_new_vector(s,indent+2,o,D,[]) + indentspace + "\t\t"
 				output += "i--;\n" + indentspace
 				output += "\t}\n" + indentspace
-				output += "}"
+				output += "}\n"
 		else:
 			output += cudastore_new_vector(s,indent,o,D,[])
 	elif s.__class__.__name__ == "Assignment":
@@ -782,23 +791,28 @@ def cudastatement(s,indent,o,D):
 			if connected_channel[(o, s.target)].losstype == 'lossy':
 				output += "// Handle lossy case in which message is lost.\n" + indentspace
 				# pass a 'lossy' keyword to restrict new vector writing to updating the target state
-				output += cudastore_new_vector(s,indent,o,D,["lossy"])
+				output += cudastore_new_vector(s,indent,o,D,["lossy"]) + indentspace
 				output += "// Handle lossy case in which message is not lost.\n" + indentspace
 			for i in range(0,len(s.params)):
 				p = s.params[i]
 				if i > 0:
 					output += "\n" + indentspace
 				output += D[(c, "[" + str(i+1) + "][0]")][0] + "[" + str(D[(c, "[" + str(i+1) + "][0]")][1]) + "] = " + getinstruction(p, o, D, {}) + ";\n" + indentspace
-				output += D[(c, "_size")][0] + "[" + str(D[(c, "_size")][1]) + "] = " + D[(c, "_size")][0] + "[" + str(D[(c, "_size")][1]) + "] + 1;\n" + indentspace
+				# increment buffer size counter
+				output += D[(c, "_size")][0] + "[" + str(D[(c, "_size")][1]) + "]++;\n" + indentspace
 			output += cudastore_new_vector(s,indent,o,D,[])
 		else:
 			for (o2,sm2) in get_syncrec_sms(o, c, s.signal):
 				output += D[(c,"state")][0] + "[" + str(D[(c,"state")][1]) + "] = get_target_" + o2.name + "_" + sm2.name + "_" + s.signal + "(" + D[(c, o2.name + "'" + sm2.name)][0] + "[" + str(D[(c, o2.name + "'" + sm2.name)][1]) + "], -1);\n" + indentspace
 				output += "while (" + D[(c,"state")][0] + "[" + str(D[(c,"state")][1]) + "] != -1) {\n" + indentspace
-				output += "\t" + cudastore_new_vector(s,indent+1,o,D,[(o2,sm2)]) + "\n" + indentspace
+				output += "\t" + cudastore_new_vector(s,indent+1,o,D,[(o2,sm2)]) + indentspace
 				output += "\t" + D[(c,"state")][0] + "[" + str(D[(c,"state")][1]) + "] = get_target_" + o2.name + "_" + sm2.name + "_" + s.signal + "(" + D[(c, o2.name + "'" + sm2.name)][0] + "[" + str(D[(c, o2.name + "'" + sm2.name)][1]) + "], " + D[(c,"state")][0] + "[" + str(D[(c,"state")][1]) + "]);\n" + indentspace
-				output += "}"
+				output += "}\n"
 	elif s.__class__.__name__ == "ReceiveSignal":
+		c = connected_channel[(o, s.target)]
+		if c.synctype == 'async':
+			# decrement buffer size counter
+			output += D[(c, "_size")][0] + "[" + str(D[(c, "_size")][1]) + "]--;\n" + indentspace
 		output += cudastore_new_vector(s,indent,o,D,[])
 	elif s.__class__.__name__ == "Expression":
 		output += cudastore_new_vector(s,indent,o,D,[])
@@ -1686,6 +1700,37 @@ def get_write_vectorparts_info(s, o, deps):
 					Dv = D.get(p,set([]))
 					Dv.add((c,"_size",True))
 					D[p] = Dv
+	if s.__class__.__name__ == "ReceiveSignal":
+		c = connected_channel[(o,s.target)]
+		if c.synctype == 'async':
+			# add all vectorparts containing the buffer of the channel
+			i = 0
+			if signalsize[c] == 0:
+				i = 1
+			j = 0
+			PIDs = vectorelem_in_structure_map[c.name + "[" + str(i) + "][" + str(j) + "]"]
+			first = PIDs[1][0]
+			PIDs = vectorelem_in_structure_map[c.name + "[" + str(len(c.type)) + "][" + str(c.size-1) + "]"]
+			last = PIDs[1][0]
+			if len(PIDs) > 2:
+				last = PIDs[2][0]
+			for p in range(first,last+1):
+				Dv = D.get(p,set([]))
+				# We write '*' as index to indicate dynamic indexing into buffer
+				Dv.add((c,'*',False))
+				D[p] = Dv
+			# add the buffer size variable
+			PIDs = vectorelem_in_structure_map[c.name + "_size"]
+			p = PIDs[1][0]
+			Dv = D.get(p,set([]))
+			# Boolean flag indicates that this is the first part (of possibly two) in which the variable is stored
+			Dv.add((c,"_size",False))
+			D[p] = Dv
+			if len(PIDs) > 2:
+				p = PIDs[2][0]
+				Dv = D.get(p,set([]))
+				Dv.add((c,"_size",True))
+				D[p] = Dv
 	# handle action synchronisation
 	if statement_is_actionref(s):
 		a = getlabel(s)

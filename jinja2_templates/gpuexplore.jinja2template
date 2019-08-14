@@ -788,8 +788,7 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_z,
 			{{indent}}// Set target state.
 			{{indent}}target = {{state_id[(sm,t.target)]}};
 			{% if st|cudastatement(1,o,M) != "" %}
-			{{indent}}{{st|cudastatement(indent|length+3,o,M)}}
-			{% endif %}
+			{{indent}}{{st|cudastatement(indent|length+3,o,M)}}{% endif %}
 			{% if st|cudaguard(M,o) != "" %}
 			{% set indent = indent[:-1] %}
 			{{indent}}}
