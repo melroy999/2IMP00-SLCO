@@ -98,17 +98,17 @@ extern __shared__ volatile shared_inttype shared[];
 // Mark state as new or old
 inline __device__ inttype mark_new(inttype part) {
 {% if vectorsize < 31 %}
-	return part = part | 0x80000000;
+	return part | 0x80000000;
 {% else %}
-	return part = part | 0x8000000000000000;
+	return part | 0x8000000000000000;
 {% endif %}
 }
 
 inline __device__ inttype mark_old(inttype part) {
 {% if vectorsize < 31 %}
-	return part = part | 0x7FFFFFFF;
+	return part | 0x7FFFFFFF;
 {% else %}
-	return part = part | 0x7FFFFFFFFFFFFFFF;
+	return part | 0x7FFFFFFFFFFFFFFF;
 {% endif %}
 }
 
@@ -121,14 +121,24 @@ inline __device__ bool is_new(inttype part) {
 {% endif %}
 }
 
+// Check whether the highest 32-bits of a node are set as new
+inline __device__ bool head_is_new(shared_inttype part) {
+	return (part & 0x80000000) != 0;
+}
+
 // Mark whether node is root.
 inline __device__ inttype mark_root(inttype part) {
-	return part = part | 0x4000000000000000;
+	return part | 0x4000000000000000;
 }
 
 // Check whether node is root.
 inline __device__ bool is_root(inttype part) {
 	return (part & 0x4000000000000000) != 0;
+}
+
+// Check whether the highest 32-bits of a node are set as root.
+inline __device__ bool head_is_root(shared_inttype part) {
+	return (part & 0x40000000) != 0;
 }
 
 {% if vectorsize > 62 %}
@@ -313,41 +323,94 @@ __device__ bool FINDORPUT_MANY(shared_inttype *d_cache, inttype *d_q) {
 	{% if vectorsize > 63 %}
 	shared_inttype part_pointers;
 	shared_inttype part_pointers_child;
-	bool work_to_do = True;
-	{% endif %}
+	bool work_to_do = False;
 
 	if (THREAD_ID == 0) {
 		CONTINUE = 1;
 	}
 	__syncthreads();
+	if (THREAD_ID == 0) {
+		CONTINUE = 0;
+	}
+	__syncthreads();
+	for (shared_indextype i = THREAD_ID{% if vectorsize > 63 %}*3{% endif %}; i < d_shared_q_size; i += BLOCK_SIZE{% if vectorsize > 63 %}*3{% endif %}) {
+		{% if vectorsize > 63 %}
+		part_pointers = d_cache[i+2];
+		// Check if node is ready for storage. Only new leafs are ready at this point. We rely on old and new non-leafs having pointers with the highest
+		// two bits set to zero, empty entries having pointers set to zero, and new leafs having pointers set to 0x40000000.
+		if (cache_pointers_are_marked_leaf(part)) {
+			asm("{\n\t"
+			" mov.b64 %0,{ %1, %2 };\n\t"
+			"}" : "=l"(part) : "r"(d_cache[i]), "r"(d_cache[i+1]));
+			// Store part in hash table.
+			addr = FINDORPUT_SINGLE(d_q, part);
+			// Store global memory address in cache.
+			set_cache_pointers_to_global_address(&d_cache[i], addr);
+		}
+		// Node is not ready yet. Check if it can be updated.
+		else if (part_pointers != 0) {
+			if (head_is_new(d_cache[i])) {
+				asm("{\n\t"
+				" mov.b64 %0,{ %1, %2 };\n\t"
+				"}" : "=l"(part) : "r"(d_cache[i]), "r"(d_cache[i+1]));
+				if (vectortree_node_contains_left_gap(part)) {
+					// Look up left child and check for presence of global memory address.
+					part_pointers_child = sv_step(d_cache, i, False);
+					part_pointers_child = d_cache[part_pointers_child+2];
+					if (cache_pointers_contain_global_address(part_pointers_child)) {
+						set_left_in_vectortree_node(&part, part_pointers_child);
+						// Copy back to shared memory.
+						d_cache[i] = get_left(part);
+						d_cache[i+1] = get_right[part];
+					}
+				}
+				if (vectortree_node_contains_right_gap(part)) {
+					// Look up right child and check for presence of global memory address.
+					part_pointers_child = sv_step(d_cache, i, True);
+					part_pointers_child = d_cache[part_pointers_child+2];
+					if (cache_pointers_contain_global_address(part_pointers_child)) {
+						set_right_in_vectortree_node(&part, part_pointers_child);
+						// Copy back to shared memory.
+						d_cache[i] = get_left(part);
+						d_cache[i+1] = get_right[part];
+					}
+				}
+				// Ready now?
+				if (!vectortree_node_contains_left_gap(part) && !vectortree_node_contains_right_gap(part)) {
+					// Possibly reset new bit.
+					if (!is_root(part)) {
+						part = mark_old(part);
+					}
+					// Store part in hash table.
+					addr = FINDORPUT_SINGLE(d_q, part);
+					// Store global memory address in d_cache.
+					set_d_cache_pointers_to_global_address(&d_cache[i], addr);							
+				}
+				else {
+					work_to_do = True;
+					CONTINUE = 1;
+				}
+			}
+		}
+	}
+	__syncthreads();
 	while (CONTINUE == 1) {
-		__syncthreads();
 		if (THREAD_ID == 0) {
 			CONTINUE = 0;
 		}
 		__syncthreads();
 		if (work_to_do) {
 			work_to_do = False;
-			for (shared_indextype i = THREAD_ID{% if vectorsize > 63 %}*3{% endif %}; i < d_shared_q_size; i += BLOCK_SIZE{% if vectorsize > 63 %}*3{% endif %}) {
-				{% if vectorsize > 63 %}
-				asm("{\n\t"
-				" mov.b64 %0,{ %1, %2 };\n\t"
-				"}" : "=l"(part) : "r"(d_cache[i]), "r"(d_cache[i+1]));
-				part_pointers = d_cache[i+2];
-				// Check if node is ready for storage.
-				if (is_new(part) {
-					if (cache_pointers_are_marked_leaf(part_pointers) || !(vectortree_node_contains_left_gap(part) || vectortree_node_contains_right_gap(part))) {
-						// Possibly reset new bit.
-						if (!is_root(part)) {
-							part = mark_old(part);
-						}
-						// Store part in hash table.
-						addr = FINDORPUT_SINGLE(d_q, part);
-						// Store global memory address in cache.
-						set_cache_pointers_to_global_address(&d_cache[i], addr);
-					}
-					// Node is not ready yet. Check if it can be updated.
-					else {
+			for (shared_indextype i = THREAD_ID*3; i < d_shared_q_size; i += BLOCK_SIZE*3) {
+				part_pointers_child = d_cache[i];
+				// If the node is marked new, this is a node still to be processed.
+				if (head_is_new(part_pointers_child)) {
+					part_pointers = d_cache[i+2];
+					// If this is a root node, processing is only required if the pointers do not contain a global address.
+					if (!head_is_root(part_pointers_child) || !cache_pointers_contain_global_address(part_pointers)) {
+						asm("{\n\t"
+						" mov.b64 %0,{ %1, %2 };\n\t"
+						"}" : "=l"(part) : "r"(d_cache[i]), "r"(d_cache[i+1]));
 						if (vectortree_node_contains_left_gap(part)) {
 							// Look up left child and check for presence of global memory address.
 							part_pointers_child = sv_step(d_cache, i, False);
@@ -379,7 +442,7 @@ __device__ bool FINDORPUT_MANY(shared_inttype *d_cache, inttype *d_q) {
 							// Store part in hash table.
 							addr = FINDORPUT_SINGLE(d_q, part);
 							// Store global memory address in d_cache.
-							set_d_cache_pointers_to_global_address(&d_cache[i], addr);							
+							set_d_cache_pointers_to_global_address(&d_cache[i], addr);
 						}
 						else {
 							work_to_do = True;
@@ -387,13 +450,16 @@ __device__ bool FINDORPUT_MANY(shared_inttype *d_cache, inttype *d_q) {
 						}
 					}
 				}
-				{% else %}
-				part = d_cache[i];
-				addr = FINDORPUT_SINGLE(d_q, part);
-				{% endif %}
 			}
 		}
 		__syncthreads();
+	}
+	{% else %}
+	for (shared_indextype i = THREAD_ID; i < d_shared_q_size; i += BLOCK_SIZE) {
+		part = d_cache[i];
+		if is_new(part) {
+			addr = FINDORPUT_SINGLE(d_q, part);
+		}
 	}
 }
 
