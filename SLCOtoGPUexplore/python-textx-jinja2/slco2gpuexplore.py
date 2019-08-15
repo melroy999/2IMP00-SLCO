@@ -452,7 +452,7 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, Dre
 		if is_vectorpart(p):
 			refs = W.get(p,[])
 			if refs != []:
-				output += "get_vectortree_node(&part1, &part_cachepointers, d_z, node_index, " + str(p) + ");\n" + indentspace(ic)
+				output += "get_vectortree_node(&part1, &part_cachepointers, d_cache, node_index, " + str(p) + ");\n" + indentspace(ic)
 				output += "// Store new values.\n" + indentspace(ic)
 				output += "part2 = part1;\n" + indentspace(ic)
 				for (v,i,isnotfirstpart) in refs:
@@ -553,15 +553,15 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, Dre
 								# ReceiveSignal: shift the buffer content one position towards the head
 								size = D[(v,"_size")]
 								sizeref = size[0] + "[" + str(size[1]) + "]"
-								output += "shift_buffer_tail_elements_" + v.name + "(d_z, node_index, &part2, " + sizeref + "+1, " + str(vectorpart_id(p)) + ");\n" + indentspace(ic)
+								output += "shift_buffer_tail_elements_" + v.name + "(d_cache, node_index, &part2, " + sizeref + "+1, " + str(vectorpart_id(p)) + ");\n" + indentspace(ic)
 			if is_non_leaf(p):
 				# node is also a non-leaf in the vectortree. update pointers.
 				if f:
 					ic += 1
 					output += "if (buf16[" + str(pointer_cnt) + "] != EMPTYCACHEPOINTERS) {\n" + indentspace(ic)
 					if refs == []:
-						output += "get_vectortree_node(&part1, &part_cachepointers, d_z, node_index, " + str(p) + ");\n" + indentspace(ic)
-					output += "set_left_pointer(&part_cachepointers, buf16[" + str(pointer_cnt) + "]);\n" + indentspace(ic)
+						output += "get_vectortree_node(&part1, &part_cachepointers, d_cache, node_index, " + str(p) + ");\n" + indentspace(ic)
+					output += "set_left_cache_pointer(&part_cachepointers, buf16[" + str(pointer_cnt) + "]);\n" + indentspace(ic)
 					if refs != []:
 						ic -= 1
 					output += "reset_left_in_vectortree_node(&part2);\n" + indentspace(ic)
@@ -574,10 +574,7 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, Dre
 				output += "if (part2 != part1) {\n" + indentspace(ic)
 			if is_non_leaf(p) or refs != []:
 				output += "// This part has been altered. Store it in shared memory and remember address of new part.\n" + indentspace(ic)
-				if p == 0:
-					output += "part2 = mark_new(part2);\n" + indentspace(ic)
-				else:
-					output += "part2 = mark_old(part2);\n" + indentspace(ic)
+				output += "part2 = mark_new(part2);\n" + indentspace(ic)
 				ic -= 1
 				output += "bla = store_in_cache(part2, part_cachepointers, &buf16[" + str(pointer_cnt) + "]);\n" + indentspace(ic)
 				output += "}\n"  + indentspace(ic)
@@ -594,37 +591,34 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, Dre
 			if not f:
 				ic += 1
 				output += "if (buf16[" + str(pointer_cnt) + "] != EMPTYCACHEPOINTERS) {\n" + indentspace(ic)
-				output += "get_vectortree_node(&part1, &part_cachepointers, d_z, node_index, " + str(p) + ");\n" + indentspace(ic)
+				output += "get_vectortree_node(&part1, &part_cachepointers, d_cache, node_index, " + str(p) + ");\n" + indentspace(ic)
 				children = vectortree[p]
 				if nodes_done[len(nodes_done)-1] == children[0]:
-					output += "set_left_pointer(&part_cachepointers, buf16[" + str(pointer_cnt) + "]);\n" + indentspace(ic)
+					output += "set_left_cache_pointer(&part_cachepointers, buf16[" + str(pointer_cnt) + "]);\n" + indentspace(ic)
 					output += "reset_left_in_vectortree_node(&part2);\n" + indentspace(ic)
 				else:
-					output += "set_right_pointer(&part_cachepointers, buf16[" + str(pointer_cnt) + "]);\n" + indentspace(ic)
+					output += "set_right_cache_pointer(&part_cachepointers, buf16[" + str(pointer_cnt) + "]);\n" + indentspace(ic)
 					output += "reset_right_in_vectortree_node(&part2);\n" + indentspace(ic)
 			else:
 				ic += 1
 				output += "if (buf16[" + str(pointer_cnt-1) + "] != EMPTYCACHEPOINTERS || buf16[" + str(pointer_cnt) + "] != EMPTYCACHEPOINTERS) {\n" + indentspace(ic)
 				ic -= 1
-				output += "get_vectortree_node(&part1, &part_cachepointers, d_z, node_index, " + str(p) + ");\n" + indentspace(ic)
+				output += "get_vectortree_node(&part1, &part_cachepointers, d_cache, node_index, " + str(p) + ");\n" + indentspace(ic)
 				output += "}\n" + indentspace(ic)
 				ic += 1
 				output += "if (buf16[" + str(pointer_cnt-1) + "] != EMPTYCACHEPOINTERS) {\n" + indentspace(ic)
-				output += "set_right_pointer(&part_cachepointers, buf16[" + str(pointer_cnt-1) + "]);\n" + indentspace(ic)
+				output += "set_right_cache_pointer(&part_cachepointers, buf16[" + str(pointer_cnt-1) + "]);\n" + indentspace(ic)
 				ic -= 1
 				output += "reset_right_in_vectortree_node(&part2);\n" + indentspace(ic)
 				output += "}\n" + indentspace(ic)
 				ic += 1
 				output += "if (buf16[" + str(pointer_cnt) + "] != EMPTYCACHEPOINTERS) {\n" + indentspace(ic)
-				output += "set_left_pointer(&part_cachepointers, buf16[" + str(pointer_cnt) + "]);\n" + indentspace(ic)
+				output += "set_left_cache_pointer(&part_cachepointers, buf16[" + str(pointer_cnt) + "]);\n" + indentspace(ic)
 				ic -= 1
 				output += "reset_left_in_vectortree_node(&part2);\n" + indentspace(ic)
 				output += "}\n" + indentspace(ic)
 				pointer_cnt -= 1
-			if p == 0:
 				output += "part2 = mark_new(part2);\n" + indentspace(ic)
-			else:
-				output += "part2 = mark_old(part2);\n" + indentspace(ic)
 			ic -= 1
 			output += "bla = store_in_cache(part2, part_cachepointers, &buf16[" + str(pointer_cnt) + "]);\n" + indentspace(ic)
 			output += "}\n"  + indentspace(ic)
