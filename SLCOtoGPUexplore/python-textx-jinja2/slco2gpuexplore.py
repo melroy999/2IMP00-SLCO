@@ -41,6 +41,8 @@ vectorstructure_string = ""
 vectortree = {}
 # transposed vector tree
 vectortree_T = {}
+# size of a vectortree group (groups of threads needed to fetch a vector tree from the global hash table)
+vectortree_size = 0
 
 # dictionary indicating in which part of the vector (which integer) a given vector element can be found
 vectorelem_in_structure_map = {}
@@ -574,7 +576,7 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, Dre
 				output += "if (part2 != part1) {\n" + indentspace(ic)
 			if is_non_leaf(p) or refs != []:
 				output += "// This part has been altered. Store it in shared memory and remember address of new part.\n" + indentspace(ic)
-				if is_non_leaf(p) or vectorsize < 63:
+				if is_non_leaf(p) or vectorsize < 64:
 					output += "part2 = mark_new(part2);\n" + indentspace(ic)
 				ic -= 1
 				output += "bla = store_in_cache(part2, part_cachepointers, &buf16[" + str(pointer_cnt) + "]);\n" + indentspace(ic)
@@ -619,7 +621,7 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, Dre
 				output += "reset_left_in_vectortree_node(&part2);\n" + indentspace(ic)
 				output += "}\n" + indentspace(ic)
 				pointer_cnt -= 1
-				if is_non_leaf(p) or vectorsize < 63:
+				if is_non_leaf(p) or vectorsize < 64:
 					output += "part2 = mark_new(part2);\n" + indentspace(ic)
 			ic -= 1
 			output += "bla = store_in_cache(part2, part_cachepointers, &buf16[" + str(pointer_cnt) + "]);\n" + indentspace(ic)
@@ -1956,7 +1958,7 @@ def debug(text):
 
 def preprocess():
 	"""Preprocessing of model"""
-	global model, vectorsize, vectorstructure, vectortree, vectortree_T, vectorstructure_string, smnames, vectorelem_in_structure_map, max_statesize, state_order, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, connected_channel, signalsize, signalnr, alphabet, syncactions, actiontargets, actions, syncreccomm, no_state_constant, no_prio_constant, dynamic_write_arrays, async_channel_vectorpart_buffer_range
+	global model, vectorsize, vectorstructure, vectortree, vectortree_T, vectorstructure_string, smnames, vectorelem_in_structure_map, max_statesize, state_order, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, connected_channel, signalsize, signalnr, alphabet, syncactions, actiontargets, actions, syncreccomm, no_state_constant, no_prio_constant, dynamic_write_arrays, async_channel_vectorpart_buffer_range, vectortree_size
 
 	# construct set of statemachine names in the system
 	# also construct a map from names to objects
@@ -2431,13 +2433,14 @@ def preprocess():
 			R = async_channel_vectorpart_buffer_range.get(c,{})
 			R[current] = (lower,upper)
 			async_channel_vectorpart_buffer_range[c] = R
-
-	print(async_channel_vectorpart_buffer_range)
-
+	# determine the size of a vectortree group (group of threads needed to fetch a vector tree from the global hash table)
+	vectortree_size = len(vectortree)
+	if vectorpart_is_combined_with_nonleaf_node(len(vectorstructure)-1):
+		vectortree_size -= 1
 
 def translate():
 	"""The translation function"""
-	global modelname, model, vectorstructure, vectorstructure_string, vectortree, vectorelem_in_structure_map, state_order, max_statesize, smnames, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, signalsize, connected_channel, alphabet, syncactions, actiontargets, no_state_constant, no_prio_constant, async_channel_vectorpart_buffer_range
+	global modelname, model, vectorstructure, vectorstructure_string, vectortree, vectorelem_in_structure_map, state_order, max_statesize, smnames, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, signalsize, connected_channel, alphabet, syncactions, actiontargets, no_state_constant, no_prio_constant, async_channel_vectorpart_buffer_range, vectortree_size
 	
 	path, name = split(modelname)
 	if name.endswith('.slco'):
@@ -2494,7 +2497,7 @@ def translate():
 
 	# load the GPUexplore template
 	template = jinja_env.get_template('gpuexplore.jinja2template')
-	out = template.render(model=model, vectorsize=vectorsize, vectorstructure=vectorstructure, vectorstructure_string=vectorstructure_string, vectortree=vectortree, max_statesize=max_statesize, vectorelem_in_structure_map=vectorelem_in_structure_map, state_order=state_order, smnames=smnames, smname_to_object=smname_to_object, state_id=state_id, arraynames=arraynames, max_arrayindexsize=max_arrayindexsize, max_buffer_allocs=max_buffer_allocs, vectorpartlist=vectorpartlist, connected_channel=connected_channel, alphabet=alphabet, syncactions=syncactions, actiontargets=actiontargets, syncreccomm=syncreccomm, no_state_constant=no_state_constant, no_prio_constant=no_prio_constant, dynamic_write_arrays=dynamic_write_arrays, signalsize=signalsize, async_channel_vectorpart_buffer_range=async_channel_vectorpart_buffer_range)
+	out = template.render(model=model, vectorsize=vectorsize, vectorstructure=vectorstructure, vectorstructure_string=vectorstructure_string, vectortree=vectortree, max_statesize=max_statesize, vectorelem_in_structure_map=vectorelem_in_structure_map, state_order=state_order, smnames=smnames, smname_to_object=smname_to_object, state_id=state_id, arraynames=arraynames, max_arrayindexsize=max_arrayindexsize, max_buffer_allocs=max_buffer_allocs, vectorpartlist=vectorpartlist, connected_channel=connected_channel, alphabet=alphabet, syncactions=syncactions, actiontargets=actiontargets, syncreccomm=syncreccomm, no_state_constant=no_state_constant, no_prio_constant=no_prio_constant, dynamic_write_arrays=dynamic_write_arrays, signalsize=signalsize, async_channel_vectorpart_buffer_range=async_channel_vectorpart_buffer_range, vectortree_size=vectortree_size)
 	# write new SLCO model
 	outFile.write(out)
 	outFile.close()
