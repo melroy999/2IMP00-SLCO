@@ -1,4 +1,5 @@
 #include <cooperative_groups.h>
+using namespace cooperative_groups;
 
 // type of global memory elements used
 {% if vectorsize < 32 %}
@@ -97,9 +98,6 @@ static const int WARPSIZE = 32;
 #define THREAD_ID 				threadIdx.x
 #define BLOCK_SIZE				blockDim.x
 #define GRID_SIZE 				gridDim.x
-#define LANE					(THREAD_ID % WARPSIZE)
-#define TREEGROUPS_PER_WARP		{{32/vectortree_size}}
-#define TREEGROUP_TID			(LANE >= TREEGROUPS_PER_WARP*{{vectortree_size}} ? -1 : LANE % vectortree_size)
 
 // Structure of state vector:
 // {{vectorstructure_string}}
@@ -179,7 +177,7 @@ inline __device__ shared_inttype get_left(inttype node) {
 	shared_inttype result;
 	asm("{\n\t"
 		" .reg .u64 t1;\n\t"
-		"bfe.u64 t1, %1, 32, 32;\n\t"
+		" bfe.u64 t1, %1, 32, 32;\n\t"
 		" cvt.u32.u64 %0, t1;\n\t"
 		"}" : "=r"(result) : "l"(node));
 	return result;
@@ -269,7 +267,7 @@ inline __device__ void set_right_cache_pointer(shared_inttype *pointers, shared_
 }
 
 // Cache pointers marking functions.
-inline __device__ void mark_cache_pointers_leaf(shared_inttype *pointers) {
+inline __device__ void mark_cache_pointers_new_leaf(shared_inttype *pointers) {
 	*pointers = (*pointers & 0x3FFFFFFF) | 0x40000000;
 }
 
@@ -277,7 +275,7 @@ inline __device__ void mark_cache_pointers_non_leaf(shared_inttype *pointers) {
 	*pointers = *pointers & 0x3FFFFFFF;
 }
 
-inline __device__ bool cache_pointers_are_marked_leaf(shared_inttype pointers) {
+inline __device__ bool cache_pointers_are_marked_new_leaf(shared_inttype pointers) {
 	return (pointers >> 30 == 1);
 }
 
@@ -289,32 +287,54 @@ inline __device__ bool cache_pointers_contain_global_address(shared_inttype poin
 	return (pointers & 0x80000000) != 0;
 }
 
-// Vectorpart reset functions.
+// Vectornode reset functions.
 inline __device__ void reset_left_in_vectortree_node(inttype *node) {
 	asm("{\n\t"
-		" bfi.u64 %0, 0xFFFFFFFFFFFFFFFF, %0, 31, 31;\n\t"
-		"}" : "+r"(*node));
+		" bfi.u64 %0, 0, %0, 31, 31;\n\t"
+		"}" : "+l"(*node));
 }
 
 inline __device__ void reset_right_in_vectortree_node(inttype *node) {
 	asm("{\n\t"
-		" bfi.u64 %0, 0xFFFFFFFFFFFFFFFF, %0, 0, 31;\n\t"
-		"}" : "+r"(*node));
+		" bfi.u64 %0, 0, %0, 0, 31;\n\t"
+		"}" : "+l"(*node));
 }
 
 // Vectornode set functions.
 inline __device__ void set_left_in_vectortree_node(inttype *node, indextype address) {
 	asm("{\n\t"
 		" bfi.u64 %0, %1, %0, 31, 31;\n\t"
-		"}" : "+r"(*node) : "r"(address));
+		"}" : "+l"(*node) : "r"(address));
 }
 
 inline __device__ void set_right_in_vectortree_node(inttype *node, indextype address) {
 	asm("{\n\t"
 		" bfi.u64 %0, %1, %0, 0, 31;\n\t"
-		"}" : "+r"(*node) : "r"(address));
+		"}" : "+l"(*node) : "r"(address));
 }
 
+// Vectornode get functions.
+inline __device__ indextype get_left_in_vectortree_node(inttype node) {
+	indextype result;
+	asm("{\n\t"
+		" .reg .u64 t1;\n\t"
+		" bfe.u64 t1, %1, %0, 31, 31;\n\t"
+		" cvt.u32.u64 %0, t1;\n\t"
+		"}" : "+r"(result) : "l"(node));
+	return result;
+}
+
+inline __device__ void get_right_in_vectortree_node(inttype node) {
+	indextype result;
+	asm("{\n\t"
+		" .reg .u64 t1;\n\t"
+		" bfe.u64 t1, %1, %0, 0, 31;\n\t"
+		" cvt.u32.u64 %0, t1;\n\t"
+		"}" : "+r"(result) : "l"(node));
+	return result;
+}
+
+// Vectornode check for a left or right pointer gap.
 inline __device__ bool vectortree_node_contains_left_gap(inttype node) {
 	return (node & 0x3FFFFFFF80000000 == 0x3FFFFFFF80000000);
 }
@@ -380,11 +400,10 @@ __device__ bool FINDORPUT_MANY(shared_inttype *d_cache, inttype *d_q, volatile b
 	}
 	__syncthreads();
 	for (shared_indextype i = THREAD_ID{% if vectorsize > 63 %}*3{% endif %}; i < d_shared_q_size; i += BLOCK_SIZE{% if vectorsize > 63 %}*3{% endif %}) {
-		{% if vectorsize > 63 %}
 		node_pointers = d_cache[i+2];
 		// Check if node is ready for storage. Only new leafs are ready at this point. We rely on old and new non-leafs having pointers with the highest
 		// two bits set to zero, empty entries and old leafs having pointers set to zero, and new leafs having pointers set to 0x40000000.
-		if (cache_pointers_are_marked_leaf(node)) {
+		if (cache_pointers_are_marked_new_leaf(node)) {
 			asm("{\n\t"
 			" mov.b64 %0,{ %1, %2 };\n\t"
 			"}" : "=l"(node) : "r"(d_cache[i]), "r"(d_cache[i+1]));
@@ -507,19 +526,73 @@ __device__ bool FINDORPUT_MANY(shared_inttype *d_cache, inttype *d_q, volatile b
 			addr = FINDORPUT_SINGLE(d_q, node);
 		}
 	}
+	{% endif %}
 }
 
 // Retrieve a vectortree from the global hash table and store it in the cache. This is performed in a warp-centric way.
 // Address addr points to the root of the requested vectortree.
-inline __device__ void FETCH(shared_inttype *cache, inttype *d_q, indextype addr) {
-	inttype node;
-	indextype node_addr;
+inline __device__ void FETCH(thread_group treegroup, shared_inttype *cache, inttype *d_q, indextype addr) {
+	inttype node, leaf_node;
+	indextype node_addr_left = 0;
+	indextype node_addr_right = 0;
+	indextype node_addr_non_leaf = 0;
+	indextype node_addr_leaf = 0;
 	shared_inttype cache_pointers;
 	shared_indextype cache_addr;
-	if (TREEGROUP_TID == 0) {
-		node = d_q[addr];
-		cache_addr = STOREINCACHE(cache, node, 0, )
+	
+	if (treegroup.thread_rank() == 0) {
+		node_addr_non_leaf = addr;
+		node = d_q[node_addr_non_leaf];
+		node_addr_left = get_left_in_vectortree_node(node);
+		node_addr_right = get_right_in_vectortree_node(node);
 	}
+	{% for i in range(1,vectortree_depth)|reverse %}
+	{% set first_level_id = (2**i)-1 %}
+	{% set prev_level_size = 2**(vectortree_depth-i-1) %}
+	// Communicate left child pointer.
+	treegroup.shfl_up(node_addr_left, (treegroup.thread_rank()/2)+{{prev_level_size}});
+	// If no address has been stored before, an address has been received, and the thread id is odd, store the new address.
+	{% if i != 1 %}
+	if (node_addr_non_leaf == 0 && node_addr_left != 0 && treegroup.thread_rank() % 2 == 1) {
+		node_addr_non_leaf = node_addr_left;
+	}
+	{% else %}
+	if (node_addr_leaf == 0 && node_addr_left != 0 && treegroup.thread_rank() % 2 == 1) {
+		node_addr_leaf = node_addr_left;
+	}
+	{% endif %}
+	else {
+		node_addr_left = 0;
+	}
+	// Communicate right child pointer.
+	treegroup.shfl_up(node_addr_right, ((treegroup.thread_rank()+1)/2)+{{prev_level_size}});
+	{% if i != 1 %}
+	if (node_addr_non_leaf == 0 && node_addr_right != 0 && treegroup.thread_rank() % 2 == 0) {
+		node_addr_non_leaf = node_addr_right;
+	}
+	{% else %}
+	if (node_addr_leaf == 0 && node_addr_right != 0 && treegroup.thread_rank() % 2 == 1) {
+		node_addr_leaf = node_addr_right;
+	}
+	{% endif %}
+	else {
+		node_addr_right = 0;
+	}
+	{% if i != 1 %}
+	// Obtain non-leaf node.
+	if (node_addr_non_leaf != 0) {
+		node = d_q[node_addr_non_leaf];
+		node_addr_left = get_left_in_vectortree_node(node);
+		node_addr_right = get_right_in_vectortree_node(node);
+	}
+	{% else %}
+	// Obtain leaf node and store it in the cache.
+	if (node_addr_leaf != 0) {
+		leaf_node = d_q[node_addr_leaf];
+		cache_addr = STOREINCACHE(cache, leaf_node, 0);
+	}
+	{% endif %}
+	{% endfor %}
 }
 
 // *** END KERNELS FOR VECTOR TREE NODES STORAGE AND RETRIEVAL ***
