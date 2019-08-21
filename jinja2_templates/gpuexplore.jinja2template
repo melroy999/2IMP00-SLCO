@@ -10,7 +10,11 @@ using namespace cooperative_groups;
 // type of global memory elements used
 #define indextype uint32_t
 // type of shared memory elements used
+{% if vectorsize > 31 and vectorsize < 64 %}
+#define shared_inttype uint64_t
+{% else %}
 #define shared_inttype uint32_t
+{% endif %}
 // type for shared memory cache indices
 #define shared_indextype uint16_t
 // type of automaton state
@@ -337,16 +341,16 @@ inline __device__ bool vectortree_node_contains_right_gaps(inttype node) {
 
 // *** START KERNELS FOR VECTOR TREE NODES STORAGE AND RETRIEVAL ***
 
-// Find or put a given vectortree node.
-inline ___device_ indextype FINDORPUT_SINGLE(inttype *d_q, inttype *node, volatile bool *d_newstate_flags, bool claim_work) {
+// Find or put a given vectortree node in the global hash table.
+inline ___device_ indextype FINDORPUT_SINGLE(inttype *d_q, inttype node, volatile bool *d_newstate_flags, bool claim_work) {
 	indextype addr;
 	inttype element;
 	shared_inttype shared_addr;
 	for (int i = 0; i < NR_HASH_FUNCTIONS, i++) {
-		addr = HASHFUNCTION(i, *node);
+		addr = HASHFUNCTION(i, node);
 		element = d_q[addr];
 		if (element == EMPTYVECTNODE_GLOBAL) {
-			element = atomicCAS(&(d_q[addr]), EMPTYVECTNODE_GLOBAL, *node);
+			element = atomicCAS(&(d_q[addr]), EMPTYVECTNODE_GLOBAL, node);
 			if (element == EMPTYVECTNODE_GLOBAL) {
 				// Successfully stored the node.
 				if (is_root(node)) {
@@ -363,12 +367,67 @@ inline ___device_ indextype FINDORPUT_SINGLE(inttype *d_q, inttype *node, volati
 				return addr;
 			}
 		}
-		if (element == *node) {
+		if (element == node) {
 			// The node is already stored.
 			return addr;
 		}
 	}
 	// Error: hash table considered full.
+	return HASHTABLE_FULL;
+}
+
+// Store a vectortree node in the cache.
+// Return address if successful, HASHTABLE_FULL if cache is full.
+{% if vectorsize < 64 %}
+inline __device__ shared_indextype STOREINCACHE(shared_inttype *cache, inttype node) {
+{% else %}
+inline __device__ bool STOREINCACHE(shared_inttype *cache, inttype node, shared_inttype cache_pointers) {
+{% endif %}
+	uint8_t i = 0;
+	shared_indextype addr;
+	shared_inttype element;
+	{% if vectorsize > 63 %}
+	shared_inttype part1, part2;
+
+	// Split the node in two.
+	part1 = get_left(node);
+	part2 = get_right(node);
+	{% endif %}
+	while (i < CACHERETRYFREQ) {
+		addr = 3*(CACHE_HASHFUNCTION({% if vectorsize < 64 %}node{% else %}part1{% endif %}) % (d_shared_q_size - CACHEOFFSET) / 3);
+		element = atomicCAS((shared_inttype *) &cache[addr], EMPTYVECT32, {% if vectorsize < 64%}node{% else %}part1{% endif %});
+		if (element == EMPTYVECT_32 || element == {% if vectorsize < 64%}node{% else %}part1{% endif %}) {
+			// Successful storage.
+			{% if vectorsize > 63 %}
+			element = atomicCAS((shared_inttype *) &cache[addr+1], EMPTYVECT32, part2);
+			if (element == EMPTYVECT32 || element == part2) {
+				// Successful storage.
+				element = atomicCAS((shared_inttype *) &cache[addr+2], EMPTYVECT32, cache_pointers);
+				if (element == EMPTYVECT32 || element == cache_pointers) {
+					// Storage of node successful.
+					return addr;
+				}
+				else {
+					// Storage of node after all not successful. Try another hash value.
+					i++;
+					continue;
+				}
+			}
+			else {
+				// Storage of node after all not successful. Try another hash value.
+				i++;
+				continue;
+			}
+			{% else %}
+			return addr;
+			{% endif %}
+		}
+		else {
+			// Storage of node after all not successful. Try another hash value.
+			i++;		
+		}
+	}
+	// Storage of node not successful. We conclude that the cache is full.
 	return HASHTABLE_FULL;
 }
 
@@ -523,12 +582,14 @@ __device__ bool FINDORPUT_MANY(shared_inttype *d_cache, inttype *d_q, volatile b
 // Address addr points to the root of the requested vectortree.
 inline __device__ void FETCH(thread_group treegroup, shared_inttype *cache, inttype *d_q, indextype addr) {
 	inttype node = 0;
+	{% if vectorsize > 63 %}
 	inttype leaf_node = 0;
 	bool leaf_node_obtained = False;
 	inttype node_tmp = 0;
 	indextype node_addr = 0;
 	shared_inttype cache_pointers = 0;
 	shared_indextype cache_addr = 0;
+	shared_indextype cache_addr_child = 0;
 	uint8_t gid = treegroup.thread_rank();
 	
 	if (gid == 0) {
@@ -558,39 +619,48 @@ inline __device__ void FETCH(thread_group treegroup, shared_inttype *cache, intt
 	if (leaf_node_obtained) {
 		mark_cache_pointers_new_leaf(&cache_pointers);
 		cache_addr = STOREINCACHE(cache, leaf_node, cache_pointers);
+		cache_addr_child = cache_addr;
 	}
 	cache_pointers = 0;
 	{% for i in range(0, vectortree_depth-1)|reverse %}
 	{% set first_level_id = (2**i)-1 %}
 	{% set current_level_size = 2**i %}
 	// Obtain cache address for left child.
-	treegroup.shfl_down(cache_addr, {{current_level_size}} - gid + 1 + (gid - {{first_level_id}})*2);
-	{% if loop.first %}
-	if (gid >= {{first_level_id}} && gid < {{first_level_id+current_level_size}}) {
-	{% else %}
-	if (cache_addr != 0) {
-	{% endif %}
-		set_left_cache_pointer(&cache_pointers, cache_addr);
+	treegroup.shfl_down(cache_addr_child, {{current_level_size}} - gid + (gid - {{first_level_id}})*2);
+	if (gid >= {{first_level_id}} && gid < {% if vectortree[first_level_id+current_level_size-1]|length > 0 %}{{first_level_id+current_level_size}}{% else %}{{first_level_id+current_level_size-1}}{% endif %}) {
+		set_left_cache_pointer(&cache_pointers, cache_addr_child);
 	}
+	{% if vectorsize > 95 %}
 	// Obtain cache address for right child.
-	treegroup.shfl_down(cache_addr, {{current_level_size}} - gid + 2 + (gid - {{first_level_id}})*2);
-	{% if loop.first %}
-	if (gid >= {{first_level_id}} && gid < {{first_level_id+current_level_size}}) {
-	{% else %}
-	if (cache_addr_tmp != 0) {
-	{% endif %}
-		set_right_cache_pointer(&cache_pointers, cache_addr_tmp);
-	}
-	{% if loop.first %}
-	else {
-		cache_addr = 0;
-	}
-	{% endif %}
-	// Store the non-leaf node in the cache.
-	if (gid >= {{first_level_id}} && gid < {{first_level_id+current_level_size}}) {
+	cache_addr_child = cache_addr;
+	treegroup.shfl_down(cache_addr_child, {{current_level_size}} - gid + 1 + (gid - {{first_level_id}})*2);
+	if (gid >= {{first_level_id}} && gid < {% if vectortree[first_level_id+current_level_size-1]|length == 2 %}{{first_level_id+current_level_size}}{% else %}{{first_level_id+current_level_size-1}}{% endif %}) {
+		set_right_cache_pointer(&cache_pointers, cache_addr_child);
+	{% if vectortree[first_level_id+current_level_size]|length == 2 %}
 		cache_addr = STOREINCACHE(cache, node, cache_pointers);
 	}
+	{% else %}
+	}
+	// Store the non-leaf node in the cache.
+	if (gid >= {{first_level_id}} && gid < {{first_level_id+current_level_size}}) {
+		node = mark_old(node);
+		cache_addr = STOREINCACHE(cache, node, cache_pointers);
+		cache_addr_child = cache_addr;
+	}
+	{% endif %}
+	{% else %}
+	// Store the non-leaf node in the cache.
+	if (gid >= {{first_level_id}} && gid < {{first_level_id+current_level_size}}) {
+		node = mark_old(node);
+		cache_addr = STOREINCACHE(cache, node, cache_pointers);
+		cache_addr_child = cache_addr;
+	}
+	{% endif %}
 	{% endfor %}
+	{% else %}
+	node = d_q[addr];
+	cache_addr = STOREINCACHE(cache, node);
+	{% endif %}
 }
 
 // *** END KERNELS FOR VECTOR TREE NODES STORAGE AND RETRIEVAL ***
