@@ -11,6 +11,12 @@ import math
 
 modelname = ""
 model = ""
+# experimental settings:
+# - gpuexplore2_succdist applies successor generation work distribution over threads in the style of GPUexplore 2.0 (vector groups)
+# - no_regsort disables warp-based in register sorting, thereby reducing the amount of expected regularity in successor generation.
+gpuexplore2_succdist = False
+no_regsort = False
+
 this_folder = dirname(__file__)
 
 # import libraries
@@ -41,6 +47,14 @@ vectorstructure_string = ""
 vectortree = {}
 # transposed vector tree
 vectortree_T = {}
+# the node ids (from the left) in each level of the vectortree
+vectortree_level_ids = {}
+# dictionary indicating for each level how many leaves are present
+vectortree_level_nr_of_leaves = {}
+# dictionary indicating for each level how many nodes have two children
+vectortree_level_nr_of_nodes_with_two_children = {}
+# assign threads to vectortree leaves
+vectortree_leaf_thread = {}
 # size of a vectortree group (groups of threads needed to fetch a vector tree from the global hash table)
 vectortree_size = 0
 # depth of a vectortree
@@ -56,6 +70,9 @@ state_id = {}
 smname_to_object = {}
 # maximum allocations needed to process a transition block
 max_buffer_allocs = 0
+
+# tile size (nr of vectortrees to be processed by a block in one iteration)
+tilesize = 0
 
 # constant representing 'no state'; high enough to not coincide with an existing state id
 no_state_constant = 0
@@ -580,6 +597,8 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, Dre
 				output += "// This part has been altered. Store it in shared memory and remember address of new part.\n" + indentspace(ic)
 				if is_non_leaf(p) or vectorsize < 64:
 					output += "part2 = mark_new(part2);\n" + indentspace(ic)
+				else:
+					output += "part_cachepointers = mark_cache_pointers_new_leaf();\n" + indentspace(ic)
 				ic -= 1
 				output += "bla = store_in_cache(part2, part_cachepointers, &buf16[" + str(pointer_cnt) + "]);\n" + indentspace(ic)
 				output += "}\n"  + indentspace(ic)
@@ -1960,7 +1979,7 @@ def debug(text):
 
 def preprocess():
 	"""Preprocessing of model"""
-	global model, vectorsize, vectorstructure, vectortree, vectortree_T, vectorstructure_string, smnames, vectorelem_in_structure_map, max_statesize, state_order, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, connected_channel, signalsize, signalnr, alphabet, syncactions, actiontargets, actions, syncreccomm, no_state_constant, no_prio_constant, dynamic_write_arrays, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth
+	global model, vectorsize, vectorstructure, vectortree, vectortree_T, vectortree_level_ids, vectortree_leaf_thread, vectorstructure_string, smnames, vectorelem_in_structure_map, max_statesize, state_order, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, connected_channel, signalsize, signalnr, alphabet, syncactions, actiontargets, actions, syncreccomm, no_state_constant, no_prio_constant, dynamic_write_arrays, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth, vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children, tilesize, gpuexplore2_succdist
 
 	# construct set of statemachine names in the system
 	# also construct a map from names to objects
@@ -2274,6 +2293,38 @@ def preprocess():
 		C1 = vectortree[v]
 		for w in C1:
 			vectortree_T[w] = v
+	# construct a dictionary providing the ids of the nodes in each level (from the left).
+	# vectortree_level_nr_of_leaves indicates for each level how many leaves it contains.
+	# vectortree_level_nr_of_nodes_with_two_children indicates for each level how many nodes
+	# have two children.
+	vectortree_level_ids = {}
+	vectortree_level_nr_of_leaves = {}
+	vectortree_level_nr_of_nodes_with_two_children = {}
+	vectortree_leaf_thread = {}
+	curlevel = [0]
+	nextlevel = []
+	level = 0
+	leaf_counter = 0
+	while len(curlevel) > 0:
+		vectortree_level_ids[level] = curlevel
+		vectortree_level_nr_of_leaves[level] = 0
+		vectortree_level_nr_of_nodes_with_two_children[level] = 0
+		for i in range(0, len(curlevel)):
+			children = vectortree.get(curlevel[i],[])
+			# is the node a leaf?
+			if len(children) == 0:
+				vectortree_level_nr_of_leaves[level] += 1
+				# assign the node to a GPU thread
+				vectortree_leaf_thread[curlevel[i]] = leaf_counter
+				leaf_counter += 1
+			# does the node have two children?
+			elif len(children) == 2:
+				vectortree_level_nr_of_nodes_with_two_children[level] += 1
+			# add children to the next level
+			nextlevel += children
+		curlevel = nextlevel
+		nextlevel = []
+		level += 1
 	# create list of array names
 	arraynames = []
 	for o in model.objects:
@@ -2445,10 +2496,18 @@ def preprocess():
 	while children != []:
 		vectortree_depth += 1
 		children = vectortree.get(children[0], [])
+	# determine the tile size. We assume 512 threads in a block here.
+	if gpuexplore2_succdist:
+		# determine the tile size based on GPUexplore 2.0 successor work distribution
+		tilesize = int(512 / len(smnames))
+	else:
+		# divide 16 (number of warps in a block) by the number of statemachines in the model (or 16, if that number is smaller).
+		# multiply that number by 32, as each thread in a warp can work on a different state vector.
+		tilesize = int((16 / min(len(smnames), 16)) * 32)
 
 def translate():
 	"""The translation function"""
-	global modelname, model, vectorstructure, vectorstructure_string, vectortree, vectorelem_in_structure_map, state_order, max_statesize, smnames, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, signalsize, connected_channel, alphabet, syncactions, actiontargets, no_state_constant, no_prio_constant, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth
+	global modelname, model, vectorstructure, vectorstructure_string, vectortree, vectortree_T, vectortree_level_ids, vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children, vectorelem_in_structure_map, vectortree_leaf_thread, state_order, max_statesize, smnames, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, signalsize, connected_channel, alphabet, syncactions, actiontargets, no_state_constant, no_prio_constant, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth, gpuexplore2_succdist, no_regsort, tilesize
 	
 	path, name = split(modelname)
 	if name.endswith('.slco'):
@@ -2505,14 +2564,14 @@ def translate():
 
 	# load the GPUexplore template
 	template = jinja_env.get_template('gpuexplore.jinja2template')
-	out = template.render(model=model, vectorsize=vectorsize, vectorstructure=vectorstructure, vectorstructure_string=vectorstructure_string, vectortree=vectortree, max_statesize=max_statesize, vectorelem_in_structure_map=vectorelem_in_structure_map, state_order=state_order, smnames=smnames, smname_to_object=smname_to_object, state_id=state_id, arraynames=arraynames, max_arrayindexsize=max_arrayindexsize, max_buffer_allocs=max_buffer_allocs, vectorpartlist=vectorpartlist, connected_channel=connected_channel, alphabet=alphabet, syncactions=syncactions, actiontargets=actiontargets, syncreccomm=syncreccomm, no_state_constant=no_state_constant, no_prio_constant=no_prio_constant, dynamic_write_arrays=dynamic_write_arrays, signalsize=signalsize, async_channel_vectorpart_buffer_range=async_channel_vectorpart_buffer_range, vectortree_size=vectortree_size, vectortree_depth=vectortree_depth)
+	out = template.render(model=model, vectorsize=vectorsize, vectorstructure=vectorstructure, vectorstructure_string=vectorstructure_string, vectortree=vectortree, vectortree_T=vectortree_T, max_statesize=max_statesize, vectorelem_in_structure_map=vectorelem_in_structure_map, state_order=state_order, smnames=smnames, smname_to_object=smname_to_object, state_id=state_id, arraynames=arraynames, max_arrayindexsize=max_arrayindexsize, max_buffer_allocs=max_buffer_allocs, vectorpartlist=vectorpartlist, connected_channel=connected_channel, alphabet=alphabet, syncactions=syncactions, actiontargets=actiontargets, syncreccomm=syncreccomm, no_state_constant=no_state_constant, no_prio_constant=no_prio_constant, dynamic_write_arrays=dynamic_write_arrays, signalsize=signalsize, async_channel_vectorpart_buffer_range=async_channel_vectorpart_buffer_range, vectortree_size=vectortree_size, vectortree_depth=vectortree_depth, vectortree_level_ids=vectortree_level_ids, vectortree_level_nr_of_leaves=vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children=vectortree_level_nr_of_nodes_with_two_children, vectortree_leaf_thread=vectortree_leaf_thread, gpuexplore2_succdist=gpuexplore2_succdist, no_regsort=no_regsort, tilesize=tilesize)
 	# write new SLCO model
 	outFile.write(out)
 	outFile.close()
 
 def main(args):
 	"""The main function"""
-	global modelname, model, property_file, deadlock_check
+	global modelname, model, property_file, deadlock_check, gpuexplore2_succdist, no_regsort
 	if len(args) == 0:
 		print("Missing argument: SLCO model")
 		sys.exit(1)
@@ -2524,6 +2583,8 @@ def main(args):
 			print("")
 			print(" -d                    check for deadlocks")
 			print(" -p                    verify given LTL property")
+			print(" -g2                   apply GPUexplore 2.0 successor generation work distribution")
+			print(" -noregsort            do not apply regsort for successor generation work distribution")
 			sys.exit(0)
 		else:
 			for i in range(0,len(args)):
@@ -2532,6 +2593,10 @@ def main(args):
 				elif args[i] == '-p':
 					property_file = args[i+1]
 					i += 1
+				elif args[i] == '-g2':
+					gpuexplore2_succdist = True
+				elif args[i] == '-noregsort':
+					no_regsort = True
 				else:
 					modelname = args[i]
 

@@ -58,31 +58,82 @@ using namespace cooperative_groups;
 #define vectornode_indextype uint32_t;
 {% endif %}
 
+// GPU constants
+static const int WARPSIZE = 32;
+
+// GPU configuraton
+static const int KERNEL_ITERS = 1;
+static const int NR_OF_BLOCKS = 3120;
+
+// Thread ids and dimensions.
+#define GRID_SIZE 				gridDim.x
+#define BLOCK_SIZE				blockDim.x
+#define WARP_SIZE				32
+
+#define BLOCK_ID				blockIdx.x
+#define THREAD_ID 				threadIdx.x
+#define WARP_ID					(THREAD_ID / WARP_SIZE)
+#define GLOBAL_WARP_ID			(((BLOCK_SIZE / WARP_SIZE) * BLOCK_ID) + WARP_ID)
+#define NR_WARPS_PER_BLOCK		(BLOCK_SIZE / WARP_SIZE)
+#define NR_WARPS				(NR_WARPS_PER_BLOCK * GRID_SIZE)
+#define LANE					(THREAD_ID & 0x0000001F)
+
+{% if gpuexplore2_succdist %}
+#define	GROUP_TID				(LANE % {{smnames|length}})
+#define GROUPS_PER_WARP			(WARP_SIZE / {{smnames|length}})
+#define GROUP_ID				(WARP_ID * GROUPS_PER_WARP + LANE / {{smnames|length}})
+#define NR_GROUPS				((BLOCK_SIZE / WARP_SIZE) * GROUPS_PER_WARP)
+
+#define THREADINGROUP			(LANE < GROUPS_PER_WARP * {{smnames|length}})
+{% else %}
+#define OPENTILE_ELEM			(((WARP_ID / {{smnames|length}}) * WARP_SIZE) + LANE)
+#define STATEMACHINE_ID			(WARP_ID % {{smnames|length}})
+{% endif %}
+
 // Constant representing empty array index entry.
 #define EMPTY_INDEX -1
 // Constant used to initialise state variables.
 #define NO_STATE {{no_state_constant}}
-
-// CONSTANTS FOR SHARED MEMORY CACHES
-// Number of retries in local cache
-#define CACHERETRYFREQ 20
 // Empty local cache element (exploits that a vectornode cannot be marked 'new' without being marked 'root')
 #define EMPTYVECT32 0xBFFFFFFF
-// Empty cache pointer
-# define EMPTYCACHEPOINTERS 0xFFFF
+#define ISSTATE(t)				((t) != EMPTYVECT32)
+
+// constant for hashing
+static const inttype P = 979946131;
+// Retry constant to determine number of retries for element insertion
+#define RETRYFREQ 7
+#define NR_HASH_FUNCTIONS 8
+// Number of retries in local cache
+#define CACHERETRYFREQ 20
+// Constant to indicate that no more work is required
+# define EXPLORATION_DONE 0x7FFFFFFF
 // offset in shared memory from which loaded data can be read
+static const int SH_OFFSET = 5;
+
+const size_t Mb = 1<<20;
+
+// CONSTANTS FOR SHARED MEMORY CACHES
+// Offsets calculations for shared memory arrays
+#define HASHCONSTANTSLEN		(2*NR_HASH_FUNCTIONS)
+#define OPENTILELEN				{{tilesize}}
+#define LASTSEARCHLEN			(BLOCK_SIZE/WARPSIZE)
+
+// offsets in shared memory from which loaded data can be read
 #define SH_OFFSET 5
-// offset in shared memory from which hash function constants can be read
-#define HASHCONSTANTSOFFSET (SH_OFFSET)
+#define HASHCONSTANTSOFFSET 	(SH_OFFSET)
+#define OPENTILEOFFSET 			(HASHCONSTANTSOFFSET+HASHCONSTANTSLEN)
+#define LASTSEARCHOFFSET		(OPENTILEOFFSET+OPENTILELEN)
+#define CACHEOFFSET 			(LASTSEARCHOFFSET+LASTSEARCHLEN)
+
 // Error value to indicate a full global hash table.
 #define HASHTABLE_FULL 0
 
 // Shared memory local progress flags
-#define ITERATIONS						(shared[0])
-#define CONTINUE						(shared[1])
-#define OPENTILECOUNT					(shared[2])
-#define WORKSCANRESULT					(shared[3])
-#define SCAN							(shared[4])
+#define ITERATIONS				(shared[0])
+#define CONTINUE				(shared[1])
+#define OPENTILECOUNT			(shared[2])
+#define WORKSCANRESULT			(shared[3])
+#define SCAN					(shared[4])
 
 // CONSTANTS FOR GLOBAL MEMORY HASH TABLE
 // Empty hash table element (exploits that a vectornode cannot be marked 'new' without being marked 'root')
@@ -94,14 +145,6 @@ using namespace cooperative_groups;
 
 // GPU shared memory array
 extern __shared__ volatile shared_inttype shared[];
-
-// GPU constants
-static const int WARPSIZE = 32;
-
-// thread ids and dimensions
-#define THREAD_ID 				threadIdx.x
-#define BLOCK_SIZE				blockDim.x
-#define GRID_SIZE 				gridDim.x
 
 // Structure of state vector:
 // {{vectorstructure_string}}
@@ -156,9 +199,9 @@ inline __device__ bool head_is_root(shared_inttype node) {
 
 {% if vectorsize > 62 %}
 // Function to traverse one step in state vector tree (stored in shared memory).
-inline __device__ shared_indextype sv_step(shared_inttype *d_cache, shared_indextype node_index, bool goright) {
+inline __device__ shared_indextype sv_step(shared_indextype node_index, bool goright) {
 	shared_indextype index = 0;
-	shared_inttype tmp = d_cache[node_index+2];
+	shared_inttype tmp = shared[CACHEOFFSET+node_index+2];
 	if (!goright) {
 		asm("{\n\t"
 			" .reg .u32 t1;\n\t"
@@ -198,11 +241,11 @@ inline __device__ shared_inttype get_right(inttype node) {
 {% endif %}
 
 // Retrieval functions for vector parts from shared memory, ignoring shared memory node pointers (d_cache pointers).
-inline __device__ inttype get_vectorpart(inttype *d_cache, shared_indextype node_index, vectornode_indextype part_id) {
+inline __device__ inttype get_vectorpart(shared_indextype node_index, vectornode_indextype part_id) {
 	switch (part_id) {
 	  {% for i in range(0,vectorstructure|length) %}
 	  case {{i}}:
-	  	return get_vectorpart_{{i}}(d_cache, node_index);
+	  	return get_vectorpart_{{i}}(node_index);
 	  {% endfor %}
 	  default:
 	  	return 0;
@@ -210,20 +253,20 @@ inline __device__ inttype get_vectorpart(inttype *d_cache, shared_indextype node
 }
 {% for i in range(0,vectorstructure|length) %}
 
-inline __device__ inttype get_vectorpart_{{i}}(inttype *d_cache, shared_indextype node_index) {
+inline __device__ inttype get_vectorpart_{{i}}(shared_indextype node_index) {
 	{% if vectorsize < 64 %}
-	return d_cache[node_index];
+	return shared[CACHEOFFSET+node_index];
 	{% else %}
 	{% if i|get_vector_tree_to_part_navigation|length > 0 %}
 	shared_indextype index = node_index;
 	{% endif %}
 	{% for b in i|get_vector_tree_to_part_navigation %}
-	index = sv_step(d_cache, index, {% if b %}true{% else %}false{% endif %});
+	index = sv_step(index, {% if b %}true{% else %}false{% endif %});
 	{% endfor %}
 	inttype part;
 	asm("{\n\t"
 		" mov.b64 %0,{ %1, %2 };\n\t"
-		"}" : "=l"(part) : "r"(d_cache[{% if i|get_vector_tree_to_part_navigation|length > 0 %}index{% else %}node_index{% endif %}]), "r"(d_cache[{% if i|get_vector_tree_to_part_navigation|length > 0 %}index{% else %}node_index{% endif %}+1]));
+		"}" : "=l"(part) : "r"(shared[CACHEOFFSET+{% if i|get_vector_tree_to_part_navigation|length > 0 %}index{% else %}node_index{% endif %}]), "r"(shared[CACHEOFFSET+{% if i|get_vector_tree_to_part_navigation|length > 0 %}index{% else %}node_index{% endif %}+1]));
 	return part;
 
 	{% endif %}
@@ -231,11 +274,11 @@ inline __device__ inttype get_vectorpart_{{i}}(inttype *d_cache, shared_indextyp
 {% endfor %}
 
 // Retrieval functions for vector tree nodes from shared memory, including shared memory node pointers (d_cache pointers).
-inline __device__ void get_vectortree_node(inttype *node, shared_inttype *d_cachepointers, inttype *d_cache, shared_indextype node_index, vectornode_indextype i) {
+inline __device__ void get_vectortree_node(inttype *node, shared_inttype *d_cachepointers, shared_indextype node_index, vectornode_indextype i) {
 	switch (i) {
 	  {% for i in range(0,vectortree|length) %}
 	  case {{i}}:
-	  	get_vectortree_node_{{i}}(node, d_cachepointers, d_cache, node_index);
+	  	get_vectortree_node_{{i}}(node, d_cachepointers, node_index);
 	  {% endfor %}
 	  default:
 	  	return;
@@ -243,17 +286,17 @@ inline __device__ void get_vectortree_node(inttype *node, shared_inttype *d_cach
 }
 {% for i in range(0,vectortree|length) %}
 
-inline __device__ void get_vectortree_node_{{i}}(inttype *node, shared_inttype *d_cachepointers, inttype *d_cache, shared_indextype node_index) {
+inline __device__ void get_vectortree_node_{{i}}(inttype *node, shared_inttype *d_cachepointers, shared_indextype node_index) {
 	{% if i|get_vector_tree_to_node_navigation|length > 0 %}
 	shared_indextype index = node_index;
 	{% endif %}
 	{% for b in i|get_vector_tree_to_node_navigation %}
-	index = sv_step(d_cache, index, {% if b %}true{% else %}false{% endif %});
+	index = sv_step(index, {% if b %}true{% else %}false{% endif %});
 	{% endfor %}
 	asm("{\n\t"
 		" mov.b64 %0,{ %1, %2 };\n\t"
-		"}" : "={% if vectorsize < 32 %}r{% else %}l{% endif %}"(*node) : "r"(d_cache[{% if i|get_vector_tree_to_node_navigation|length > 0 %}index{% else %}node_index{% endif %}]), "r"(d_cache[{% if i|get_vector_tree_to_node_navigation|length > 0 %}index{% else %}node_index{% endif %}+1]));
-	*d_cachepointers = d_cache[{% if i|get_vector_tree_to_node_navigation|length > 0 %}index{% else %}node_index{% endif %}+2];
+		"}" : "={% if vectorsize < 32 %}r{% else %}l{% endif %}"(*node) : "r"(shared[CACHEOFFSET+{% if i|get_vector_tree_to_node_navigation|length > 0 %}index{% else %}node_index{% endif %}]), "r"(shared[CACHEOFFSET+{% if i|get_vector_tree_to_node_navigation|length > 0 %}index{% else %}node_index{% endif %}+1]));
+	*d_cachepointers = shared[CACHEOFFSET+{% if i|get_vector_tree_to_node_navigation|length > 0 %}index{% else %}node_index{% endif %}+2];
 }
 {% endfor %}
 
@@ -271,12 +314,8 @@ inline __device__ void set_right_cache_pointer(shared_inttype *pointers, shared_
 }
 
 // Cache pointers marking functions.
-inline __device__ void mark_cache_pointers_new_leaf(shared_inttype *pointers) {
-	*pointers = 0x40000000;
-}
-
-inline __device__ void mark_cache_pointers_non_leaf(shared_inttype *pointers) {
-	*pointers = *pointers & 0x3FFFFFFF;
+inline __device__ shared_inttype mark_cache_pointers_new_leaf() {
+	return 0x40000000;
 }
 
 inline __device__ bool cache_pointers_are_marked_new_leaf(shared_inttype pointers) {
@@ -318,13 +357,13 @@ inline __device__ void set_right_in_vectortree_node(inttype *node, indextype add
 }
 
 // Vectornode get functions.
-inline __device__ indextype get_pointer_from_vectortree_node(inttype node, uint8_t choice) {
+inline __device__ indextype get_pointer_from_vectortree_node(inttype node, bool choice) {
 	indextype result;
 	asm("{\n\t"
 		" .reg .u64 t1;\n\t"
-		" bfe.u64 t1, %1, %0, %2, 31;\n\t"
+		" bfe.u64 t1, %1, %2, 31;\n\t"
 		" cvt.u32.u64 %0, t1;\n\t"
-		"}" : "+r"(result) : "l"(node), "r"((1-choice)*32));
+		"}" : "+r"(result) : "l"(node), "r"((1-(choice ? 1 : 0))*32));
 	return result;
 }
 
@@ -379,9 +418,9 @@ inline ___device_ indextype FINDORPUT_SINGLE(inttype *d_q, inttype node, volatil
 // Store a vectortree node in the cache.
 // Return address if successful, HASHTABLE_FULL if cache is full.
 {% if vectorsize < 64 %}
-inline __device__ shared_indextype STOREINCACHE(shared_inttype *cache, inttype node) {
+inline __device__ shared_indextype STOREINCACHE(inttype node) {
 {% else %}
-inline __device__ bool STOREINCACHE(shared_inttype *cache, inttype node, shared_inttype cache_pointers) {
+inline __device__ bool STOREINCACHE(inttype node, shared_inttype cache_pointers) {
 {% endif %}
 	uint8_t i = 0;
 	shared_indextype addr;
@@ -395,14 +434,14 @@ inline __device__ bool STOREINCACHE(shared_inttype *cache, inttype node, shared_
 	{% endif %}
 	while (i < CACHERETRYFREQ) {
 		addr = 3*(CACHE_HASHFUNCTION({% if vectorsize < 64 %}node{% else %}part1{% endif %}) % (d_shared_q_size - CACHEOFFSET) / 3);
-		element = atomicCAS((shared_inttype *) &cache[addr], EMPTYVECT32, {% if vectorsize < 64%}node{% else %}part1{% endif %});
+		element = atomicCAS((shared_inttype *) &(shared[CACHEOFFSET+addr]), EMPTYVECT32, {% if vectorsize < 64%}node{% else %}part1{% endif %});
 		if (element == EMPTYVECT_32 || element == {% if vectorsize < 64%}node{% else %}part1{% endif %}) {
 			// Successful storage.
 			{% if vectorsize > 63 %}
-			element = atomicCAS((shared_inttype *) &cache[addr+1], EMPTYVECT32, part2);
+			element = atomicCAS((shared_inttype *) &(shared[CACHEOFFSET+addr+1]), EMPTYVECT32, part2);
 			if (element == EMPTYVECT32 || element == part2) {
 				// Successful storage.
-				element = atomicCAS((shared_inttype *) &cache[addr+2], EMPTYVECT32, cache_pointers);
+				element = atomicCAS((shared_inttype *) &(shared[CACHEOFFSET+addr+2], EMPTYVECT32, cache_pointers);
 				if (element == EMPTYVECT32 || element == cache_pointers) {
 					// Storage of node successful.
 					return addr;
@@ -432,7 +471,7 @@ inline __device__ bool STOREINCACHE(shared_inttype *cache, inttype node, shared_
 }
 
 // Find or put all new vectortree nodes stored in the shared memory cache into the global memory hash table.
-__device__ bool FINDORPUT_MANY(shared_inttype *d_cache, inttype *d_q, volatile bool *d_newstate_flags) {
+__device__ bool FINDORPUT_MANY(inttype *d_q, volatile bool *d_newstate_flags) {
 	inttype node;
 	indextype = addr;
 	{% if vectorsize > 63 %}
@@ -449,44 +488,44 @@ __device__ bool FINDORPUT_MANY(shared_inttype *d_cache, inttype *d_q, volatile b
 	}
 	__syncthreads();
 	for (shared_indextype i = THREAD_ID{% if vectorsize > 63 %}*3{% endif %}; i < d_shared_q_size; i += BLOCK_SIZE{% if vectorsize > 63 %}*3{% endif %}) {
-		node_pointers = d_cache[i+2];
+		node_pointers = shared[CACHEOFFSET+i+2];
 		// Check if node is ready for storage. Only new leafs are ready at this point. We rely on old and new non-leafs having pointers with the highest
 		// two bits set to zero, empty entries and old leafs having pointers set to zero, and new leafs having pointers set to 0x40000000.
 		if (cache_pointers_are_marked_new_leaf(node)) {
 			asm("{\n\t"
 			" mov.b64 %0,{ %1, %2 };\n\t"
-			"}" : "=l"(node) : "r"(d_cache[i]), "r"(d_cache[i+1]));
+			"}" : "=l"(node) : "r"(shared[CACHEOFFSET+i]), "r"(shared[CACHEOFFSET+i+1]));
 			// Store node in hash table.
 			addr = FINDORPUT_SINGLE(d_q, node, d_newstate_flags, True);
 			// Store global memory address in cache.
-			set_cache_pointers_to_global_address(&d_cache[i], addr);
+			set_cache_pointers_to_global_address(&shared[CACHEOFFSET+i], addr);
 		}
 		// Node is not ready yet. Check if it can be updated.
 		else if (node_pointers != 0) {
-			if (head_is_new(d_cache[i])) {
+			if (head_is_new(shared[CACHEOFFSET+i])) {
 				asm("{\n\t"
 				" mov.b64 %0,{ %1, %2 };\n\t"
-				"}" : "=l"(node) : "r"(d_cache[i]), "r"(d_cache[i+1]));
+				"}" : "=l"(node) : "r"(shared[CACHEOFFSET+i]), "r"(shared[CACHEOFFSET+i+1]));
 				if (vectortree_node_contains_left_gap(node)) {
 					// Look up left child and check for presence of global memory address.
-					node_pointers_child = sv_step(d_cache, i, False);
-					node_pointers_child = d_cache[node_pointers_child+2];
+					node_pointers_child = sv_step(i, False);
+					node_pointers_child = shared[CACHEOFFSET+node_pointers_child+2];
 					if (cache_pointers_contain_global_address(node_pointers_child)) {
 						set_left_in_vectortree_node(&node, node_pointers_child);
 						// Copy back to shared memory.
-						d_cache[i] = get_left(node);
-						d_cache[i+1] = get_right[node];
+						shared[CACHEOFFSET+i] = get_left(node);
+						shared[CACHEOFFSET+i+1] = get_right[node];
 					}
 				}
 				if (vectortree_node_contains_right_gap(node)) {
 					// Look up right child and check for presence of global memory address.
-					node_pointers_child = sv_step(d_cache, i, True);
-					node_pointers_child = d_cache[node_pointers_child+2];
+					node_pointers_child = sv_step(i, True);
+					node_pointers_child = shared[CACHEOFFSET+node_pointers_child+2];
 					if (cache_pointers_contain_global_address(node_pointers_child)) {
 						set_right_in_vectortree_node(&node, node_pointers_child);
 						// Copy back to shared memory.
-						d_cache[i] = get_left(node);
-						d_cache[i+1] = get_right[node];
+						shared[CACHEOFFSET+i] = get_left(node);
+						shared[CACHEOFFSET+i+1] = get_right[node];
 					}
 				}
 				// Ready now?
@@ -497,8 +536,8 @@ __device__ bool FINDORPUT_MANY(shared_inttype *d_cache, inttype *d_q, volatile b
 					}
 					// Store node in hash table.
 					addr = FINDORPUT_SINGLE(d_q, node);
-					// Store global memory address in d_cache.
-					set_d_cache_pointers_to_global_address(&d_cache[i], addr);							
+					// Store global memory address in cache.
+					set_cache_pointers_to_global_address(&(shared[CACHEOFFSET+i]), addr);
 				}
 				else {
 					work_to_do = True;
@@ -516,35 +555,35 @@ __device__ bool FINDORPUT_MANY(shared_inttype *d_cache, inttype *d_q, volatile b
 		if (work_to_do) {
 			work_to_do = False;
 			for (shared_indextype i = THREAD_ID*3; i < d_shared_q_size; i += BLOCK_SIZE*3) {
-				node_pointers_child = d_cache[i];
+				node_pointers_child = shared[CACHEOFFSET+i];
 				// If the node is marked new, this is a node still to be processed.
 				if (head_is_new(node_pointers_child)) {
-					node_pointers = d_cache[i+2];
+					node_pointers = shared[CACHEOFFSET+i+2];
 					// If this is a root node, processing is only required if the pointers do not contain a global address.
 					if (!head_is_root(node_pointers_child) || !cache_pointers_contain_global_address(node_pointers)) {
 						asm("{\n\t"
 						" mov.b64 %0,{ %1, %2 };\n\t"
-						"}" : "=l"(node) : "r"(d_cache[i]), "r"(d_cache[i+1]));
+						"}" : "=l"(node) : "r"(shared[CACHEOFFSET+i]), "r"(shared[CACHEOFFSET+i+1]));
 						if (vectortree_node_contains_left_gap(node)) {
 							// Look up left child and check for presence of global memory address.
-							node_pointers_child = sv_step(d_cache, i, False);
-							node_pointers_child = d_cache[node_pointers_child+2];
+							node_pointers_child = sv_step(i, False);
+							node_pointers_child = shared[CACHEOFFSET+node_pointers_child+2];
 							if (cache_pointers_contain_global_address(node_pointers_child)) {
 								set_left_in_vectortree_node(&node, node_pointers_child);
 								// Copy back to shared memory.
-								d_cache[i] = get_left(node);
-								d_cache[i+1] = get_right[node];
+								shared[CACHEOFFSET+i] = get_left(node);
+								shared[CACHEOFFSET+i+1] = get_right[node];
 							}
 						}
 						if (vectortree_node_contains_right_gap(node)) {
 							// Look up right child and check for presence of global memory address.
-							node_pointers_child = sv_step(d_cache, i, True);
-							node_pointers_child = d_cache[node_pointers_child+2];
+							node_pointers_child = sv_step(i, True);
+							node_pointers_child = shared[CACHEOFFSET+node_pointers_child+2];
 							if (cache_pointers_contain_global_address(node_pointers_child)) {
 								set_right_in_vectortree_node(&node, node_pointers_child);
 								// Copy back to shared memory.
-								d_cache[i] = get_left(node);
-								d_cache[i+1] = get_right[node];
+								shared[CACHEOFFSET+i] = get_left(node);
+								shared[CACHEOFFSET+i+1] = get_right[node];
 							}
 						}
 						// Ready now?
@@ -555,8 +594,8 @@ __device__ bool FINDORPUT_MANY(shared_inttype *d_cache, inttype *d_q, volatile b
 							}
 							// Store node in hash table.
 							addr = FINDORPUT_SINGLE(d_q, node);
-							// Store global memory address in d_cache.
-							set_d_cache_pointers_to_global_address(&d_cache[i], addr);
+							// Store global memory address in cache.
+							set_cache_pointers_to_global_address(&(shared[CACHEOFFSET+i]), addr);
 						}
 						else {
 							work_to_do = True;
@@ -570,7 +609,7 @@ __device__ bool FINDORPUT_MANY(shared_inttype *d_cache, inttype *d_q, volatile b
 	}
 	{% else %}
 	for (shared_indextype i = THREAD_ID; i < d_shared_q_size; i += BLOCK_SIZE) {
-		node = d_cache[i];
+		node = shared[CACHEOFFSET+i];
 		if is_new(node) {
 			addr = FINDORPUT_SINGLE(d_q, node);
 		}
@@ -578,89 +617,180 @@ __device__ bool FINDORPUT_MANY(shared_inttype *d_cache, inttype *d_q, volatile b
 	{% endif %}
 }
 
+// Auxilliary functions for the fetching of vectortrees from the global hash table. They encode the distribution of vectortree nodes over the threads
+// in a vectortree group, and their structural relations with each other.
+inline __device__ uint8_t get_vectortree_leaf_parent_thread(uint8_t tid) {
+	switch (tid) {
+	{% for n in vectortree.keys() if vectortree[n] == [] %}
+		case {{vectortree_leaf_thread[n]}}:
+			return {{vectortree_T[n]}};
+			break;
+	{% endfor %}
+		default:
+			return {{vectortree.keys()|length}};
+			break;
+	}
+}
+
+inline __device__ uint8_t get_vectortree_nonleaf_parent_thread(uint8_t tid) {
+	switch (tid) {
+	{% for n in vectortree.keys() if vectortree[n] != [] and n > 0 %}
+		case {{n}}:
+			return {{vectortree_T[n]}};
+			break;
+	{% endfor %}
+		default:
+			return {{vectortree.keys()|length}};
+			break;
+	}
+}
+
+inline __device__ uint8_t get_vectortree_nonleaf_left_child_thread(uint8_t tid) {
+	switch (tid) {
+	{% for n in vectortree.keys() if vectortree[n] != [] %}
+		case {{n}}:
+			return {% if vectortree[vectortree[n][0]] != [] %}{{vectortree[n][0]}}{% else %}{{vectortree_leaf_thread[vectortree[n][0]]}}{% endif %};
+			break;
+	{% endfor %}
+		default:
+			return {{vectortree.keys()|length}};
+			break;
+	}
+}
+
+inline __device__ uint8_t get_vectortree_nonleaf_right_child_thread(uint8_t tid) {
+	switch (tid) {
+	{% for n in vectortree.keys() if vectortree[n]|length == 2 %}
+		case {{n}}:
+			return {% if vectortree[vectortree[n][1]] != [] %}{{vectortree[n][1]}}{% else %}{{vectortree_leaf_thread[vectortree[n][1]]}}{% endif %};
+			break;
+	{% endfor %}
+		default:
+			return {{vectortree.keys()|length}};
+			break;
+	}
+}
+
 // Retrieve a vectortree from the global hash table and store it in the cache. This is performed in a warp-centric way.
-// Address addr points to the root of the requested vectortree.
-inline __device__ void FETCH(thread_group treegroup, shared_inttype *cache, inttype *d_q, indextype addr) {
+// Address addr points to the root of the requested vectortree. The function returns the address of the root of the vectortree in the cache.
+inline __device__ shared_indextype FETCH(thread_group treegroup, inttype *d_q, indextype addr) {
 	inttype node = 0;
 	{% if vectorsize > 63 %}
 	inttype leaf_node = 0;
-	bool leaf_node_obtained = False;
 	inttype node_tmp = 0;
 	indextype node_addr = 0;
 	shared_inttype cache_pointers = 0;
 	shared_indextype cache_addr = 0;
 	shared_indextype cache_addr_child = 0;
 	uint8_t gid = treegroup.thread_rank();
+	uint8_t target_thread_id;
 	
 	if (gid == 0) {
 		node = d_q[addr];
 		node_tmp = node;
 	}
 	{% for i in range(1, vectortree_depth) %}
-	{% set first_level_id = (2**i)-1 %}
-	{% set prev_level_size = 2**(i-1) %}
-	// Obtain node from another thread.
-	treegroup.shfl_up(node_tmp, (gid - {{first_level_id}}) + {{prev_level_size}} - (gid - {{first_level_id}})/2);
-	// If no node has been stored before and a node has been received, obtain the address of interest from the node, and with that, the corresponding child node.
-	{% if i != 1 %}
-	if (node == 0 && node_tmp != 0) {
-		node_addr = get_pointer_from_vectortree_node(node_tmp, gid % 2);
-		node = d_q[node_addr];
+	{% set lsize = vectortree_level_ids[i]|length %}
+	{% set lfirst = vectortree_level_ids[i][0] %}
+	{% set llast = vectortree_level_ids[i][vectortree_level_ids[i]|length - 1] %}
+	// Obtain node from vectortree parent.
+	target_thread_id = {{vectortree.keys()|length}};
+	{% if vectortree_level_nr_of_leaves[i] == lsize %}
+	if (gid >= {{vectortree_leaf_thread[lfirst]}} && gid <= {{vectortree_leaf_thread[llast]}}) {
+		target_thread_id = get_vectortree_leaf_parent_thread(gid);
 	}
-	{% else %}
-	if (leaf_node == 0 && node_tmp != 0) {
-		node_addr = get_pointer_from_vectortree_node(node_tmp, gid % 2);
-		leaf_node = d_q[node_addr];
-		leaf_node_obtained = True;
+	{% elif vectortree_level_nr_of_leaves[i] > 0 %}
+	if ({% for n in vectortree_level_ids[i] if vectortree[n]|length == 0 %}gid == {{vectortree_leaf_thread[n]}}{% if not loop.last %} || {% endif %}{% endfor %}) {
+		target_thread_id = get_vectortree_leaf_parent_thread(gid);
 	}
 	{% endif %}
-	{% endfor %}
-	// Store the leaf node in the cache.
-	if (leaf_node_obtained) {
-		mark_cache_pointers_new_leaf(&cache_pointers);
-		cache_addr = STOREINCACHE(cache, leaf_node, cache_pointers);
-		cache_addr_child = cache_addr;
+	{% if vectortree_level_nr_of_leaves[i] < lsize %}
+	{% if vectortree_level_nr_of_leaves[i] > 0 %}	else {% else %}	{% endif %}if (gid >= {{lfirst}} && gid <= {{llast}}) {
+		target_thread_id = gid;
 	}
+	{% endif %}
+	treegroup.shfl(node_tmp, target_thread_id);
+	// Process the received node, if applicable.
+	if (target_thread_id != {{vectortree.keys()|length}}) {
+		node_addr = get_pointer_from_vectortree_node(node_tmp, false{% for n in vectortree_level_ids[i] if (vectortree[vectortree_T[n]]|length == 2 and vectortree[vectortree_T[n]][vectortree[vectortree_T[n]]|length-1] == n) %} || gid == {% if vectortree[n] == [] %}{{get_vectortree_leaf_parent_thread[n]}}{% else %}{{n}}{% endif %}{% endfor %});	
+	{% if vectortree_level_nr_of_leaves[i] == lsize %}
+		leaf_node = d_q[node_addr];
+		// Store the leaf node in the cache.
+		cache_pointers = 0;
+		cache_addr = STOREINCACHE(leaf_node, cache_pointers);
+		cache_addr_child = cache_addr;
+	{% elif vectortree_level_nr_of_leaves[i] > 0 %}
+		if ({% for n in vectortree_level_ids[i] if vectortree[n]|length == 0 %}gid == {{vectortree_leaf_thread[n]}}{% if not loop.last %} || {% endif %}{% endfor %}) {
+			leaf_node = d_q[node_addr];
+			// Store the leaf node in the cache.
+			cache_pointers = 0;
+			cache_addr = STOREINCACHE(leaf_node, cache_pointers);
+			cache_addr_child = cache_addr;
+		}
+		else {
+			node = d_q[node_addr];
+		}
+	{% else %}
+		node = d_q[node_addr];
+	{% endif %}
+	}
+	{% endfor %}
 	cache_pointers = 0;
 	{% for i in range(0, vectortree_depth-1)|reverse %}
-	{% set first_level_id = (2**i)-1 %}
-	{% set current_level_size = 2**i %}
+	{% set lsize = vectortree_level_ids[i]|length %}
+	{% set lfirst = vectortree_level_ids[i][0] %}
+	{% set llast = vectortree_level_ids[i][vectortree_level_ids[i]|length - 1] %}
 	// Obtain cache address for left child.
-	treegroup.shfl_down(cache_addr_child, {{current_level_size}} - gid + (gid - {{first_level_id}})*2);
-	if (gid >= {{first_level_id}} && gid < {% if vectortree[first_level_id+current_level_size-1]|length > 0 %}{{first_level_id+current_level_size}}{% else %}{{first_level_id+current_level_size-1}}{% endif %}) {
+	target_thread_id = {{vectortree.keys()|length}};
+	{% if vectortree_level_nr_of_leaves[i] == 0 %}
+	if (gid >= {{lfirst}} && gid <= {{llast}}) {
+		target_thread_id = get_vectortree_nonleaf_left_child_thread(gid);
+	}
+	{% elif vectortree_level_nr_of_leaves[i] < lsize %}
+	if ({% for n in vectortree_level_ids[i] if vectortree[n]|length > 0 %}gid == {{n}}{% if not loop.last %} || {% endif %}{% endfor %}) {
+		target_thread_id = get_vectortree_nonleaf_left_child_thread(gid);
+	}
+	{% endif %}
+	treegroup.shfl(cache_addr_child, target_thread_id);
+	// Set the received cache pointer.
+	if (target_thread_id != {{vectortree.keys()|length}}) {
 		set_left_cache_pointer(&cache_pointers, cache_addr_child);
 	}
-	{% if vectorsize > 95 %}
+	{% if vectortree_level_nr_of_nodes_with_two_children[i] > 0 %}
 	// Obtain cache address for right child.
 	cache_addr_child = cache_addr;
-	treegroup.shfl_down(cache_addr_child, {{current_level_size}} - gid + 1 + (gid - {{first_level_id}})*2);
-	if (gid >= {{first_level_id}} && gid < {% if vectortree[first_level_id+current_level_size-1]|length == 2 %}{{first_level_id+current_level_size}}{% else %}{{first_level_id+current_level_size-1}}{% endif %}) {
+	target_thread_id = {{vectortree.keys()|length}};
+	{% if vectortree_level_nr_of_nodes_with_two_children[i] == lsize %}
+	if (gid >= {{lfirst}} && gid <= {{llast}}) {
+		target_thread_id = get_vectortree_nonleaf_right_child_thread(gid);
+	}
+	{% else %}
+	if ({% for n in vectortree_level_ids[i] if vectortree[n]|length == 2 %}gid == {{n}}{% if not loop.last %} || {% endif %}{% endfor %}) {
+		target_thread_id = get_vectortree_nonleaf_right_child_thread(gid);
+	}
+	{% endif %}
+	treegroup.shfl(cache_addr_child, target_thread_id);
+	// Set the received cache pointer.
+	if (target_thread_id != {{vectortree.keys()|length}}) {
 		set_right_cache_pointer(&cache_pointers, cache_addr_child);
-	{% if vectortree[first_level_id+current_level_size]|length == 2 %}
-		cache_addr = STOREINCACHE(cache, node, cache_pointers);
-	}
-	{% else %}
-	}
-	// Store the non-leaf node in the cache.
-	if (gid >= {{first_level_id}} && gid < {{first_level_id+current_level_size}}) {
-		node = mark_old(node);
-		cache_addr = STOREINCACHE(cache, node, cache_pointers);
-		cache_addr_child = cache_addr;
 	}
 	{% endif %}
-	{% else %}
 	// Store the non-leaf node in the cache.
-	if (gid >= {{first_level_id}} && gid < {{first_level_id+current_level_size}}) {
+	{% if vectortree_level_nr_of_leaves[i] == 0 %}
+	if (gid >= {{lfirst}} && gid <= {{llast}}) {
+	{% else %}
+	if ({% for n in vectortree_level_ids[i] if vectortree[n]|length > 0 %}gid == {{n}}{% if not loop.last %} || {% endif %}{% endfor %}) {
+	{% endif %}
 		node = mark_old(node);
-		cache_addr = STOREINCACHE(cache, node, cache_pointers);
+		cache_addr = STOREINCACHE(node, cache_pointers);
 		cache_addr_child = cache_addr;
 	}
-	{% endif %}
 	{% endfor %}
 	{% else %}
 	node = d_q[addr];
-	cache_addr = STOREINCACHE(cache, node);
+	cache_addr = STOREINCACHE(node);
 	{% endif %}
+	return cache_addr;
 }
 
 // *** END KERNELS FOR VECTOR TREE NODES STORAGE AND RETRIEVAL ***
@@ -697,16 +827,16 @@ inline __device__ void get_{{s|replace("[","_")|replace("]","")|replace("'","_")
 {% if arraynames|length > 0 %}
 // Data retrieval functions, including the fetching of required vector parts, for array elements with dynamic indexing.
 {% for vname, t, size in arraynames %}
-inline __device__ void get_{{vname|replace("[","_")|replace("]","")}}(inttype *d_cache, shared_indextype node_index, {% if t|gettypesize < 32 %}elem_chartype{% else %}elem_inttype{% endif %} *b, array_indextype index) {
+inline __device__ void get_{{vname|replace("[","_")|replace("]","")}}(shared_indextype node_index, {% if t|gettypesize < 32 %}elem_chartype{% else %}elem_inttype{% endif %} *b, array_indextype index) {
 	inttype part1, part2;
 	switch (index) {
 		{% for i in range(0, size) %}
 		case {{i}}:
 			// Retrieve correct vector part(s).
 			{% set PIDs = vectorelem_in_structure_map[vname + "[" + i|string + "]"] %}
-			part1 = get_vectorpart_{{PIDs[1][0]}}(d_cache, node_index);
+			part1 = get_vectorpart_{{PIDs[1][0]}}(node_index);
 			{% if PIDs|length > 2 %}
-			part2 = get_vectorpart_{{PIDs[2][0]}}(d_cache, node_index);
+			part2 = get_vectorpart_{{PIDs[2][0]}}(node_index);
 			{% endif %}
 			// Get the data.
 			get_{{vname|replace("[","_")|replace("]","") + "_" + i|string}}(b, part1, part2);
@@ -720,15 +850,15 @@ inline __device__ void get_{{vname|replace("[","_")|replace("]","")}}(inttype *d
 {% endfor %}
 {% endif %}
 // Retrieval of current state of automaton at position i in state vector.
-inline __device__ void get_current_state(statetype *b, inttype *d_cache, shared_indextype node_index, elem_chartype i) {
+inline __device__ void get_current_state(statetype *b, shared_indextype node_index, elem_chartype i) {
 	inttype part1, part2;
 	switch (i) {
 		{% for i in range(0,smnames|length) %}
 		case {{i}}:
 			{% set vinfo = vectorelem_in_structure_map[state_order[i]] %}
-			part1 = get_vectorpart_{{vinfo[1][0]}}(d_cache, node_index);
+			part1 = get_vectorpart_{{vinfo[1][0]}}(node_index);
 			{% if vinfo|length > 2 %}
-			part2 = get_vectorpart_{{vinfo[2][0]}}(d_cache, node_index);
+			part2 = get_vectorpart_{{vinfo[2][0]}}(node_index);
 			{% endif %}
 			get_{{state_order[i]}}(b, part1, part2);
 		{% endfor %}
@@ -868,7 +998,7 @@ inline __device__ void set_buffer_tail_element_{{c.name}}_{{i}}(inttype *part, b
 {% endif %}
 {% endfor %}
 // Data update function shifting each element of the buffer of {{c.name}} one position towards the head, insofar this is relevant for the given vectorpart.
-inline __device__ void shift_buffer_tail_elements_{{c.name}}(inttype *d_cache, shared_indextype node_index, shared_inttype *part, buffer_indextype size, vectornode_indextype part_id) {
+inline __device__ void shift_buffer_tail_elements_{{c.name}}(shared_indextype node_index, shared_inttype *part, buffer_indextype size, vectornode_indextype part_id) {
 	{% if c.size > 1 %}
 	inttype part_tmp;
 	{% if signalsize[c] > 0 %}
@@ -903,7 +1033,7 @@ inline __device__ void shift_buffer_tail_elements_{{c.name}}(inttype *d_cache, s
 		{% for p in parts.keys() %}
 		case {{p}}:
 			{% if parts.get(p+1) != None %}
-			part_tmp = get_vectorpart(d_cache, node_index, part_id+1);
+			part_tmp = get_vectorpart(node_index, part_id+1);
 			{% endif %}
 			{% set lower1 = parts[p][0][0] %}
 			{% set lower2 = parts[p][0][1] %}
@@ -1052,14 +1182,40 @@ inline __device__ statetype get_target_{{o2.name}}_{{sm2.name}}_{{signal}}(state
 
 {% endfor %}
 {% endfor %}
-// Successor function. Given a state vector, construct its successor state vectors, and store them in d_cache.
-// Vgtid is the identity of the thread calling the function (id of thread inside vector group).
-inline __device__ void successor(inttype *d_cache, shared_indextype node_index, uint8_t vgtid) {
+// Kernel function to start parallel successor generation. Precondition: a tile of vectortree pointers to roots of cache-preloaded vectortrees
+// is stored in the shared memory.
+inline __device__ void GENERATE_SUCCESSORS() {
+	// Iterate over the designated work.
+	{% if gpuexplore2_succdist %}
+	shared_inttype src_state = shared[OPENTILEOFFSET+GROUP_ID];
+
+	if (THREADINGROUP) {
+		if (ISSTATE(src_state)) {
+			get_successors((shared_indextype) src_state, GROUP_TID);
+		}
+	}
+	{% else %}
+	{% if no_regsort %}
+	shared_inttype src_state = shared[OPENTILEOFFSET+OPENTILE_ELEM];
+	{% else %}
+	shared_inttype src_state = get_sorted_opentile_element();
+	{% endif %}
+	if (ISSTATE(src_state)) {
+		for (shared_indextype i = STATEMACHINE_ID; i < {{smnames|length}}; i += NR_WARPS_PER_BLOCK) {
+			get_successors((shared_indextype) src_state, i);
+		}
+	}
+	{% endif %}
+} 
+
+// Successor construction function for a particular state machine. Given a state vector, construct its successor state vectors w.r.t. the state machine, and store them in cache.
+// Vgtid is the identity of the thread calling the function (id of thread relevant for successor generation).
+inline __device__ void get_successors(shared_indextype node_index, uint8_t vgtid) {
 	// explore the outgoing transitions of the current state of the automaton assigned to vgtid.
 	switch (vgtid) {
 		{% for i in range(0,smnames|length) %}
 		case {{i}}:
-			explore_{{state_order[i]|replace("'","_")}}(d_cache, node_index);
+			explore_{{state_order[i]|replace("'","_")}}(node_index);
 			break;
 		{% endfor %}
 		default:
@@ -1069,9 +1225,9 @@ inline __device__ void successor(inttype *d_cache, shared_indextype node_index, 
 
 // Exploration functions to traverse outgoing transitions of the various states.
 {% for i in range(0,smnames|length) %}
-inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_cache, shared_indextype node_index) {
+inline __device__ void explore_{{state_order[i]|replace("'","_")}}(shared_indextype node_index) {
 	// Fetch the current state of the state machine.
-	statetype current = get_current_state(d_cache, node_index, {{i}});
+	statetype current = get_current_state(node_index, {{i}});
 	statetype target = NO_STATE;
 	inttype part1, part2;
 	shared_inttype part_d_cachepointers;
@@ -1126,9 +1282,9 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_ca
 			{% set ch = connected_channel[(o, st.target)] %}
 			{% set VP = [(ch,"_size")]|get_vectorparts(o) %}
 			{% set fetched = VP %}
-			{{indent}}part1 = get_vectorpart(d_cache, node_index, {{VP[0]}});
+			{{indent}}part1 = get_vectorpart(node_index, {{VP[0]}});
 			{% if VP|length > 1 %}
-			{{indent}}part2 = get_vectorpart(d_cache, node_index, {{VP[1]}});
+			{{indent}}part2 = get_vectorpart(node_index, {{VP[1]}});
 			{% endif %}
 			{{indent}}get_{{ch.name}}_size(&{{M[(ch,"_size")][0]}}[{{M[(ch,"_size")][1]}}], part1, part2);
 			{{indent}}if ({{st|cudarecsizeguard(M,o)}}) {
@@ -1152,7 +1308,7 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_ca
 			{% if loop.first %}
 			{% if VP[i] != fetched[0] and VP[i] != fetched[1] %}
 			{% set fetched = [VP[i],fetched[1]] %}
-			{{indent}}part1 = get_vectorpart(d_cache, node_index, {{VP[i]}});
+			{{indent}}part1 = get_vectorpart(node_index, {{VP[i]}});
 			{% elif VP[i] == fetched[1] %}
 			{% set fetched = [fetched[1],fetched[1]] %}
 			{{indent}}part1 = part2;
@@ -1165,7 +1321,7 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_ca
 			{% if i+1 < VP|length %}
 			{% if VP[i+1] != fetched[0] and VP[i+1] != fetched[1] %}
 			{% set fetched = [fetched[0],VP[i+1]] %}
-			{{indent}}part2 = get_vectorpart(d_cache, node_index, {{VP[i+1]}});
+			{{indent}}part2 = get_vectorpart(node_index, {{VP[i+1]}});
 			{% elif VP[i+1] == fetched[0] %}
 			{% set fetched = [fetched[0],fetched[0]] %}
 			{{indent}}part2 = part1;
@@ -1190,7 +1346,7 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_ca
 			{{indent}}buffer_indextype i = add_idx(idx_{{v.name}}, {{j|getinstruction(o,M,{})}});
 			{{indent}}if (i != -1) {
 			{{indent}}	// Fetch value.
-			{{indent}}	get_{{v|scopename(None,o)}}(d_cache, node_index, &buf{{v.type|gettypesize}}[{{M[v][1]}}+i], {{j|getinstruction(o,M,{}),{}}});
+			{{indent}}	get_{{v|scopename(None,o)}}(node_index, &buf{{v.type|gettypesize}}[{{M[v][1]}}+i], {{j|getinstruction(o,M,{}),{}}});
 			{{indent}}}
 			{% endfor %}
 			{{indent}}// Statement computation.
@@ -1206,7 +1362,7 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_ca
 			{{indent}}// Fetch remaining values of unguarded variables (without dynamic array indexing).
 			{% if VPrem[i] != fetched[0] and VPrem[i] != fetched[1] %}
 			{% set fetched = [VPrem[i],fetched[1]] %}
-			{{indent}}part1 = get_vectorpart(d_cache, node_index, {{VPrem[i]}});
+			{{indent}}part1 = get_vectorpart(node_index, {{VPrem[i]}});
 			{% elif VPrem[i] == fetched[1] %}
 			{% set fetched = [fetched[1],fetched[1]] %}
 			{{indent}}part1 = part2;
@@ -1218,7 +1374,7 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_ca
 			{% if i+1 < VPrem|length %}
 			{% if VPrem[i+1] != fetched[0] and VPrem[i+1] != fetched[1] %}
 			{% set fetched = [fetched[0],VPrem[i+1]] %}
-			{{indent}}part2 = get_vectorpart(d_cache, node_index, {{VPrem[i+1]}});
+			{{indent}}part2 = get_vectorpart(node_index, {{VPrem[i+1]}});
 			{% elif VPrem[i+1] == fetched[0] %}
 			{% set fetched = [fetched[1],fetched[1]] %}
 			{{indent}}part2 = part1;
@@ -1239,7 +1395,7 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(inttype *d_ca
 			{{indent}}buffer_indextype i = add_idx(idx_{{v.name}}, {{j|getinstruction(o,M,{})}});
 			{{indent}}if (i != -1) {
 			{{indent}}	// Fetch value.
-			{{indent}}	get_{{v|scopename(None,o)}}(d_cache, node_index, &buf{{v.type|gettypesize}}[{{M[v][1]}}+i], {{j|getinstruction(o,M,{})}});
+			{{indent}}	get_{{v|scopename(None,o)}}(node_index, &buf{{v.type|gettypesize}}[{{M[v][1]}}+i], {{j|getinstruction(o,M,{})}});
 			{{indent}}}
 			{% endfor %}
 			{{indent}}// Set target state.
