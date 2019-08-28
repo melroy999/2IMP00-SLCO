@@ -17,12 +17,18 @@ model = ""
 gpuexplore2_succdist = False
 no_regsort = False
 
+# the size of a warp
+warpsize = 16
+
 this_folder = dirname(__file__)
 
 # import libraries
 sys.path.append(join(this_folder,'../../libraries'))
 from slcolib import *
 this_folder = dirname(__file__)
+
+# nr of elements per thread, for intra-warp regsort of tile elements
+regsort_nr_el_per_thread = 0
 
 actions = set([])
 
@@ -115,6 +121,30 @@ def RepresentsInt(s):
         return True
     except ValueError:
         return False
+
+# Jinja2 filter to compute the log 2 of a number
+def log2(i):
+	return int(math.log(i, 2))
+
+# Jinja2 filter to compute 2 power of a number
+def pow2(i):
+	return int(math.pow(2, i))
+
+# Jinja2 filter to compute bitwise xor of two integers
+def xor(i, j):
+	return i^j
+
+# Jinja2 filter to perform a one position bit right shift
+def bitshift_one_right(i):
+	return i >> 1
+
+# Jinja2 filter to provide the hexadecimal version of a given integer
+def hexa(i):
+	return hex(i)
+
+# Jinja2 filter to check list membership
+def in_list(i, L):
+	return i in L
 
 def cudatype(s, ignoresize):
 	"""Maps type names from SLCO to CUDA"""
@@ -1979,7 +2009,7 @@ def debug(text):
 
 def preprocess():
 	"""Preprocessing of model"""
-	global model, vectorsize, vectorstructure, vectortree, vectortree_T, vectortree_level_ids, vectortree_leaf_thread, vectorstructure_string, smnames, vectorelem_in_structure_map, max_statesize, state_order, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, connected_channel, signalsize, signalnr, alphabet, syncactions, actiontargets, actions, syncreccomm, no_state_constant, no_prio_constant, dynamic_write_arrays, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth, vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children, tilesize, gpuexplore2_succdist
+	global model, vectorsize, vectorstructure, vectortree, vectortree_T, vectortree_level_ids, vectortree_leaf_thread, vectorstructure_string, smnames, vectorelem_in_structure_map, max_statesize, state_order, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, connected_channel, signalsize, signalnr, alphabet, syncactions, actiontargets, actions, syncreccomm, no_state_constant, no_prio_constant, dynamic_write_arrays, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth, vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children, tilesize, gpuexplore2_succdist, regsort_nr_el_per_thread
 
 	# construct set of statemachine names in the system
 	# also construct a map from names to objects
@@ -2504,10 +2534,12 @@ def preprocess():
 		# divide 16 (number of warps in a block) by the number of statemachines in the model (or 16, if that number is smaller).
 		# multiply that number by 32, as each thread in a warp can work on a different state vector.
 		tilesize = int((16 / min(len(smnames), 16)) * 32)
+		# conpute the number of elements per thread in intra-warp regsort of tile elements
+		regsort_nr_el_per_thread = int(math.pow(2,math.ceil(math.log(tilesize, 2))) / 32)
 
 def translate():
 	"""The translation function"""
-	global modelname, model, vectorstructure, vectorstructure_string, vectortree, vectortree_T, vectortree_level_ids, vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children, vectorelem_in_structure_map, vectortree_leaf_thread, state_order, max_statesize, smnames, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, signalsize, connected_channel, alphabet, syncactions, actiontargets, no_state_constant, no_prio_constant, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth, gpuexplore2_succdist, no_regsort, tilesize
+	global modelname, model, vectorstructure, vectorstructure_string, vectortree, vectortree_T, vectortree_level_ids, vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children, vectorelem_in_structure_map, vectortree_leaf_thread, state_order, max_statesize, smnames, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, signalsize, connected_channel, alphabet, syncactions, actiontargets, no_state_constant, no_prio_constant, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth, gpuexplore2_succdist, no_regsort, tilesize, regsort_nr_el_per_thread, warpsize
 	
 	path, name = split(modelname)
 	if name.endswith('.slco'):
@@ -2556,6 +2588,12 @@ def translate():
 	jinja_env.filters['get_all_syncrecs'] = get_all_syncrecs
 	jinja_env.filters['get_reccomm_trans'] = get_reccomm_trans
 	jinja_env.filters['debug'] = debug
+	jinja_env.filters['log2'] = log2
+	jinja_env.filters['pow2'] = pow2
+	jinja_env.filters['xor'] = xor
+	jinja_env.filters['bitshift_one_right'] = bitshift_one_right
+	jinja_env.filters['hexa'] = hexa
+	jinja_env.filters['in_list'] = in_list
 
 	# Register the tests
 	jinja_env.tests['is_async'] = is_async
@@ -2564,7 +2602,7 @@ def translate():
 
 	# load the GPUexplore template
 	template = jinja_env.get_template('gpuexplore.jinja2template')
-	out = template.render(model=model, vectorsize=vectorsize, vectorstructure=vectorstructure, vectorstructure_string=vectorstructure_string, vectortree=vectortree, vectortree_T=vectortree_T, max_statesize=max_statesize, vectorelem_in_structure_map=vectorelem_in_structure_map, state_order=state_order, smnames=smnames, smname_to_object=smname_to_object, state_id=state_id, arraynames=arraynames, max_arrayindexsize=max_arrayindexsize, max_buffer_allocs=max_buffer_allocs, vectorpartlist=vectorpartlist, connected_channel=connected_channel, alphabet=alphabet, syncactions=syncactions, actiontargets=actiontargets, syncreccomm=syncreccomm, no_state_constant=no_state_constant, no_prio_constant=no_prio_constant, dynamic_write_arrays=dynamic_write_arrays, signalsize=signalsize, async_channel_vectorpart_buffer_range=async_channel_vectorpart_buffer_range, vectortree_size=vectortree_size, vectortree_depth=vectortree_depth, vectortree_level_ids=vectortree_level_ids, vectortree_level_nr_of_leaves=vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children=vectortree_level_nr_of_nodes_with_two_children, vectortree_leaf_thread=vectortree_leaf_thread, gpuexplore2_succdist=gpuexplore2_succdist, no_regsort=no_regsort, tilesize=tilesize)
+	out = template.render(model=model, vectorsize=vectorsize, vectorstructure=vectorstructure, vectorstructure_string=vectorstructure_string, vectortree=vectortree, vectortree_T=vectortree_T, max_statesize=max_statesize, vectorelem_in_structure_map=vectorelem_in_structure_map, state_order=state_order, smnames=smnames, smname_to_object=smname_to_object, state_id=state_id, arraynames=arraynames, max_arrayindexsize=max_arrayindexsize, max_buffer_allocs=max_buffer_allocs, vectorpartlist=vectorpartlist, connected_channel=connected_channel, alphabet=alphabet, syncactions=syncactions, actiontargets=actiontargets, syncreccomm=syncreccomm, no_state_constant=no_state_constant, no_prio_constant=no_prio_constant, dynamic_write_arrays=dynamic_write_arrays, signalsize=signalsize, async_channel_vectorpart_buffer_range=async_channel_vectorpart_buffer_range, vectortree_size=vectortree_size, vectortree_depth=vectortree_depth, vectortree_level_ids=vectortree_level_ids, vectortree_level_nr_of_leaves=vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children=vectortree_level_nr_of_nodes_with_two_children, vectortree_leaf_thread=vectortree_leaf_thread, gpuexplore2_succdist=gpuexplore2_succdist, no_regsort=no_regsort, tilesize=tilesize, regsort_nr_el_per_thread=regsort_nr_el_per_thread, warpsize=warpsize)
 	# write new SLCO model
 	outFile.write(out)
 	outFile.close()

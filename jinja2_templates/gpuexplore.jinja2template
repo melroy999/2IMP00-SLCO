@@ -17,7 +17,7 @@ using namespace cooperative_groups;
 {% endif %}
 // type for shared memory cache indices
 #define shared_indextype uint16_t
-// type of automaton state
+// type of state machine state
 {% if max_statesize <= 8 %}
 #define statetype uint8_t
 {% elif max_statesize <= 16 %}
@@ -68,7 +68,7 @@ static const int NR_OF_BLOCKS = 3120;
 // Thread ids and dimensions.
 #define GRID_SIZE 				gridDim.x
 #define BLOCK_SIZE				blockDim.x
-#define WARP_SIZE				32
+#define WARP_SIZE				{{warpsize}}
 
 #define BLOCK_ID				blockIdx.x
 #define THREAD_ID 				threadIdx.x
@@ -78,25 +78,14 @@ static const int NR_OF_BLOCKS = 3120;
 #define NR_WARPS				(NR_WARPS_PER_BLOCK * GRID_SIZE)
 #define LANE					(THREAD_ID & 0x0000001F)
 
-{% if gpuexplore2_succdist %}
-#define	GROUP_TID				(LANE % {{smnames|length}})
-#define GROUPS_PER_WARP			(WARP_SIZE / {{smnames|length}})
-#define GROUP_ID				(WARP_ID * GROUPS_PER_WARP + LANE / {{smnames|length}})
-#define NR_GROUPS				((BLOCK_SIZE / WARP_SIZE) * GROUPS_PER_WARP)
-
-#define THREADINGROUP			(LANE < GROUPS_PER_WARP * {{smnames|length}})
-{% else %}
-#define OPENTILE_ELEM			(((WARP_ID / {{smnames|length}}) * WARP_SIZE) + LANE)
-#define STATEMACHINE_ID			(WARP_ID % {{smnames|length}})
-{% endif %}
-
 // Constant representing empty array index entry.
 #define EMPTY_INDEX -1
 // Constant used to initialise state variables.
 #define NO_STATE {{no_state_constant}}
 // Empty local cache element (exploits that a vectornode cannot be marked 'new' without being marked 'root')
-#define EMPTYVECT32 0xBFFFFFFF
-#define ISSTATE(t)				((t) != EMPTYVECT32)
+#define EMPTYVECT32 			0xBFFFFFFF
+#define ISVECTORSTATE(t)		((t) != EMPTYVECT32)
+#define EMPTYVECT16				0xFFFF
 
 // constant for hashing
 static const inttype P = 979946131;
@@ -134,6 +123,20 @@ const size_t Mb = 1<<20;
 #define OPENTILECOUNT			(shared[2])
 #define WORKSCANRESULT			(shared[3])
 #define SCAN					(shared[4])
+
+// Definitions for open tile element access.
+{% if gpuexplore2_succdist %}
+#define	GROUP_TID				(LANE % {{smnames|length}})
+#define GROUPS_PER_WARP			(WARP_SIZE / {{smnames|length}})
+#define GROUP_ID				(WARP_ID * GROUPS_PER_WARP + LANE / {{smnames|length}})
+#define NR_GROUPS				((BLOCK_SIZE / WARP_SIZE) * GROUPS_PER_WARP)
+
+#define THREADINGROUP			(LANE < GROUPS_PER_WARP * {{smnames|length}})
+{% else %}
+#define OPENTILE_ELEM_OFFSET	((WARP_ID / {{smnames|length}}) * WARP_SIZE)
+#define OPENTILE_ELEM			(OPENTILE_ELEM_OFFSET + LANE)
+#define STATEMACHINE_ID			(WARP_ID % {{smnames|length}})
+{% endif %}
 
 // CONSTANTS FOR GLOBAL MEMORY HASH TABLE
 // Empty hash table element (exploits that a vectornode cannot be marked 'new' without being marked 'root')
@@ -709,7 +712,7 @@ inline __device__ shared_indextype FETCH(thread_group treegroup, inttype *d_q, i
 		target_thread_id = gid;
 	}
 	{% endif %}
-	treegroup.shfl(node_tmp, target_thread_id);
+	node_tmp = treegroup.shfl(node_tmp, target_thread_id);
 	// Process the received node, if applicable.
 	if (target_thread_id != {{vectortree.keys()|length}}) {
 		node_addr = get_pointer_from_vectortree_node(node_tmp, false{% for n in vectortree_level_ids[i] if (vectortree[vectortree_T[n]]|length == 2 and vectortree[vectortree_T[n]][vectortree[vectortree_T[n]]|length-1] == n) %} || gid == {% if vectortree[n] == [] %}{{get_vectortree_leaf_parent_thread[n]}}{% else %}{{n}}{% endif %}{% endfor %});	
@@ -751,7 +754,7 @@ inline __device__ shared_indextype FETCH(thread_group treegroup, inttype *d_q, i
 		target_thread_id = get_vectortree_nonleaf_left_child_thread(gid);
 	}
 	{% endif %}
-	treegroup.shfl(cache_addr_child, target_thread_id);
+	cache_addr_child = treegroup.shfl(cache_addr_child, target_thread_id);
 	// Set the received cache pointer.
 	if (target_thread_id != {{vectortree.keys()|length}}) {
 		set_left_cache_pointer(&cache_pointers, cache_addr_child);
@@ -769,7 +772,7 @@ inline __device__ shared_indextype FETCH(thread_group treegroup, inttype *d_q, i
 		target_thread_id = get_vectortree_nonleaf_right_child_thread(gid);
 	}
 	{% endif %}
-	treegroup.shfl(cache_addr_child, target_thread_id);
+	cache_addr_child = treegroup.shfl(cache_addr_child, target_thread_id);
 	// Set the received cache pointer.
 	if (target_thread_id != {{vectortree.keys()|length}}) {
 		set_right_cache_pointer(&cache_pointers, cache_addr_child);
@@ -794,6 +797,196 @@ inline __device__ shared_indextype FETCH(thread_group treegroup, inttype *d_q, i
 }
 
 // *** END KERNELS FOR VECTOR TREE NODES STORAGE AND RETRIEVAL ***
+
+// *** START FUNCTIONS FOR INTRA-WARP BITONIC MERGESORT (Fast Segmented Sort on GPUs, Hou et al., 2017) ***
+
+inline __device__ void CMP_SWP(statetype &s0, statetype &s1, shared_indextype &p0, shared_indextype &p1) {
+	statetype s_tmp;
+	shared_indextype p_tmp;
+
+	if (*s0 > *s1) {
+		s_tmp = *s0;
+		*s0 = *s1;
+		*s1 = s_tmp;
+		p_tmp = *p0;
+		*p0 = *p1;
+		*p1 = p_tmp;
+	}
+}
+
+inline __device__ void EQL_SWP(statetype &s0, statetype &s1, shared_indextype &p0, shared_indextype &p1) {
+	statetype s_tmp;
+	shared_indextype p_tmp;
+
+	if (*s0 != *s1) {
+		s_tmp = *s0;
+		*s0 = *s1;
+		*s1 = s_tmp;
+		p_tmp = *p0;
+		*p0 = *p1;
+		*p1 = p_tmp;
+	}
+}
+
+inline __device__ void SWP(statetype &s0, statetype &s1, shared_indextype &p0, shared_indextype &p1) {
+	statetype s_tmp;
+	shared_indextype p_tmp;
+
+	s_tmp = *s0;
+	*s0 = *s1;
+	*s1 = s_tmp;
+	p_tmp = *p0;
+	*p0 = *p1;
+	*p1 = p_tmp;
+}
+
+inline __device__ void _exch_intxn({% for i in range(0,regsort_nr_el_per_thread) %}statetype &s{{i}}, {% endfor %}{% for i in range(0,regsort_nr_el_per_thread) %}shared_indextype &p{{i}}, {% endfor %}uint8_t mask, bool bit) {
+	statetype ex_s0, ex_s1;
+	shared_indextype ex_p0, ex_p1;
+	{% if regsort_nr_el_per_thread > 2 %}
+	{% for i in range (0,(regsort_nr_el_per_thread/2)|int) %}
+	if (bit) SWP(s{{i}}, s{{(regsort_nr_el_per_thread-1-((i/2)|int*2)-(1-(i%2)))|int}}, p{{i}}, p{{(regsort_nr_el_per_thread-1-((i/2)|int*2)-(1-(i%2)))|int}});
+	{% endfor %}
+	{% endif %}
+	{% for i in range(0,(regsort_nr_el_per_thread/2)|int) %}
+	ex_s0 = *s{{i*2}};
+	ex_s1 = __shfl_xor_sync(0xFFFFFFFF, {% if regsort_nr_el_per_thread > 1 %}*s{{i*2+1}}{% else %}*s{{i*2}}{% endif %}, mask);
+	ex_p0 = *p{{i*2}};
+	ex_p1 = __shfl_xor_sync(0xFFFFFFFF, {% if regsort_nr_el_per_thread > 1 %}*p{{i*2+1}}{% else %}*p{{i*2}}{% endif %}, mask);
+	CMP_SWP(ex_s0, ex_s1, ex_p0, ex_p1);
+	if (bit) EQL_SWP(ex_s0, ex_s1, ex_p0, ex_p1);
+	*s{{i*2}} = ex_s0;
+	{% if regsort_nr_el_per_thread > 1 %}
+	*s{{i*2+1}} = __shfl_xor_sync(0xFFFFFFFF, ex_s1, mask);
+	{% endif %}
+	*p{{i*2}} = ex_p0;
+	{% if regsort_nr_el_per_thread > 1 %}
+	*p{{i*2+1}} = __shfl_xor_sync(0xFFFFFFFF, ex_p1, mask);
+	{% endif %}
+	{% endfor %}
+	{% if regsort_nr_el_per_thread > 2 %}
+	{% for i in range (0,(regsort_nr_el_per_thread/2)|int) %}
+	if (bit) SWP(s{{i}}, s{{(regsort_nr_el_per_thread-1-((i/2)|int*2)-(1-(i%2)))|int}}, p{{i}}, p{{(regsort_nr_el_per_thread-1-((i/2)|int*2)-(1-(i%2)))|int}});
+	{% endfor %}
+	{% endif %}
+}
+
+inline __device__ void _exch_paral({% for i in range(0,regsort_nr_el_per_thread) %}statetype &s{{i}}, {% endfor %}{% for i in range(0,regsort_nr_el_per_thread) %}shared_indextype &p{{i}}, {% endfor %}uint8_t mask, bool bit) {
+	statetype ex_s0, ex_s1;
+	shared_indextype ex_p0, ex_p1;
+	{% if regsort_nr_el_per_thread > 1 %}
+	{% for i in range (0,(regsort_nr_el_per_thread/2)|int) %}
+	if (bit) SWP(s{{i*2}}, s{{i*2+1}}, p{{i*2}}, p{{i*2+1}});
+	{% endfor %}
+	{% endif %}
+	{% for i in range(0,(regsort_nr_el_per_thread/2)|int) %}
+	ex_s0 = *s{{i*2}};
+	ex_s1 = __shfl_xor_sync(0xFFFFFFFF, {% if regsort_nr_el_per_thread > 1 %}*s{{i*2+1}}{% else %}*s{{i*2}}{% endif %}, mask);
+	ex_p0 = *p{{i*2}};
+	ex_p1 = __shfl_xor_sync(0xFFFFFFFF, {% if regsort_nr_el_per_thread > 1 %}*p{{i*2+1}}{% else %}*p{{i*2}}{% endif %}, mask);
+	CMP_SWP(ex_s0, ex_s1, ex_p0, ex_p1);
+	if (bit) EQL_SWP(ex_s0, ex_s1, ex_p0, ex_p1);
+	*s{{i*2}} = ex_s0;
+	{% if regsort_nr_el_per_thread > 1 %}
+	*s{{i*2+1}} = __shfl_xor_sync(0xFFFFFFFF, ex_s1, mask);
+	{% endif %}
+	*p{{i*2}} = ex_p0;
+	{% if regsort_nr_el_per_thread > 1 %}
+	*p{{i*2+1}} = __shfl_xor_sync(0xFFFFFFFF, ex_p1, mask);
+	{% endif %}
+	{% endfor %}
+	{% if regsort_nr_el_per_thread > 1 %}
+	{% for i in range (0,(regsort_nr_el_per_thread/2)|int) %}
+	if (bit) SWP(s{{i*2}}, s{{i*2+1}}, p{{i*2}}, p{{i*2+1}});
+	{% endfor %}
+	{% endif %}
+}
+
+// The main bitonic sorting function, including loading the data to be sorted,
+// and returning the tile element to be subsequently used by the calling thread.
+__device__ shared_indextype get_sorted_opentile_element(elem_chartype sm) {
+	statetype {% for i in range(0,regsort_nr_el_per_thread) %}s{{i}}{% if not loop.last %}, {% else %};{% endif %}{% endfor %}
+	
+	shared_indextype {% for i in range(0,regsort_nr_el_per_thread) %}p{{i}}, {% endfor %}p_tmp, p_result;
+	
+
+	// Load the tile elements.
+	{% for i in range(0,regsort_nr_el_per_thread) %}
+	if ({{i*warpsize}}+LANE < OPENTILELEN) {
+		asm("{\n\t"
+			" cvt.u16.u32 %0, %1;\n\t"
+			"}" : "=r"(p{{i}}) : "r"(shared[CACHEOFFSET+{{i*warpsize}}+LANE]));
+		if (p{{i}} != EMPTYVECT16) {
+			// Retrieve corresponding state value.
+			get_current_state(&s{{i}}, p{{i}}, sm);
+		}
+		else {
+			s{{i}} = NO_STATE;
+		}
+	}
+	else {
+		p{{i}} = EMPTYVECT16;
+		s{{i}} = NO_STATE;
+	}
+	{% endfor %}
+	// Perform the sorting.
+	{% for l in range(1, (regsort_nr_el_per_thread*warpsize)|log2+1)|reverse %}
+	{% set coop_elem_num = (l-1)|pow2 %}
+	{% set coop_thrd_num = ([warpsize|log2, l-1]|min)|pow2 %}
+	{% set coop_elem_size = ((regsort_nr_el_per_thread*warpsize)|log2-l+1)|pow2 %}
+	{% set coop_thrd_size = (warpsize|log2 - [warpsize|log2, l-1]|min)|pow2 %}
+	{% if coop_thrd_size == 1 %}
+	// exch_local intxn.
+	{% set rmask = coop_elem_size - 1 %}
+	{% set ns = namespace(L=[]) %}
+	{% for i in range(0,regsort_nr_el_per_thread) %}
+	{% if not i|in_list(ns.L) %}
+	CMP_SWP(s{{i}}, s{{i|xor(rmask)}}, p{{i}}, p{{i|xor(rmask)}});
+	{% set ns.L = ns.L + [i, i|xor(rmask)] %}
+	{% endif %}
+	{% endfor %}
+	{% else %}
+	_exch_intxn({% for i in range(0,regsort_nr_el_per_thread) %}&s{{i}}, {% endfor %}{% for i in range(0,regsort_nr_el_per_thread) %}&p{{i}}, {% endfor %}{{(coop_thrd_size-1)|hexa}}, (LANE & {{(((coop_thrd_size-1)|log2)|pow2)|hexa}}) != 0);
+	{% endif %}
+	{% for k in range(l+1, (regsort_nr_el_per_thread*warpsize)|log2+1) %}
+	{% set coop_elem_num = (k-1)|pow2 %}
+	{% set coop_thrd_num = ([warpsize|log2, k-1]|min)|pow2 %}
+	{% set coop_elem_size = ((regsort_nr_el_per_thread*warpsize)|log2-k+1)|pow2 %}
+	{% set coop_thrd_size = (warpsize|log2 - [warpsize|log2, k-1]|min)|pow2 %}
+	{% if coop_thrd_size == 1 %}
+	// exch_local paral.
+	{% set rmask = coop_elem_size - 1 %}
+	{% set rmask = rmask - rmask|bitshift_one_right %}
+	{% set ns = namespace(L=[]) %}
+	{% for i in range(0,regsort_nr_el_per_thread) %}
+	{% if not i|in_list(ns.L) %}
+	CMP_SWP(s{{i}}, s{{i|xor(rmask)}}, p{{i}}, p{{i|xor(rmask)}});
+	{% set ns.L = ns.L + [i, i|xor(rmask)] %}
+	{% endif %}
+	{% endfor %}
+	{% else %}
+	{% set tmask = coop_thrd_size - 1 %}
+	{% set tmask = tmask - tmask|bitshift_one_right %}
+	_exch_paral({% for i in range(0,regsort_nr_el_per_thread) %}&s{{i}}, {% endfor %}{% for i in range(0,regsort_nr_el_per_thread) %}&p{{i}}, {% endfor %}{{tmask|hexa}}, (LANE & {{(((coop_thrd_size - 1)|log2)|pow2)|hexa}}) != 0);
+	{% endif %}
+	{% endfor %}
+	{% endfor %}
+
+	// Finally, retrieve the tile element of interest for the current thread.
+	{% for i in range(0,regsort_nr_el_per_thread) %}
+	if (LANE*{{regsort_nr_el_per_thread}}+{{i}} >= OPENTILE_ELEM_OFFSET && LANE*{{regsort_nr_el_per_thread}}+{{i}} < OPENTILE_ELEM_OFFSET+WARP_SIZE) {
+		p_tmp = p{{i}};
+	}
+	__syncwarp();
+	if (OPENTILE_ELEM & {{regsort_nr_el_per_thread-1}} == {{i}}) {
+		// Value of interest is ready to be fetched.
+		p_result = __shfl_sync(0xFFFFFFFF, p_tmp, OPENTILE_ELEM / {{regsort_nr_el_per_thread}});
+	}
+	{% endfor %}
+	return p_result;
+}
+
+//*** END FUNCTIONS FOR INTRA-WARP BITONIC MERGESORT ***
 
 // Data retrieval functions. Retrieve particular state info from the given state vector part(s).
 // Precondition: the given parts indeed contain the requested info.
@@ -849,7 +1042,7 @@ inline __device__ void get_{{vname|replace("[","_")|replace("]","")}}(shared_ind
 
 {% endfor %}
 {% endif %}
-// Retrieval of current state of automaton at position i in state vector.
+// Retrieval of current state of state machine at position i in state vector.
 inline __device__ void get_current_state(statetype *b, shared_indextype node_index, elem_chartype i) {
 	inttype part1, part2;
 	switch (i) {
@@ -860,7 +1053,7 @@ inline __device__ void get_current_state(statetype *b, shared_indextype node_ind
 			{% if vinfo|length > 2 %}
 			part2 = get_vectorpart_{{vinfo[2][0]}}(node_index);
 			{% endif %}
-			get_{{state_order[i]}}(b, part1, part2);
+			get_{{state_order[i]|replace("'","_")}}(b, part1, part2);
 		{% endfor %}
 		default:
 			break;
@@ -1190,19 +1383,22 @@ inline __device__ void GENERATE_SUCCESSORS() {
 	shared_inttype src_state = shared[OPENTILEOFFSET+GROUP_ID];
 
 	if (THREADINGROUP) {
-		if (ISSTATE(src_state)) {
-			get_successors((shared_indextype) src_state, GROUP_TID);
+		if (ISVECTORSTATE(src_state)) {
+			get_successors_of_sm((shared_indextype) src_state, GROUP_TID);
+		}
+	}
+	{% elif no_regsort %}
+	shared_inttype src_state = shared[OPENTILEOFFSET+OPENTILE_ELEM];
+	if (ISVECTORSTATE(src_state)) {
+		for (shared_indextype i = STATEMACHINE_ID; i < {{smnames|length}}; i += NR_WARPS_PER_BLOCK) {
+			get_successors_of_sm((shared_indextype) src_state, i);
 		}
 	}
 	{% else %}
-	{% if no_regsort %}
-	shared_inttype src_state = shared[OPENTILEOFFSET+OPENTILE_ELEM];
-	{% else %}
-	shared_inttype src_state = get_sorted_opentile_element();
-	{% endif %}
-	if (ISSTATE(src_state)) {
-		for (shared_indextype i = STATEMACHINE_ID; i < {{smnames|length}}; i += NR_WARPS_PER_BLOCK) {
-			get_successors((shared_indextype) src_state, i);
+	for (elem_chartype i = STATEMACHINE_ID; i < {{smnames|length}}; i += NR_WARPS_PER_BLOCK) {
+		shared_inttype src_state = get_sorted_opentile_element(i);
+		if (ISVECTORSTATE(src_state)) {
+			get_successors_of_sm((shared_indextype) src_state, i);
 		}
 	}
 	{% endif %}
@@ -1210,8 +1406,8 @@ inline __device__ void GENERATE_SUCCESSORS() {
 
 // Successor construction function for a particular state machine. Given a state vector, construct its successor state vectors w.r.t. the state machine, and store them in cache.
 // Vgtid is the identity of the thread calling the function (id of thread relevant for successor generation).
-inline __device__ void get_successors(shared_indextype node_index, uint8_t vgtid) {
-	// explore the outgoing transitions of the current state of the automaton assigned to vgtid.
+inline __device__ void get_successors_of_sm(shared_indextype node_index, uint8_t vgtid) {
+	// explore the outgoing transitions of the current state of the state machine assigned to vgtid.
 	switch (vgtid) {
 		{% for i in range(0,smnames|length) %}
 		case {{i}}:
@@ -1227,7 +1423,7 @@ inline __device__ void get_successors(shared_indextype node_index, uint8_t vgtid
 {% for i in range(0,smnames|length) %}
 inline __device__ void explore_{{state_order[i]|replace("'","_")}}(shared_indextype node_index) {
 	// Fetch the current state of the state machine.
-	statetype current = get_current_state(node_index, {{i}});
+	get_current_state(&current, node_index, {{i}});
 	statetype target = NO_STATE;
 	inttype part1, part2;
 	shared_inttype part_d_cachepointers;
