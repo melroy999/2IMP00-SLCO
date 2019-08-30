@@ -503,7 +503,7 @@ def indentspace(i):
 def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, Drec, indent):
 	"""Construct CUDA code to produce and store new vectortree nodes. nodes_done is a list containing node ids that have been processed before. nav is a list of nodes still to be processed.
 	   W is a dictionary defining for all vectorparts which values need to be written to it."""
-	global vectortree, vectortree_T, connected_channel
+	global vectortree, vectortree_T, connected_channel, dynamic_write_arrays
 	ic = indent
 	output = ""
 	if nav != []:
@@ -612,10 +612,37 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, Dre
 					else:
 						# dynamic indexing into an array or channel buffer. use a special set function for this.
 						if v.__class__.__name__ != "Channel":
+							output += "// Write array buffer content.\n" + indentspace(ic)
 							set_methodname = scopename(v,None,o)
 							set_methodname = set_methodname.replace("'","_")
 							(vname, offset) = D.get(v, (v.name, None))
 							output += "set_" + set_methodname + "(&part2, idx_" + v.name + ", " + vname + ", " + str(offset) + ", " + str(vectorpart_id(p)) + ");\n" + indentspace(ic)
+							part_id = str(vectorpart_id(p))
+							output += "if (" + part_id + " >= " + str(dynamic_write_arrays[v][1]) + " && " + part_id + " <= " + str(dynamic_write_arrays[v][1]) + ") {\n" + indentspace(ic)
+							allocs = get_buffer_arrayindex_allocs(s.parent.source, o)
+							indentnew = "\t"
+							for i in range(0,allocs[v]):
+								output += indentnew + "if (idx_" + v.name + "_" + str(i) + " != EMPTY_INDEX) {\n" + indentspace(ic)
+								indentnew = indentnew + "\t"
+								output += indentnew + "if (array_element_is_in_vectorpart_" + str(dynamic_write_arrays[v][0]).replace("'","_") + "(idx_" + v.name + "_" + str(i) + ", " + part_id + ")) {\n" + indentspace(ic)
+								indentnew = indentnew + "\t"
+								output += indentnew + "if (is_left_vectorpart_for_array_element_" + str(dynamic_write_arrays[v][0]).replace("'","_") + "(idx_" + v.name + "_" + str(i) + ", " + part_id + ")) {\n" + indentspace(ic)
+								indentnew = indentnew + "\t"
+								output += indentnew + "set_left_" + str(dynamic_write_arrays[v][0]).replace("'","_") + "_" + str(i) + "(part, " + vname + "_" + str(offset+i) + ");\n" + indentspace(ic)
+								indentnew = indentnew[:-1]
+								output += indentnew + "}\n" + indentspace(ic)
+								if len(vectorelem_in_structure_map[str(dynamic_write_arrays[v][0]) + "[" + str(i) + "]"]) > 2:
+									output += indentnew + "else {\n" + indentspace(ic)
+									indentnew = indentnew + "\t"
+									output += indentnew + "set_right_" + str(dynamic_write_arrays[v][0]).replace("'","_") + "_" + str(i) + "(part, " + vname + "_" + str(offset_i) + ");'n" + indentspace(ic)
+									indentnew = indentnew[:-1]
+									output += "}\n" + indentspace(ic)
+							for i in range(0,allocs[v]):
+								indentnew = indentnew[:-1]
+								output += indentnew + "}\n" + indentspace(ic)
+								indentnew = indentnew[:-1]
+								output += indentnew + "}\n" + indentspace(ic)
+							output += "}\n" + indentspace(ic)
 						else:
 							if s.__class__.__name__ == "SendSignal":
 								c = connected_channel[(o, s.target)]
