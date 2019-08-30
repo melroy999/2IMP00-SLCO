@@ -86,6 +86,7 @@ static const int NR_OF_BLOCKS = 3120;
 #define EMPTYVECT32 			0xBFFFFFFF
 #define ISVECTORSTATE(t)		((t) != EMPTYVECT32)
 #define EMPTYVECT16				0xFFFF
+#define CACHE_POINTERS_NEW_LEAF	0x40000000
 
 // constant for hashing
 static const inttype P = 979946131;
@@ -243,7 +244,7 @@ inline __device__ shared_inttype get_right(inttype node) {
 
 {% endif %}
 
-// Retrieval functions for vector parts from shared memory, ignoring shared memory node pointers (d_cache pointers).
+// Retrieval functions for vector parts from shared memory, ignoring shared memory node pointers (cache pointers).
 inline __device__ inttype get_vectorpart(shared_indextype node_index, vectornode_indextype part_id) {
 	switch (part_id) {
 	  {% for i in range(0,vectorstructure|length) %}
@@ -276,7 +277,7 @@ inline __device__ inttype get_vectorpart_{{i}}(shared_indextype node_index) {
 }
 {% endfor %}
 
-// Retrieval functions for vector tree nodes from shared memory, including shared memory node pointers (d_cache pointers).
+// Retrieval functions for vector tree nodes from shared memory, including shared memory node pointers (cache pointers).
 inline __device__ void get_vectortree_node(inttype *node, shared_inttype *d_cachepointers, shared_indextype node_index, vectornode_indextype i) {
 	switch (i) {
 	  {% for i in range(0,vectortree|length) %}
@@ -316,13 +317,8 @@ inline __device__ void set_right_cache_pointer(shared_inttype *pointers, shared_
 		"}" : "+r"(*pointers) : "r"(new_pointer));
 }
 
-// Cache pointers marking functions.
-inline __device__ shared_inttype mark_cache_pointers_new_leaf() {
-	return 0x40000000;
-}
-
 inline __device__ bool cache_pointers_are_marked_new_leaf(shared_inttype pointers) {
-	return (pointers >> 30 == 1);
+	return pointers == CACHE_POINTERS_NEW_LEAF;
 }
 
 inline __device__ void set_cache_pointers_to_global_address(shared_inttype *pointers, indextype address) {
@@ -680,7 +676,8 @@ inline __device__ shared_indextype FETCH(thread_group treegroup, inttype *d_q, i
 	inttype node = 0;
 	{% if vectorsize > 63 %}
 	inttype leaf_node = 0;
-	inttype node_tmp = 0;
+	inttype node_tmp_1 = 0;
+	inttype node_tmp_2 = 0;
 	indextype node_addr = 0;
 	shared_inttype cache_pointers = 0;
 	shared_indextype cache_addr = 0;
@@ -690,7 +687,7 @@ inline __device__ shared_indextype FETCH(thread_group treegroup, inttype *d_q, i
 	
 	if (gid == 0) {
 		node = d_q[addr];
-		node_tmp = node;
+		node_tmp_1 = node;
 	}
 	{% for i in range(1, vectortree_depth) %}
 	{% set lsize = vectortree_level_ids[i]|length %}
@@ -712,10 +709,11 @@ inline __device__ shared_indextype FETCH(thread_group treegroup, inttype *d_q, i
 		target_thread_id = gid;
 	}
 	{% endif %}
-	node_tmp = treegroup.shfl(node_tmp, target_thread_id);
+	treegroup.sync();
+	node_tmp_2 = treegroup.shfl(node_tmp_1, target_thread_id);
 	// Process the received node, if applicable.
 	if (target_thread_id != {{vectortree.keys()|length}}) {
-		node_addr = get_pointer_from_vectortree_node(node_tmp, false{% for n in vectortree_level_ids[i] if (vectortree[vectortree_T[n]]|length == 2 and vectortree[vectortree_T[n]][vectortree[vectortree_T[n]]|length-1] == n) %} || gid == {% if vectortree[n] == [] %}{{get_vectortree_leaf_parent_thread[n]}}{% else %}{{n}}{% endif %}{% endfor %});	
+		node_addr = get_pointer_from_vectortree_node(node_tmp_2, false{% for n in vectortree_level_ids[i] if (vectortree[vectortree_T[n]]|length == 2 and vectortree[vectortree_T[n]][vectortree[vectortree_T[n]]|length-1] == n) %} || gid == {% if vectortree[n] == [] %}{{get_vectortree_leaf_parent_thread[n]}}{% else %}{{n}}{% endif %}{% endfor %});	
 	{% if vectortree_level_nr_of_leaves[i] == lsize %}
 		leaf_node = d_q[node_addr];
 		// Store the leaf node in the cache.
@@ -728,13 +726,14 @@ inline __device__ shared_indextype FETCH(thread_group treegroup, inttype *d_q, i
 			// Store the leaf node in the cache.
 			cache_pointers = 0;
 			cache_addr = STOREINCACHE(leaf_node, cache_pointers);
-			cache_addr_child = cache_addr;
 		}
 		else {
 			node = d_q[node_addr];
+			node_tmp_1 = node;
 		}
 	{% else %}
 		node = d_q[node_addr];
+		node_tmp_1 = node;
 	{% endif %}
 	}
 	{% endfor %}
@@ -754,14 +753,14 @@ inline __device__ shared_indextype FETCH(thread_group treegroup, inttype *d_q, i
 		target_thread_id = get_vectortree_nonleaf_left_child_thread(gid);
 	}
 	{% endif %}
-	cache_addr_child = treegroup.shfl(cache_addr_child, target_thread_id);
+	treegroup.sync();
+	cache_addr_child = treegroup.shfl(cache_addr, target_thread_id);
 	// Set the received cache pointer.
 	if (target_thread_id != {{vectortree.keys()|length}}) {
 		set_left_cache_pointer(&cache_pointers, cache_addr_child);
 	}
 	{% if vectortree_level_nr_of_nodes_with_two_children[i] > 0 %}
 	// Obtain cache address for right child.
-	cache_addr_child = cache_addr;
 	target_thread_id = {{vectortree.keys()|length}};
 	{% if vectortree_level_nr_of_nodes_with_two_children[i] == lsize %}
 	if (gid >= {{lfirst}} && gid <= {{llast}}) {
@@ -772,7 +771,8 @@ inline __device__ shared_indextype FETCH(thread_group treegroup, inttype *d_q, i
 		target_thread_id = get_vectortree_nonleaf_right_child_thread(gid);
 	}
 	{% endif %}
-	cache_addr_child = treegroup.shfl(cache_addr_child, target_thread_id);
+	treegroup.sync();
+	cache_addr_child = treegroup.shfl(cache_addr, target_thread_id);
 	// Set the received cache pointer.
 	if (target_thread_id != {{vectortree.keys()|length}}) {
 		set_right_cache_pointer(&cache_pointers, cache_addr_child);
@@ -786,14 +786,16 @@ inline __device__ shared_indextype FETCH(thread_group treegroup, inttype *d_q, i
 	{% endif %}
 		node = mark_old(node);
 		cache_addr = STOREINCACHE(node, cache_pointers);
-		cache_addr_child = cache_addr;
 	}
+	treegroup.sync();
 	{% endfor %}
 	{% else %}
 	node = d_q[addr];
 	cache_addr = STOREINCACHE(node);
 	{% endif %}
-	return cache_addr;
+	// Obtain cache address of the root and return it.
+	cache_addr_child = treegroup.shfl(cache_addr, 0);
+	return cache_addr_child;
 }
 
 // *** END KERNELS FOR VECTOR TREE NODES STORAGE AND RETRIEVAL ***
@@ -907,7 +909,7 @@ inline __device__ void _exch_paral({% for i in range(0,regsort_nr_el_per_thread)
 __device__ shared_indextype get_sorted_opentile_element(elem_chartype sm) {
 	statetype {% for i in range(0,regsort_nr_el_per_thread) %}s{{i}}{% if not loop.last %}, {% else %};{% endif %}{% endfor %}
 	
-	shared_indextype {% for i in range(0,regsort_nr_el_per_thread) %}p{{i}}, {% endfor %}p_tmp, p_result;
+	shared_indextype {% for i in range(0,regsort_nr_el_per_thread) %}p{{i}}, {% endfor %}p_tmp1, p_tmp2, p_result;
 	
 
 	// Load the tile elements.
@@ -975,12 +977,13 @@ __device__ shared_indextype get_sorted_opentile_element(elem_chartype sm) {
 	// Finally, retrieve the tile element of interest for the current thread.
 	{% for i in range(0,regsort_nr_el_per_thread) %}
 	if (LANE*{{regsort_nr_el_per_thread}}+{{i}} >= OPENTILE_ELEM_OFFSET && LANE*{{regsort_nr_el_per_thread}}+{{i}} < OPENTILE_ELEM_OFFSET+WARP_SIZE) {
-		p_tmp = p{{i}};
+		p_tmp_1 = p{{i}};
 	}
 	__syncwarp();
+	p_tmp_2 = __shfl_sync(0xFFFFFFFF, p_tmp_1, OPENTILE_ELEM / {{regsort_nr_el_per_thread}});
 	if (OPENTILE_ELEM & {{regsort_nr_el_per_thread-1}} == {{i}}) {
 		// Value of interest is ready to be fetched.
-		p_result = __shfl_sync(0xFFFFFFFF, p_tmp, OPENTILE_ELEM / {{regsort_nr_el_per_thread}});
+		p_result = p_tmp_2;
 	}
 	{% endfor %}
 	return p_result;
@@ -1267,35 +1270,53 @@ inline __device__ void shift_buffer_tail_elements_{{c.name}}(shared_indextype no
 }
 
 {% endfor %}
-// Auxiliary functions to check for and obtain offset for given array index in the appropriate buffer. The given array of indices is scanned to retrieve the offset.
-// Check for presence of offset. If not present, store the index, and return position. if present, return -1.
-// This function is used for the retrieval of array elements.
-inline __device__ buffer_indextype add_idx(array_indextype *indices, array_indextype index) {
-	for (buffer_indextype i = 0;; i++) {
-		if (indices[i] == index) {
-			return -1;
-		}
-		elif (indices[i] == EMPTY_INDEX) {
-			indices[i] = index;
-			return i;
-		}
-	}
-	return -1;
-}
+// Auxiliary functions to check for and obtain/store an array element with an index equal to the given expression e.
+// There are functions for the various buffer sizes required to interpret the model.
 
-// Check for index and return position in indices array. This function is used for processing statements.
-// Precondition: provided array contains the requested element.
-inline __device__ buffer_indextype idx(array_indextype *indices, array_indextype index) {
-	for (buffer_indextype i = 0;; i++) {
-		if (indices[i] == index) {
-			return i;
-		}
-		elif (indices[i] == EMPTY_INDEX) {
-			return i;
-		}
+// Store the given value v under index e. Check for presence of e in the index buffer. If not present, store e and v.
+// Precondition: if e is not already present, there is space in the buffer to store it.
+{% for n in all_arrayindex_allocs_sizes %}
+template<class T>
+inline __device__ void A_STR_{{n}}({% for i in range(0,n) %}array_indextype *idx_{{i}}, {% endfor %}{% for i in range(0,n) %}T *v_{{i}}, {% endfor %}array_indextype e, T v) {
+{% for i in range(0,n) %}
+{% if not loop.first%}	else{% else %}	{% endif %}if (e == *idx_{{i}}) {
+		*v_{{i}} = v;
+		return;
 	}
-	return -1;
+	else if (*idx_{{i}} == EMPTY_INDEX) {
+		*idx_{{i}} = e;
+		*v_{{i}} = v;
+		return;
+	}
+{% endfor %}
 }
+{% endfor %}
+
+// Return the value stored at index e.
+// Precondition: provided array contains the requested element.
+{% for n in all_arrayindex_allocs_sizes %}
+template<class T>
+inline __device__ T A_LD_{{n}}({% for i in range(0,n) %}array_indextype idx_{{i}}, {% endfor %}{% for i in range(0,n) %}T v_{{i}}, {% endfor %}array_indextype e) {
+{% for i in range(0,n) %}
+{% if not loop.first%}	else{% else %}	{% endif %}if (e == idx_{{i}}) {
+		return v_{{i}};
+	}
+{% endfor %}
+	return T();
+}
+{% endfor %}
+
+// Check whether the given array index e is stored in the given array index buffer.
+{% for n in all_arrayindex_allocs_sizes %}
+inline __device__ bool A_IEX_{{n}}({% for i in range(0,n) %}array_indextype idx_{{i}}, {% endfor %}array_indextype e) {
+{% for i in range(0,n) %}
+{% if not loop.first%}	else{% else %}	{% endif %}if (e == idx_{{i}}) {
+		return true;
+	}
+{% endfor %}
+	return false;
+}
+{% endfor %}
 
 {% for c in model.classes %}
 {% set cloop = loop %}
@@ -1439,22 +1460,22 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(shared_indext
 			// Allocate register memory to process transition(s).
 			{% endif %}
 			{% if allocs[0] > 0 %}
-			elem_inttype buf32[{{allocs[0]}}];
+			elem_inttype {% for j in range(0,allocs[0]) %}buf32_{{j}}{{', ' if not loop.last}}{% endfor %};
 			{% endif %}
 			{% if allocs[1] > 0 %}
-			uint16_t buf16[{{allocs[1]}}];
+			uint16_t {% for j in range(0,allocs[1]) %}buf16_{{j}}{{', ' if not loop.last}}{% endfor %};
 			{% endif %}
 			{% if allocs[2] > 0 %}
-			elem_chartype buf8[{{allocs[2]}}];
+			elem_chartype {% for j in range(0,allocs[2]) %}buf8_{{j}}{{', ' if not loop.last}}{% endfor %};
 			{% endif %}
 			{% if allocs[3] > 0 %}
-			bool buf1[{{allocs[3]}}];
+			bool {% for j in range(0,allocs[3]) %}buf1_{{j}}{{', ' if not loop.last}}{% endfor %};
 			{% endif %}
 			{% set allocs = s|get_buffer_arrayindex_allocs(o) %}
 			{% if allocs|length > 0 %}
 			// Allocate register memory for dynamic array indexing.
 			{% for v in allocs.keys() %}
-			array_indextype idx_{{v.name}}[{{allocs[v]}}];
+			array_indextype {% for j in range(0,allocs[v]) %}idx_{{v.name}}_{{j}}{{', ' if not loop.last }}{% endfor %};
 			{% endfor %}
 			{% endif %}
 			{% set ns = namespace(lastprio=100, prio_nestings=0) %}
@@ -1482,7 +1503,7 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(shared_indext
 			{% if VP|length > 1 %}
 			{{indent}}part2 = get_vectorpart(node_index, {{VP[1]}});
 			{% endif %}
-			{{indent}}get_{{ch.name}}_size(&{{M[(ch,"_size")][0]}}[{{M[(ch,"_size")][1]}}], part1, part2);
+			{{indent}}get_{{ch.name}}_size(&{{M[(ch,"_size")][0]}}_{{M[(ch,"_size")][1]}}, part1, part2);
 			{{indent}}if ({{st|cudarecsizeguard(M,o)}}) {
 			{% set indent = indent + "\t" %}
 			{% endif %}
@@ -1491,9 +1512,9 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(shared_indext
 			{% if loop.first %}
 			{{indent}}// Reset storage of array indices.
 			{% endif %}
-			for (array_indextype i = 0; i < {{allocs[v]}}; i++) {
-				idx_{{v.name}}[i] = EMPTY_INDEX;
-			}
+			{% for i in range(0,allocs[v]) %}
+			idx_{{v.name}}_{{i}} = EMPTY_INDEX;
+			{% endfor %}
 			{% endfor %}
 			{% set VP = t|transition_read_varrefs(o,True)|select("no_dynamic_indexing",o)|get_vectorparts(o) %}
 			{% if VP|length > 0 %}
@@ -1524,13 +1545,9 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(shared_indext
 			{% endif %}
 			{% endif %}
 			{% if v.__class__.__name__ != "Channel" and v.__class__.__name__ != "StateMachine" %}
-			{{indent}}get_{{v|scopename(None,o)|replace("'","_")}}{% if j != None %}_{{j|getinstruction(o,{},{})}}{% endif %}(&{{M[v][0]}}[{{M[v][1]}}{% if j != None %} + {{j|getinstruction(o,{},{})}}{% endif %}], part1, part2);
+			{{indent}}get_{{v|scopename(None,o)|replace("'","_")}}{% if j != None %}_{{j|getinstruction(o,{},{})}}{% endif %}(&{{M[v][0]}}_{% if j == None %}{{M[v][1]}}{% else %}{{(M[v][1])|int + (j|getinstruction(o,{},{}))|int}}{% endif %}, part1, part2);
 			{% else %}
-			{{indent}}get_{{v|scopename(j,o)|replace("[","_")|replace("]","")|replace("'","_")}}(&{{M[(v,j)][0]}}[{{M[(v,j)][1]}}], part1, part2);
-			{% endif %}
-			{% if v|has_dynamic_indexing(t,o) %}
-			{{indent}}// Store array index.
-			{{indent}}add_idx(idx_{{v.name}}, {{j|getinstruction(o,{},{})}});
+			{{indent}}get_{{v|scopename(j,o)|replace("[","_")|replace("]","")|replace("'","_")}}(&{{M[(v,j)][0]}}_{{M[(v,j)][1]}}, part1, part2);
 			{% endif %}
 			{% endfor %}
 			{% endfor %}
@@ -1577,17 +1594,13 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(shared_indext
 			{% endif %}
 			{% endif %}
 			{{indent}}get_{{v|scopename(None,o)}}{% if j != None %}_{{j|getinstruction(o,{},{})}}{% endif %}(&{{M[v][0]}}[{{M[v][1]}}{% if j != None %} + {{j|getinstruction(o,{},{})}}{% endif %}], part1, part2);
-			{% if v|has_dynamic_indexing(t,o) %}
-			{{indent}}// Store array index
-			{{indent}}add_idx(idx_{{v.name}}, {{j|getinstruction(o,{},{})}});
-			{% endif %}
 			{% endfor %}
 			{% endfor %}
 			{% for (v,j) in t|transition_sorted_dynamic_read_varrefs(o,False) %}
 			{% if loop.first %}
 			{{indent}}// Fetch remaining values of unguarded variables involving dynamic array indexing.
 			{% endif %}
-			{{indent}}// check for presence of index in buffer indices.
+			{{indent}}// Check for presence of index in buffer indices.
 			{{indent}}buffer_indextype i = add_idx(idx_{{v.name}}, {{j|getinstruction(o,M,{})}});
 			{{indent}}if (i != -1) {
 			{{indent}}	// Fetch value.
@@ -1600,7 +1613,7 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(shared_indext
 			{{indent}}{{st|cudastatement(indent|length+3,o,M)}}{% endif %}
 			{% if st|cudaguard(M,o) != "" %}
 			{% set indent = indent[:-1] %}
-			{{indentxzzxxxxxccvv}}}
+			{{indent}}}
 			{% endif %}
 			{% if st.__class__.__name__ == "ReceiveSignal" %}
 			{% if st|cudarecsizeguard(M,o) != "" %}

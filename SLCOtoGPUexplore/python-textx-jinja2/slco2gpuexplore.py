@@ -76,6 +76,8 @@ state_id = {}
 smname_to_object = {}
 # maximum allocations needed to process a transition block
 max_buffer_allocs = 0
+# sizes of buffers needed to process dynamic array indexing of arrays in model
+all_arrayindex_allocs_sizes = []
 
 # tile size (nr of vectortrees to be processed by a block in one iteration)
 tilesize = 0
@@ -397,7 +399,10 @@ def cudarecsizeguard(s, D, o):
 	if c.synctype == 'async':
 		sizevar = D.get((c, "_size"))
 		if sizevar != None:
-			return sizevar[0] + "[" + str(sizevar[1]) + "] > 0"
+			if c.size > 1:
+				return sizevar[0] + "_" + str(sizevar[1]) + " > 0"
+			else:
+				return sizevar[0] + "_" + str(sizevar[1])
 	else:
 		return ""
 
@@ -417,7 +422,7 @@ def cudaguard(s,D,o):
 					if a in alphabet[sm2]:
 						if guard != "":
 							guard += " && "
-						guard += "get_target_" + sm2.name + "_" + a + "((statetype) " + D[(sm2,"src")][0] + "[" + str(D[(sm2,"src")][1]) + "], -1) != -1"
+						guard += "get_target_" + sm2.name + "_" + a + "((statetype) " + D[(sm2,"src")][0] + "_" + str(D[(sm2,"src")][1]) + ", -1) != -1"
 			return guard
 	elif s.__class__.__name__ == "Expression":
 		return getinstruction(s, o, D, {})
@@ -431,20 +436,23 @@ def cudaguard(s,D,o):
 		if c.synctype == 'async':
 			sizevar = D.get((c, "_size"))
 			if sizevar != None:
-				return sizevar[0] + "[" + str(sizevar[1]) + "] < " + str(c.size)
+				if c.size > 1:
+					return sizevar[0] + "_" + str(sizevar[1]) + " < " + str(c.size)
+				else:
+					return "!" + sizevar[0] + "_" + str(sizevar[1])
 		else:
 			guard = ""
 			for (o2,sm2) in get_syncrec_sms(o, c, s.signal):
 				if guard != "":
 					guard += " && "
-				guard += "get_target_" + o2.name + "_" + sm2.name + "_" + s.signal + "(" + D[(c, o2.name + "'" + sm2.name)][0] + "[" + str(D[(c, o2.name + "'" + sm2.name)][1]) + "], -1) != -1"
+				guard += "get_target_" + o2.name + "_" + sm2.name + "_" + s.signal + "(" + D[(c, o2.name + "'" + sm2.name)][0] + "_" + str(D[(c, o2.name + "'" + sm2.name)][1]) + ", -1) != -1"
 			return guard
 	elif s.__class__.__name__ == "ReceiveSignal":
 		c = connected_channel[(o, s.target)]
 		if c.synctype == 'async':
 			guard = ""
 			if signalsize[c] > 0:
-				guard += D[(c,"[0][0]")][0] + "[" + D[(c,"[0][0]")][1] + "] == " + str(signalnr[(c,s.signal)])
+				guard += D[(c,"[0][0]")][0] + "_" + D[(c,"[0][0]")][1] + " == " + str(signalnr[(c,s.signal)])
 				if s.guard != None:
 					guard += " && "
 			# create a dictionary to map the params of s to buffer variables
@@ -495,7 +503,7 @@ def indentspace(i):
 def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, Drec, indent):
 	"""Construct CUDA code to produce and store new vectortree nodes. nodes_done is a list containing node ids that have been processed before. nav is a list of nodes still to be processed.
 	   W is a dictionary defining for all vectorparts which values need to be written to it."""
-	global vectortree, vectortree_T
+	global vectortree, vectortree_T, connected_channel
 	ic = indent
 	output = ""
 	if nav != []:
@@ -503,7 +511,7 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, Dre
 		if is_vectorpart(p):
 			refs = W.get(p,[])
 			if refs != []:
-				output += "get_vectortree_node(&part1, &part_cachepointers, d_cache, node_index, " + str(p) + ");\n" + indentspace(ic)
+				output += "get_vectortree_node(&part1, &part_cachepointers, node_index, " + str(p) + ");\n" + indentspace(ic)
 				output += "// Store new values.\n" + indentspace(ic)
 				output += "part2 = part1;\n" + indentspace(ic)
 				for (v,i,isnotfirstpart) in refs:
@@ -521,7 +529,7 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, Dre
 									(vname,offset) = D.get((i,"tgt"), (v.name, None))
 									result = vname
 									if offset != None:
-										result += "[" + str(offset) + "]"
+										result += "_" + str(offset)
 									if not isnotfirstpart:
 										output += "set_left_" + v.name + "_" + i.name + "(&part2, " + result + ");\n" + indentspace(ic)
 									else:
@@ -533,7 +541,7 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, Dre
 								(vname,offset) = D.get((v,"state"), (v.name, None))
 								result = vname
 								if offset != None:
-									result += "[" + str(offset) + "]"
+									result += "_" + str(offset)
 								if not isnotfirstpart:
 									output += "set_left_" + i[0].name + "_" + i[1].name + "(&part2, " + result + ");\n" + indentspace(ic)
 								else:
@@ -542,14 +550,13 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, Dre
 								(vname,offset) = D.get((v,"_size"), (v.name, None))
 								result = vname
 								if offset != None:
-									result += "[" + str(offset) + "]"
+									result += "_" + str(offset)
 								if not isnotfirstpart:
 									output += "set_left_" + v.name + "_size(&part2, " + result + ");\n" + indentspace(ic)
 								else:
 									output += "set_right_" + v.name + "_size(&part2, " + result + ");\n" + indentspace(ic)
 						else:
 							result = ""
-							offset = None
 							# look for an exact (name, index) match in Drec
 							if i != None:
 								index_str = getinstruction(i, o, {}, {})
@@ -557,22 +564,42 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, Dre
 								index_str = i
 							(vname,offset) = Drec.get((v.name, index_str), (v.name, None))
 							if vname == v.name:
-								# look for a match on v in D
-								(vname,offset) = D.get(v, (v.name, None))
-							result += vname
-							if offset != None or i != None:
-								result += "["
-								if offset != None:
-									result += str(offset)
-									if i != None:
-										result += " + "
-								if i != None:
-									if has_dynamic_indexing(v, s.parent, o):
-										result += "idx(idx_" + v.name + ", " + index_str + ")"
-									else:
-										indexdict = get_constant_indices(v, s.parent, o)
-										result += indexdict[index_str]
-								result += "]"
+								# look for a match on s.ref.ref in D
+								for r in D.keys():
+									if not isinstance(r, tuple):
+										if v.name == r.name:
+											vname = D[r][0]
+											offset = D[r][1]
+											break
+							offsetcnt = -1
+							if offset != None:
+								offsetcnt = offset
+							if i != None:
+								indexresult = getinstruction(i, o, D, Drec)
+								# find a suitable object (object is irrelevant for outcome)
+								t = s.parent
+								while t.__class__.__name__ != "Transition":
+									t = t.parent
+								for o in model.objects:
+									if o.type == s.parent.parent:
+										break
+								if has_dynamic_indexing(v, t, o):
+									allocs = get_buffer_arrayindex_allocs(t.source, o)
+									size = allocs[v]
+									tpsize = str(gettypesize(v.type))
+									result += "A_LD("
+									for j in range(0,size):
+										result += "&idx_" + v.name + "_" + str(j) + ", "
+									for j in range(0,size):
+										result += "&buf" + tpsize + "_" + str(j+offset) + ", "
+									result += indexresult + ")"
+								else:
+									indexdict = get_constant_indices(v, v.name, t, o)
+									offsetcnt += indexdict[indexresult]
+							if result == '':
+								result += vname
+								if offsetcnt != -1:
+									result += "_" + str(offsetcnt)
 							# code to update the current vector part
 							set_methodname = scopename(v,None,o)
 							set_methodname = set_methodname.replace("'","_")
@@ -591,35 +618,41 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, Dre
 							output += "set_" + set_methodname + "(&part2, idx_" + v.name + ", " + vname + ", " + str(offset) + ", " + str(vectorpart_id(p)) + ");\n" + indentspace(ic)
 						else:
 							if s.__class__.__name__ == "SendSignal":
+								c = connected_channel[(o, s.target)]
 								first = 0
 								if signalsize[v] == 0:
 									first = 1
 								size = D[(v,"_size")]
-								sizeref = size[0] + "[" + str(size[1]) + "]"
+								sizeref = size[0] + "_" + str(size[1])
 								for i in range(first,len(v.type)+1):
 									var = D[(v,"[" + str(i) + "][0]")]
-									varref = var[0] + "[" + str(var[1]) + "]"
-									output += "set_buffer_tail_element_" + v.name + "_" + str(i) + "(&part2, " + sizeref + "-1, " + varref + ", " + str(vectorpart_id(p)) + ");\n" + indentspace(ic)
+									varref = var[0] + "_" + str(var[1])
+									output += "set_buffer_tail_element_" + v.name + "_" + str(i) + "(&part2, "
+									if c.size > 1:
+										output += sizeref + "-1, "
+									else:
+										output += "0, "
+									output += varref + ", " + str(vectorpart_id(p)) + ");\n" + indentspace(ic)
 							else:
 								# ReceiveSignal: shift the buffer content one position towards the head
 								size = D[(v,"_size")]
-								sizeref = size[0] + "[" + str(size[1]) + "]"
-								output += "shift_buffer_tail_elements_" + v.name + "(d_cache, node_index, &part2, " + sizeref + "+1, " + str(vectorpart_id(p)) + ");\n" + indentspace(ic)
+								sizeref = size[0] + "_" + str(size[1])
+								output += "shift_buffer_tail_elements_" + v.name + "(node_index, &part2, " + sizeref + "+1, " + str(vectorpart_id(p)) + ");\n" + indentspace(ic)
 			if is_non_leaf(p):
 				# node is also a non-leaf in the vectortree. update pointers.
 				if f:
 					ic += 1
-					output += "if (buf16[" + str(pointer_cnt) + "] != EMPTYCACHEPOINTERS) {\n" + indentspace(ic)
+					output += "if (buf16_" + str(pointer_cnt) + " != EMPTYCACHEPOINTERS) {\n" + indentspace(ic)
 					if refs == []:
-						output += "get_vectortree_node(&part1, &part_cachepointers, d_cache, node_index, " + str(p) + ");\n" + indentspace(ic)
-					output += "set_left_cache_pointer(&part_cachepointers, buf16[" + str(pointer_cnt) + "]);\n" + indentspace(ic)
+						output += "get_vectortree_node(&part1, &part_cachepointers, node_index, " + str(p) + ");\n" + indentspace(ic)
+					output += "set_left_cache_pointer(&part_cachepointers, buf16_" + str(pointer_cnt) + ");\n" + indentspace(ic)
 					if refs != []:
 						ic -= 1
 					output += "reset_left_in_vectortree_node(&part2);\n" + indentspace(ic)
 					if refs != []:
 						output += "}\n" + indentspace(ic)
 						ic += 1
-						output += "if (part2 != part1 || buf16[" + str(pointer_cnt) + "] != EMPTYCACHEPOINTERS) {\n" + indentspace(ic)
+						output += "if (part2 != part1 || buf16_" + str(pointer_cnt) + " != EMPTYCACHEPOINTERS) {\n" + indentspace(ic)
 			elif refs != []:
 				ic += 1
 				output += "if (part2 != part1) {\n" + indentspace(ic)
@@ -628,15 +661,15 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, Dre
 				if is_non_leaf(p) or vectorsize < 64:
 					output += "part2 = mark_new(part2);\n" + indentspace(ic)
 				else:
-					output += "part_cachepointers = mark_cache_pointers_new_leaf();\n" + indentspace(ic)
+					output += "part_cachepointers = CACHE_POINTERS_NEW_LEAF;\n" + indentspace(ic)
 				ic -= 1
-				output += "bla = store_in_cache(part2, part_cachepointers, &buf16[" + str(pointer_cnt) + "]);\n" + indentspace(ic)
+				output += "bla = store_in_cache(part2, part_cachepointers, &buf16_" + str(pointer_cnt) + ");\n" + indentspace(ic)
 				output += "}\n"  + indentspace(ic)
 				ic += 1
 				if nav != []:
 					output += "else {\n" + indentspace(ic)
 					ic -= 1
-					output += "buf16[" + str(pointer_cnt) + "] = EMPTYCACHEPOINTERS;\n" + indentspace(ic)
+					output += "buf16_" + str(pointer_cnt) + " = EMPTYCACHEPOINTERS;\n" + indentspace(ic)
 					output += "}\n"  + indentspace(ic)
 			if nav != [] and not is_non_leaf(nav[0][0]):
 				pointer_cnt += 1
@@ -644,30 +677,30 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, Dre
 		elif is_non_leaf(p):
 			if not f:
 				ic += 1
-				output += "if (buf16[" + str(pointer_cnt) + "] != EMPTYCACHEPOINTERS) {\n" + indentspace(ic)
-				output += "get_vectortree_node(&part1, &part_cachepointers, d_cache, node_index, " + str(p) + ");\n" + indentspace(ic)
+				output += "if (buf16_" + str(pointer_cnt) + " != EMPTYCACHEPOINTERS) {\n" + indentspace(ic)
+				output += "get_vectortree_node(&part1, &part_cachepointers, node_index, " + str(p) + ");\n" + indentspace(ic)
 				children = vectortree[p]
 				if nodes_done[len(nodes_done)-1] == children[0]:
-					output += "set_left_cache_pointer(&part_cachepointers, buf16[" + str(pointer_cnt) + "]);\n" + indentspace(ic)
+					output += "set_left_cache_pointer(&part_cachepointers, buf16_" + str(pointer_cnt) + ");\n" + indentspace(ic)
 					output += "reset_left_in_vectortree_node(&part2);\n" + indentspace(ic)
 				else:
-					output += "set_right_cache_pointer(&part_cachepointers, buf16[" + str(pointer_cnt) + "]);\n" + indentspace(ic)
+					output += "set_right_cache_pointer(&part_cachepointers, buf16_" + str(pointer_cnt) + ");\n" + indentspace(ic)
 					output += "reset_right_in_vectortree_node(&part2);\n" + indentspace(ic)
 			else:
 				ic += 1
-				output += "if (buf16[" + str(pointer_cnt-1) + "] != EMPTYCACHEPOINTERS || buf16[" + str(pointer_cnt) + "] != EMPTYCACHEPOINTERS) {\n" + indentspace(ic)
+				output += "if (buf16_" + str(pointer_cnt-1) + " != EMPTYCACHEPOINTERS || buf16_" + str(pointer_cnt) + " != EMPTYCACHEPOINTERS) {\n" + indentspace(ic)
 				ic -= 1
-				output += "get_vectortree_node(&part1, &part_cachepointers, d_cache, node_index, " + str(p) + ");\n" + indentspace(ic)
+				output += "get_vectortree_node(&part1, &part_cachepointers, node_index, " + str(p) + ");\n" + indentspace(ic)
 				output += "}\n" + indentspace(ic)
 				ic += 1
-				output += "if (buf16[" + str(pointer_cnt-1) + "] != EMPTYCACHEPOINTERS) {\n" + indentspace(ic)
-				output += "set_right_cache_pointer(&part_cachepointers, buf16[" + str(pointer_cnt-1) + "]);\n" + indentspace(ic)
+				output += "if (buf16_" + str(pointer_cnt-1) + " != EMPTYCACHEPOINTERS) {\n" + indentspace(ic)
+				output += "set_right_cache_pointer(&part_cachepointers, buf16_" + str(pointer_cnt-1) + ");\n" + indentspace(ic)
 				ic -= 1
 				output += "reset_right_in_vectortree_node(&part2);\n" + indentspace(ic)
 				output += "}\n" + indentspace(ic)
 				ic += 1
-				output += "if (buf16[" + str(pointer_cnt) + "] != EMPTYCACHEPOINTERS) {\n" + indentspace(ic)
-				output += "set_left_cache_pointer(&part_cachepointers, buf16[" + str(pointer_cnt) + "]);\n" + indentspace(ic)
+				output += "if (buf16_" + str(pointer_cnt) + " != EMPTYCACHEPOINTERS) {\n" + indentspace(ic)
+				output += "set_left_cache_pointer(&part_cachepointers, buf16_" + str(pointer_cnt) + ");\n" + indentspace(ic)
 				ic -= 1
 				output += "reset_left_in_vectortree_node(&part2);\n" + indentspace(ic)
 				output += "}\n" + indentspace(ic)
@@ -675,13 +708,13 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, Dre
 				if is_non_leaf(p) or vectorsize < 64:
 					output += "part2 = mark_new(part2);\n" + indentspace(ic)
 			ic -= 1
-			output += "bla = store_in_cache(part2, part_cachepointers, &buf16[" + str(pointer_cnt) + "]);\n" + indentspace(ic)
+			output += "bla = store_in_cache(part2, part_cachepointers, &buf16_" + str(pointer_cnt) + ");\n" + indentspace(ic)
 			output += "}\n"  + indentspace(ic)
 			ic += 1
 			if nav != []:
 				output += "else {\n" + indentspace(ic)
 				ic -= 1
-				output += "buf16[" + str(pointer_cnt) + "] = EMPTYCACHEPOINTERS;\n" + indentspace(ic)
+				output += "buf16_" + str(pointer_cnt) + " = EMPTYCACHEPOINTERS;\n" + indentspace(ic)
 				output += "}\n"  + indentspace(ic)
 			if nav != [] and not is_non_leaf(nav[0][0]):
 				pointer_cnt += 1
@@ -789,18 +822,18 @@ def cudastatement(s,indent,o,D):
 					if a in alphabet[sm2]:
 						SMs.append(sm2)
 			for m in SMs:
-				output += D[(m,"tgt")][0] + "[" + str(D[(m,"tgt")][1]) + "] = -1;\n" + indentspace
+				output += D[(m,"tgt")][0] + "_" + str(D[(m,"tgt")][1]) + " = -1;\n" + indentspace
 			output += "uint8_t i = " + str(len(SMs)) + ";\n" + indentspace
 			output += "while (i > 0) {\n" + indentspace
 			output += "\tswitch (i) {\n" + indentspace
 			for i in range(1,len(SMs)+1):
 				output += "\t\tcase " + str(i) + ":\n" + indentspace
-				output += "\t\t\t" + D[(SMs[i-1],"tgt")][0] + "[" + str(D[(SMs[i-1],"tgt")][1]) + "] = get_target_" + SMs[i-1].name + "_" + a + "((statetype) " + D[(SMs[i-1],"src")][0] + "[" + str(D[(SMs[i-1],"src")][1]) + "), " + D[(SMs[i-1],"tgt")][0] + "[" + str(D[(SMs[i-1],"tgt")][1]) + "]);\n" + indentspace
-				output += "\t\t\tif (" + D[(SMs[i-1],"tgt")][0] + "[" + str(D[(SMs[i-1],"tgt")][1]) + "] != -1) {\n" + indentspace
+				output += "\t\t\t" + D[(SMs[i-1],"tgt")][0] + "_" + str(D[(SMs[i-1],"tgt")][1]) + " = get_target_" + SMs[i-1].name + "_" + a + "((statetype) " + D[(SMs[i-1],"src")][0] + "_" + str(D[(SMs[i-1],"src")][1]) + "), " + D[(SMs[i-1],"tgt")][0] + "_" + str(D[(SMs[i-1],"tgt")][1]) + ");\n" + indentspace
+				output += "\t\t\tif (" + D[(SMs[i-1],"tgt")][0] + "_" + str(D[(SMs[i-1],"tgt")][1]) + " != -1) {\n" + indentspace
 				output += "\t\t\t\ti++;\n" + indentspace
 				output += "\t\t\t}\n" + indentspace
 				output += "\t\t\telse {\n" + indentspace
-				output += "\t\t\t\t" + D[(m,"tgt")][0] + "[" + str(D[(m,"tgt")][1]) + "] = -1;\n" + indentspace
+				output += "\t\t\t\t" + D[(m,"tgt")][0] + "_" + str(D[(m,"tgt")][1]) + " = -1;\n" + indentspace
 				output += "\t\t\t\ti--;\n" + indentspace
 				output += "\t\t\t}\n" + indentspace
 				output += "\t\t\tbreak;\n" + indentspace
@@ -815,10 +848,6 @@ def cudastatement(s,indent,o,D):
 		else:
 			output += cudastore_new_vector(s,indent,o,D,[])
 	elif s.__class__.__name__ == "Assignment":
-		if s.left.index != None:
-			if has_dynamic_indexing(s.left.var, s.parent, o):
-				# add line to obtain index offset
-				output += "add_idx(idx_" + s.left.var.name + ", " + getinstruction(s.left.index, o, D, {}) + ");\n" + indentspace
 		output += getinstruction(s, o, D, {}) + ";\n" + indentspace
 		output += cudastore_new_vector(s,indent,o,D,[])
 	elif s.__class__.__name__ == "Composite":
@@ -846,22 +875,28 @@ def cudastatement(s,indent,o,D):
 				p = s.params[i]
 				if i > 0:
 					output += "\n" + indentspace
-				output += D[(c, "[" + str(i+1) + "][0]")][0] + "[" + str(D[(c, "[" + str(i+1) + "][0]")][1]) + "] = " + getinstruction(p, o, D, {}) + ";\n" + indentspace
+				output += D[(c, "[" + str(i+1) + "][0]")][0] + "_" + str(D[(c, "[" + str(i+1) + "][0]")][1]) + " = " + getinstruction(p, o, D, {}) + ";\n" + indentspace
 				# increment buffer size counter
-				output += D[(c, "_size")][0] + "[" + str(D[(c, "_size")][1]) + "]++;\n" + indentspace
+				if c.size > 1:
+					output += D[(c, "_size")][0] + "_" + str(D[(c, "_size")][1]) + "++;\n" + indentspace
+				else:
+					output += D[(c, "_size")][0] + "_" + str(D[(c, "_size")][1]) + " = true;\n" + indentspace
 			output += cudastore_new_vector(s,indent,o,D,[])
 		else:
 			for (o2,sm2) in get_syncrec_sms(o, c, s.signal):
-				output += D[(c,"state")][0] + "[" + str(D[(c,"state")][1]) + "] = get_target_" + o2.name + "_" + sm2.name + "_" + s.signal + "(" + D[(c, o2.name + "'" + sm2.name)][0] + "[" + str(D[(c, o2.name + "'" + sm2.name)][1]) + "], -1);\n" + indentspace
-				output += "while (" + D[(c,"state")][0] + "[" + str(D[(c,"state")][1]) + "] != -1) {\n" + indentspace
+				output += D[(c,"state")][0] + "_" + str(D[(c,"state")][1]) + " = get_target_" + o2.name + "_" + sm2.name + "_" + s.signal + "(" + D[(c, o2.name + "'" + sm2.name)][0] + "_" + str(D[(c, o2.name + "'" + sm2.name)][1]) + ", -1);\n" + indentspace
+				output += "while (" + D[(c,"state")][0] + "_" + str(D[(c,"state")][1]) + " != -1) {\n" + indentspace
 				output += "\t" + cudastore_new_vector(s,indent+1,o,D,[(o2,sm2)]) + indentspace
-				output += "\t" + D[(c,"state")][0] + "[" + str(D[(c,"state")][1]) + "] = get_target_" + o2.name + "_" + sm2.name + "_" + s.signal + "(" + D[(c, o2.name + "'" + sm2.name)][0] + "[" + str(D[(c, o2.name + "'" + sm2.name)][1]) + "], " + D[(c,"state")][0] + "[" + str(D[(c,"state")][1]) + "]);\n" + indentspace
+				output += "\t" + D[(c,"state")][0] + "_" + str(D[(c,"state")][1]) + " = get_target_" + o2.name + "_" + sm2.name + "_" + s.signal + "(" + D[(c, o2.name + "'" + sm2.name)][0] + "_" + str(D[(c, o2.name + "'" + sm2.name)][1]) + ", " + D[(c,"state")][0] + "_" + str(D[(c,"state")][1]) + ");\n" + indentspace
 				output += "}\n"
 	elif s.__class__.__name__ == "ReceiveSignal":
 		c = connected_channel[(o, s.target)]
 		if c.synctype == 'async':
 			# decrement buffer size counter
-			output += D[(c, "_size")][0] + "[" + str(D[(c, "_size")][1]) + "]--;\n" + indentspace
+			if c.size > 1:
+				output += D[(c, "_size")][0] + "_" + str(D[(c, "_size")][1]) + "--;\n" + indentspace
+			else:
+				output += D[(c, "_size")][0] + "_" + str(D[(c, "_size")][1]) + " = false;\n" + indentspace				
 		output += cudastore_new_vector(s,indent,o,D,[])
 	elif s.__class__.__name__ == "Expression":
 		output += cudastore_new_vector(s,indent,o,D,[])
@@ -874,13 +909,10 @@ def getinstruction(s, o, D, Drec):
 	result = ''
 	if s.__class__.__name__ == "Assignment":
 		(vname,offset) = D.get(s.left.var, (s.left.var.name, None))
-		result += vname
-		if offset != None or s.left.index != None:
-			result += "["
+		rightexp = getinstruction(s.right, o, D, Drec)
+		offsetcnt = -1
 		if offset != None:
-			result += str(offset)
-			if s.left.index != None:
-				result += " + "
+			offsetcnt = offset
 		if s.left.index != None:
 			indexresult = getinstruction(s.left.index, o, D, Drec)
 			# find a suitable object (object is irrelevant for outcome)
@@ -891,18 +923,28 @@ def getinstruction(s, o, D, Drec):
 				if o.type == s.parent.parent:
 					break
 			if has_dynamic_indexing(s.left.var, t, o):
-				result += "idx(idx_" + s.left.var.name + ", " + indexresult + ")"
+				allocs = get_buffer_arrayindex_allocs(t.source, o)
+				size = allocs[s.left.var]
+				tpsize = str(gettypesize(s.left.var.type))
+				result += "A_STR("
+				for j in range(0,size):
+					result += "&idx_" + s.left.var.name + "_" + str(j) + ", "
+				for j in range(0,size):
+					result += "&buf" + tpsize + "_" + str(j+offset) + ", "
+				result += indexresult + ", " + rightexp + ")"
 			else:
-				indexdict = get_constant_indices(s.left.var, t, o)
-				result += indexdict[indexresult]
-		if offset != None or s.left.index != None:
-			result += "]"
-		result += " = "
-		if s.left.var.type.base == 'Byte':
-			result += "(elem_chartype) ("
-		result += getinstruction(s.right, o, D, Drec)
-		if s.left.var.type.base == 'Byte':
-			result += ")"
+				indexdict = get_constant_indices(s.left.var, s.left.var.name, t, o)
+				offsetcnt += indexdict[indexresult]
+		if result == '':
+			result += vname
+			if offsetcnt != -1:
+				result += "_" + str(offsetcnt)
+			result += " = "
+			if s.left.var.type.base == 'Byte':
+				result += "(elem_chartype) ("
+			result += rightexp
+			if s.left.var.type.base == 'Byte':
+				result += ")"
 	elif s.__class__.__name__ == "Expression" or s.__class__.__name__ == "ExprPrec4" or s.__class__.__name__ == "ExprPrec3" or s.__class__.__name__ == "ExprPrec2" or s.__class__.__name__ == "ExprPrec1":
 		if s.op != '':
 			result += getinstruction(s.left, o, D, Drec) + " " + operator(s.op) + " " + getinstruction(s.right, o, D, Drec)
@@ -916,8 +958,7 @@ def getinstruction(s, o, D, Drec):
 			newvalue = s.value
 			result += str(newvalue).lower()
 		elif s.ref != None:
-			vname = s.ref.ref
-			offset = None
+			result = ''
 			# look for an exact (name, index) match in Drec
 			if s.ref.index != None:
 				index_str = getinstruction(s.ref.index, o, {}, {})
@@ -932,26 +973,69 @@ def getinstruction(s, o, D, Drec):
 							vname = D[r][0]
 							offset = D[r][1]
 							break
-			result += vname
-			if offset != None or s.ref.index != None:
-				result += "["
+			offsetcnt = -1
 			if offset != None:
-				result += str(offset)
-				if s.ref.index != None:
-					result += " + "
+				offsetcnt = offset
 			if s.ref.index != None:
 				indexresult = getinstruction(s.ref.index, o, D, Drec)
-				# find parent transition object
+				# find a suitable object (object is irrelevant for outcome)
 				t = s.parent
 				while t.__class__.__name__ != "Transition":
 					t = t.parent
-				if has_dynamic_indexing(r, t, o):
-					result += "idx(idx_" + s.ref.ref + ", " + indexresult + ")"
+				for o in model.objects:
+					if o.type == s.parent.parent:
+						break
+				if has_dynamic_indexing(s.ref, t, o):
+					allocs = get_buffer_arrayindex_allocs(t.source, o)
+					size = allocs[s.ref]
+					tpsize = str(gettypesize(s.ref.type))
+					result += "A_LD("
+					for j in range(0,size):
+						result += "&idx_" + s.ref.ref + "_" + str(j) + ", "
+					for j in range(0,size):
+						result += "&buf" + tpsize + "_" + str(j+offset) + ", "
+					result += indexresult + ")"
 				else:
-					indexdict = get_constant_indices(r, t, o)
-					result += indexdict[indexresult]
-			if offset != None or s.ref.index != None:
-				result += "]"
+					indexdict = get_constant_indices(s.ref, s.ref.ref, t, o)
+					offsetcnt += indexdict[indexresult]
+			if result == '':
+				result += vname
+				if offsetcnt != -1:
+					result += "_" + str(offsetcnt)
+			# vname = s.ref.ref
+			# offset = None
+			# # look for an exact (name, index) match in Drec
+			# if s.ref.index != None:
+			# 	index_str = getinstruction(s.ref.index, o, {}, {})
+			# else:
+			# 	index_str = s.ref.index
+			# (vname,offset) = Drec.get((s.ref.ref, index_str), (s.ref.ref, None))
+			# if vname == s.ref.ref:
+			# 	# look for a match on s.ref.ref in D
+			# 	for r in D.keys():
+			# 		if not isinstance(r, tuple):
+			# 			if s.ref.ref == r.name:
+			# 				vname = D[r][0]
+			# 				offset = D[r][1]
+			# 				break
+			# result += vname
+			# if offset != None or s.ref.index != None:
+			# 	result += "_"
+			# if offset != None:
+			# 	result += str(offset)
+			# 	if s.ref.index != None:
+			# 		result += " + "
+			# if s.ref.index != None:
+			# 	indexresult = getinstruction(s.ref.index, o, D, Drec)
+			# 	# find parent transition object
+			# 	t = s.parent
+			# 	while t.__class__.__name__ != "Transition":
+			# 		t = t.parent
+			# 	if has_dynamic_indexing(r, t, o):
+			# 		result += "idx(idx_" + s.ref.ref + ", " + indexresult + ")"
+			# 	else:
+			# 		indexdict = get_constant_indices(r, t, o)
+			# 		result += str(indexdict[indexresult])
 		else:
 			result += '(' + getinstruction(s.body, o, D, Drec) + ')'
 		if s.sign == "not":
@@ -960,7 +1044,7 @@ def getinstruction(s, o, D, Drec):
 		(vname,offset) = D.get(s.var, (s.var.name, None))
 		result += vname
 		if offset != None or s.index != None:
-			result += "["
+			result += "_"
 		if offset != None:
 			result += str(offset)
 			if s.index != None:
@@ -971,8 +1055,6 @@ def getinstruction(s, o, D, Drec):
 				result += indexresult
 			else:
 				result += "idx(idx_" + s.var.name + ", " + indexresult + ")"
-		if offset != None or s.index != None:
-			result += "]"
 	return result
 
 def transition_read_varrefs(t, o, only_unguarded):
@@ -1869,7 +1951,7 @@ def has_dynamic_indexing(v, t, o):
 						return True
 	return False
 
-def get_constant_indices(v, t, o):
+def get_constant_indices(v, vname, t, o):
 	"""Returns for array v a dictionary for constant indices used in the block of transition t, to map these to thread buffer variables in CUDA code. o is Object owning s."""
 	L = set([])
 	if v.__class__.__name__ != "Channel" and v.__class__.__name__ != "StateMachine":
@@ -1878,7 +1960,7 @@ def get_constant_indices(v, t, o):
 		for st in t.statements:
 			O |= statement_varrefs(st, o, sm)
 		for (v1,i) in O:
-			if v1 == v:
+			if v1.name == vname:
 				if i != None:
 					i_str = getinstruction(i, o, {}, {})
 					if RepresentsInt(i_str):
@@ -1887,7 +1969,7 @@ def get_constant_indices(v, t, o):
 	D = {}
 	counter = 0
 	for i in L:
-		D[i] = str(counter)
+		D[i] = counter
 		counter += 1
 	return D
 
@@ -2009,7 +2091,7 @@ def debug(text):
 
 def preprocess():
 	"""Preprocessing of model"""
-	global model, vectorsize, vectorstructure, vectortree, vectortree_T, vectortree_level_ids, vectortree_leaf_thread, vectorstructure_string, smnames, vectorelem_in_structure_map, max_statesize, state_order, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, connected_channel, signalsize, signalnr, alphabet, syncactions, actiontargets, actions, syncreccomm, no_state_constant, no_prio_constant, dynamic_write_arrays, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth, vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children, tilesize, gpuexplore2_succdist, regsort_nr_el_per_thread
+	global model, vectorsize, vectorstructure, vectortree, vectortree_T, vectortree_level_ids, vectortree_leaf_thread, vectorstructure_string, smnames, vectorelem_in_structure_map, max_statesize, state_order, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, connected_channel, signalsize, signalnr, alphabet, syncactions, actiontargets, actions, syncreccomm, no_state_constant, no_prio_constant, dynamic_write_arrays, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth, vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children, tilesize, gpuexplore2_succdist, regsort_nr_el_per_thread, all_arrayindex_allocs_sizes
 
 	# construct set of statemachine names in the system
 	# also construct a map from names to objects
@@ -2516,6 +2598,19 @@ def preprocess():
 			R = async_channel_vectorpart_buffer_range.get(c,{})
 			R[current] = (lower,upper)
 			async_channel_vectorpart_buffer_range[c] = R
+	all_arrayindex_allocs_sizes = set([])
+	C = set([])
+	for o in model.objects:
+		if o.type not in C:
+			C.add(o.type)
+			for sm in o.type.statemachines:
+				for s in sm.states:
+					allocs = get_buffer_arrayindex_allocs(s, o)
+					for (v ,i) in allocs.items():
+						if i not in all_arrayindex_allocs_sizes:
+							all_arrayindex_allocs_sizes.add(i)
+	all_arrayindex_allocs_sizes = list(all_arrayindex_allocs_sizes)
+	all_arrayindex_allocs_sizes = sorted(all_arrayindex_allocs_sizes)
 	# determine the size of a vectortree group (group of threads needed to fetch a vector tree from the global hash table)
 	vectortree_size = len(vectorstructure)
 	if vectorpart_is_combined_with_nonleaf_node(len(vectorstructure)-1):
@@ -2539,7 +2634,7 @@ def preprocess():
 
 def translate():
 	"""The translation function"""
-	global modelname, model, vectorstructure, vectorstructure_string, vectortree, vectortree_T, vectortree_level_ids, vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children, vectorelem_in_structure_map, vectortree_leaf_thread, state_order, max_statesize, smnames, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, signalsize, connected_channel, alphabet, syncactions, actiontargets, no_state_constant, no_prio_constant, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth, gpuexplore2_succdist, no_regsort, tilesize, regsort_nr_el_per_thread, warpsize
+	global modelname, model, vectorstructure, vectorstructure_string, vectortree, vectortree_T, vectortree_level_ids, vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children, vectorelem_in_structure_map, vectortree_leaf_thread, state_order, max_statesize, smnames, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, signalsize, connected_channel, alphabet, syncactions, actiontargets, no_state_constant, no_prio_constant, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth, gpuexplore2_succdist, no_regsort, tilesize, regsort_nr_el_per_thread, warpsize, all_arrayindex_allocs_sizes
 	
 	path, name = split(modelname)
 	if name.endswith('.slco'):
@@ -2602,7 +2697,7 @@ def translate():
 
 	# load the GPUexplore template
 	template = jinja_env.get_template('gpuexplore.jinja2template')
-	out = template.render(model=model, vectorsize=vectorsize, vectorstructure=vectorstructure, vectorstructure_string=vectorstructure_string, vectortree=vectortree, vectortree_T=vectortree_T, max_statesize=max_statesize, vectorelem_in_structure_map=vectorelem_in_structure_map, state_order=state_order, smnames=smnames, smname_to_object=smname_to_object, state_id=state_id, arraynames=arraynames, max_arrayindexsize=max_arrayindexsize, max_buffer_allocs=max_buffer_allocs, vectorpartlist=vectorpartlist, connected_channel=connected_channel, alphabet=alphabet, syncactions=syncactions, actiontargets=actiontargets, syncreccomm=syncreccomm, no_state_constant=no_state_constant, no_prio_constant=no_prio_constant, dynamic_write_arrays=dynamic_write_arrays, signalsize=signalsize, async_channel_vectorpart_buffer_range=async_channel_vectorpart_buffer_range, vectortree_size=vectortree_size, vectortree_depth=vectortree_depth, vectortree_level_ids=vectortree_level_ids, vectortree_level_nr_of_leaves=vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children=vectortree_level_nr_of_nodes_with_two_children, vectortree_leaf_thread=vectortree_leaf_thread, gpuexplore2_succdist=gpuexplore2_succdist, no_regsort=no_regsort, tilesize=tilesize, regsort_nr_el_per_thread=regsort_nr_el_per_thread, warpsize=warpsize)
+	out = template.render(model=model, vectorsize=vectorsize, vectorstructure=vectorstructure, vectorstructure_string=vectorstructure_string, vectortree=vectortree, vectortree_T=vectortree_T, max_statesize=max_statesize, vectorelem_in_structure_map=vectorelem_in_structure_map, state_order=state_order, smnames=smnames, smname_to_object=smname_to_object, state_id=state_id, arraynames=arraynames, max_arrayindexsize=max_arrayindexsize, max_buffer_allocs=max_buffer_allocs, vectorpartlist=vectorpartlist, connected_channel=connected_channel, alphabet=alphabet, syncactions=syncactions, actiontargets=actiontargets, syncreccomm=syncreccomm, no_state_constant=no_state_constant, no_prio_constant=no_prio_constant, dynamic_write_arrays=dynamic_write_arrays, signalsize=signalsize, async_channel_vectorpart_buffer_range=async_channel_vectorpart_buffer_range, vectortree_size=vectortree_size, vectortree_depth=vectortree_depth, vectortree_level_ids=vectortree_level_ids, vectortree_level_nr_of_leaves=vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children=vectortree_level_nr_of_nodes_with_two_children, vectortree_leaf_thread=vectortree_leaf_thread, gpuexplore2_succdist=gpuexplore2_succdist, no_regsort=no_regsort, tilesize=tilesize, regsort_nr_el_per_thread=regsort_nr_el_per_thread, warpsize=warpsize, all_arrayindex_allocs_sizes=all_arrayindex_allocs_sizes)
 	# write new SLCO model
 	outFile.write(out)
 	outFile.close()
