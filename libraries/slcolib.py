@@ -312,6 +312,8 @@ def getlabel(s):
 		result += s.var.name
 		if s.index != None:
 			result += "[" + getlabel(s.index) + "]"
+	elif s.__class__.__name__ == "Variable":
+		result += s.name
 	return result
 
 # model processor to check for name clashes and remove duplicates in lists
@@ -345,7 +347,7 @@ def check_names(model, metamodel):
 		varset = set([])
 		for v in c.variables:
 			if v.name in actset:
-				error = 'Name clash: "%s" used for both a variable and an action ' % name
+				error = 'Name clash: "%s" used for both a variable and an action ' % v.name
 				raise_semantic_error(error, v, model)
 			else:
 				if v.name not in varset:
@@ -366,7 +368,7 @@ def check_names(model, metamodel):
 			varset = set([])
 			for v in sm.variables:
 				if v.name in actset:
-					error = 'Name clash: "%s" used for both a variable and an action at' % name
+					error = 'Name clash: "%s" used for both a variable and an action at' % v.name
 					raise_semantic_error(error, v, model)
 				else:
 					if v.name not in varset:

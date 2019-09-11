@@ -2,7 +2,7 @@ model Test {
 	actions a b
 	classes
 	P {
-	  variables Boolean v Byte m
+	  variables Boolean v Byte m Boolean[2] w
 	  ports In1 In2 InOut
 	  state machines
 		REC1 {
@@ -32,10 +32,10 @@ model Test {
 					m = 5
 				}
 				from S1 to S2 {
-					send S() to InOut
+					send S(True) to InOut
 				}
 				from S2 to S0 {
-					receive T() from InOut
+					receive T(w[0]|w[m]) from InOut
 				}
 				from S0 to S0 {
 					a
@@ -43,7 +43,7 @@ model Test {
 		}
 	}
 	Q {
-		variables Byte[2] y
+		variables Byte[2] y Boolean bb
 		ports Out1 Out2 InOut
 		state machines
 			COM {
@@ -58,11 +58,11 @@ model Test {
 						y[0] := y[0] + 1;
 					}
 					from Com1 to Com2 {
-						receive S() from InOut
+						receive S(bb) from InOut
 					}
 					from Com2 to Com0 {
-						y[x] := 0;
-						send T() to InOut
+						y[x] := y[x] + 1;
+						send T(x) to InOut
 					}
 					from Com2 to Com2 {
 						a
@@ -73,5 +73,5 @@ model Test {
 	channels
 		c1(Boolean) async[4] lossless from q.Out1 to p.In1
 		c2(Integer) async lossy from q.Out2 to p.In2
-		c3() sync between p.InOut and q.InOut
+		c3(Boolean) sync between p.InOut and q.InOut
 }

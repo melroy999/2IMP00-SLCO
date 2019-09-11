@@ -58,17 +58,16 @@ using namespace cooperative_groups;
 #define vectornode_indextype uint32_t;
 {% endif %}
 
-// GPU constants
-static const int WARPSIZE = 32;
+// GPU constants.
+static const int WARP_SIZE = 32;
 
-// GPU configuraton
+// GPU configuraton.
 static const int KERNEL_ITERS = 1;
 static const int NR_OF_BLOCKS = 3120;
 
 // Thread ids and dimensions.
 #define GRID_SIZE 				gridDim.x
 #define BLOCK_SIZE				blockDim.x
-#define WARP_SIZE				{{warpsize}}
 
 #define BLOCK_ID				blockIdx.x
 #define THREAD_ID 				threadIdx.x
@@ -88,16 +87,16 @@ static const int NR_OF_BLOCKS = 3120;
 #define EMPTYVECT16				0xFFFF
 #define CACHE_POINTERS_NEW_LEAF	0x40000000
 
-// constant for hashing
+// Constant for hashing.
 static const inttype P = 979946131;
-// Retry constant to determine number of retries for element insertion
+// Retry constant to determine number of retries for element insertion.
 #define RETRYFREQ 7
 #define NR_HASH_FUNCTIONS 8
-// Number of retries in local cache
+// Number of retries in local cache.
 #define CACHERETRYFREQ 20
-// Constant to indicate that no more work is required
+// Constant to indicate that no more work is required.
 # define EXPLORATION_DONE 0x7FFFFFFF
-// offset in shared memory from which loaded data can be read
+// Offset in shared memory from which loaded data can be read.
 static const int SH_OFFSET = 5;
 
 const size_t Mb = 1<<20;
@@ -106,9 +105,9 @@ const size_t Mb = 1<<20;
 // Offsets calculations for shared memory arrays
 #define HASHCONSTANTSLEN		(2*NR_HASH_FUNCTIONS)
 #define OPENTILELEN				{{tilesize}}
-#define LASTSEARCHLEN			(BLOCK_SIZE/WARPSIZE)
+#define LASTSEARCHLEN			(BLOCK_SIZE/WARP_SIZE)
 
-// offsets in shared memory from which loaded data can be read
+// Offsets in shared memory from which loaded data can be read.
 #define SH_OFFSET 5
 #define HASHCONSTANTSOFFSET 	(SH_OFFSET)
 #define OPENTILEOFFSET 			(HASHCONSTANTSOFFSET+HASHCONSTANTSLEN)
@@ -142,20 +141,25 @@ const size_t Mb = 1<<20;
 // CONSTANTS FOR GLOBAL MEMORY HASH TABLE
 // Empty hash table element (exploits that a vectornode cannot be marked 'new' without being marked 'root')
 {% if vectorsize < 32 %}
-#define EMPTYVECTNODE_GLOBAL 0xBFFFFFFF
+#define EMPTYVECTNODE_GLOBAL 	0xBFFFFFFF
 {% else %}
-#define EMPTYVECTNODE_GLOBAL 0xBFFFFFFFFFFFFFFF
+#define EMPTYVECTNODE_GLOBAL 	0xBFFFFFFFFFFFFFFF
 {% endif %}
 
-// GPU shared memory array
+// GPU shared memory array.
 extern __shared__ volatile shared_inttype shared[];
 
-// Structure of state vector:
+// Structure of the state vector:
 // {{vectorstructure_string}}
+{% if not no_smart_fetching %}
+
+// Bitmask to identify parts of the state vector that contain state machine states.
+#define VECTOR_SMPARTS			{{smart_vectortree_fetching_bitmask["smstates"]}}
+{% endif %}
 
 // *** START FUNCTIONS FOR VECTOR TREE NODES MANIPULATION AND STORAGE ***
 
-// Mark state as new or old
+// Mark state as new or old.
 inline __device__ inttype mark_new(inttype node) {
 {% if vectorsize < 32 %}
 	return node | 0x80000000;
@@ -172,7 +176,7 @@ inline __device__ inttype mark_old(inttype node) {
 {% endif %}
 }
 
-// Check whether state is new
+// Check whether state is new.
 inline __device__ bool is_new(inttype node) {
 {% if vectorsize < 32 %}
 	return (node & 0x80000000) != 0;
@@ -181,7 +185,7 @@ inline __device__ bool is_new(inttype node) {
 {% endif %}
 }
 
-// Check whether the highest 32-bits of a node are set as new
+// Check whether the highest 32-bits of a node are set as new.
 inline __device__ bool head_is_new(shared_inttype node) {
 	return (node & 0x80000000) != 0;
 }
@@ -616,7 +620,7 @@ __device__ bool FINDORPUT_MANY(inttype *d_q, volatile bool *d_newstate_flags) {
 	{% endif %}
 }
 
-// Auxilliary functions for the fetching of vectortrees from the global hash table. They encode the distribution of vectortree nodes over the threads
+// Auxiliary functions for the fetching of vectortrees from the global hash table. They encode the distribution of vectortree nodes over the threads
 // in a vectortree group, and their structural relations with each other.
 inline __device__ uint8_t get_vectortree_leaf_parent_thread(uint8_t tid) {
 	switch (tid) {
@@ -669,6 +673,29 @@ inline __device__ uint8_t get_vectortree_nonleaf_right_child_thread(uint8_t tid)
 			break;
 	}
 }
+{% if not no_smart_fetching %}
+
+// Auxiliary functions to obtain bitmasks for smart vectortree fetching based on the states of the state machines.
+// Given a vector tree node id, return a bitmask expressing which vectorparts are reachable from the node.
+inline __device__ uint32_t get_part_reachability(vectornode_indextype nid) {
+	switch (nid) {
+		{% for i in range(0,vectortree|length) %}
+		case {{i}}:
+			return {{smart_vectortree_fetching_bitmask[i]}};
+		{% endfor %}
+		default:
+			return 0;
+	}
+}
+
+// Functions to obtain a bitmask for a given state machine state that indicates which vectorparts are of interest to process outgoing transitions
+// of the that state.
+{% for sm in smnames %}
+inline __device__ uint32_t get_part_bitmask_{{sm|replace("'","_")}}(statetype sid) {
+	switch
+}
+{% endfor %}
+{% endif %}
 
 // Retrieve a vectortree from the global hash table and store it in the cache. This is performed in a warp-centric way.
 // Address addr points to the root of the requested vectortree. The function returns the address of the root of the vectortree in the cache.
@@ -911,13 +938,12 @@ __device__ shared_indextype get_sorted_opentile_element(elem_chartype sm) {
 	
 	shared_indextype {% for i in range(0,regsort_nr_el_per_thread) %}p{{i}}, {% endfor %}p_tmp1, p_tmp2, p_result;
 	
-
-	// Load the tile elements.
+	// Load the tile indices.
 	{% for i in range(0,regsort_nr_el_per_thread) %}
 	if ({{i*warpsize}}+LANE < OPENTILELEN) {
 		asm("{\n\t"
 			" cvt.u16.u32 %0, %1;\n\t"
-			"}" : "=r"(p{{i}}) : "r"(shared[CACHEOFFSET+{{i*warpsize}}+LANE]));
+			"}" : "=r"(p{{i}}) : "r"(shared[OPENTILEOFFSET+{{i*warpsize}}+LANE]));
 		if (p{{i}} != EMPTYVECT16) {
 			// Retrieve corresponding state value.
 			get_current_state(&s{{i}}, p{{i}}, sm);
@@ -925,6 +951,7 @@ __device__ shared_indextype get_sorted_opentile_element(elem_chartype sm) {
 		else {
 			s{{i}} = NO_STATE;
 		}
+		p{{i}} = {{i*warpsize}}+LANE;
 	}
 	else {
 		p{{i}} = EMPTYVECT16;
@@ -1023,7 +1050,7 @@ inline __device__ void get_{{s|replace("[","_")|replace("]","")|replace("'","_")
 {% if arraynames|length > 0 %}
 // Data retrieval functions, including the fetching of required vector parts, for array elements with dynamic indexing.
 {% for vname, t, size in arraynames %}
-inline __device__ void get_{{vname|replace("[","_")|replace("]","")}}(shared_indextype node_index, {% if t|gettypesize < 32 %}elem_chartype{% else %}elem_inttype{% endif %} *b, array_indextype index) {
+inline __device__ void get_{{vname|replace("[","_")|replace("]","")|replace("'","_")}}(shared_indextype node_index, {% if t|gettypesize < 32 %}elem_chartype{% else %}elem_inttype{% endif %} *b, array_indextype index) {
 	inttype part1, part2;
 	switch (index) {
 		{% for i in range(0, size) %}
@@ -1279,45 +1306,46 @@ inline __device__ void shift_buffer_tail_elements_{{c.name}}(shared_indextype no
 template<class T>
 inline __device__ void A_STR_{{n}}({% for i in range(0,n) %}array_indextype *idx_{{i}}, {% endfor %}{% for i in range(0,n) %}T *v_{{i}}, {% endfor %}array_indextype e, T v) {
 {% for i in range(0,n) %}
-{% if not loop.first%}	else{% else %}	{% endif %}if (e == *idx_{{i}}) {
+{% if not loop.first%}	else {% else %}	{% endif %}if (((array_indextype) e) == *idx_{{i}}) {
 		*v_{{i}} = v;
 		return;
 	}
 	else if (*idx_{{i}} == EMPTY_INDEX) {
-		*idx_{{i}} = e;
+		*idx_{{i}} = (array_indextype) e;
 		*v_{{i}} = v;
 		return;
 	}
 {% endfor %}
 }
-{% endfor %}
 
+{% endfor %}
 // Return the value stored at index e.
 // Precondition: provided array contains the requested element.
 {% for n in all_arrayindex_allocs_sizes %}
 template<class T>
 inline __device__ T A_LD_{{n}}({% for i in range(0,n) %}array_indextype idx_{{i}}, {% endfor %}{% for i in range(0,n) %}T v_{{i}}, {% endfor %}array_indextype e) {
 {% for i in range(0,n) %}
-{% if not loop.first%}	else{% else %}	{% endif %}if (e == idx_{{i}}) {
+{% if not loop.first%}	else {% else %}	{% endif %}if (((array_indextype) e) == idx_{{i}}) {
 		return v_{{i}};
 	}
 {% endfor %}
 	return T();
 }
+
 {% endfor %}
 
 // Check whether the given array index e is stored in the given array index buffer.
 {% for n in all_arrayindex_allocs_sizes %}
 inline __device__ bool A_IEX_{{n}}({% for i in range(0,n) %}array_indextype idx_{{i}}, {% endfor %}array_indextype e) {
 {% for i in range(0,n) %}
-{% if not loop.first%}	else{% else %}	{% endif %}if (e == idx_{{i}}) {
+{% if not loop.first%}	else {% else %}	{% endif %}if (((array_indextype) e) == idx_{{i}}) {
 		return true;
 	}
 {% endfor %}
 	return false;
 }
-{% endfor %}
 
+{% endfor %}
 {% for c in model.classes %}
 {% set cloop = loop %}
 {% for sm in c.statemachines %}
@@ -1356,44 +1384,6 @@ inline __device__ statetype get_target_{{sm.name}}_{{a}}(statetype src, statetyp
 }
 
 {% endfor %}
-{% endfor %}
-{% endfor %}
-{% for ch in model.channels if ch.synctype == 'sync' %}
-{% set chloop = loop %}
-{% for (o2,sm2,signal) in ch|get_all_syncrecs %}
-{% if chloop.first and loop.first %}
-// Synchronous message receive functions. For each (object, statemachine) pair, synchronous channel, and message signal, there is a
-// function returning for a given source state a target state that can be reached by receiving a message with that signal over that
-// channel. in case of non-determinism, repeated calls of the function will produce each of the different reachable states.
-{% endif %}
-inline __device__ statetype get_target_{{o2.name}}_{{sm2.name}}_{{signal}}(statetype src, statetype prev_tgt) {
-	switch (src) {
-		{% set trans = o2|get_reccomm_trans(sm2,ch,signal) %}
-		{% for s2 in trans.keys()|sort %}
-		case {{s2}}:
-			switch (prev_tgt) {
-				{% set strans = trans[s2] %}
-				{% for j in range(0, strans|length) %}
-				{% if j == 0 %}
-				case -1:
-				{% else %}
-				case {{strans[j-1]}}:
-				{% endif %}
-					{% if j == strans|length %}
-					return -1;
-					{% else %}
-					return {{strans[j]}};
-					{% endif %}
-				{% endfor %}
-				default:
-					return -1;
-			}
-		{% endfor %}
-		default:
-			return -1;
-	}
-}
-
 {% endfor %}
 {% endfor %}
 // Kernel function to start parallel successor generation. Precondition: a tile of vectortree pointers to roots of cache-preloaded vectortrees
@@ -1452,31 +1442,28 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(shared_indext
 		{% for s in smname_to_object[state_order[i]][1].states %}
 		{% set o = smname_to_object[state_order[i]][0] %}
 		{% set sm = smname_to_object[state_order[i]][1] %}
-		{% if s|nr_of_transitions_to_be_processed_by(i,o) %}
-		case {{state_id[(sm,s)]}}:
+		{% if s|nr_of_transitions_to_be_processed_by(i,o) > 0 %}
+		case {{state_id[s]}}:
 			{% set indent = "" %}
-			{% set allocs = s|get_buffer_allocs(o) %}
-			{% if allocs[0] + allocs[1] + allocs[2] + allocs[3] > 0 %}
+			{% set buffer_allocs = s|object_trans_to_be_processed_by_sm_thread(o)|get_buffer_allocs %}
+			{% if buffer_allocs[0] + buffer_allocs[1] + buffer_allocs[2] + buffer_allocs[3] + buffer_allocs[4] > 0 %}
 			// Allocate register memory to process transition(s).
 			{% endif %}
-			{% if allocs[0] > 0 %}
-			elem_inttype {% for j in range(0,allocs[0]) %}buf32_{{j}}{{', ' if not loop.last}}{% endfor %};
+			{% if buffer_allocs[0] > 0 %}
+			elem_inttype {% for j in range(0,buffer_allocs[0]) %}buf32_{{j}}{{', ' if not loop.last}}{% endfor %};
 			{% endif %}
-			{% if allocs[1] > 0 %}
-			uint16_t {% for j in range(0,allocs[1]) %}buf16_{{j}}{{', ' if not loop.last}}{% endfor %};
+			{% if buffer_allocs[1] > 0 %}
+			shared_indextype {% for j in range(0,buffer_allocs[1]) %}buf16_{{j}}{{', ' if not loop.last}}{% endfor %};
 			{% endif %}
-			{% if allocs[2] > 0 %}
-			elem_chartype {% for j in range(0,allocs[2]) %}buf8_{{j}}{{', ' if not loop.last}}{% endfor %};
+			{% if buffer_allocs[2] > 0 %}
+			elem_chartype {% for j in range(0,buffer_allocs[2]) %}buf8_{{j}}{{', ' if not loop.last}}{% endfor %};
 			{% endif %}
-			{% if allocs[3] > 0 %}
-			bool {% for j in range(0,allocs[3]) %}buf1_{{j}}{{', ' if not loop.last}}{% endfor %};
+			{% if buffer_allocs[3] > 0 %}
+			bool {% for j in range(0,buffer_allocs[3]) %}buf1_{{j}}{{', ' if not loop.last}}{% endfor %};
 			{% endif %}
-			{% set allocs = s|get_buffer_arrayindex_allocs(o) %}
-			{% if allocs|length > 0 %}
+			{% if buffer_allocs[4] > 0 %}
 			// Allocate register memory for dynamic array indexing.
-			{% for v in allocs.keys() %}
-			array_indextype {% for j in range(0,allocs[v]) %}idx_{{v.name}}_{{j}}{{', ' if not loop.last }}{% endfor %};
-			{% endfor %}
+			array_indextype {% for j in range(0,buffer_allocs[4]) %}idx_{{j}}{{', ' if not loop.last}}{% endfor %};
 			{% endif %}
 			{% set ns = namespace(lastprio=100, prio_nestings=0) %}
 			{% for t in s|outgoingtrans(sm.transitions) %}
@@ -1488,17 +1475,16 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(shared_indext
 			{% endif %}
 			{% set ns.lastprio = t.priority %}
 			{% set st = t.statements[0] %}
+			{% set allocs = t|get_buffer_arrayindex_allocs(o) %}
 			
 			{{indent}}// {{s.name}} --{ {{st|getlabel}} }--> {{t.target.name}}
 			
-			{% set M = t|map_variables_on_buffer(o) %}
-			{% set fetched = [-1,-1] %}
+			{% set M = t|map_variables_on_buffer(o,buffer_allocs) %}
 			{% if st.__class__.__name__ == 'ReceiveSignal' %}
 			{% if st|cudarecsizeguard(M,o) != "" %}
 			{{indent}}// Fetch buffer size value.
 			{% set ch = connected_channel[(o, st.target)] %}
 			{% set VP = [(ch,"_size")]|get_vectorparts(o) %}
-			{% set fetched = VP %}
 			{{indent}}part1 = get_vectorpart(node_index, {{VP[0]}});
 			{% if VP|length > 1 %}
 			{{indent}}part2 = get_vectorpart(node_index, {{VP[1]}});
@@ -1508,107 +1494,19 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(shared_indext
 			{% set indent = indent + "\t" %}
 			{% endif %}
 			{% endif %}
-			{% for v in st|statement_varrefs(o,sm)|get_vars if v|has_dynamic_indexing(t,o) %}
-			{% if loop.first %}
-			{{indent}}// Reset storage of array indices.
+			{% set fetchcode = st|cudafetchdata(indent|length+3, o, M, True, True) %}
+			{% if fetchcode != "" %}
+			{{indent}}{{fetchcode}}
 			{% endif %}
-			{% for i in range(0,allocs[v]) %}
-			idx_{{v.name}}_{{i}} = EMPTY_INDEX;
-			{% endfor %}
-			{% endfor %}
-			{% set VP = t|transition_read_varrefs(o,True)|select("no_dynamic_indexing",o)|get_vectorparts(o) %}
-			{% if VP|length > 0 %}
-			{{indent}}// Fetch values of unguarded variables.
-			{% endif %}
-			{% for i in range(0,VP|length) %}
-			{% set VPloop = loop %}
-			{% if loop.first %}
-			{% if VP[i] != fetched[0] and VP[i] != fetched[1] %}
-			{% set fetched = [VP[i],fetched[1]] %}
-			{{indent}}part1 = get_vectorpart(node_index, {{VP[i]}});
-			{% elif VP[i] == fetched[1] %}
-			{% set fetched = [fetched[1],fetched[1]] %}
-			{{indent}}part1 = part2;
-			{% endif %}
-			{% endif %}
-			{% for (v,j) in t|transition_read_varrefs(o,False)|select("no_dynamic_indexing",o) if vectorelem_in_structure_map[v|scopename(j,o)][1][0] == VP[i] and (vectorelem_in_structure_map[v|scopename(j,o)]|length == 2 or vectorelem_in_structure_map[v|scopename(j,o)][vectorelem_in_structure_map[v|scopename(j,o)]|length-1][0] == VP[i+1]) %}
-			{% if (not VPloop.first) and loop.first %}
-			{{indent}}part1 = part2;
-			{% endif %}
-			{% if i+1 < VP|length %}
-			{% if VP[i+1] != fetched[0] and VP[i+1] != fetched[1] %}
-			{% set fetched = [fetched[0],VP[i+1]] %}
-			{{indent}}part2 = get_vectorpart(node_index, {{VP[i+1]}});
-			{% elif VP[i+1] == fetched[0] %}
-			{% set fetched = [fetched[0],fetched[0]] %}
-			{{indent}}part2 = part1;
-			{% endif %}
-			{% endif %}
-			{% if v.__class__.__name__ != "Channel" and v.__class__.__name__ != "StateMachine" %}
-			{{indent}}get_{{v|scopename(None,o)|replace("'","_")}}{% if j != None %}_{{j|getinstruction(o,{},{})}}{% endif %}(&{{M[v][0]}}_{% if j == None %}{{M[v][1]}}{% else %}{{(M[v][1])|int + (j|getinstruction(o,{},{}))|int}}{% endif %}, part1, part2);
-			{% else %}
-			{{indent}}get_{{v|scopename(j,o)|replace("[","_")|replace("]","")|replace("'","_")}}(&{{M[(v,j)][0]}}_{{M[(v,j)][1]}}, part1, part2);
-			{% endif %}
-			{% endfor %}
-			{% endfor %}
-			{% for (v,j) in t|transition_sorted_dynamic_read_varrefs(o,True) %}
-			{% if loop.first %}
-			{{indent}}// Fetch values of unguarded variables involving dynamic array indexing.
-			{% endif %}
-			{{indent}}// Check for presence of index in buffer indices.
-			{{indent}}buffer_indextype i = add_idx(idx_{{v.name}}, {{j|getinstruction(o,M,{})}});
-			{{indent}}if (i != -1) {
-			{{indent}}	// Fetch value.
-			{{indent}}	get_{{v|scopename(None,o)}}(node_index, &buf{{v.type|gettypesize}}[{{M[v][1]}}+i], {{j|getinstruction(o,M,{}),{}}});
-			{{indent}}}
-			{% endfor %}
 			{{indent}}// Statement computation.
 			{% if st|cudaguard(M,o) != "" %}
 			{{indent}}if ({{st|cudaguard(M,o)}}) {
 			{% set indent = indent + "\t" %}
 			{% endif %}
-			{% set VPrem = t|transition_read_varrefs(o,False)|select("no_dynamic_indexing",o)|get_remaining_vectorparts(o,VPs) %}
-			{% for i in range(0,VPrem|length) %}
-			{% set VPremloop = loop %}
-			{% for (v,j) in t|transition_read_varrefs(o,False)|select("no_dynamic_indexing",o)|select("vectorparts_not_covered", o, VP) if vectorelem_in_structure_map[v|scopename(j,o)][1][0] == VPrem[i] and (vectorelem_in_structure_map[v|scopename(j,o)]|length == 2 or vectorelem_in_structure_map[v|scopename(j,o)][vectorelem_in_structure_map[v|scopename(j,o)]|length-1][0] == VPrem[i+1]) %}
-			{% if VPremloop.first and loop.first %}
-			{{indent}}// Fetch remaining values of unguarded variables (without dynamic array indexing).
-			{% if VPrem[i] != fetched[0] and VPrem[i] != fetched[1] %}
-			{% set fetched = [VPrem[i],fetched[1]] %}
-			{{indent}}part1 = get_vectorpart(node_index, {{VPrem[i]}});
-			{% elif VPrem[i] == fetched[1] %}
-			{% set fetched = [fetched[1],fetched[1]] %}
-			{{indent}}part1 = part2;
+			{% set fetchcode = st|cudafetchdata(indent|length+3, o, M, False, False) %}
+			{% if fetchcode != "" %}
+			{{indent}}{{fetchcode}}
 			{% endif %}
-			{% endif %}
-			{% if (not VPremloop.first) and loop.first %}
-			{{indent}}part1 = part2;
-			{% endif %}
-			{% if i+1 < VPrem|length %}
-			{% if VPrem[i+1] != fetched[0] and VPrem[i+1] != fetched[1] %}
-			{% set fetched = [fetched[0],VPrem[i+1]] %}
-			{{indent}}part2 = get_vectorpart(node_index, {{VPrem[i+1]}});
-			{% elif VPrem[i+1] == fetched[0] %}
-			{% set fetched = [fetched[1],fetched[1]] %}
-			{{indent}}part2 = part1;
-			{% endif %}
-			{% endif %}
-			{{indent}}get_{{v|scopename(None,o)}}{% if j != None %}_{{j|getinstruction(o,{},{})}}{% endif %}(&{{M[v][0]}}[{{M[v][1]}}{% if j != None %} + {{j|getinstruction(o,{},{})}}{% endif %}], part1, part2);
-			{% endfor %}
-			{% endfor %}
-			{% for (v,j) in t|transition_sorted_dynamic_read_varrefs(o,False) %}
-			{% if loop.first %}
-			{{indent}}// Fetch remaining values of unguarded variables involving dynamic array indexing.
-			{% endif %}
-			{{indent}}// Check for presence of index in buffer indices.
-			{{indent}}buffer_indextype i = add_idx(idx_{{v.name}}, {{j|getinstruction(o,M,{})}});
-			{{indent}}if (i != -1) {
-			{{indent}}	// Fetch value.
-			{{indent}}	get_{{v|scopename(None,o)}}(node_index, &buf{{v.type|gettypesize}}[{{M[v][1]}}+i], {{j|getinstruction(o,M,{})}});
-			{{indent}}}
-			{% endfor %}
-			{{indent}}// Set target state.
-			{{indent}}target = {{state_id[(sm,t.target)]}};
 			{% if st|cudastatement(1,o,M) != "" %}
 			{{indent}}{{st|cudastatement(indent|length+3,o,M)}}{% endif %}
 			{% if st|cudaguard(M,o) != "" %}

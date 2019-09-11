@@ -14,11 +14,13 @@ model = ""
 # experimental settings:
 # - gpuexplore2_succdist applies successor generation work distribution over threads in the style of GPUexplore 2.0 (vector groups)
 # - no_regsort disables warp-based in register sorting, thereby reducing the amount of expected regularity in successor generation.
+# - no_smart_fetching disables smart fetching of vectortrees from the global memory hash table.
 gpuexplore2_succdist = False
 no_regsort = False
+no_smart_fetching = False
 
 # the size of a warp
-warpsize = 16
+warpsize = 32
 
 this_folder = dirname(__file__)
 
@@ -65,6 +67,8 @@ vectortree_leaf_thread = {}
 vectortree_size = 0
 # depth of a vectortree
 vectortree_depth = 0
+# dictionary of bitmasks for smart vectortree fetching
+smart_vectortree_fetching_bitmask = {}
 
 # dictionary indicating in which part of the vector (which integer) a given vector element can be found
 vectorelem_in_structure_map = {}
@@ -78,6 +82,8 @@ smname_to_object = {}
 max_buffer_allocs = 0
 # sizes of buffers needed to process dynamic array indexing of arrays in model
 all_arrayindex_allocs_sizes = []
+# variables to keep track of fetched vectorparts
+fetched = {0: -1, 1: -1}
 
 # tile size (nr of vectortrees to be processed by a block in one iteration)
 tilesize = 0
@@ -199,9 +205,24 @@ def outgoingtrans(s,t):
 	"""Return the set of transitions with s as source in a list sorted by transition priority"""
 	tlist = []
 	for tr in t:
-		if tr.source.name == s.name:
+		if tr.source == s:
 			tlist.append(tr)
 	tlist = sorted(tlist, key=(lambda x: x.priority))
+	return tlist
+
+def object_trans_to_be_processed_by_sm_thread(s,o):
+	"""Return the set of transitions with s as source that must be processed by the thread assigned to state machine sm, in a list sorted by transition priority. o is Object owning s."""
+	global state_order
+	tlist = []
+	# lookup thread id
+	for i in range(0,len(state_order)):
+		if state_order[i] == o.name + "'" + s.parent.parent.name:
+			break
+	t = s.parent.transitions
+	for tr in t:
+		if tr.source == s and must_be_processed_by(tr, i, o):
+			tlist.append((o,tr))
+	tlist = sorted(tlist, key=(lambda x: x[1].priority))
 	return tlist
 
 def gettypesize(t):
@@ -228,7 +249,10 @@ def scopename(v,i,o):
 	"""Return full name of variable v, possibly with index i, if constant. in case a Port is given, return name of connected Channel"""
 	if v.__class__.__name__ == "Channel":
 		if v.synctype == 'async':
-			name = v.name + str(i)
+			if RepresentsInt(i):
+				name = v.name + "[" + str(i) + "][0]"
+			else:
+				name = v.name + str(i)
 		else:
 			name = i
 	else:
@@ -237,7 +261,7 @@ def scopename(v,i,o):
 			name += "'" + v.parent.name
 		name += "'" + v.name
 		if v.__class__.__name__ != "StateMachine":
-			i_str = getinstruction(i, o, {}, {})
+			i_str = getinstruction(i, o, {})
 			if i != None and RepresentsInt(i_str):
 				name += "[" + i_str + "]"
 	return name
@@ -408,7 +432,7 @@ def cudarecsizeguard(s, D, o):
 
 def cudaguard(s,D,o):
 	"""Returns the guard of the given statement s. D is a dictionary mapping variable refs to variable names. o is Object owning s."""
-	global connected_channel, signalsize, signalnr, smnames, smname_to_object, alphabet, syncactions
+	global connected_channel, signalsize, signalnr, smnames, smname_to_object, alphabet, syncactions, state_id
 	if statement_is_actionref(s):
 		a = getlabel(s)
 		if a in syncactions.get(o.type,set([])):
@@ -422,13 +446,13 @@ def cudaguard(s,D,o):
 					if a in alphabet[sm2]:
 						if guard != "":
 							guard += " && "
-						guard += "get_target_" + sm2.name + "_" + a + "((statetype) " + D[(sm2,"src")][0] + "_" + str(D[(sm2,"src")][1]) + ", -1) != -1"
+						guard += "get_target_" + sm2.name + "_" + a + "((statetype) " + D[(sm2,"src")][0] + "_" + str(D[(sm2,"src")][1]) + ", (statetype) -1) != -1"
 			return guard
 	elif s.__class__.__name__ == "Expression":
-		return getinstruction(s, o, D, {})
+		return getinstruction(s, o, D)
 	elif s.__class__.__name__ == "Composite":
 		if s.guard:
-			return getinstruction(s.guard, o, D, {})
+			return getinstruction(s.guard, o, D)
 		else:
 			return ""
 	elif s.__class__.__name__ == "SendSignal":
@@ -440,31 +464,24 @@ def cudaguard(s,D,o):
 					return sizevar[0] + "_" + str(sizevar[1]) + " < " + str(c.size)
 				else:
 					return "!" + sizevar[0] + "_" + str(sizevar[1])
-		else:
-			guard = ""
-			for (o2,sm2) in get_syncrec_sms(o, c, s.signal):
-				if guard != "":
-					guard += " && "
-				guard += "get_target_" + o2.name + "_" + sm2.name + "_" + s.signal + "(" + D[(c, o2.name + "'" + sm2.name)][0] + "_" + str(D[(c, o2.name + "'" + sm2.name)][1]) + ", -1) != -1"
-			return guard
+		# else:
+		# 	guard = ""
+		# 	for (o2,sm2) in get_syncrec_sms(o, c, s.signal):
+		# 		if guard != "":
+		# 			guard += " && "
+		# 		guard += "get_target_" + o2.name + "_" + sm2.name + "_" + s.signal + "((statetype) " + D[(c, o2.name + "'" + sm2.name)][0] + "_" + str(D[(c, o2.name + "'" + sm2.name)][1]) + ", (statetype) -1) != -1"
+		# 	return guard
 	elif s.__class__.__name__ == "ReceiveSignal":
 		c = connected_channel[(o, s.target)]
+		guard = ""
 		if c.synctype == 'async':
-			guard = ""
+			# check message signal
 			if signalsize[c] > 0:
-				guard += D[(c,"[0][0]")][0] + "_" + D[(c,"[0][0]")][1] + " == " + str(signalnr[(c,s.signal)])
-				if s.guard != None:
-					guard += " && "
-			# create a dictionary to map the params of s to buffer variables
-			Drec = {}
-			for i in range(0,len(s.params)):
-				p = s.params[i]
-				if p.index != None:
-					index_str = getinstruction(p.index, o, {}, {})
-				else:
-					index_str = p.index
-				Drec[(p.var.name, index_str)] = D[(c, "[" + str(i+1) + "][0]")]
-			guard += getinstruction(s.guard, o, D, Drec)
+				guard += D[(c,0)][0] + "_" + str(D[(c,0)][1]) + " == " + str(signalnr[(c,s.signal)])
+			return guard
+		else:
+			# check current state of state machine
+			guard += D[(c,"state")][0] + "_" + str(D[(c,"state")][1]) + " == " + str(state_id[s.parent.source])
 			return guard
 	return ""
 
@@ -500,10 +517,10 @@ def indentspace(i):
 		result += "\t"
 	return result
 
-def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, Drec, indent):
+def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, indent):
 	"""Construct CUDA code to produce and store new vectortree nodes. nodes_done is a list containing node ids that have been processed before. nav is a list of nodes still to be processed.
 	   W is a dictionary defining for all vectorparts which values need to be written to it."""
-	global vectortree, vectortree_T, connected_channel, dynamic_write_arrays
+	global vectortree, vectortree_T, connected_channel, dynamic_write_arrays, state_id
 	ic = indent
 	output = ""
 	if nav != []:
@@ -519,82 +536,84 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, Dre
 						# handle the case of the target state(s) of SMs
 						if v.__class__.__name__ == "Object":
 							if i.__class__.__name__ == "StateMachine":
-								if i == s.parent.parent:
-									if not isnotfirstpart:
-										output += "set_left_" + v.name + "_" + i.name + "(&part2, target);\n" + indentspace(ic)
-									else:
-										output += "set_right_" + v.name + "_" + i.name + "(&part2, target);\n" + indentspace(ic)
+								target = "target"
+								if s.__class__.__name__ == "ReceiveSignal":
+									c = connected_channel[(o,s.target)]
+									if c.synctype == 'sync':
+										# synchronous communication over a channel. Not one, but two SMs change state.
+										if v == o and i == s.parent.parent:
+											# the current SM changes to a state stored in the thread buffer variables.
+											target = str(state_id[s.parent.target])
+								elif statement_is_actionref(s):
+									if i != s.parent.parent:
+										target = D[(i,"tgt")][0] + "_" + str(D[(i,"tgt")][1])
+								if not isnotfirstpart:
+									output += "set_left_" + v.name + "_" + i.name + "(&part2, "
+									output += target
+									output += ");\n" + indentspace(ic)
 								else:
-									# i is an (Object,Statemachine) pair that needs to change state
-									(vname,offset) = D.get((i,"tgt"), (v.name, None))
-									result = vname
-									if offset != None:
-										result += "_" + str(offset)
-									if not isnotfirstpart:
-										output += "set_left_" + v.name + "_" + i.name + "(&part2, " + result + ");\n" + indentspace(ic)
-									else:
-										output += "set_right_" + v.name + "_" + i.name + "(&part2, " + result + ");\n" + indentspace(ic)
+									output += "set_right_" + v.name + "_" + i.name + "(&part2, "
+									output += target
+									output += ");\n" + indentspace(ic)
+								# else:
+								# 	# v,i is an (Object,Statemachine) pair that needs to change state
+								# 	(vname,offset) = D.get((i,"tgt"), (v.name, None))
+								# 	result = vname
+								# 	if offset != None:
+								# 		result += "_" + str(offset)
+								# 	if not isnotfirstpart:
+								# 		output += "set_left_" + v.name + "_" + i.name + "(&part2, " + result + ");\n" + indentspace(ic)
+								# 	else:
+								# 		output += "set_right_" + v.name + "_" + i.name + "(&part2, " + result + ");\n" + indentspace(ic)
 						# handle the case of communication over a channel
 						elif v.__class__.__name__ == "Channel":
-							if v.synctype == 'sync':
-								# i is an (Object,Statemachine) pair that needs to change state
-								(vname,offset) = D.get((v,"state"), (v.name, None))
-								result = vname
-								if offset != None:
-									result += "_" + str(offset)
-								if not isnotfirstpart:
-									output += "set_left_" + i[0].name + "_" + i[1].name + "(&part2, " + result + ");\n" + indentspace(ic)
-								else:
-									output += "set_right_" + i[0].name + "_" + i[1].name + "(&part2, " + result + ");\n" + indentspace(ic)
+							# if v.synctype == 'sync':
+							# 	# i is an (Object,Statemachine) pair that needs to change state
+							# 	(vname,offset) = D.get((v,"state"), (v.name, None))
+							# 	result = vname
+							# 	if offset != None:
+							# 		result += "_" + str(offset)
+							# 	if not isnotfirstpart:
+							# 		output += "set_left_" + i[0].name + "_" + i[1].name + "(&part2, " + result + ");\n" + indentspace(ic)
+							# 	else:
+							# 		output += "set_right_" + i[0].name + "_" + i[1].name + "(&part2, " + result + ");\n" + indentspace(ic)
+							# else:
+
+							# Channel must be asynchronous
+							(vname,offset) = D.get((v,"_size"), (v.name, None))
+							result = vname
+							if offset != None:
+								result += "_" + str(offset)
+							if not isnotfirstpart:
+								output += "set_left_" + v.name + "_size(&part2, " + result + ");\n" + indentspace(ic)
 							else:
-								(vname,offset) = D.get((v,"_size"), (v.name, None))
-								result = vname
-								if offset != None:
-									result += "_" + str(offset)
-								if not isnotfirstpart:
-									output += "set_left_" + v.name + "_size(&part2, " + result + ");\n" + indentspace(ic)
-								else:
-									output += "set_right_" + v.name + "_size(&part2, " + result + ");\n" + indentspace(ic)
+								output += "set_right_" + v.name + "_size(&part2, " + result + ");\n" + indentspace(ic)
 						else:
 							result = ""
-							# look for an exact (name, index) match in Drec
-							if i != None:
-								index_str = getinstruction(i, o, {}, {})
-							else:
-								index_str = i
-							(vname,offset) = Drec.get((v.name, index_str), (v.name, None))
-							if vname == v.name:
-								# look for a match on s.ref.ref in D
-								for r in D.keys():
-									if not isinstance(r, tuple):
-										if v.name == r.name:
-											vname = D[r][0]
-											offset = D[r][1]
-											break
+							# look for a match on s.ref.ref in D
+							for r in D.keys():
+								if not isinstance(r, tuple):
+									if v.name == r.name:
+										vname = D[r][0]
+										offset = D[r][1]
+										break
 							offsetcnt = -1
 							if offset != None:
 								offsetcnt = offset
 							if i != None:
-								indexresult = getinstruction(i, o, D, Drec)
-								# find a suitable object (object is irrelevant for outcome)
-								t = s.parent
-								while t.__class__.__name__ != "Transition":
-									t = t.parent
-								for o in model.objects:
-									if o.type == s.parent.parent:
-										break
-								if has_dynamic_indexing(v, t, o):
-									allocs = get_buffer_arrayindex_allocs(t.source, o)
-									size = allocs[v]
+								indexresult = getinstruction(i, o, D)
+								if has_dynamic_indexing(v, v.name, s.parent, o):
+									allocs = get_buffer_arrayindex_allocs(s.parent, o)
+									size = allocs[(o,v)]
 									tpsize = str(gettypesize(v.type))
-									result += "A_LD("
+									result += "A_LD_" + str(size) + "("
 									for j in range(0,size):
-										result += "&idx_" + v.name + "_" + str(j) + ", "
+										result += "idx_" + str(j+D[v][2]) + ", "
 									for j in range(0,size):
-										result += "&buf" + tpsize + "_" + str(j+offset) + ", "
+										result += "buf" + tpsize + "_" + str(j+offset) + ", "
 									result += indexresult + ")"
 								else:
-									indexdict = get_constant_indices(v, v.name, t, o)
+									indexdict = get_constant_indices(v, v.name, s.parent, o)
 									offsetcnt += indexdict[indexresult]
 							if result == '':
 								result += vname
@@ -604,7 +623,7 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, Dre
 							set_methodname = scopename(v,None,o)
 							set_methodname = set_methodname.replace("'","_")
 							if i != None:
-								set_methodname += "_" + index_str
+								set_methodname += "_" + getinstruction(i, o, {})
 							if not isnotfirstpart:
 								output += "set_left_" + set_methodname + "(&part2, " + result + ");\n" + indentspace(ic)
 							else:
@@ -615,18 +634,23 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, Dre
 							output += "// Write array buffer content.\n" + indentspace(ic)
 							set_methodname = scopename(v,None,o)
 							set_methodname = set_methodname.replace("'","_")
-							(vname, offset) = D.get(v, (v.name, None))
-							output += "set_" + set_methodname + "(&part2, idx_" + v.name + ", " + vname + ", " + str(offset) + ", " + str(vectorpart_id(p)) + ");\n" + indentspace(ic)
+							e = D.get(v, (v.name, None))
+							vname = e[0]
+							offset = e[1]
+							idx_offset = 0
+							if len(e) > 2:
+								idx_offset = e[2]
+							#output += "set_" + set_methodname + "(&part2, idx_" + o.name + "_" + v.name + ", " + vname + ", " + str(offset) + ", " + str(vectorpart_id(p)) + ");\n" + indentspace(ic)
 							part_id = str(vectorpart_id(p))
 							output += "if (" + part_id + " >= " + str(dynamic_write_arrays[v][1]) + " && " + part_id + " <= " + str(dynamic_write_arrays[v][1]) + ") {\n" + indentspace(ic)
-							allocs = get_buffer_arrayindex_allocs(s.parent.source, o)
+							allocs = get_buffer_arrayindex_allocs(s.parent, o)
 							indentnew = "\t"
-							for i in range(0,allocs[v]):
-								output += indentnew + "if (idx_" + v.name + "_" + str(i) + " != EMPTY_INDEX) {\n" + indentspace(ic)
+							for i in range(0,allocs[(o,v)]):
+								output += indentnew + "if (idx_" + str(i+idx_offset) + " != EMPTY_INDEX) {\n" + indentspace(ic)
 								indentnew = indentnew + "\t"
-								output += indentnew + "if (array_element_is_in_vectorpart_" + str(dynamic_write_arrays[v][0]).replace("'","_") + "(idx_" + v.name + "_" + str(i) + ", " + part_id + ")) {\n" + indentspace(ic)
+								output += indentnew + "if (array_element_is_in_vectorpart_" + str(dynamic_write_arrays[v][0]).replace("'","_") + "(idx_" + str(i+idx_offset) + ", " + part_id + ")) {\n" + indentspace(ic)
 								indentnew = indentnew + "\t"
-								output += indentnew + "if (is_left_vectorpart_for_array_element_" + str(dynamic_write_arrays[v][0]).replace("'","_") + "(idx_" + v.name + "_" + str(i) + ", " + part_id + ")) {\n" + indentspace(ic)
+								output += indentnew + "if (is_left_vectorpart_for_array_element_" + str(dynamic_write_arrays[v][0]).replace("'","_") + "(idx_" + str(i+idx_offset) + ", " + part_id + ")) {\n" + indentspace(ic)
 								indentnew = indentnew + "\t"
 								output += indentnew + "set_left_" + str(dynamic_write_arrays[v][0]).replace("'","_") + "_" + str(i) + "(part, " + vname + "_" + str(offset+i) + ");\n" + indentspace(ic)
 								indentnew = indentnew[:-1]
@@ -634,25 +658,25 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, Dre
 								if len(vectorelem_in_structure_map[str(dynamic_write_arrays[v][0]) + "[" + str(i) + "]"]) > 2:
 									output += indentnew + "else {\n" + indentspace(ic)
 									indentnew = indentnew + "\t"
-									output += indentnew + "set_right_" + str(dynamic_write_arrays[v][0]).replace("'","_") + "_" + str(i) + "(part, " + vname + "_" + str(offset_i) + ");'n" + indentspace(ic)
+									output += indentnew + "set_right_" + str(dynamic_write_arrays[v][0]).replace("'","_") + "_" + str(i) + "(part, " + vname + "_" + str(offset+i) + ");\n" + indentspace(ic)
 									indentnew = indentnew[:-1]
-									output += "}\n" + indentspace(ic)
-							for i in range(0,allocs[v]):
+									output += indentnew + "}\n" + indentspace(ic)
+							for i in range(0,allocs[(o,v)]):
 								indentnew = indentnew[:-1]
 								output += indentnew + "}\n" + indentspace(ic)
 								indentnew = indentnew[:-1]
 								output += indentnew + "}\n" + indentspace(ic)
 							output += "}\n" + indentspace(ic)
 						else:
+							c = connected_channel[(o, s.target)]
 							if s.__class__.__name__ == "SendSignal":
-								c = connected_channel[(o, s.target)]
 								first = 0
 								if signalsize[v] == 0:
 									first = 1
 								size = D[(v,"_size")]
 								sizeref = size[0] + "_" + str(size[1])
 								for i in range(first,len(v.type)+1):
-									var = D[(v,"[" + str(i) + "][0]")]
+									var = D[(v,i)]
 									varref = var[0] + "_" + str(var[1])
 									output += "set_buffer_tail_element_" + v.name + "_" + str(i) + "(&part2, "
 									if c.size > 1:
@@ -664,7 +688,12 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, Dre
 								# ReceiveSignal: shift the buffer content one position towards the head
 								size = D[(v,"_size")]
 								sizeref = size[0] + "_" + str(size[1])
-								output += "shift_buffer_tail_elements_" + v.name + "(node_index, &part2, " + sizeref + "+1, " + str(vectorpart_id(p)) + ");\n" + indentspace(ic)
+								output += "shift_buffer_tail_elements_" + v.name + "(node_index, &part2, "
+								if c.size == 1:
+									output += "1, "
+								else:
+									output += sizeref + "+1, "
+								output += str(vectorpart_id(p)) + ");\n" + indentspace(ic)
 			if is_non_leaf(p):
 				# node is also a non-leaf in the vectortree. update pointers.
 				if f:
@@ -700,7 +729,7 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, Dre
 					output += "}\n"  + indentspace(ic)
 			if nav != [] and not is_non_leaf(nav[0][0]):
 				pointer_cnt += 1
-			output += cudastore_new_vectortree_nodes(nodes_done + [p], nav, pointer_cnt, W, s, o, D, Drec, ic)
+			output += cudastore_new_vectortree_nodes(nodes_done + [p], nav, pointer_cnt, W, s, o, D, ic)
 		elif is_non_leaf(p):
 			if not f:
 				ic += 1
@@ -745,15 +774,15 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, Dre
 				output += "}\n"  + indentspace(ic)
 			if nav != [] and not is_non_leaf(nav[0][0]):
 				pointer_cnt += 1
-			output += cudastore_new_vectortree_nodes(nodes_done + [p], nav, pointer_cnt, W, s, o, D, Drec, ic)
+			output += cudastore_new_vectortree_nodes(nodes_done + [p], nav, pointer_cnt, W, s, o, D, ic)
 	# remove trailing tabs
 	while output[-1:] == '\t':
 		output = output[:-1]
 	return output
 
-def cudastore_new_vector(s,indent,o,D,deps):
+def cudastore_new_vector(s,indent,o,D, sender_o='', sender_sm='', lossy=False):
 	"""Return CUDA code to store new vector resulting from executing statement s. D is a dictionary mapping variable refs to variable names. o is Object owning s.
-	deps is a list of (object,statemachine) pairs depending on s being executed, and changing state accordingly."""
+	optional arguments involve an Object and Statemachine of a (synchronous) sender SM that needs to change state, lossy indicates lossy communication."""
 	global connected_channel, scopename, vectorstructure, vectortree, vectortree_T, vectorelem_in_structure_map
 
 	indentspace = ""
@@ -761,19 +790,7 @@ def cudastore_new_vector(s,indent,o,D,deps):
 		indentspace += "\t"
 	output = ""
 
-	# create a dictionary to map the params of s to buffer variables, in case we are dealing with a ReceiveSignal statement connected to an asynchronous channel
-	Drec = {}
-	if s.__class__.__name__ == "ReceiveSignal":
-		c = connected_channel[(o, s.target)]
-		if c.synctype == 'async':
-			for i in range(0,len(s.params)):
-				p = s.params[i]
-				if p.index != None:
-					index_str = getinstruction(p.index, o, {}, {})
-				else:
-					index_str = p.index
-				Drec[(p.var.name, index_str)] = D[(c, "[" + str(i+1) + "][0]")]
-	W = get_write_vectorparts_info(s,o,deps)
+	W = get_write_vectorparts_info(s,o,sender_o=sender_o,sender_sm=sender_sm,lossy=lossy)
 	if len(W) != 0:
 		output += "// Store new state vector in shared memory.\n" + indentspace
 		# obtain list of nodes in the tree to update
@@ -826,18 +843,20 @@ def cudastore_new_vector(s,indent,o,D,deps):
 		# list of processed nodes
 		nodes_done = []
 		# process the nav list of nodes
-		output += cudastore_new_vectortree_nodes(nodes_done, nav, 0, Wnew, s, o, D, Drec, indent)
+		output += cudastore_new_vectortree_nodes(nodes_done, nav, 0, Wnew, s, o, D, indent)
 	return output
 
-def cudastatement(s,indent,o,D):
-	"""Translates the unguarded part of SLCO statement s to CUDA code. indent indicates how much every line needs to be indented. o is Object owning s. D is a dictionary mapping variable refs to variable names"""
-	global connected_channel, syncactions, alphabet, smnames, smname_to_object
+def cudastatement(s,indent,o,D,sender_o='',sender_sm='',senderparams=[]):
+	"""Translates the unguarded part of SLCO statement s to CUDA code. indent indicates how much every line needs to be indented. o is Object owning s. D is a dictionary mapping variable refs to variable names
+	'sender_o', 'sender_sm' and 'senderparams' provide extra arguments. In particular, when s is a ReceiveSignal statement connected to a synchronous channel, the parameters of a corresponding SendSignal statement must be provided via these parameters."""
+	global connected_channel, syncactions, alphabet, smnames, smname_to_object, state_id
 
 	indentspace = ""
 	for i in range(0,indent):
 		indentspace += "\t"
 	output = ""
 	if statement_is_actionref(s):
+		output += "target = " + str(state_id[s.parent.target]) + ";\n" + indentspace
 		sm = s.parent.parent
 		a = getlabel(s)
 		if a in syncactions.get(o.type,set([])):
@@ -855,7 +874,7 @@ def cudastatement(s,indent,o,D):
 			output += "\tswitch (i) {\n" + indentspace
 			for i in range(1,len(SMs)+1):
 				output += "\t\tcase " + str(i) + ":\n" + indentspace
-				output += "\t\t\t" + D[(SMs[i-1],"tgt")][0] + "_" + str(D[(SMs[i-1],"tgt")][1]) + " = get_target_" + SMs[i-1].name + "_" + a + "((statetype) " + D[(SMs[i-1],"src")][0] + "_" + str(D[(SMs[i-1],"src")][1]) + "), " + D[(SMs[i-1],"tgt")][0] + "_" + str(D[(SMs[i-1],"tgt")][1]) + ");\n" + indentspace
+				output += "\t\t\t" + D[(SMs[i-1],"tgt")][0] + "_" + str(D[(SMs[i-1],"tgt")][1]) + " = get_target_" + SMs[i-1].name + "_" + a + "((statetype) " + D[(SMs[i-1],"src")][0] + "_" + str(D[(SMs[i-1],"src")][1]) + ", (statetype) " + D[(SMs[i-1],"tgt")][0] + "_" + str(D[(SMs[i-1],"tgt")][1]) + ");\n" + indentspace
 				output += "\t\t\tif (" + D[(SMs[i-1],"tgt")][0] + "_" + str(D[(SMs[i-1],"tgt")][1]) + " != -1) {\n" + indentspace
 				output += "\t\t\t\ti++;\n" + indentspace
 				output += "\t\t\t}\n" + indentspace
@@ -868,54 +887,82 @@ def cudastatement(s,indent,o,D):
 				output += "\t\t\tbreak;\n" + indentspace
 				output += "\t}\n" + indentspace
 				output += "\tif (i == " + str(len(SMs)+1) + ") {\n" + indentspace + "\t\t"
-				output += cudastore_new_vector(s,indent+2,o,D,[]) + indentspace + "\t\t"
+				output += cudastore_new_vector(s,indent+2,o,D) + indentspace + "\t\t"
 				output += "i--;\n" + indentspace
 				output += "\t}\n" + indentspace
 				output += "}\n"
 		else:
-			output += cudastore_new_vector(s,indent,o,D,[])
+			output += cudastore_new_vector(s,indent,o,D)
 	elif s.__class__.__name__ == "Assignment":
-		output += getinstruction(s, o, D, {}) + ";\n" + indentspace
-		output += cudastore_new_vector(s,indent,o,D,[])
+		output += "target = " + str(state_id[s.parent.target]) + ";\n" + indentspace
+		output += getinstruction(s, o, D) + ";\n" + indentspace
+		output += cudastore_new_vector(s,indent,o,D)
 	elif s.__class__.__name__ == "Composite":
+		output += "target = " + str(state_id[s.parent.target]) + ";\n" + indentspace
 		first = True
 		for e in s.assignments:
 			if not first:
 				output += "\n" + indentspace
 			else:
 				first = False
-			if e.left.index != None:
-				if has_dynamic_indexing(e.left.var, e.parent.parent, o):
-					# add line to obtain index offset
-					output += "add_idx(idx_" + e.left.var.name + ", " + getinstruction(e.left.index, o, D, {}) + ");\n" + indentspace
-			output += getinstruction(e, o, D, {}) + ";"
-		output += cudastore_new_vector(s,indent,o,D,[])
+			# if e.left.index != None:
+			# 	if has_dynamic_indexing(e.left.var, e.left.var.name, e.parent.parent, o):
+			# 		# add line to obtain index offset
+			# 		output += "add_idx(idx_" + o.name + "_" + e.left.var.name + ", " + getinstruction(e.left.index, o, D) + ");\n" + indentspace
+			output += getinstruction(e, o, D) + ";"
+		output += cudastore_new_vector(s,indent,o,D)
 	elif s.__class__.__name__ == "SendSignal":
 		c = connected_channel[(o, s.target)]
 		if c.synctype == 'async':
+			output += "target = " + str(state_id[s.parent.target]) + ";\n" + indentspace
 			if connected_channel[(o, s.target)].losstype == 'lossy':
 				output += "// Handle lossy case in which message is lost.\n" + indentspace
 				# pass a 'lossy' keyword to restrict new vector writing to updating the target state
-				output += cudastore_new_vector(s,indent,o,D,["lossy"]) + indentspace
+				output += cudastore_new_vector(s,indent,o,D, lossy=True) + indentspace
 				output += "// Handle lossy case in which message is not lost.\n" + indentspace
 			for i in range(0,len(s.params)):
 				p = s.params[i]
 				if i > 0:
 					output += "\n" + indentspace
-				output += D[(c, "[" + str(i+1) + "][0]")][0] + "_" + str(D[(c, "[" + str(i+1) + "][0]")][1]) + " = " + getinstruction(p, o, D, {}) + ";\n" + indentspace
+				output += D[(c, i+1)][0] + "_" + str(D[(c, i+1)][1]) + " = " + getinstruction(p, o, D) + ";\n" + indentspace
 				# increment buffer size counter
 				if c.size > 1:
 					output += D[(c, "_size")][0] + "_" + str(D[(c, "_size")][1]) + "++;\n" + indentspace
 				else:
 					output += D[(c, "_size")][0] + "_" + str(D[(c, "_size")][1]) + " = true;\n" + indentspace
-			output += cudastore_new_vector(s,indent,o,D,[])
+			output += cudastore_new_vector(s,indent,o,D)
 		else:
-			for (o2,sm2) in get_syncrec_sms(o, c, s.signal):
-				output += D[(c,"state")][0] + "_" + str(D[(c,"state")][1]) + " = get_target_" + o2.name + "_" + sm2.name + "_" + s.signal + "(" + D[(c, o2.name + "'" + sm2.name)][0] + "_" + str(D[(c, o2.name + "'" + sm2.name)][1]) + ", -1);\n" + indentspace
-				output += "while (" + D[(c,"state")][0] + "_" + str(D[(c,"state")][1]) + " != -1) {\n" + indentspace
-				output += "\t" + cudastore_new_vector(s,indent+1,o,D,[(o2,sm2)]) + indentspace
-				output += "\t" + D[(c,"state")][0] + "_" + str(D[(c,"state")][1]) + " = get_target_" + o2.name + "_" + sm2.name + "_" + s.signal + "(" + D[(c, o2.name + "'" + sm2.name)][0] + "_" + str(D[(c, o2.name + "'" + sm2.name)][1]) + ", " + D[(c,"state")][0] + "_" + str(D[(c,"state")][1]) + ");\n" + indentspace
-				output += "}\n"
+			# synchronous communication. iterate over all matching ReceiveSignal statements
+			# original mapping for the SendSignal statement
+			allocs = get_buffer_allocs(object_trans_to_be_processed_by_sm_thread(s.parent.source,o))
+			M = map_variables_on_buffer(s.parent, o, allocs)
+			for (o2,t2) in get_syncrec_sm_trans(o, c, s.signal):
+				# the additional mapping for the ReceiveSignal statement
+				Mr = map_variables_on_buffer(t2, o2, allocs, prevM=M)
+				# fetch the required data
+				for st2 in t2.statements:
+					output += "// Consider synchronous communication with object " + o2.name + ", state machine " + t2.parent.name + ",\n" + indentspace
+					output += "// transition " + t2.source.name + " --{ " + getlabel(st2) + " }--> " + t2.target.name + "\n" + indentspace
+					output += "\n" + indentspace
+					output += cudafetchdata(st2, indent, o2, Mr, True, False)
+					output += "if (" + cudaguard(st2, Mr, o2) + ") {\n" + indentspace + "\t"
+					paramlist = []
+					# put object and parameters in paramlist
+					paramlist.append(o)
+					for p in s.params:
+						paramlist.append(p)
+					output += cudastatement(st2, indent + 1, o2, Mr, sender_o=o, sender_sm=s.parent.parent, senderparams=paramlist) + indentspace
+					output += "}\n"
+		# output += "// Set target state.\n" + indentspace
+		# output += "target = " + str(state_id[(s.parent.parent,s.parent.target)]) + ";\n" + indentspace
+
+		# else:
+		# 	for (o2,sm2) in get_syncrec_sms(o, c, s.signal):
+		# 		output += D[(c,"state")][0] + "_" + str(D[(c,"state")][1]) + " = get_target_" + o2.name + "_" + sm2.name + "_" + s.signal + "((statetype) " + D[(c, o2.name + "'" + sm2.name)][0] + "_" + str(D[(c, o2.name + "'" + sm2.name)][1]) + ", (statetype) -1);\n" + indentspace
+		# 		output += "while (" + D[(c,"state")][0] + "_" + str(D[(c,"state")][1]) + " != -1) {\n" + indentspace
+		# 		output += "\t" + cudastore_new_vector(s,indent+1,o,D,[(o2,sm2)]) + indentspace
+		# 		output += "\t" + D[(c,"state")][0] + "_" + str(D[(c,"state")][1]) + " = get_target_" + o2.name + "_" + sm2.name + "_" + s.signal + "((statetype) " + D[(c, o2.name + "'" + sm2.name)][0] + "_" + str(D[(c, o2.name + "'" + sm2.name)][1]) + ", (statetype) " + D[(c,"state")][0] + "_" + str(D[(c,"state")][1]) + ");\n" + indentspace
+		# 		output += "}\n"
 	elif s.__class__.__name__ == "ReceiveSignal":
 		c = connected_channel[(o, s.target)]
 		if c.synctype == 'async':
@@ -923,25 +970,239 @@ def cudastatement(s,indent,o,D):
 			if c.size > 1:
 				output += D[(c, "_size")][0] + "_" + str(D[(c, "_size")][1]) + "--;\n" + indentspace
 			else:
-				output += D[(c, "_size")][0] + "_" + str(D[(c, "_size")][1]) + " = false;\n" + indentspace				
-		output += cudastore_new_vector(s,indent,o,D,[])
+				output += D[(c, "_size")][0] + "_" + str(D[(c, "_size")][1]) + " = false;\n" + indentspace
+		else:
+			# store elements from a matching SendSignal statement in the parameter variables of s.
+			# the SendSignal parameters are given in the extra, named, parameters
+			output += cudafetchdata(s, indent, o, D, False, False)
+			output += "// Statement computation.\n" + indentspace
+			output2 = ''
+			for i in range(0,len(s.params)):
+				e = D.get(s.params[i].var, (s.params[i].var.name, None))
+				vname = e[0]
+				offset = e[1]
+				idx_offset = 0
+				if len(e) > 2:
+					idx_offset = e[2]
+				offsetcnt = -1
+				if offset != None:
+					offsetcnt = offset
+				if s.params[i].index != None:
+					indexresult = getinstruction(s.params[i].index, o, D)
+					if has_dynamic_indexing(s.params[i].var, s.params[i].var.name, s.parent, o):
+						allocs = get_buffer_arrayindex_allocs(s.parent, o)
+						size = allocs[(o,s.params[i].var)]
+						tpsize = str(gettypesize(s.params[i].var.type))
+						output2 += "A_STR_" + str(size) + "("
+						for j in range(0,size):
+							output2 += "&idx_" + str(j+idx_offset) + ", "
+						for j in range(0,size):
+							output2 += "&buf" + tpsize + "_" + str(j+offset) + ", "
+						output2 += indexresult + ", " + getinstruction(senderparams[i+1],sender_o,D) + ");\n" + indentspace
+					else:
+						indexdict = get_constant_indices(s.params[i].var, s.params[i].var.name, s.parent, o)
+						offsetcnt += indexdict[indexresult]
+				if output2 == '':
+					output2 += vname
+					if offsetcnt != -1:
+						output2 += "_" + str(offsetcnt)
+					output2 += " = "
+					if s.params[i].var.type.base == 'Byte':
+						output2 += "(elem_chartype) ("
+					output2 += getinstruction(senderparams[i+1],sender_o,D)
+					if s.params[i].var.type.base == 'Byte':
+						output2 += ")"
+					output2 += ";\n" + indentspace
+			output += output2
+		if s.guard != None:
+			output += "if (" + getinstruction(s.guard,o,D) + ") {\n" + indentspace
+			output += "\ttarget = " + str(state_id[s.parent.target]) + ";\n" + indentspace
+			output += "\t" + cudastore_new_vector(s,indent+1,o,D, sender_o=sender_o, sender_sm=sender_sm) + indentspace
+			output += "}\n"
+		else:
+			output += "target = " + str(state_id[s.parent.target]) + ";\n" + indentspace
+			output += cudastore_new_vector(s,indent,o,D, sender_o=sender_o, sender_sm=sender_sm)
 	elif s.__class__.__name__ == "Expression":
-		output += cudastore_new_vector(s,indent,o,D,[])
+		output += cudastore_new_vector(s,indent,o,D)
 	return output
 
-def getinstruction(s, o, D, Drec):
-	"""Get the CUDA instruction for the given statement s. o is Object owning s, D and Drec are dictionaries mapping variable refs to variable names. Drec is used for ReceiveSignal statements, and overrides D where applicable."""
-	global model
+def cudafetchdata(s, indent, o, D, unguarded, resetfetched):
+	"""Produce CUDA code to fetch the necessary data from the shared memory cache into thread register variables for the processing
+	of statement s in Object o. M is a mapping from SLCO variables to register buffer variables. only_unguarded indicates whether or not
+	only values for unguarded variables must be fetched. If not, then all guarded variables are fetched, assuming that the unguarded
+	ones have already been fetched. If resetfetched, set the fetched variables to initial values."""
+	global connected_channel, signalsize, fetched
+	indentspace = ""
+	for i in range(0,indent):
+		indentspace += "\t"
+	output = ""
+	t = s.parent
+	sm = t.parent
+	# The vectorparts for values of unguarded variables
+	L = transition_read_varrefs(t,o,True)
+	# The 'old' VP list, containing vectorparts for fetching of values of unguarded variables (only relevant when fetching values of guarded variables)
+	VPold = []
+	# a special case: if s is a ReceiveSignal statement connected to an asynchronous channel, the vectorpart(s) containing the associated buffer size have already been retrieved.
+	if not resetfetched and s.__class__.__name__ == "ReceiveSignal":
+		c = connected_channel[(o,s.target)]
+		if c.synctype == 'async':
+			VPtmp = get_vectorparts([(c,"_size")],o)
+			fetched[0] = VPtmp[0]
+			if len(VPtmp) > 1:
+				fetched[1] = VPtmp[1]
+	Ln = []
+	for v in L:
+		if no_dynamic_indexing(v,o):
+			Ln.append(v)
+	VP = get_vectorparts(Ln,o)
+	if not unguarded:
+		# The remaining vectorparts for guarded variables
+		L = transition_read_varrefs(t,o,False)
+		VPrem = []
+		Ln = []
+		for v in L:
+			if no_dynamic_indexing(v,o):
+				Ln.append(v)
+		VPold = VP
+		VP = get_remaining_vectorparts(Ln,o,VP)
+	for st in t.statements:
+		# buffer allocations for dynamic array accessing
+		allocs = get_buffer_arrayindex_allocs(t, o)
+		if unguarded:
+			first = True
+			for v in get_vars(statement_varrefs(st,o,sm)):
+				if has_dynamic_indexing(v, v.name, t, o):
+					if first:
+						output += "// Reset storage of array indices.\n" + indentspace
+						first = False
+					for i in range(0,allocs[(o,v)]):
+						output += "idx_" + str(i+D[v][2]) + " = EMPTY_INDEX;\n" + indentspace
+		if len(VP) > 0:
+			if unguarded:
+				output += "// Fetch values of unguarded variables.\n" + indentspace
+			else:
+				output += "// Fetch values of guarded variables.\n" + indentspace
+		vpfirst = True
+		first = True
+		if resetfetched:
+			fetched = {0: -1, 1: -1}
+		for i in range(0,len(VP)):
+			R = transition_read_varrefs(t,o,False)
+			for (v,j) in R:
+				success = (v.__class__.__name__ == "Channel")
+				if not success:
+					success = no_dynamic_indexing((v,j),o)
+				if success and not unguarded:
+					success = vectorparts_not_covered((v,j),o,VPold)
+				if success:
+					name = scopename(v,j,o)
+					p = vectorelem_in_structure_map[name]
+					if p[1][0] == VP[i]:
+						success = (len(p) == 2)
+						if not success and i < len(VP)-1:
+							success = (p[len(p)-1][0] == VP[i+1])
+						if success:
+							if vpfirst and first:
+								if VP[i] != fetched[0] and VP[i] != fetched[1]:
+									fetched[0] = VP[i]
+									output += "part1 = get_vectorpart(node_index, " + str(VP[i]) + ");\n" + indentspace
+								elif VP[i] == fetched[1]:
+									fetched[0] = fetched[1]
+									output += "part1 = part2\n" + indentspace
+							if (not vpfirst) and first:
+								output += "part1 = part2\n;" + indentspace
+							if i+1 < len(VP):
+								if VP[i+1] != fetched[0] and VP[i+1] != fetched[1]:
+									fetched[1] = VP[i+1]
+									output += "part2 = get_vectorpart(node_index, " + str(VP[i+1]) + ");\n" + indentspace
+								elif VP[i+1] == fetched[0]:
+									fetched[1] = fetched[0]
+									output += "part2 = part1;\n" + indentspace
+							if not (v.__class__.__name__ == "Channel" and RepresentsInt(j)):
+								if v.__class__.__name__ != "Channel" and v.__class__.__name__ != "StateMachine":
+									output += "get_" + scopename(v,None,o).replace("'","_")
+									if j != None:
+										output += "_" + getinstruction(j,o,{})
+									output += "(&" + D[v][0] + "_"
+									if j == None:
+										output += str(D[v][1])
+									else:
+										output += str(int(D[v][1]) + int(getinstruction(j,o,{})))
+									output += ", part1, part2);\n" + indentspace
+								else:
+									if v.__class__.__name__ == "Channel" and "'" in str(j):
+										# i is an (Object,Statemachine) pair. this refers to the current state variable of a state machine.
+										output += "get_" + scopename(v,j,o).replace("[","_").replace("]","").replace("'","_") + "(&" + D[(v,"state")][0] + "_" + str(D[(v,"state")][1]) + ", part1, part2);\n" + indentspace
+									else:
+										output += "get_" + scopename(v,j,o).replace("[","_").replace("]","").replace("'","_") + "(&" + D[(v,j)][0] + "_" + str(D[(v,j)][1]) + ", part1, part2);\n" + indentspace
+							else:
+								if no_dynamic_indexing((s.params[j-1].var, s.params[j-1].index), o):
+									output += "get_" + scopename(c, j, o).replace("[","_").replace("]","").replace("'","_")
+									output += "(&" + D[s.params[j-1].var][0] + "_"
+									success = (j == None)
+									if not success:
+										success = (s.params[j-1].index == None)
+									if success:
+										output += str(D[s.params[j-1].var][1])
+									else:
+										coffset += int(D[s.params[j-1].var][1])
+										if s.params[j-1].index != None:
+											coffset += int(getinstruction(s.params[j-1].index,o,{}))
+										output += str(coffset)
+									output += ", part1, part2);\n" + indentspace
+								else:
+									size = allocs[(o,s.params[j-1].var)]
+									output += "\t// Fetch and store value.\n" + indentspace
+									output += "\tget_" + scopename(v,None,o).replace("'","_") + "(node_index, &buf" + str(gettypesize(s.params[j-1].var.type)) + "_" + str(D[s.params[j-1].var][1]+size-1) + ", " + getinstruction(s.params[j-1].index,o,D) + ");\n" + indentspace
+									output += "\tA_STR_" + str(size) + "("
+									for k in range(0,size):
+										output += "&idx_" + str(k+D[s.params[j-1].var][2]) + ", "
+									for k in range(0,size):
+										output += "&buf" + str(gettypesize(s.params[j-1].var.type)) + "_" + str(D[s.params[j-1].var][1]+k) + ", "
+									output += getinstruction(s.params[j-1].index,o,D) + ", buf" + str(gettypesize(s.params[j-1].var.type)) + "_" + str(D[s.params[j-1].var][1]+size-1) + ");\n" + indentspace
+									output += "}\n" + indentspace
+							first = False
+			vpfirst = False
+		first = True
+		for (v,j) in transition_sorted_dynamic_read_varrefs(t,o,unguarded):
+			if first:
+				output += "// Fetch values of variables involving dynamic array indexing.\n" + indentspace
+			output += "// Check for presence of index in buffer indices.\n" + indentspace
+			size = allocs[(o,v)]
+			output += "if (!A_IEX_" + str(size) + "("
+			for i in range(0,size):
+				output += "idx_" + str(i+D[v][2]) + ", "
+			output += getinstruction(j,o,D) + ")) {\n" + indentspace
+			output += "\t// Fetch and store value.\n" + indentspace
+			output += "\tget_" + scopename(v,None,o).replace("'","_") + "(node_index, &buf" + str(gettypesize(v.type)) + "_" + str(D[v][1]+size-1) + ", " + getinstruction(j,o,D) + ");\n" + indentspace
+			output += "\tA_STR_" + str(size) + "("
+			for i in range(0,size):
+				output += "&idx_" + str(i+D[v][2]) + ", "
+			for i in range(0,size):
+				output += "&buf" + str(gettypesize(v.type)) + "_" + str(D[v][1]+i) + ", "
+			output += getinstruction(j,o,D) + ", buf" + str(gettypesize(v.type)) + "_" + str(D[v][1]+size-1) + ");\n" + indentspace
+			output += "}\n" + indentspace
+			first = False
+	return output
+
+def getinstruction(s, o, D):
+	"""Get the CUDA instruction for the given statement s. o is Object owning s, D is a dictionary mapping variable refs to variable names."""
+	global model, connected_channel
 
 	result = ''
 	if s.__class__.__name__ == "Assignment":
-		(vname,offset) = D.get(s.left.var, (s.left.var.name, None))
-		rightexp = getinstruction(s.right, o, D, Drec)
+		e = D.get(s.left.var, (s.left.var.name, None))
+		vname = e[0]
+		offset = e[1]
+		idx_offset = 0
+		if len(e) > 2:
+			idx_offset = e[2]
+		rightexp = getinstruction(s.right, o, D)
 		offsetcnt = -1
 		if offset != None:
 			offsetcnt = offset
 		if s.left.index != None:
-			indexresult = getinstruction(s.left.index, o, D, Drec)
+			indexresult = getinstruction(s.left.index, o, D)
 			# find a suitable object (object is irrelevant for outcome)
 			t = s.parent
 			while t.__class__.__name__ != "Transition":
@@ -949,13 +1210,13 @@ def getinstruction(s, o, D, Drec):
 			for o in model.objects:
 				if o.type == s.parent.parent:
 					break
-			if has_dynamic_indexing(s.left.var, t, o):
-				allocs = get_buffer_arrayindex_allocs(t.source, o)
-				size = allocs[s.left.var]
+			if has_dynamic_indexing(s.left.var, s.left.var.name, t, o):
+				allocs = get_buffer_arrayindex_allocs(t, o)
+				size = allocs[(o,s.left.var)]
 				tpsize = str(gettypesize(s.left.var.type))
-				result += "A_STR("
+				result += "A_STR_" + str(size) + "("
 				for j in range(0,size):
-					result += "&idx_" + s.left.var.name + "_" + str(j) + ", "
+					result += "&idx_" + str(j+idx_offset) + ", "
 				for j in range(0,size):
 					result += "&buf" + tpsize + "_" + str(j+offset) + ", "
 				result += indexresult + ", " + rightexp + ")"
@@ -974,61 +1235,61 @@ def getinstruction(s, o, D, Drec):
 				result += ")"
 	elif s.__class__.__name__ == "Expression" or s.__class__.__name__ == "ExprPrec4" or s.__class__.__name__ == "ExprPrec3" or s.__class__.__name__ == "ExprPrec2" or s.__class__.__name__ == "ExprPrec1":
 		if s.op != '':
-			result += getinstruction(s.left, o, D, Drec) + " " + operator(s.op) + " " + getinstruction(s.right, o, D, Drec)
+			result += getinstruction(s.left, o, D) + " " + operator(s.op) + " " + getinstruction(s.right, o, D)
 		else:
-			result += getinstruction(s.left, o, D, Drec)
+			result += getinstruction(s.left, o, D)
 	elif s.__class__.__name__ == "Primary":
 		result += sign(s.sign)
-		if s.sign == "not":
+		result2 = ''
+		if s.sign == 'not':
 			result += "("
 		if s.value != None:
 			newvalue = s.value
 			result += str(newvalue).lower()
 		elif s.ref != None:
-			result = ''
-			# look for an exact (name, index) match in Drec
-			if s.ref.index != None:
-				index_str = getinstruction(s.ref.index, o, {}, {})
-			else:
-				index_str = s.ref.index
-			(vname,offset) = Drec.get((s.ref.ref, index_str), (s.ref.ref, None))
-			if vname == s.ref.ref:
-				# look for a match on s.ref.ref in D
-				for r in D.keys():
-					if not isinstance(r, tuple):
-						if s.ref.ref == r.name:
-							vname = D[r][0]
-							offset = D[r][1]
-							break
+			# look for a match on s.ref.ref in D
+			vname = ''
+			offset = 0
+			idx_offset = 0
+			for r in D.keys():
+				if not isinstance(r, tuple):
+					if s.ref.ref == r.name:
+						vname = D[r][0]
+						offset = D[r][1]
+						if len(D[r]) > 2:
+							idx_offset = D[r][2]
+						break
 			offsetcnt = -1
 			if offset != None:
 				offsetcnt = offset
 			if s.ref.index != None:
-				indexresult = getinstruction(s.ref.index, o, D, Drec)
-				# find a suitable object (object is irrelevant for outcome)
+				indexresult = getinstruction(s.ref.index, o, D)
+				# find the transition executing s by moving up the parse tree
 				t = s.parent
 				while t.__class__.__name__ != "Transition":
 					t = t.parent
-				for o in model.objects:
-					if o.type == s.parent.parent:
-						break
-				if has_dynamic_indexing(s.ref, t, o):
-					allocs = get_buffer_arrayindex_allocs(t.source, o)
-					size = allocs[s.ref]
-					tpsize = str(gettypesize(s.ref.type))
-					result += "A_LD("
+				if has_dynamic_indexing(s.ref, s.ref.ref, t, o):
+					allocs = get_buffer_arrayindex_allocs(t, o)
+					v = ''
+					for (o1,v1) in allocs.keys():
+						if o == o1 and v1.name == s.ref.ref:
+							v = v1
+							break
+					size = allocs[(o,v)]
+					tpsize = str(gettypesize(v.type))
+					result2 += "A_LD_" + str(size) + "("
 					for j in range(0,size):
-						result += "&idx_" + s.ref.ref + "_" + str(j) + ", "
+						result2 += "idx_" + str(j+idx_offset) + ", "
 					for j in range(0,size):
-						result += "&buf" + tpsize + "_" + str(j+offset) + ", "
-					result += indexresult + ")"
+						result2 += "buf" + tpsize + "_" + str(j+offset) + ", "
+					result2 += indexresult + ")"
 				else:
 					indexdict = get_constant_indices(s.ref, s.ref.ref, t, o)
 					offsetcnt += indexdict[indexresult]
-			if result == '':
-				result += vname
+			if result2 == '':
+				result2 += vname
 				if offsetcnt != -1:
-					result += "_" + str(offsetcnt)
+					result2 += "_" + str(offsetcnt)
 			# vname = s.ref.ref
 			# offset = None
 			# # look for an exact (name, index) match in Drec
@@ -1064,24 +1325,25 @@ def getinstruction(s, o, D, Drec):
 			# 		indexdict = get_constant_indices(r, t, o)
 			# 		result += str(indexdict[indexresult])
 		else:
-			result += '(' + getinstruction(s.body, o, D, Drec) + ')'
-		if s.sign == "not":
-			result += ")"
-	elif s.__class__.__name__ == "VariableRef":
-		(vname,offset) = D.get(s.var, (s.var.name, None))
-		result += vname
-		if offset != None or s.index != None:
-			result += "_"
-		if offset != None:
-			result += str(offset)
-			if s.index != None:
-				result += " + "
-		if s.index != None:
-			indexresult = getinstruction(s.index, o, D, Drec)
-			if (RepresentsInt(indexresult)):
-				result += indexresult
-			else:
-				result += "idx(idx_" + s.var.name + ", " + indexresult + ")"
+			result2 += '(' + getinstruction(s.body, o, D) + ')'
+		if s.sign == 'not':
+			result2 += ")"
+		result += result2
+	# elif s.__class__.__name__ == "VariableRef":
+	# 	(vname,offset) = D.get(s.var, (s.var.name, None))
+	# 	result += vname
+	# 	if offset != None or s.index != None:
+	# 		result += "_"
+	# 	if offset != None:
+	# 		result += str(offset)
+	# 		if s.index != None:
+	# 			result += " + "
+	# 	if s.index != None:
+	# 		indexresult = getinstruction(s.index, o, D, Drec)
+	# 		if (RepresentsInt(indexresult)):
+	# 			result += indexresult
+	# 		else:
+	# 			result += "idx(idx_" + o.name + "_" + s.var.name + ", " + indexresult + ")"
 	return result
 
 def transition_read_varrefs(t, o, only_unguarded):
@@ -1093,7 +1355,7 @@ def transition_read_varrefs(t, o, only_unguarded):
 	filtered_R = set([])
 	Vseen = set([])
 	for (v,i) in R:
-		i_str = getinstruction(i, o, {}, {})
+		i_str = getinstruction(i, o, {})
 		if (v,i_str) not in Vseen:
 			Vseen.add((v,i_str))
 			filtered_R.add((v,i))
@@ -1113,7 +1375,7 @@ def transition_sorted_dynamic_read_varrefs(t, o, only_unguarded):
 	R2 = set([])
 	for (v,i) in R:
 		if v.__class__.__name__ != "Channel" and v.__class__.__name__ != "StateMachine":
-			i_str = getinstruction(i, o, {}, {})
+			i_str = getinstruction(i, o, {})
 			if i != None and not RepresentsInt(i_str):
 				R2.add((v,i))
 	L = []
@@ -1155,17 +1417,17 @@ def statement_varrefs(s, o, sm):
 			R.add((c, "_size"))
 			# add channel with integer indices to represent items of a Message
 			if signalsize[c] > 0:
-				R.add((c, "[0][0]"))
+				R.add((c, 0))
 			for i in range(1,len(c.type)+1):
-				R.add((c, "[" + str(i) + "][0]"))
-		else:
-			for i in range(0,len(c.type)):
 				R.add((c, i))
-			# add variable to temporary state storage
-			R.add((c, "state"))
+		#else:
+			# for i in range(0,len(c.type)):
+			# 	R.add((c, i))
+			# add variable for temporary state storage
+			# R.add((c, "state"))
 			# add (Object,StateMachine) pairs for state machines that can potentially receive messages
-			for (o2,sm2) in get_syncrec_sms(o, c, s.signal):
-				R.add((c, scopename(sm2,None,o2)))
+			# for (o2,sm2) in get_syncrec_sms(o, c, s.signal):
+			# 	R.add((c, scopename(sm2,None,o2)))
 		for p in s.params:
 			R |= statement_varrefs(p, o, sm)
 	elif s.__class__.__name__ == "ReceiveSignal":
@@ -1173,20 +1435,28 @@ def statement_varrefs(s, o, sm):
 		if c.synctype == 'async':
 			# add channel with index "_size" to represent 'size' variable
 			R.add((c, "_size"))
-			# add channel with integer indices to represent items of a Message
+			# # add channel with integer indices to represent items of a Message
 			if signalsize[c] > 0:
-				R.add((c, "[0][0]"))
-			for i in range(1,len(c.type)+1):
-				R.add((c, "[" + str(i) + "][0]"))
-			Messagerefs = set([])
-			for p in s.params:
-				Messagerefs.add((p.var.name, getinstruction(p.index, o, {}, {})))
-				if p.index != None:
-					R |= statement_varrefs(p.index, o, sm)
-			Rguard = statement_varrefs(s.guard, o, sm)
-			for (v,j) in Rguard:
-				if (v.name, getinstruction(j, o, {}, {})) not in Messagerefs:
-					R.add((v,j))
+				R.add((c, 0))
+			# for i in range(1,len(c.type)+1):
+			# 	R.add((c, "[" + str(i) + "][0]"))
+			# Messagerefs = set([])
+			# for p in s.params:
+			# 	Messagerefs.add((p.var.name, getinstruction(p.index, o, {}, {})))
+			# 	if p.index != None:
+			# 		R |= statement_varrefs(p.index, o, sm)
+			# Rguard = statement_varrefs(s.guard, o, sm)
+			# for (v,j) in Rguard:
+			# 	if (v.name, getinstruction(j, o, {}, {})) not in Messagerefs:
+			# 		R.add((v,j))
+		else:
+			# add (Channel, (Object,Statemachine)) pair to represent current state variable
+			R.add((c,(o,sm)))
+		for p in s.params:
+			R.add((p.var, p.index))
+			if p.index != None:
+				R |= statement_varrefs(p.index, o, sm)
+		R |= statement_varrefs(s.guard, o, sm)
 		# else:
 		# 	for p in s.params:
 		# 		R |= statement_varrefs(p, sm)
@@ -1265,10 +1535,10 @@ def statement_read_varrefs(s, o, sm, only_unguarded):
 		if c.synctype == 'async':
 			# add channel with index "_size" to represent 'size' variable
 			R.add((c, "_size"))
-		if c.synctype == 'sync':
+		# if c.synctype == 'sync':
 			# add (Object,StateMachine) pairs for state machines that can potentially receive messages
-			for (o2,sm2) in get_syncrec_sms(o, c, s.signal):
-				R.add((c, scopename(sm2,None,o2)))
+			# for (o2,sm2) in get_syncrec_sms(o, c, s.signal):
+			# 	R.add((c, scopename(sm2,None,o2)))
 		if not only_unguarded:
 			for p in s.params:
 				R |= statement_read_varrefs(p, o, sm, only_unguarded)
@@ -1276,20 +1546,42 @@ def statement_read_varrefs(s, o, sm, only_unguarded):
 		c = connected_channel[(o, s.target)]
 		if c.synctype == 'async':
 			# Note: checking size of buffer is NOT part of unguarded behaviour! (instead, this is checked in an earlier stage)
-			# add channel with indices to represent the various items in a Message
+			# add channel with index to represent the signal of the buffer head element
 			if signalsize[c] > 0:
-				R.add((c, "[0][0]"))
-			for i in range(1,len(c.type)+1):
-				R.add((c, "[" + str(i) + "][0]"))
+				R.add((c, 0))
+			if not only_unguarded:
+				# add other elements of buffer head element
+				for i in range(1,len(c.type)+1):
+				 	R.add((c, i))
 			# below: also holds for sync
-			Messagerefs = set([])
+			# Messagerefs = set([])
+			# for p in s.params:
+			# 	Messagerefs.add((p.var.name, getinstruction(p.index, o, {}, {})))
+			# 	if p.index != None:
+			# 		R |= statement_read_varrefs(p.index, o, sm, only_unguarded)
+			# R1 = statement_read_varrefs(s.guard, o, sm, only_unguarded)
+			# for (v,j) in R1:
+			# 	if (v.name, getinstruction(j, o, {}, {})) not in Messagerefs:
+			# 		R.add((v,j))
+		else:
+			# add (Object,Statemachine) pair to represent the current state variable
+			R.add((c, scopename(sm,None,o)))
+		if not only_unguarded:
+			Messagerefs = []
+			R1 = set([])
 			for p in s.params:
-				Messagerefs.add((p.var.name, getinstruction(p.index, o, {}, {})))
+				Messagerefs.append((p.var.name, getinstruction(p.index, o, {})))
 				if p.index != None:
-					R |= statement_read_varrefs(p.index, o, sm, only_unguarded)
-			R1 = statement_read_varrefs(s.guard, o, sm, only_unguarded)
+					R1 |= statement_read_varrefs(p.index, o, sm, only_unguarded)
+			R1 |= statement_read_varrefs(s.guard, o, sm, only_unguarded)
 			for (v,j) in R1:
-				if (v.name, getinstruction(j, o, {}, {})) not in Messagerefs:
+				j_str = getinstruction(j, o, {})
+				found = False
+				for (v2name,j2_str) in Messagerefs:
+					if v.name == v2name and j_str == j2_str:
+						found = True
+						break
+				if not found:
 					R.add((v,j))
 	elif s.__class__.__name__ == "Expression" or s.__class__.__name__ == "ExprPrec4" or s.__class__.__name__ == "ExprPrec3" or s.__class__.__name__ == "ExprPrec2" or s.__class__.__name__ == "ExprPrec1":
 		R |= statement_read_varrefs(s.left, o, sm, only_unguarded)
@@ -1358,20 +1650,22 @@ def statement_guarded_varobjects(s):
 	"""Return a list of guarded objects the statement is accessing."""
 	return list(set(statement_varobjects(s)) - set(state_unguarded_varobjects(s.parent.source)))
 
-def get_buffer_allocs(s, o):
-	"""Return info on number of variable allocations to do for evaluation of transition blocks of outgoing transitions of state s. o is Object owning s."""
-	global vectorelem_in_structure_map, signalsize, max_statesize, vectortree, vectortree_T, vectorstructure
-	sm = s.parent
+def get_buffer_allocs(T):
+	"""Return info on number of variable allocations to do for evaluation of transition blocks of (Object,transition) pairs in set T. o is Object owning s."""
+	global vectorelem_in_structure_map, signalsize, max_statesize, vectortree, vectortree_T, vectorstructure, connected_channel, state_order
 	max_32 = 0
 	max_16 = 0
 	max_8 = 0
 	max_bool = 0
-	for t in outgoingtrans(s, sm.transitions):
+	max_idx = 0
+
+	for (o2,t) in T:
+		sm2 = t.parent
 		Vseen = set([])
 		O = set([])
 		for st in t.statements:
 			# O is set of variable refs occurring in block of t
-			O |= statement_varrefs(st, o, sm)
+			O |= statement_varrefs(st, o2, sm2)
 		nr_32 = 0
 		nr_8 = 0
 		nr_bool = 0
@@ -1379,7 +1673,7 @@ def get_buffer_allocs(s, o):
 		dict_arrays_bool = {}
 		for (v,i) in O:
 			if v.__class__.__name__ != "Channel" and v.__class__.__name__ != "StateMachine":
-				i_str = getinstruction(i, o, {}, {})
+				i_str = getinstruction(i, o2, {})
 			else:
 				i_str = i
 			if (v,i_str) not in Vseen:
@@ -1387,20 +1681,26 @@ def get_buffer_allocs(s, o):
 				if v.__class__.__name__ == "Channel":
 					if v.synctype == 'async':
 						# access channel buffer item or the buffer's size variable
-						size = vectorelem_in_structure_map[v.name + i][0]
+						if i == "_size":
+							size = vectorelem_in_structure_map[v.name + i][0]
+						else:
+							size = vectorelem_in_structure_map[v.name + "[" + str(i) + "][0]"][0]							
 					else: # synchronous channel
-						if isinstance(i, int):
-							size = gettypesize(v.type[i])
-						elif i == "state":
+						# if this entry refers to a ReceiveSignal statement, consider storing the source state of its transition
+						# i is an (Object, Statemachine) pair
+						if st.__class__.__name__ == "ReceiveSignal":
 							size = max_statesize
 						else:
-							size = vectorelem_in_structure_map[i][0]
-					if size <= 1:
-						nr_bool += 1
-					elif size <= 8:
-						nr_8 += 1
-					else:
-						nr_32 += 1
+							size = 0
+						# else:
+						# 	size = vectorelem_in_structure_map[i][0]
+					if size > 0:
+						if size <= 1:
+							nr_bool += 1
+						elif size <= 8:
+							nr_8 += 1
+						else:
+							nr_32 += 1
 				elif v.__class__.__name__ == "StateMachine":
 					if max_statesize <= 1:
 						nr_bool += 1
@@ -1418,56 +1718,100 @@ def get_buffer_allocs(s, o):
 						dict_arrays_8[v] = count
 				else:
 					nr_bool += 1
-					count = dict_arrays_bool.get(v, 0)
-					count += 1
-					dict_arrays_bool[v] = count
-		# add additional 16-bit integers (if needed) for pointers to store new vector trees
-		O = set([])
-		for st in t.statements:
-			O = get_write_vectorparts_info(st,o,[])
-			O = list(O.keys())
-			n = len(vectorstructure)-1
-			Onew = []
-			extranode = -1
-			for v in O:
-				if vectorpart_is_combined_with_nonleaf_node(v):
-					extranode = n-1
-				else:
-					Onew.append(v+n)
-			O = sorted(Onew)
-			if extranode != -1:
-				O.append(extranode)
-			# explore vectortree to find maximum number of required pointers to store (the delta of) a new state vector tree
-			navcounters = {}
-			waiting = set([])
-			for v in O:
-				current = v
-				while current != 0:
-					nextnode = vectortree_T[current]
-					C = navcounters.get(nextnode, 0)
-					navcounters[nextnode] = C+1
-					current = nextnode
-			maximum = 0
-			nr_of_pointers = 0
-			if len(O) > 0:
-				current = O.pop(0)
-				nr_of_pointers = 1
-				maximum = 1
-				while current != 0:
-					parent = vectortree_T[current]
-					navcounters[parent] -= 1
-					if navcounters[parent] == 0:
-						current = parent
-						if parent in waiting:
-							nr_of_pointers -= 1
-							waiting.remove(parent)
+					if v.type.size > 0:
+						count = dict_arrays_bool.get(v, 0)
+						count += 1
+						dict_arrays_bool[v] = count
+		# identify the largest number of array index variables needed
+		dyn_allocs = get_buffer_arrayindex_allocs(t, o2)
+		nr_idx = 0
+		for v in dyn_allocs.keys():
+			if dyn_allocs[v] > nr_idx:
+				nr_idx = dyn_allocs[v]
+		# if t has a SendSignal statement connected to a synchronous channel, also consider matching ReceiveSignal statements
+		if st.__class__.__name__ == "SendSignal":
+			c = connected_channel[(o2,st.target)]
+			if c.synctype == 'sync':
+				T2 = get_syncrec_sm_trans(o2, c, st.signal)
+				(rec_32, rec_16, rec_8, rec_bool, rec_idx) = get_buffer_allocs(T2)
+				nr_32 += rec_32
+				nr_8 += rec_8
+				nr_bool += rec_bool
+				# consider the need for array index variables
+				nr_idx2 = 0
+				for (o3,t3) in T2:
+					dyn_allocs = get_buffer_arrayindex_allocs(t3,o3)
+					for v in dyn_allocs.keys():
+						if dyn_allocs[v] > nr_idx2:
+							nr_idx2 = dyn_allocs[v]
+				nr_idx += nr_idx2
+		# record maximum of idx
+		if nr_idx > max_idx:
+			max_idx = nr_idx
+		# add additional 16-bit integers for pointers to store new vector trees
+		bound = 1
+		syncrecs = []
+		if st.__class__.__name__ == "SendSignal":
+			c = connected_channel[(o2,st.target)]
+			if c.synctype == 'sync':
+				bound = len(syncrecs)
+				syncrecs = get_syncrec_sm_trans(o2, c, st.signal)
+		for k in range(0,bound):
+			O = set([])
+			ST = []
+			for st2 in t.statements:
+				ST.append((o2,st2))
+			if len(syncrecs) > k:
+				(o3,t3) = syncrecs[k]
+				for st3 in t3.statements:
+					ST.append((o3,st3))
+			for (o3,st3) in ST:
+				O = get_write_vectorparts_info(st3,o3)
+				O = list(O.keys())
+				n = len(vectorstructure)-1
+				Onew = []
+				extranode = -1
+				for v in O:
+					if vectorpart_is_combined_with_nonleaf_node(v):
+						extranode = n-1
 					else:
-						waiting.add(parent)
-						current = O.pop(0)
-						nr_of_pointers += 1
-						if nr_of_pointers > maximum:
-							maximum = nr_of_pointers
-		max_16 = maximum
+						Onew.append(v+n)
+				O = sorted(Onew)
+				if extranode != -1:
+					O.append(extranode)
+				# explore vectortree to find maximum number of required pointers to store (the delta of) a new state vector tree
+				navcounters = {}
+				waiting = set([])
+				for v in O:
+					current = v
+					while current != 0:
+						nextnode = vectortree_T[current]
+						C = navcounters.get(nextnode, 0)
+						navcounters[nextnode] = C+1
+						current = nextnode
+				maximum = 0
+				nr_of_pointers = 0
+				if len(O) > 0:
+					current = O.pop(0)
+					nr_of_pointers = 1
+					maximum = 1
+					while current != 0:
+						parent = vectortree_T[current]
+						navcounters[parent] -= 1
+						if navcounters[parent] == 0:
+							current = parent
+							if parent in waiting:
+								nr_of_pointers -= 1
+								waiting.remove(parent)
+						else:
+							waiting.add(parent)
+							current = O.pop(0)
+							nr_of_pointers += 1
+							if nr_of_pointers > maximum:
+								maximum = nr_of_pointers
+			if maximum > max_16:
+				max_16 = maximum
+
 		# record maxima
 		if nr_32 > max_32:
 			max_32 = nr_32
@@ -1508,47 +1852,119 @@ def get_buffer_allocs(s, o):
 		left = max_bool - tmp
 		if nr_bool > left + diff:
 			max_bool += nr_bool - left - diff
-	return (max_32, max_16, max_8, max_bool)
+	return (max_32, max_16, max_8, max_bool, max_idx)
 
-def get_buffer_arrayindex_allocs(s, o):
-	"""Return info on variable allocations needed to do bookkeeping on dynamically accessing SLCO array elements, for outgoing transitions of state s. o is Object owning s."""
-	sm = s.parent
+def get_buffer_arrayindex_allocs(t, o):
+	"""Return info on variable allocations needed to do bookkeeping on dynamically accessing SLCO array elements, for the transition t. o is Object owning the transitions."""
+	global connected_channel
 	allocs = {}
-	for t in outgoingtrans(s, sm.transitions):
-		Vseen = set([])
-		access_counters = {}
-		dynamic_access_seen = set([])
-		O = set([])
-		for st in t.statements:
-			O |= statement_varrefs(st, o, sm)
-		for (v,i) in O:
-			# is v an array?
-			if v.__class__.__name__ != "Channel" and v.__class__.__name__ != "StateMachine": 
-				if v.type.size > 0:
-					i_str = getinstruction(i, o, {}, {})
-					if (v,i_str) not in Vseen:
-						Vseen.add((v,i_str))
-						count = access_counters.get(v, 0)
-						count += 1
-						access_counters[v] = count
-						if not RepresentsInt(i_str):
-							dynamic_access_seen.add(v)
-		for v in dynamic_access_seen:
-			count1 = allocs.get(v, 0)
-			count2 = access_counters.get(v, 0)
-			if count2 > count1:
-				allocs[v] = count2
+	sm = t.parent
+	Vseen = set([])
+	access_counters = {}
+	dynamic_access_seen = set([])
+	O = set([])
+	for st in t.statements:
+		O |= statement_varrefs(st, o, sm)
+	for (v,i) in O:
+		# is v an array?
+		if v.__class__.__name__ != "Channel" and v.__class__.__name__ != "StateMachine": 
+			if v.type.size > 0:
+				i_str = getinstruction(i, o, {})
+				if (v,i_str) not in Vseen:
+					Vseen.add((v,i_str))
+					count = access_counters.get(v, 0)
+					count += 1
+					access_counters[v] = count
+					if not RepresentsInt(i_str):
+						dynamic_access_seen.add(v)
+	for v in dynamic_access_seen:
+		count1 = allocs.get((o,v), 0)
+		count2 = access_counters.get(v, 0)
+		if count2 > count1:
+			allocs[(o,v)] = count2
 	return allocs
 
-def map_variables_on_buffer(t, o):
-	"""Construct for block of given transition t a mapping from variables to buffer variables. o is Object owning t."""
+def map_variables_on_buffer(t, o, buffer_allocs, prevM={}):
+	"""Construct for block of given transition t a mapping from variables to buffer variables. o is Object owning t.
+	prevM is a previous variable mapping, which the new one should extend. prevallocs are precomputed buffer allocations."""
 	global vectorelem_in_structure_map, max_statesize
 	sm = t.parent
+	s = t.statements[0]
+
+	allocs = get_buffer_arrayindex_allocs(t, o)
+
 	# counters
 	current_32 = 0
 	current_16 = 0
 	current_8 = 0
 	current_bool = 0
+	current_idx = 0
+	# if a previous mapping has been given, derive suitable offsets to extend it with the new mapping.
+	prevM_offset_32 = 0
+	prevM_offset_8 = 0
+	prevM_offset_bool = 0
+	prevM_offset_idx = 0
+	v_32 = ''
+	v_8 = ''
+	v_bool = ''
+	v_idx = ''
+	if prevM != {}:
+		prevM_offset_32 = -1
+		prevM_offset_8 = -1
+		prevM_offset_bool = -1
+		prevM_offset_idx = -1
+		for (v,i) in prevM.items():
+			if i[0] == "buf32" and i[1] > prevM_offset_32:
+				prevM_offset_32 = i[1]
+				v_32 = v
+			elif i[0] == "buf8" and i[1] > prevM_offset_8:
+				prevM_offset_8 = i[1]
+				v_8 = v
+			elif i[0] == "buf1" and i[1] > prevM_offset_bool:
+				prevM_offset_bool = i[1]
+				v_bool = v
+			# check for use of indices
+			if len(i) > 2:
+				if i[2] > prevM_offset_idx:
+					prevM_offset_idx = i[2]
+					v_idx = v
+		if v_32 != '':
+			size = 1
+			if v_32.__class__.__name__ != "Channel" and v_32.__class__.__name__ != "Statemachine":
+				if v_32.type.size > 1:
+					if allocs.get(v_32) != None:
+						size = allocs[v_32]
+					else:
+						size = len(get_constant_indices(v_32, v_32.name, t, o))
+			prevM_offset_32 += size
+		else:
+			prevM_offset_32 = 0
+		if v_8 != '':
+			size = 1
+			if v_8.__class__.__name__ != "Channel" and v_8.__class__.__name__ != "Statemachine":
+				if v_8.type.size > 1:
+					if allocs.get(v_8) != None:
+						size = allocs[v_8]
+					else:
+						size = len(get_constant_indices(v_8, v_8.name, t, o))
+			prevM_offset_8 += size
+		else:
+			prevM_offset_8 = 0
+		if v_bool != '':
+			size = 1
+			if v_bool.__class__.__name__ != "Channel" and v_bool.__class__.__name__ != "Statemachine":
+				if v_bool.type.size > 1:
+					if allocs.get(v_bool) != None:
+						size = allocs[v_bool]
+					else:
+						size = len(get_constant_indices(v_bool, v_bool.name, t, o))
+			prevM_offset_bool += size
+		else:
+			prevM_offset_bool = 0
+		if v_idx != '':
+			prevM_offset_idx += allocs[v_idx]
+		else:
+			prevM_offset_idx = 0
 	O = set([])
 	for st in t.statements:
 		O |= statement_varrefs(st, o, sm)
@@ -1556,8 +1972,8 @@ def map_variables_on_buffer(t, o):
 	access_counters = {}
 	Vseen = set([])
 	for (v,i) in O:
-		if not is_async_channel(v) and v.__class__.__name__ != "StateMachine":
-			i_str = getinstruction(i, o, {}, {})
+		if not v.__class__.__name__ != "Channel" and v.__class__.__name__ != "StateMachine":
+			i_str = getinstruction(i, o, {})
 			if (v,i_str) not in Vseen:
 				Vseen.add((v,i_str))
 				count = access_counters.get(v, 0)
@@ -1568,118 +1984,106 @@ def map_variables_on_buffer(t, o):
 		else:
 			access_counters[v] = 1
 	
-	# get buffer allocs for the source state of s
-	buffer_allocs = get_buffer_allocs(t.source, o)
-
 	# iterate over elements in descending order w.r.t. nr of items (arrays have multiple items)
 	for (v, ac) in sorted(access_counters.items(), key=(lambda x: x[1]), reverse=True):
 		if v.__class__.__name__ == "Channel":
 			if v.synctype == 'async':
 				size = vectorelem_in_structure_map[v.name + "_size"][0]
 				if size <= 1 and current_bool < buffer_allocs[3]:
-					M[(v, "_size")] = ("buf1", current_bool)
+					M[(v, "_size")] = ("buf1", current_bool+prevM_offset_bool)
 					current_bool += 1
 				elif size <= 8 and current_8 < buffer_allocs[2]:
-					M[(v, "_size")] = ("buf8", current_8)
+					M[(v, "_size")] = ("buf8", current_8+prevM_offset_8)
 					current_8 += 1
-				elif size <= 16 and current_16 < buffer_allocs[1]:
-					M[(v, "_size")] = ("buf16", current_16)
-					current_16 += 1
 				else:
-					M[(v, "_size")] = ("buf32", current_32)
+					M[(v, "_size")] = ("buf32", current_32+prevM_offset_32)
 					current_32 += 1
-				for i in range(0,len(v.type)+1):
+				bound = len(v.type)+1
+				if s.__class__.__name__ == "ReceiveSignal":
+					bound = 1
+				for i in range(0,bound):
 					if i == 0:
 						size = signalsize[v]
 					else:
 						size = gettypesize(v.type[i-1])
-					vindex = "[" + str(i) + "][0]"
+					vindex = i
 					if size > 0:
 						if size == 1 and current_bool < buffer_allocs[3]:
-							M[(v, vindex)] = ("buf1", current_bool)
+							M[(v, vindex)] = ("buf1", current_bool+prevM_offset_bool)
 							current_bool += 1
 						elif size <= 8 and current_8 < buffer_allocs[2]:
-							M[(v, vindex)] = ("buf8", current_8)
+							M[(v, vindex)] = ("buf8", current_8+prevM_offset_8)
 							current_8 += 1
-						elif size <= 16 and current_16 < buffer_allocs[1]:
-							M[(v, vindex)] = ("buf16", current_16)
-							current_16 += 1
 						else:
-							M[(v, vindex)] = ("buf32", current_32)
+							M[(v, vindex)] = ("buf32", current_32+prevM_offset_32)
 							current_32 += 1
 			else: # synchronous channel
-				for i in range(0,len(v.type)):
-					size = gettypesize(v.type[i])
-					if size <= 1 and current_bool < buffer_allocs[3]:
-						M[(v,i)] = ("buf1", current_bool)
-						current_bool += 1
-					elif size <= 8 and current_8 < buffer_allocs[2]:
-						M[(v,i)] = ("buf8", current_8)
-						current_8 += 1
-					elif size <= 16 and current_16 < buffer_allocs[1]:
-						M[(v,i)] = ("buf16", current_16)
-						current_16 += 1
-					else:
-						M[(v,i)] = ("buf32", current_32)
-						current_32 += 1
+				# we know that we are dealing with a ReceiveSignal statement, since SendSignal statements over a synchronous channel require no additional data (besides parameter variables).
 				size = max_statesize
 				if size <= 1 and current_bool < buffer_allocs[3]:
-					M[(v,"state")] = ("buf1", current_bool)
+					M[(v,"state")] = ("buf1", current_bool+prevM_offset_bool)
 					current_bool += 1
 				elif size <= 8 and current_8 < buffer_allocs[2]:
-					M[(v,"state")] = ("buf8", current_8)
+					M[(v,"state")] = ("buf8", current_8+prevM_offset_8)
 					current_8 += 1
-				elif size <= 16 and current_16 < buffer_allocs[1]:
-					M[(v,"state")] = ("buf16", current_16)
-					current_16 += 1
 				else:
-					M[(v,"state")] = ("buf32", current_32)
+					M[(v,"state")] = ("buf32", current_32+prevM_offset_32)
 					current_32 += 1
 				# handle (Object,StateMachine) pairs for state machines that can potentially receive messages
-				for (o2,sm2) in get_syncrec_sms(o, v, st.signal):
-					size = vectorelem_in_structure_map[o2.name + "'" + sm2.name][0]
-					if size <= 1 and current_bool < buffer_allocs[3]:
-						M[(v,o2.name + "'" + sm2.name)] = ("buf1", current_bool)
-						current_bool += 1
-					elif size <= 8 and current_8 < buffer_allocs[2]:
-						M[(v,o2.name + "'" + sm2.name)] = ("buf8", current_8)
-						current_8 += 1
-					elif size <= 16 and current_16 < buffer_allocs[1]:
-						M[(v,o2.name + "'" + sm2.name)] = ("buf16", current_16)
-						current_16 += 1
-					else:
-						M[(v,o2.name + "'" + sm2.name)] = ("buf32", current_32)
-						current_32 += 1
+				# for (o2,sm2) in get_syncrec_sms(o, v, st.signal):
+				# 	size = vectorelem_in_structure_map[o2.name + "'" + sm2.name][0]
+				# 	if size <= 1 and current_bool < buffer_allocs[3]:
+				# 		M[(v,o2.name + "'" + sm2.name)] = ("buf1", current_bool)
+				# 		current_bool += 1
+				# 	elif size <= 8 and current_8 < buffer_allocs[2]:
+				# 		M[(v,o2.name + "'" + sm2.name)] = ("buf8", current_8)
+				# 		current_8 += 1
+				# 	elif size <= 16 and current_16 < buffer_allocs[1]:
+				# 		M[(v,o2.name + "'" + sm2.name)] = ("buf16", current_16)
+				# 		current_16 += 1
+				# 	else:
+				# 		M[(v,o2.name + "'" + sm2.name)] = ("buf32", current_32)
+				# 		current_32 += 1
 		else:
 			if v.__class__.__name__ == "StateMachine":
 				size = max_statesize
 				for x in ["src","tgt"]:
 					if size <= 1 and current_bool < buffer_allocs[3]:
-						M[(v,x)] = ("buf1", current_bool)
+						M[(v,x)] = ("buf1", current_bool+prevM_offset_bool)
 						current_bool += 1
 					elif size <= 8 and current_8 < buffer_allocs[2]:
-						M[(v,x)] = ("buf8", current_8)
+						M[(v,x)] = ("buf8", current_8+prevM_offset_8)
 						current_8 += 1
-					elif size <= 16 and current_16 < buffer_allocs[1]:
-						M[(v,x)] = ("buf16", current_16)
-						current_16 += 1
 					else:
-						M[(v,x)] = ("buf32", current_32)
+						M[(v,x)] = ("buf32", current_32+prevM_offset_32)
 						current_32 += 1
 			else:
 				size = gettypesize(v.type)
 				if size <= 1 and current_bool < buffer_allocs[3]:
-					M[v] = ("buf1", current_bool)
-					current_bool += access_counters[v]
+					if v.type.size == 0:
+						M[v] = ("buf1", current_bool+prevM_offset_bool)
+						current_bool += access_counters[v]
+					else:
+						M[v] = ("buf1", current_bool+prevM_offset_bool, current_idx+prevM_offset_idx)
+						current_bool += access_counters[v]
+						current_idx += access_counters[v]
 				elif size <= 8 and current_8 < buffer_allocs[2]:
-					M[v] = ("buf8", current_8)
-					current_8 += access_counters[v]
-				elif size <= 16 and current_16 < buffer_allocs[1]:
-					M[v] = ("buf16", current_16)
-					current_16 += access_counters[v]
+					if v.type.size == 0:
+						M[v] = ("buf8", current_8+prevM_offset_8)
+						current_8 += access_counters[v]
+					else:
+						M[v] = ("buf8", current_8+prevM_offset_8, current_idx+prevM_offset_idx)
+						current_8 += access_counters[v]
+						current_idx += access_counters[v]
 				else:
-					M[v] = ("buf32", current_32)
-					current_32 += access_counters[v]
+					if v.type.size == 0:
+						M[v] = ("buf32", current_32+prevM_offset_32)
+						current_32 += access_counters[v]
+					else:
+						M[v] = ("buf32", current_32+prevM_offset_32, current_idx+prevM_offset_idx)
+						current_32 += access_counters[v]
+						current_idx += access_counters[v]
+	M.update(prevM)
 	return M
 
 def get_vectorparts(L, o):
@@ -1707,16 +2111,23 @@ def get_remaining_vectorparts(L, o, VPs):
 	P = set([])
 	for (v,i) in L:
 		if v.__class__.__name__ != "Channel":
-			i_str = getinstruction(i, o, {}, {})
+			i_str = getinstruction(i, o, {})
 			name = scopename(v,None,o)
 			if RepresentsInt(i_str):
 				name += "[" + i_str + "]"
-			PIDs = vectorelem_in_structure_map[name]
-			S = set([PIDs[1][0]])
-			if len(PIDs) > 2:
-				S.add(PIDs[2][0])
-			if not S.issubset(VPset):
-				P |= S
+		else:
+			if RepresentsInt(i):
+				name = v.name + "[" + str(i) + "][0]"
+			elif "'" in i:
+				name = i
+			else:
+				name = v.name + i
+		PIDs = vectorelem_in_structure_map[name]
+		S = set([PIDs[1][0]])
+		if len(PIDs) > 2:
+			S.add(PIDs[2][0])
+		if not S.issubset(VPset):
+			P |= S
 	return sorted(list(P))
 
 def vectorparts_not_covered(vi, o, VPs):
@@ -1725,28 +2136,34 @@ def vectorparts_not_covered(vi, o, VPs):
 
 	v = vi[0]
 	i = vi[1]
-	if v.__class__.__name__ == "Channel":
-		return False
 	VPset = set(VPs)
-	i_str = getinstruction(i, o, {}, {})
-	name = scopename(v,None,o)
-	if RepresentsInt(i_str):
-		name += "[" + i_str + "]"
+	if v.__class__.__name__ == "Channel":
+		if RepresentsInt(i):
+			name = v.name + "[" + str(i) + "][0]"
+		elif "'" in i:
+			name = i
+		else:
+			name = v.name + i
+	else:
+		i_str = getinstruction(i, o, {})
+		name = scopename(v,None,o)
+		if RepresentsInt(i_str):
+			name += "[" + i_str + "]"
 	PIDs = vectorelem_in_structure_map[name]
 	S = set([PIDs[1][0]])
 	if len(PIDs) > 2:
 		S.add(PIDs[2][0])
 	return not S.issubset(VPset)
 
-def get_write_vectorparts_info(s, o, deps):
+def get_write_vectorparts_info(s, o, sender_o='', sender_sm='', lossy=False):
 	"""Return a dictionary of (vectorpart,varrefs) tuples indicating how the new values produced when executing statement s have to be stored in vector parts"""
-	"""deps is a list of references depending on s."""
+	"""sender_o and sender_sm are optional arguments indicating a (synchronous) sender SM that needs to change state."""
 	global vectorelem_in_structure_map, connected_channel, signalsize
 
 	Refs = statement_write_varrefs(s,o)
 	D = {}
 	for (v,i) in Refs:
-		i_str = getinstruction(i, o, {}, {})
+		i_str = getinstruction(i, o, {})
 		name = scopename(v,i,o)
 		if i == None or RepresentsInt(i_str):
 			PIDs = vectorelem_in_structure_map[name]
@@ -1788,49 +2205,11 @@ def get_write_vectorparts_info(s, o, deps):
 		Dv = D.get(p,set([]))
 		Dv.add((o,s.parent.parent,True))
 		D[p] = Dv
-	# add reference to state of receiving SM in case of synchronous communication
 	if s.__class__.__name__ == "SendSignal":
 		c = connected_channel[(o,s.target)]
-		if c.synctype == 'sync':
-			# add reference to state of receiving SM
-			if deps != []:
-				for (o2,sm2) in deps:
-					PIDs = vectorelem_in_structure_map[o2.name + "'" + sm2.name]
-					p = PIDs[1][0]
-					Dv = D.get(p,set([]))
-					# Boolean flag indicates that this is the first part (of possibly two) in which the variable is stored
-					Dv.add((c,(o2,sm2),False))
-					D[p] = Dv
-					if len(PIDs) > 2:
-						p = PIDs[2][0]
-						Dv = D.get(p,set([]))
-						Dv.add((c,(o2,sm2),True))
-						D[p] = Dv
-			else:
-				# we are currently counting the number of parts we are at most interested in, as opposed to identifying them exactly.
-				# if there exist one or two parts with a state of a receiving SM that we have not yet covered, add it.
-				extra = []
-				parts = set(D.keys())
-				L = get_syncrec_sms(o, c, s.signal)
-				for (o2,sm2) in L:
-					cnt = []
-					PIDs = vectorelem_in_structure_map[o2.name + "'" + sm2.name]
-					p = PIDs[1][0]
-					if p not in parts:
-						cnt.append(p)
-					if len(PIDs) > 2:
-						p = PIDs[2][0]
-						if p not in parts:
-							cnt.append(p)
-					if len(extra) < len(cnt):
-						extra = cnt
-						if len(extra) == 2:
-							break
-				for p in extra:
-					D[p] = set([])
-		else:
+		if c.synctype == 'async':
 			# in case of asynchronous communication, add all vectorparts comtaining the buffer of the channel, unless we are handling a 'lossy' case
-			if deps == []:
+			if not lossy:
 				i = 0
 				if signalsize[c] == 0:
 					i = 1
@@ -1858,6 +2237,29 @@ def get_write_vectorparts_info(s, o, deps):
 					Dv = D.get(p,set([]))
 					Dv.add((c,"_size",True))
 					D[p] = Dv
+				# we are currently counting the number of parts we are at most interested in, as opposed to identifying them exactly.
+				# if there exist one or two parts with a state of a receiving SM that we have not yet covered, add it.
+				# TODO: REMOVE, AND HANDLE COUNTING IN SEPARATE FUNCTION
+				# extra = []
+				# parts = set(D.keys())
+				# L = get_syncrec_sm_trans(o, c, s.signal)
+				# for (o2,t2) in L:
+				# 	sm2 = t2.parent
+				# 	cnt = []
+				# 	PIDs = vectorelem_in_structure_map[o2.name + "'" + sm2.name]
+				# 	p = PIDs[1][0]
+				# 	if p not in parts:
+				# 		cnt.append(p)
+				# 	if len(PIDs) > 2:
+				# 		p = PIDs[2][0]
+				# 		if p not in parts:
+				# 			cnt.append(p)
+				# 	if len(extra) < len(cnt):
+				# 		extra = cnt
+				# 		if len(extra) == 2:
+				# 			break
+				# for p in extra:
+				# 	D[p] = set([])
 	if s.__class__.__name__ == "ReceiveSignal":
 		c = connected_channel[(o,s.target)]
 		if c.synctype == 'async':
@@ -1889,6 +2291,21 @@ def get_write_vectorparts_info(s, o, deps):
 				Dv = D.get(p,set([]))
 				Dv.add((c,"_size",True))
 				D[p] = Dv
+		else:
+			# add reference to state of sending SM in case of synchronous communication
+			if sender_o != '':
+				PIDs = vectorelem_in_structure_map[sender_o.name + "'" + sender_sm.name]
+				p = PIDs[1][0]
+				Dv = D.get(p,set([]))
+				# Boolean flag indicates that this is the first part (of possibly two) in which the variable is stored
+				Dv.add((sender_o,sender_sm,False))
+				D[p] = Dv
+				if len(PIDs) > 2:
+					p = PIDs[2][0]
+					Dv = D.get(p,set([]))
+					Dv.add((sender_o,sender_sm,True))
+					D[p] = Dv
+
 	# handle action synchronisation
 	if statement_is_actionref(s):
 		a = getlabel(s)
@@ -1952,7 +2369,7 @@ def is_state(name):
 def is_async(c):
 	return c.synctype == 'async'
 
-# Test to check if given variable ref has dynamic indexing. o is Object owning s.
+# Test to check if given variable ref has dynamic indexing. o is Object owning v.
 def no_dynamic_indexing(v, o):
 	if v[0].__class__.__name__ == "Channel":
 		return True
@@ -1960,10 +2377,10 @@ def no_dynamic_indexing(v, o):
 		return True
 	if v[1] == None:
 		return True
-	i_str = getinstruction(v[1], o, {}, {})
+	i_str = getinstruction(v[1], o, {})
 	return RepresentsInt(i_str)
 
-def has_dynamic_indexing(v, t, o):
+def has_dynamic_indexing(v, vname, t, o):
 	"""Returns whether for array v, dynamic indexing is done somewhere in the block of transition t. o is Object owning s."""
 	if v.__class__.__name__ != "Channel" and v.__class__.__name__ != "StateMachine":
 		sm = t.parent
@@ -1971,9 +2388,9 @@ def has_dynamic_indexing(v, t, o):
 		for st in t.statements:
 			O |= statement_varrefs(st, o, sm)
 		for (v1,i) in O:
-			if v1 == v:
+			if v1.name == vname:
 				if i != None:
-					i_str = getinstruction(i, o, {}, {})
+					i_str = getinstruction(i, o, {})
 					if not RepresentsInt(i_str):
 						return True
 	return False
@@ -1989,7 +2406,7 @@ def get_constant_indices(v, vname, t, o):
 		for (v1,i) in O:
 			if v1.name == vname:
 				if i != None:
-					i_str = getinstruction(i, o, {}, {})
+					i_str = getinstruction(i, o, {})
 					if RepresentsInt(i_str):
 						L.add(i_str)
 	L = sorted(list(L))
@@ -2051,14 +2468,17 @@ def nr_of_transitions_to_be_processed_by(s,i,o):
 			nr += 1
 	return nr
 
-def get_syncrec_sms(o, c, signal):
+def get_syncrec_sm_trans(o, c, signal):
 	"""Return a list of (Object,StateMachine) pairs that can potentially receive messages from a StateMachine in the given Object o via the given synchronous channel c"""
-	global syncreccomm
+	global syncreccomm, connected_channel
 	S = syncreccomm[c]
 	L = []
-	for (o2,sm2) in S:
+	for (o2,t2) in S:
 		if o2 != o:
-			L.append((o2,sm2))
+			for st2 in t2.statements:
+				if st2.__class__.__name__ == "ReceiveSignal":
+					if signal == st2.signal:
+						L.append((o2,t2))
 	return L
 
 def get_all_syncrecs(c):
@@ -2074,23 +2494,6 @@ def get_all_syncrecs(c):
 						if c == connected_channel[(o,st.target)]:
 							L.add((o,sm,st.signal))
 	return sorted(list(L), key=lambda x: (x[0].name, x[1].name, x[2]))
-
-def get_reccomm_trans(o, sm, c, signal):
-	"""Return for the given (Object, StateMachine) pair a dictionary providing the transitions (state pairs) on which a message with signal 'signal' can be received over synchronous channel c"""
-	global connected_channel, state_id
-
-	L = {}
-	for t in sm.transitions:
-		for st in t.statements:
-			if st.__class__.__name__ == "ReceiveSignal":
-				if c == connected_channel[(o, st.target)]:
-					if signal == st.signal:
-						src = state_id[(sm, t.source)]
-						tgt = state_id[(sm, t.target)]
-						tgts = L.get(src, [])
-						tgts.append(tgt)
-						L[src] = tgts
-	return L
 
 # Function to iterate over asynchronous channel buffer elements
 def next_buffer_element(c,i,j):
@@ -2118,7 +2521,7 @@ def debug(text):
 
 def preprocess():
 	"""Preprocessing of model"""
-	global model, vectorsize, vectorstructure, vectortree, vectortree_T, vectortree_level_ids, vectortree_leaf_thread, vectorstructure_string, smnames, vectorelem_in_structure_map, max_statesize, state_order, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, connected_channel, signalsize, signalnr, alphabet, syncactions, actiontargets, actions, syncreccomm, no_state_constant, no_prio_constant, dynamic_write_arrays, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth, vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children, tilesize, gpuexplore2_succdist, regsort_nr_el_per_thread, all_arrayindex_allocs_sizes
+	global model, vectorsize, vectorstructure, vectortree, vectortree_T, vectortree_level_ids, vectortree_leaf_thread, vectorstructure_string, smnames, vectorelem_in_structure_map, max_statesize, state_order, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, connected_channel, signalsize, signalnr, alphabet, syncactions, actiontargets, actions, syncreccomm, no_state_constant, no_prio_constant, dynamic_write_arrays, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth, vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children, tilesize, gpuexplore2_succdist, regsort_nr_el_per_thread, all_arrayindex_allocs_sizes, smart_vectortree_fetching_bitmask
 
 	# construct set of statemachine names in the system
 	# also construct a map from names to objects
@@ -2138,7 +2541,7 @@ def preprocess():
 		connected_channel[(c.source, c.port0)] = c
 		connected_channel[(c.target, c.port1)] = c
 
-	# construct dictionary to obtain (Object,StateMachine) pairs that are potentially receiving messages from a given synchronous channel
+	# construct dictionary to obtain (Object,Transition) pairs that are potentially receiving messages from a given synchronous channel
 	syncreccomm = {}
 	for ch in model.channels:
 		if ch.synctype == 'sync':
@@ -2150,7 +2553,7 @@ def preprocess():
 						for st in t.statements:
 							if st.__class__.__name__ == "ReceiveSignal":
 								if (o == ch.source and st.target == ch.port0) or (o == ch.target and st.target == ch.port1):
-									S.add((o,sm))
+									S.add((o,t))
 									found = True
 									break
 						if found:
@@ -2187,15 +2590,13 @@ def preprocess():
 		for sm in c.statemachines:
 			state_nr = 0
 			for s in sm.states:
-				state_id[(sm,s)] = state_nr
+				state_id[s] = state_nr
 				state_nr += 1
 	# calculate state vector size
 	for o in model.objects:
 		# object global variables
 		for v in o.type.variables:
 			size = gettypesize(v.type)
-			print(v.name)
-			print(size)
 			dimension = 0
 			if v.type.size > 1:
 				dimension = v.type.size
@@ -2260,7 +2661,7 @@ def preprocess():
 	intsize = 30
 	if vectorsize > 30:
 		intsize = 62
-	vectorpart_id = 0
+	vp_id = 0
 	state_nr = 0
 	while stateelements != set([]) or dataelements != set([]):
 		selected = ""
@@ -2311,19 +2712,19 @@ def preprocess():
 					vectorstructure.append(tmp)
 					tmp = []
 					tmpsize = 0
-					vectorpart_id += 1
+					vp_id += 1
 				dimbits = int(max(1,math.ceil(math.log(selected_dim, 2))))
 				added_size = min(dimbits, intsize - tmpsize)
 				tmp.append((sname + "_size", added_size))
-				PIDs = [dimbits, (vectorpart_id, (intsize)-(tmpsize+added_size), added_size)]
+				PIDs = [dimbits, (vp_id, (intsize)-(tmpsize+added_size), added_size)]
 				tmpsize += added_size
 				if dimbits - added_size > 0:
 					# add remainder of element to new vector part
 					vectorstructure.append(tmp)
 					tmp = [(sname + "_size", dimbits - added_size)]
 					tmpsize = dimbits - added_size
-					vectorpart_id += 1
-					PIDs.append((vectorpart_id, intsize-(dimbits - added_size), dimbits - added_size))
+					vp_id += 1
+					PIDs.append((vp_id, intsize-(dimbits - added_size), dimbits - added_size))
 				vectorelem_in_structure_map[sname + "_size"] = PIDs
 				elements_strings[sname + "_size"] = "channel size counter"
 			# add selected element to current (and possibly subsequent) vector part(s)
@@ -2342,18 +2743,18 @@ def preprocess():
 							vectorstructure.append(tmp)
 							tmp = []
 							tmpsize = 0
-							vectorpart_id += 1
+							vp_id += 1
 						added_size = min(l, intsize - tmpsize)
 						tmp.append((sname + sindex, added_size))
-						PIDs = [l, (vectorpart_id, (intsize)-(tmpsize+added_size), added_size)]
+						PIDs = [l, (vp_id, (intsize)-(tmpsize+added_size), added_size)]
 						tmpsize += added_size
 						if l - added_size > 0:
 							# add remainder of element to new vector part
 							vectorstructure.append(tmp)
 							tmp = [(sname + sindex, l - added_size)]
 							tmpsize = l - added_size
-							vectorpart_id += 1
-							PIDs.append((vectorpart_id, intsize-(l - added_size), l - added_size))
+							vp_id += 1
+							PIDs.append((vp_id, intsize-(l - added_size), l - added_size))
 						vectorelem_in_structure_map[sname + sindex] = PIDs
 						if elements_strings.get(sname + sindex) == None:
 							if is_async_channel(sname):
@@ -2464,6 +2865,34 @@ def preprocess():
 		curlevel = nextlevel
 		nextlevel = []
 		level += 1
+	# construct smart_vectortree_fetching_bitmask dictionary, which provides bitmasks needed for smart fetching
+	# of vectortrees.
+	smart_vectortree_fetching_bitmask = {}
+	for i in range(0,len(vectortree)):
+		bitmask = 0
+		if is_non_leaf(i):
+			# iterate over the vectorparts, and determine which ones can be reached from node i
+			for j in range(0,len(vectortree)):
+				if is_vectorpart(j):
+					pid = vectorpart_id(j)
+					current = j
+					while current != 0:
+						parent = vectortree_T[current]
+						if parent == i:
+							bitmask += (1 << (31 - pid))
+							break
+						else:
+							current = parent
+		if is_vectorpart(i):
+			pid = vectorpart_id(i)
+			bitmask += (1 << (31 - pid))
+		smart_vectortree_fetching_bitmask[i] = hex(bitmask)
+	# in addition, add a bitmask for the fetching of the state machine states part(s) of a vector.
+	bitmask = 0
+	for i in range(0,len(vectorstructure)):
+		if vectorstructure[i][0][0] in smnames:
+			bitmask += (1 << (31 - i))
+	smart_vectortree_fetching_bitmask["smstates"] = hex(bitmask)
 	# create list of array names
 	arraynames = []
 	for o in model.objects:
@@ -2489,7 +2918,7 @@ def preprocess():
 			Cseen.add(c)
 			for sm in c.statemachines:
 				for s in sm.states:
-					allocs = get_buffer_allocs(s, o)
+					allocs = get_buffer_allocs(object_trans_to_be_processed_by_sm_thread(s,o))
 					if allocs[0] > max_buffer_allocs[0]:
 						max_buffer_allocs[0] = allocs[0]
 					if allocs[2] > max_buffer_allocs[1]:
@@ -2514,8 +2943,8 @@ def preprocess():
 						a = getlabel(st)
 						A.add(a)
 						atrans = smtrans.get(a, {})
-						src = state_id[(sm,t.source)]
-						tgt = state_id[(sm,t.target)]
+						src = state_id[t.source]
+						tgt = state_id[t.target]
 						tgts = atrans.get(src, [])
 						tgts.append(tgt)
 						tgts = list(set(tgts))
@@ -2562,7 +2991,7 @@ def preprocess():
 					# search for dynamic accesses
 					for (v,i) in W:
 						if i != None and not isinstance(i, str):
-							i_str = getinstruction(i,o,{},{})
+							i_str = getinstruction(i,o,{})
 							if not RepresentsInt(i_str):
 								vname = o.name + "'"
 								if v.parent.__class__.__name__ == "StateMachine":
@@ -2631,9 +3060,9 @@ def preprocess():
 		if o.type not in C:
 			C.add(o.type)
 			for sm in o.type.statemachines:
-				for s in sm.states:
-					allocs = get_buffer_arrayindex_allocs(s, o)
-					for (v ,i) in allocs.items():
+				for t in sm.transitions:
+					allocs = get_buffer_arrayindex_allocs(t, o)
+					for i in allocs.values():
 						if i not in all_arrayindex_allocs_sizes:
 							all_arrayindex_allocs_sizes.add(i)
 	all_arrayindex_allocs_sizes = list(all_arrayindex_allocs_sizes)
@@ -2661,7 +3090,7 @@ def preprocess():
 
 def translate():
 	"""The translation function"""
-	global modelname, model, vectorstructure, vectorstructure_string, vectortree, vectortree_T, vectortree_level_ids, vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children, vectorelem_in_structure_map, vectortree_leaf_thread, state_order, max_statesize, smnames, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, signalsize, connected_channel, alphabet, syncactions, actiontargets, no_state_constant, no_prio_constant, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth, gpuexplore2_succdist, no_regsort, tilesize, regsort_nr_el_per_thread, warpsize, all_arrayindex_allocs_sizes
+	global modelname, model, vectorstructure, vectorstructure_string, vectortree, vectortree_T, vectortree_level_ids, vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children, vectorelem_in_structure_map, vectortree_leaf_thread, state_order, max_statesize, smnames, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, signalsize, connected_channel, alphabet, syncactions, actiontargets, no_state_constant, no_prio_constant, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth, gpuexplore2_succdist, no_regsort, tilesize, regsort_nr_el_per_thread, warpsize, all_arrayindex_allocs_sizes, no_smart_fetching
 	
 	path, name = split(modelname)
 	if name.endswith('.slco'):
@@ -2677,8 +3106,10 @@ def translate():
 	jinja_env.filters['get_vector_tree_to_part_navigation'] = get_vector_tree_to_part_navigation
 	jinja_env.filters['get_vector_tree_to_node_navigation'] = get_vector_tree_to_node_navigation
 	jinja_env.filters['outgoingtrans'] = outgoingtrans
+	jinja_env.filters['object_trans_to_be_processed_by_sm_thread'] = object_trans_to_be_processed_by_sm_thread
 	jinja_env.filters['cudarecsizeguard'] = cudarecsizeguard
 	jinja_env.filters['cudaguard'] = cudaguard
+	jinja_env.filters['cudafetchdata'] = cudafetchdata
 	jinja_env.filters['cudastatement'] = cudastatement
 	jinja_env.filters['getinstruction'] = getinstruction
 	jinja_env.filters['getlabel'] = getlabel
@@ -2706,9 +3137,7 @@ def translate():
 	jinja_env.filters['get_vars'] = get_vars
 	jinja_env.filters['must_be_processed_by'] = must_be_processed_by
 	jinja_env.filters['nr_of_transitions_to_be_processed_by'] = nr_of_transitions_to_be_processed_by
-	jinja_env.filters['get_syncrec_sms'] = get_syncrec_sms
 	jinja_env.filters['get_all_syncrecs'] = get_all_syncrecs
-	jinja_env.filters['get_reccomm_trans'] = get_reccomm_trans
 	jinja_env.filters['debug'] = debug
 	jinja_env.filters['log2'] = log2
 	jinja_env.filters['pow2'] = pow2
@@ -2724,14 +3153,14 @@ def translate():
 
 	# load the GPUexplore template
 	template = jinja_env.get_template('gpuexplore.jinja2template')
-	out = template.render(model=model, vectorsize=vectorsize, vectorstructure=vectorstructure, vectorstructure_string=vectorstructure_string, vectortree=vectortree, vectortree_T=vectortree_T, max_statesize=max_statesize, vectorelem_in_structure_map=vectorelem_in_structure_map, state_order=state_order, smnames=smnames, smname_to_object=smname_to_object, state_id=state_id, arraynames=arraynames, max_arrayindexsize=max_arrayindexsize, max_buffer_allocs=max_buffer_allocs, vectorpartlist=vectorpartlist, connected_channel=connected_channel, alphabet=alphabet, syncactions=syncactions, actiontargets=actiontargets, syncreccomm=syncreccomm, no_state_constant=no_state_constant, no_prio_constant=no_prio_constant, dynamic_write_arrays=dynamic_write_arrays, signalsize=signalsize, async_channel_vectorpart_buffer_range=async_channel_vectorpart_buffer_range, vectortree_size=vectortree_size, vectortree_depth=vectortree_depth, vectortree_level_ids=vectortree_level_ids, vectortree_level_nr_of_leaves=vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children=vectortree_level_nr_of_nodes_with_two_children, vectortree_leaf_thread=vectortree_leaf_thread, gpuexplore2_succdist=gpuexplore2_succdist, no_regsort=no_regsort, tilesize=tilesize, regsort_nr_el_per_thread=regsort_nr_el_per_thread, warpsize=warpsize, all_arrayindex_allocs_sizes=all_arrayindex_allocs_sizes)
+	out = template.render(model=model, vectorsize=vectorsize, vectorstructure=vectorstructure, vectorstructure_string=vectorstructure_string, vectortree=vectortree, vectortree_T=vectortree_T, max_statesize=max_statesize, vectorelem_in_structure_map=vectorelem_in_structure_map, state_order=state_order, smnames=smnames, smname_to_object=smname_to_object, state_id=state_id, arraynames=arraynames, max_arrayindexsize=max_arrayindexsize, max_buffer_allocs=max_buffer_allocs, vectorpartlist=vectorpartlist, connected_channel=connected_channel, alphabet=alphabet, syncactions=syncactions, actiontargets=actiontargets, syncreccomm=syncreccomm, no_state_constant=no_state_constant, no_prio_constant=no_prio_constant, dynamic_write_arrays=dynamic_write_arrays, signalsize=signalsize, async_channel_vectorpart_buffer_range=async_channel_vectorpart_buffer_range, vectortree_size=vectortree_size, vectortree_depth=vectortree_depth, vectortree_level_ids=vectortree_level_ids, vectortree_level_nr_of_leaves=vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children=vectortree_level_nr_of_nodes_with_two_children, vectortree_leaf_thread=vectortree_leaf_thread, gpuexplore2_succdist=gpuexplore2_succdist, no_regsort=no_regsort, tilesize=tilesize, regsort_nr_el_per_thread=regsort_nr_el_per_thread, warpsize=warpsize, all_arrayindex_allocs_sizes=all_arrayindex_allocs_sizes, smart_vectortree_fetching_bitmask=smart_vectortree_fetching_bitmask, no_smart_fetching=no_smart_fetching)
 	# write new SLCO model
 	outFile.write(out)
 	outFile.close()
 
 def main(args):
 	"""The main function"""
-	global modelname, model, property_file, deadlock_check, gpuexplore2_succdist, no_regsort
+	global modelname, model, property_file, deadlock_check, gpuexplore2_succdist, no_regsort, no_smart_fetching
 	if len(args) == 0:
 		print("Missing argument: SLCO model")
 		sys.exit(1)
@@ -2745,6 +3174,7 @@ def main(args):
 			print(" -p                    verify given LTL property")
 			print(" -g2                   apply GPUexplore 2.0 successor generation work distribution")
 			print(" -noregsort            do not apply regsort for successor generation work distribution")
+			print(" -nosmartfetching      disable smart fetching of vectortrees from global memory")
 			sys.exit(0)
 		else:
 			for i in range(0,len(args)):
@@ -2757,6 +3187,8 @@ def main(args):
 					gpuexplore2_succdist = True
 				elif args[i] == '-noregsort':
 					no_regsort = True
+				elif args[i] == '-nosmartfetch':
+					no_smart_fetching = True
 				else:
 					modelname = args[i]
 
