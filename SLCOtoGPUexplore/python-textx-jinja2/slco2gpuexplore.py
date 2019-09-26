@@ -15,9 +15,11 @@ model = ""
 # - gpuexplore2_succdist applies successor generation work distribution over threads in the style of GPUexplore 2.0 (vector groups)
 # - no_regsort disables warp-based in register sorting, thereby reducing the amount of expected regularity in successor generation.
 # - no_smart_fetching disables smart fetching of vectortrees from the global memory hash table.
+# - no_compact_hash_table disables compact storage of states in the global memory hash table.
 gpuexplore2_succdist = False
 no_regsort = False
 no_smart_fetching = False
+no_compact_hash_table = False
 
 # the size of a warp
 warpsize = 32
@@ -31,6 +33,8 @@ this_folder = dirname(__file__)
 
 # nr of elements per thread, for intra-warp regsort of tile elements
 regsort_nr_el_per_thread = 0
+# nr of warps for a tile
+nr_warps_per_tile = 0
 
 actions = set([])
 
@@ -248,7 +252,9 @@ def getlogarraysize(t):
 def scopename(v,i,o):
 	"""Return full name of variable v, possibly with index i, if constant. in case a Port is given, return name of connected Channel"""
 	if v.__class__.__name__ == "Channel":
-		if v.synctype == 'async':
+		if i == None:
+			name = v.name
+		elif v.synctype == 'async':
 			if RepresentsInt(i):
 				name = v.name + "[" + str(i) + "][0]"
 			else:
@@ -1346,6 +1352,16 @@ def getinstruction(s, o, D):
 	# 			result += "idx(idx_" + o.name + "_" + s.var.name + ", " + indexresult + ")"
 	return result
 
+def get_smart_fetching_vectorparts_bitmask(s, o):
+	"""Construct a 32-bit bitmask indicating which vectorparts are relevant for processing the outgoing transitions of state s. o is Object owning s.
+	Each bit in the bitmask indicates whether or not the corresponding vectorpart is needed for processing.
+	Precondition: a vectortree has at most 32 parts."""
+	parts = get_all_relevant_vectorparts_for_state(s, o)
+	bitmask = 0
+	for pid in parts:
+		bitmask += (1 << (31 - pid))
+	return hex(bitmask)
+
 def transition_read_varrefs(t, o, only_unguarded):
 	"""Return a set of variable refs appearing in block of transition t"""
 	R = set([])
@@ -2086,6 +2102,61 @@ def map_variables_on_buffer(t, o, buffer_allocs, prevM={}):
 	M.update(prevM)
 	return M
 
+def get_all_relevant_vectorparts_for_state(s, o):
+	"""For the given Statemachine state s, return a sorted list of vector parts that contain relevant info to process its outgoing transitions."""
+	global vectorelem_in_structure_map, connected_channel, signalsize, state_order
+
+	sm = s.parent
+	P = set([])
+	smid = 0
+	# look up id of Statemachine
+	for j in range(0, len(state_order)):
+		if state_order[j] == o.name + "'" + sm.name:
+			smid = j
+			break
+	for t in outgoingtrans(s,s.parent.transitions):
+		if must_be_processed_by(t, smid, o):
+			for st in t.statements:
+				O = statement_varrefs(st, o, sm)
+				for (v,i) in O:
+					if v.__class__.__name__ == "Channel":
+						if v.synctype == 'async':
+							# add all elements of the channel's buffer
+							start = 0
+							if signalsize[v] == 0:
+								start = 1
+							for j in range(start, len(v.type)):
+								for k in range(0, v.size):
+									PIDs = vectorelem_in_structure_map[scopename(v,None,o) + "[" + str(j) + "][" + str(k) + "]"]
+									P.add(PIDs[1][0])
+									if len(PIDs) > 2:
+										P.add(PIDs[2][0])
+							# add the vectorpart containing the size variable of the buffer
+							PIDs = vectorelem_in_structure_map[scopename(v,None,o) + "_size"]
+							P.add(PIDs[1][0])
+							if len(PIDs) > 2:
+								P.add(PIDs[2][0])
+					elif v.__class__.__name__ != "StateMachine":
+						if v.type.size > 0:
+							if has_dynamic_indexing(v, v.name, t, o):
+								# add all elements of array v
+								for j in range(0, v.type.size):
+									PIDs = vectorelem_in_structure_map[scopename(v,None,o) + "[" + str(j) + "]"]
+									P.add(PIDs[1][0])
+									if len(PIDs) > 2:
+										P.add(PIDs[2][0])
+							else:
+								PIDs = vectorelem_in_structure_map[scopename(v,i,o)]
+								P.add(PIDs[1][0])
+								if len(PIDs) > 2:
+									P.add(PIDs[2][0])
+						else:
+							PIDs = vectorelem_in_structure_map[scopename(v,None,o)]
+							P.add(PIDs[1][0])
+							if len(PIDs) > 2:
+								P.add(PIDs[2][0])
+	return sorted(list(P))
+
 def get_vectorparts(L, o):
 	"""For the given set of variable refs (of given Object o), return a sorted list of vector parts that contain that info"""
 	global vectorelem_in_structure_map
@@ -2237,29 +2308,6 @@ def get_write_vectorparts_info(s, o, sender_o='', sender_sm='', lossy=False):
 					Dv = D.get(p,set([]))
 					Dv.add((c,"_size",True))
 					D[p] = Dv
-				# we are currently counting the number of parts we are at most interested in, as opposed to identifying them exactly.
-				# if there exist one or two parts with a state of a receiving SM that we have not yet covered, add it.
-				# TODO: REMOVE, AND HANDLE COUNTING IN SEPARATE FUNCTION
-				# extra = []
-				# parts = set(D.keys())
-				# L = get_syncrec_sm_trans(o, c, s.signal)
-				# for (o2,t2) in L:
-				# 	sm2 = t2.parent
-				# 	cnt = []
-				# 	PIDs = vectorelem_in_structure_map[o2.name + "'" + sm2.name]
-				# 	p = PIDs[1][0]
-				# 	if p not in parts:
-				# 		cnt.append(p)
-				# 	if len(PIDs) > 2:
-				# 		p = PIDs[2][0]
-				# 		if p not in parts:
-				# 			cnt.append(p)
-				# 	if len(extra) < len(cnt):
-				# 		extra = cnt
-				# 		if len(extra) == 2:
-				# 			break
-				# for p in extra:
-				# 	D[p] = set([])
 	if s.__class__.__name__ == "ReceiveSignal":
 		c = connected_channel[(o,s.target)]
 		if c.synctype == 'async':
@@ -2521,7 +2569,7 @@ def debug(text):
 
 def preprocess():
 	"""Preprocessing of model"""
-	global model, vectorsize, vectorstructure, vectortree, vectortree_T, vectortree_level_ids, vectortree_leaf_thread, vectorstructure_string, smnames, vectorelem_in_structure_map, max_statesize, state_order, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, connected_channel, signalsize, signalnr, alphabet, syncactions, actiontargets, actions, syncreccomm, no_state_constant, no_prio_constant, dynamic_write_arrays, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth, vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children, tilesize, gpuexplore2_succdist, regsort_nr_el_per_thread, all_arrayindex_allocs_sizes, smart_vectortree_fetching_bitmask
+	global model, vectorsize, vectorstructure, vectortree, vectortree_T, vectortree_level_ids, vectortree_leaf_thread, vectorstructure_string, smnames, vectorelem_in_structure_map, max_statesize, state_order, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, connected_channel, signalsize, signalnr, alphabet, syncactions, actiontargets, actions, syncreccomm, no_state_constant, no_prio_constant, dynamic_write_arrays, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth, vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children, tilesize, gpuexplore2_succdist, regsort_nr_el_per_thread, all_arrayindex_allocs_sizes, smart_vectortree_fetching_bitmask, nr_warps_per_tile, no_compact_hash_table
 
 	# construct set of statemachine names in the system
 	# also construct a map from names to objects
@@ -2630,6 +2678,9 @@ def preprocess():
 			# take buffer counter into account
 			vectorsize += int(max(1,math.ceil(math.log(dimension, 2))))
 			dataelements.add((ch.name, tuple(typelist), dimension))
+	# if the vectorsize is sufficiently small, compact hash table storage is not needed.
+	if vectorsize < 32:
+		no_compact_hash_table = True
 	# store maximum number of bits needed to encode an automaton state
 	max_statesize = 0
 	for (s,i) in stateelements:
@@ -3086,11 +3137,12 @@ def preprocess():
 		# multiply that number by 32, as each thread in a warp can work on a different state vector.
 		tilesize = int((16 / min(len(smnames), 16)) * 32)
 		# conpute the number of elements per thread in intra-warp regsort of tile elements
-		regsort_nr_el_per_thread = int(math.pow(2,math.ceil(math.log(tilesize, 2))) / 32)
+		regsort_nr_el_per_thread = int(math.pow(2,math.ceil(math.log(tilesize, 2))) / warpsize)
+		nr_warps_per_tile = int(math.ceil(float(tilesize) / float(warpsize)))
 
 def translate():
 	"""The translation function"""
-	global modelname, model, vectorstructure, vectorstructure_string, vectortree, vectortree_T, vectortree_level_ids, vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children, vectorelem_in_structure_map, vectortree_leaf_thread, state_order, max_statesize, smnames, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, signalsize, connected_channel, alphabet, syncactions, actiontargets, no_state_constant, no_prio_constant, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth, gpuexplore2_succdist, no_regsort, tilesize, regsort_nr_el_per_thread, warpsize, all_arrayindex_allocs_sizes, no_smart_fetching
+	global modelname, model, vectorstructure, vectorstructure_string, vectortree, vectortree_T, vectortree_level_ids, vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children, vectorelem_in_structure_map, vectortree_leaf_thread, state_order, max_statesize, smnames, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, vectorpartlist, signalsize, connected_channel, alphabet, syncactions, actiontargets, no_state_constant, no_prio_constant, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth, gpuexplore2_succdist, no_regsort, tilesize, regsort_nr_el_per_thread, warpsize, all_arrayindex_allocs_sizes, no_smart_fetching, no_compact_hash_table
 	
 	path, name = split(modelname)
 	if name.endswith('.slco'):
@@ -3122,6 +3174,7 @@ def translate():
 	jinja_env.filters['cudatype'] = cudatype
 	jinja_env.filters['get_vectorparts'] = get_vectorparts
 	jinja_env.filters['vectorpart_is_combined_with_nonleaf_node'] = vectorpart_is_combined_with_nonleaf_node
+	jinja_env.filters['get_smart_fetching_vectorparts_bitmask'] = get_smart_fetching_vectorparts_bitmask
 	jinja_env.filters['get_remaining_vectorparts'] = get_remaining_vectorparts
 	jinja_env.filters['scopename'] = scopename
 	jinja_env.filters['gettypesize'] = gettypesize
@@ -3153,14 +3206,14 @@ def translate():
 
 	# load the GPUexplore template
 	template = jinja_env.get_template('gpuexplore.jinja2template')
-	out = template.render(model=model, vectorsize=vectorsize, vectorstructure=vectorstructure, vectorstructure_string=vectorstructure_string, vectortree=vectortree, vectortree_T=vectortree_T, max_statesize=max_statesize, vectorelem_in_structure_map=vectorelem_in_structure_map, state_order=state_order, smnames=smnames, smname_to_object=smname_to_object, state_id=state_id, arraynames=arraynames, max_arrayindexsize=max_arrayindexsize, max_buffer_allocs=max_buffer_allocs, vectorpartlist=vectorpartlist, connected_channel=connected_channel, alphabet=alphabet, syncactions=syncactions, actiontargets=actiontargets, syncreccomm=syncreccomm, no_state_constant=no_state_constant, no_prio_constant=no_prio_constant, dynamic_write_arrays=dynamic_write_arrays, signalsize=signalsize, async_channel_vectorpart_buffer_range=async_channel_vectorpart_buffer_range, vectortree_size=vectortree_size, vectortree_depth=vectortree_depth, vectortree_level_ids=vectortree_level_ids, vectortree_level_nr_of_leaves=vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children=vectortree_level_nr_of_nodes_with_two_children, vectortree_leaf_thread=vectortree_leaf_thread, gpuexplore2_succdist=gpuexplore2_succdist, no_regsort=no_regsort, tilesize=tilesize, regsort_nr_el_per_thread=regsort_nr_el_per_thread, warpsize=warpsize, all_arrayindex_allocs_sizes=all_arrayindex_allocs_sizes, smart_vectortree_fetching_bitmask=smart_vectortree_fetching_bitmask, no_smart_fetching=no_smart_fetching)
+	out = template.render(model=model, vectorsize=vectorsize, vectorstructure=vectorstructure, vectorstructure_string=vectorstructure_string, vectortree=vectortree, vectortree_T=vectortree_T, max_statesize=max_statesize, vectorelem_in_structure_map=vectorelem_in_structure_map, state_order=state_order, smnames=smnames, smname_to_object=smname_to_object, state_id=state_id, arraynames=arraynames, max_arrayindexsize=max_arrayindexsize, max_buffer_allocs=max_buffer_allocs, vectorpartlist=vectorpartlist, connected_channel=connected_channel, alphabet=alphabet, syncactions=syncactions, actiontargets=actiontargets, syncreccomm=syncreccomm, no_state_constant=no_state_constant, no_prio_constant=no_prio_constant, dynamic_write_arrays=dynamic_write_arrays, signalsize=signalsize, async_channel_vectorpart_buffer_range=async_channel_vectorpart_buffer_range, vectortree_size=vectortree_size, vectortree_depth=vectortree_depth, vectortree_level_ids=vectortree_level_ids, vectortree_level_nr_of_leaves=vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children=vectortree_level_nr_of_nodes_with_two_children, vectortree_leaf_thread=vectortree_leaf_thread, gpuexplore2_succdist=gpuexplore2_succdist, no_regsort=no_regsort, tilesize=tilesize, regsort_nr_el_per_thread=regsort_nr_el_per_thread, nr_warps_per_tile=nr_warps_per_tile, warpsize=warpsize, all_arrayindex_allocs_sizes=all_arrayindex_allocs_sizes, smart_vectortree_fetching_bitmask=smart_vectortree_fetching_bitmask, no_smart_fetching=no_smart_fetching, no_compact_hash_table=no_compact_hash_table)
 	# write new SLCO model
 	outFile.write(out)
 	outFile.close()
 
 def main(args):
 	"""The main function"""
-	global modelname, model, property_file, deadlock_check, gpuexplore2_succdist, no_regsort, no_smart_fetching
+	global modelname, model, property_file, deadlock_check, gpuexplore2_succdist, no_regsort, no_smart_fetching, no_compact_hash_table
 	if len(args) == 0:
 		print("Missing argument: SLCO model")
 		sys.exit(1)
@@ -3175,6 +3228,7 @@ def main(args):
 			print(" -g2                   apply GPUexplore 2.0 successor generation work distribution")
 			print(" -noregsort            do not apply regsort for successor generation work distribution")
 			print(" -nosmartfetching      disable smart fetching of vectortrees from global memory")
+			print(" -nocompacthashtable   disable compact storage in global memory hash table")
 			sys.exit(0)
 		else:
 			for i in range(0,len(args)):
@@ -3189,6 +3243,8 @@ def main(args):
 					no_regsort = True
 				elif args[i] == '-nosmartfetch':
 					no_smart_fetching = True
+				elif args[i] == '-nocompacthashtable':
+					no_compact_hash_table = True
 				else:
 					modelname = args[i]
 
