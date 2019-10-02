@@ -23,6 +23,8 @@ no_compact_hash_table = False
 
 # the size of a warp
 warpsize = 32
+# number of bits of elements in compact hash tables (excluding bookkeeping bits)
+compact_elem_size = 58
 
 this_folder = dirname(__file__)
 
@@ -421,6 +423,79 @@ def vectorstructure_to_string(D):
 			vs += D[s] + " " + s + ": " + str(i) + " bit(s)"
 		vs += "]"
 	return vs
+
+def cuda_xor_lr(a, ic):
+	"""Produce CUDA code to compute an XOR + left & right bit shift operation on a variable node1."""
+	global compact_elem_size
+
+	result = "node1 ^= (node1 << " + str(a) + ");\n" + indentspace(ic)
+	result += "node1 &= " + str(hex(int(math.pow(2,compact_elem_size))-1)) + "L;\n" + indentspace(ic)
+	result += "node1 ^= (node1 >> " + str(compact_elem_size-a) + ");"
+	return result
+
+def cuda_xor_lr_inv(a, ic):
+	"""Produce CUDA code to compute the inverse of an XOR + left & right bit shift operation on a variable node1."""
+	global compact_elem_size
+
+	result = ""
+	i = a
+	while i < compact_elem_size:
+		result += "node1 ^= (node1 << " + str(i) + ");\n" + indentspace(ic)
+		i += i
+	result += "node1 &= " + str(hex(int(math.pow(2,compact_elem_size))-1)) + "L;\n" + indentspace(ic)
+	i = compact_elem_size-a
+	while i < compact_elem_size:
+		result += "node1 ^= (node1 >> " + str(i) + ");"
+		if i+i < compact_elem_size:
+			result += "\n" + indentspace(ic)
+		i += i
+	return result
+
+def cuda_xor_r3(a, b, c, ic):
+	"""Produce CUDA code to compute an XOR + 3 right bit shifts on a variable node1."""
+	result = "node1 ^= (node1 >> " + str(a) + ");\n" + indentspace(ic)
+	result += "node1 ^= (node1 >> " + str(b) + ");\n" + indentspace(ic)
+	result += "node1 ^= (node1 >> " + str(c) + ");"
+	return result
+
+def cuda_xor_r3_inv(a, b, c, ic):
+	"""Produce CUDA code to compute the inverse of an XOR + 3 right bit shifts on a variable node1."""
+	global compact_elem_size
+
+	result = ""
+	i = c
+	while i < compact_elem_size:
+		result += "node1 ^= (node1 >> " + str(i) + ");\n" + indentspace(ic)
+		i += i
+	i = b
+	while i < compact_elem_size:
+		result += "node1 ^= (node1 >> " + str(i) + ");\n" + indentspace(ic)
+		i += i
+	i = a
+	while i < compact_elem_size:
+		result += "node1 ^= (node1 >> " + str(i) + ");"
+		if i+i < compact_elem_size:
+			result += "\n" + indentspace(ic)
+		i += i
+	return result
+
+def cuda_xor_r(a, ic):
+	"""Produce CUDA code to compute an XOR + 1 right bit shift on a variable node1."""
+	result = "node1 ^= (node1 >> " + str(a) + ");"
+	return result
+
+def cuda_xor_r_inv(a, ic):
+	"""Produce CUDA code to compute the inverse of an XOR + 1 right bit shift on a variable node1."""
+	global compact_elem_size
+
+	result = ""
+	i = a
+	while i < compact_elem_size:
+		result += "node1 ^= (node1 >> " + str(i) + ");"
+		if i+i < compact_elem_size:
+			result += "\n" + indentspace(ic)
+		i += i
+	return result
 
 def cudarecsizeguard(s, D, o):
 	"""Given a ReceiveSignal statement s, return a guard referring to the size of the buffer, in case the connected channel is asynchronous. o is Object owning s."""
@@ -3159,6 +3234,12 @@ def translate():
 	jinja_env.filters['get_vector_tree_to_node_navigation'] = get_vector_tree_to_node_navigation
 	jinja_env.filters['outgoingtrans'] = outgoingtrans
 	jinja_env.filters['object_trans_to_be_processed_by_sm_thread'] = object_trans_to_be_processed_by_sm_thread
+	jinja_env.filters['cuda_xor_lr'] = cuda_xor_lr
+	jinja_env.filters['cuda_xor_lr_inv'] = cuda_xor_lr_inv
+	jinja_env.filters['cuda_xor_r3'] = cuda_xor_r3
+	jinja_env.filters['cuda_xor_r3_inv'] = cuda_xor_r3_inv
+	jinja_env.filters['cuda_xor_r'] = cuda_xor_r
+	jinja_env.filters['cuda_xor_r_inv'] = cuda_xor_r_inv
 	jinja_env.filters['cudarecsizeguard'] = cudarecsizeguard
 	jinja_env.filters['cudaguard'] = cudaguard
 	jinja_env.filters['cudafetchdata'] = cudafetchdata

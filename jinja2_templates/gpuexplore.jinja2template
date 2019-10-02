@@ -455,10 +455,36 @@ inline __device__ bool STOREINCACHE(inttype node, shared_inttype cache_pointers)
 // *** START KERNELS FOR VECTOR TREE NODES STORAGE AND RETRIEVAL TO/FROM THE GLOBAL MEMORY HASH TABLE ***
 
 {% if not no_compact_hash_table %}
+// Bit left rotation function.
+inline __device__ inttype rot(const inttype x, uint8_t i) {
+	return (x << i) | (x >> (58-i));
+}
+
+// XOR two times bit left rotation function.
+inline __device__ inttype xor_rot2(inttype x, uint8_t a, uint8_t b) {
+	inttype y = x ^ rot(x,a);
+	y = y ^ rot(y,b);
+	return y &= 0x03FFFFFFFFFFFFFFL;
+}
+
+// Inverse function for XOR two times bit left rotation, mod 58.
+inline __device__ inttype xor_rot2_inv(inttype x, uint8_t a, uint8_t b) {
+	inttype y = xor_rot2(x, a, b);
+	uint8_t a1 = (8*a) & 0x03FFFFFFFFFFFFFFL;
+	uint8_t b1 = (8*b) & 0x03FFFFFFFFFFFFFFL;
+	y = xor_rot2(y, a1, b1);
+	a1 = (a1+a1) & 0x03FFFFFFFFFFFFFFL;
+	b1 = (b1+b1) & 0x03FFFFFFFFFFFFFFL;
+	y = xor_rot2(y, a1, b1);
+	a1 = (a1+a1) & 0x03FFFFFFFFFFFFFFL;
+	b1 = (b1+b1) & 0x03FFFFFFFFFFFFFFL;
+	y = xor_rot2(y, a1, b1);
+	return y;
+}
+
 // Initial bitmixer function.
 inline __device__ inttype HASH_INIT(inttype node) {
-	inttype node1 = (node ^ (node << 38 | node >>> 20)) & 0x03FFFFFFFFFFFFFFL;
-	node1 = (node1 << 14 | node1 >>> 44) & 0x03FFFFFFFFFFFFFFL;
+	inttype node1 = xor_rot2(node, 38, 14);
 	node1 ^= 0xD1B54A32D192ED03L;
 	node1 *= 0xAEF17502108EF2D9L;
 	return node1;
@@ -466,19 +492,335 @@ inline __device__ inttype HASH_INIT(inttype node) {
 
 // Hash functions.
 inline __device__ inttype HASH(uint8_t id, inttype node) {
-	inttype node1;
+	inttype node1 = node;
 	switch (id) {
 		case 0:
-			node1 = (node ^ node >>> 43 ^ node >>> 31 ^ node >>> 23);
-			node1 *= 0xDB4F0B9175AE2165L;
-			node1 ^= node >>> 28;
-			node1 &= 0x03FFFFFFFFFFFFFFL;
+			{{12|cuda_xor_lr(3)}}
+			{{37|cuda_xor_lr(3)}}
+			node1 *= 0x346d5269d6a44c1L;
+			node1 &= 0x03ffffffffffffffL;
+			{{43|cuda_xor_r3(31, 23, 3)}}
+			node1 *= 0x36d3c2b4804a8e1L;
+			node1 &= 0x03ffffffffffffffL;
+			{{28|cuda_xor_r(3)}}
 			break;
 		case 1:
-			node1 = (node ^ node >>> 42 ^ node >>> 32 ^ node >>> 21);
-			node1 *= 0xDB4F0B9175AE2165L;
-			node1 ^= node >>> 26;
-			node1 &= 0x03FFFFFFFFFFFFFFL;
+			{{10|cuda_xor_lr(3)}}
+			{{35|cuda_xor_lr(3)}}
+			node1 *= 0x3866c0692e5e421L;
+			node1 &= 0x03ffffffffffffffL;
+			{{40|cuda_xor_r3(34, 19, 3)}}
+			node1 *= 0x39838add4d38e61L;
+			node1 &= 0x03ffffffffffffffL;
+			{{26|cuda_xor_r(3)}}
+			break;
+		case 2:
+			{{14|cuda_xor_lr(3)}}
+			{{39|cuda_xor_lr(3)}}
+			node1 *= 0x3a5787914312801L;
+			node1 &= 0x03ffffffffffffffL;
+			{{44|cuda_xor_r3(30, 15, 3)}}
+			node1 *= 0x3afb7bb024c4681L;
+			node1 &= 0x03ffffffffffffffL;
+			{{30|cuda_xor_r(3)}}
+			break;
+		case 3:
+			{{13|cuda_xor_lr(3)}}
+			{{34|cuda_xor_lr(3)}}
+			node1 *= 0x3b7e13a202e41c1L;
+			node1 &= 0x03ffffffffffffffL;
+			{{39|cuda_xor_r3(33, 25, 3)}}
+			node1 *= 0x3be88e9173fb7c1L;
+			node1 &= 0x03ffffffffffffffL;
+			{{28|cuda_xor_r(3)}}
+			break;
+		case 4:
+			{{11|cuda_xor_lr(3)}}
+			{{35|cuda_xor_lr(3)}}
+			node1 *= 0x3c4109af0f01241L;
+			node1 &= 0x03ffffffffffffffL;
+			{{23|cuda_xor_r3(30, 26, 3)}}
+			node1 *= 0x3c8bbb336719fc1L;
+			node1 &= 0x03ffffffffffffffL;
+			{{20|cuda_xor_r(3)}}
+			break;
+		case 5:
+			{{15|cuda_xor_lr(3)}}
+			{{33|cuda_xor_lr(3)}}
+			node1 *= 0x3ccba0994f7af81L;
+			node1 &= 0x03ffffffffffffffL;
+			{{41|cuda_xor_r3(36, 20, 3)}}
+			node1 *= 0x3d02e8d5ad09d61L;
+			node1 &= 0x03ffffffffffffffL;
+			{{23|cuda_xor_r(3)}}
+			break;
+		case 6:
+			{{34|cuda_xor_lr(3)}}
+			{{12|cuda_xor_lr(3)}}
+			node1 *= 0x3d3335b9a01aac1L;
+			node1 &= 0x03ffffffffffffffL;
+			{{38|cuda_xor_r3(42, 24, 3)}}
+			node1 *= 0x3d5dc5b2dd89301L;
+			node1 &= 0x03ffffffffffffffL;
+			{{29|cuda_xor_r(3)}}
+			break;
+		case 7:
+			{{23|cuda_xor_lr(3)}}
+			{{35|cuda_xor_lr(3)}}
+			node1 *= 0x3d839037059b321L;
+			node1 &= 0x03ffffffffffffffL;
+			{{26|cuda_xor_r3(46, 23, 3)}}
+			node1 *= 0x3da557a7a356621L;
+			node1 &= 0x03ffffffffffffffL;
+			{{26|cuda_xor_r(3)}}
+			break;
+		case 8:
+			{{31|cuda_xor_lr(3)}}
+			{{34|cuda_xor_lr(3)}}
+			node1 *= 0x3dc3b70f5d13b41L;
+			node1 &= 0x03ffffffffffffffL;
+			{{29|cuda_xor_r3(40, 20, 3)}}
+			node1 *= 0x3ddf2c9626244a1L;
+			node1 &= 0x03ffffffffffffffL;
+			{{27|cuda_xor_r(3)}}
+			break;
+		case 9:
+			{{24|cuda_xor_lr(3)}}
+			{{20|cuda_xor_lr(3)}}
+			node1 *= 0x3df81dfdd3d5e01L;
+			node1 &= 0x03ffffffffffffffL;
+			{{40|cuda_xor_r3(33, 25, 3)}}
+			node1 *= 0x3e0ee0bdbcd6ea1L;
+			node1 &= 0x03ffffffffffffffL;
+			{{30|cuda_xor_r(3)}}
+			break;
+		case 10:
+			{{10|cuda_xor_lr(3)}}
+			{{19|cuda_xor_lr(3)}}
+			node1 *= 0x3e23ba68e0e7381L;
+			node1 &= 0x03ffffffffffffffL;
+			{{26|cuda_xor_r3(46, 23, 3)}}
+			node1 *= 0x3e36e66407cf201L;
+			node1 &= 0x03ffffffffffffffL;
+			{{28|cuda_xor_r(3)}}
+			break;
+		case 11:
+			{{14|cuda_xor_lr(3)}}
+			{{30|cuda_xor_lr(3)}}
+			node1 *= 0x3e48961660141a1L;
+			node1 &= 0x03ffffffffffffffL;
+			{{43|cuda_xor_r3(12, 26, 3)}}
+			node1 *= 0x3e58f4f3df8a861L;
+			node1 &= 0x03ffffffffffffffL;
+			{{31|cuda_xor_r(3)}}
+			break;
+		case 12:
+			{{19|cuda_xor_lr(3)}}
+			{{41|cuda_xor_lr(3)}}
+			node1 *= 0x3e68266fecc08a1L;
+			node1 &= 0x03ffffffffffffffL;
+			{{24|cuda_xor_r3(39, 21, 3)}}
+			node1 *= 0x3e764a9bd2ba4c1L;
+			node1 &= 0x03ffffffffffffffL;
+			{{25|cuda_xor_r(3)}}
+			break;
+		case 13:
+			{{28|cuda_xor_lr(3)}}
+			{{15|cuda_xor_lr(3)}}
+			node1 *= 0x3e837baf5cdd9e1L;
+			node1 &= 0x03ffffffffffffffL;
+			{{32|cuda_xor_r3(40, 24, 3)}}
+			node1 *= 0x3e8fd1c4d2d9d01L;
+			node1 &= 0x03ffffffffffffffL;
+			{{27|cuda_xor_r(3)}}
+			break;
+		case 14:
+			{{43|cuda_xor_lr(3)}}
+			{{32|cuda_xor_lr(3)}}
+			node1 *= 0x3e9b61d7f9527a1L;
+			node1 &= 0x03ffffffffffffffL;
+			{{31|cuda_xor_r3(46, 28, 3)}}
+			node1 *= 0x3ea63db9f9aa901L;
+			node1 &= 0x03ffffffffffffffL;
+			{{26|cuda_xor_r(3)}}
+			break;
+		case 15:
+			{{35|cuda_xor_lr(3)}}
+			{{42|cuda_xor_lr(3)}}
+			node1 *= 0x3eb074fc94e0161L;
+			node1 &= 0x03ffffffffffffffL;
+			{{25|cuda_xor_r3(44, 29, 3)}}
+			node1 *= 0x3eba165b7e383e1L;
+			node1 &= 0x03ffffffffffffffL;
+			{{28|cuda_xor_r(3)}}
+			break;
+	}
+	return node1;
+}
+
+// Inverse hash functions.
+inline __device__ inttype HASH_INVERSE(uint8_t id, inttype node) {
+	inttype node1 = node;
+	switch (id) {
+		case 0:
+			{{28|cuda_xor_r_inv(3)}}
+			node1 *= 0x3e340cf8be69b21L;
+			node1 &= 0x03ffffffffffffffL;
+			{{43|cuda_xor_r3_inv(31, 23, 3)}}
+			node1 *= 0x16e2e65fde04b41L;
+			node1 &= 0x03ffffffffffffffL;
+			{{37|cuda_xor_lr_inv(3)}}
+			{{12|cuda_xor_lr_inv(3)}}
+			break;
+		case 1:
+			{{26|cuda_xor_r_inv(3)}}
+			node1 *= 0x27e8bdf6b3595a1L;
+			node1 &= 0x03ffffffffffffffL;
+			{{40|cuda_xor_r3_inv(34, 19, 3)}}
+			node1 *= 0x3234705f3029fe1L;
+			node1 &= 0x03ffffffffffffffL;
+			{{35|cuda_xor_lr_inv(3)}}
+			{{10|cuda_xor_lr_inv(3)}}
+			break;
+		case 2:
+			{{30|cuda_xor_r_inv(3)}}
+			node1 *= 0x38516503a7df981L;
+			node1 &= 0x03ffffffffffffffL;
+			{{44|cuda_xor_r3_inv(30, 15, 3)}}
+			node1 *= 0x3880f7d420ed801L;
+			node1 &= 0x03ffffffffffffffL;
+			{{39|cuda_xor_lr_inv(3)}}
+			{{14|cuda_xor_lr_inv(3)}}
+			break;
+		case 3:
+			{{28|cuda_xor_r_inv(3)}}
+			node1 *= 0x3a638f15ba85841L;
+			node1 &= 0x03ffffffffffffffL;
+			{{39|cuda_xor_r3_inv(33, 25, 3)}}
+			node1 *= 0x20fabc04158ce41L;
+			node1 &= 0x03ffffffffffffffL;
+			{{34|cuda_xor_lr_inv(3)}}
+			{{13|cuda_xor_lr_inv(3)}}
+			break;
+		case 4:
+			{{20|cuda_xor_r_inv(3)}}
+			node1 *= 0x3592d3c27c27041L;
+			node1 &= 0x03ffffffffffffffL;
+			{{23|cuda_xor_r3_inv(30, 26, 3)}}
+			node1 *= 0x4f6952eaf8fdc1L;
+			node1 &= 0x03ffffffffffffffL;
+			{{35|cuda_xor_lr_inv(3)}}
+			{{11|cuda_xor_lr_inv(3)}}
+			break;
+		case 5:
+			{{23|cuda_xor_r_inv(3)}}
+			node1 *= 0x1a0c447ad94c6a1L;
+			node1 &= 0x03ffffffffffffffL;
+			{{41|cuda_xor_r3_inv(36, 20, 3)}}
+			node1 *= 0x2a87df258789081L;
+			node1 &= 0x03ffffffffffffffL;
+			{{33|cuda_xor_lr_inv(3)}}
+			{{15|cuda_xor_lr_inv(3)}}
+			break;
+		case 6:
+			{{29|cuda_xor_r_inv(3)}}
+			node1 *= 0xa6775beb906d01L;
+			node1 &= 0x03ffffffffffffffL;
+			{{38|cuda_xor_r3_inv(42, 24, 3)}}
+			node1 *= 0x37e24eee615e541L;
+			node1 &= 0x03ffffffffffffffL;
+			{{12|cuda_xor_lr_inv(3)}}
+			{{34|cuda_xor_lr_inv(3)}}
+			break;
+		case 7:
+			{{26|cuda_xor_r_inv(3)}}
+			node1 *= 0x33b48646b8f9de1L;
+			node1 &= 0x03ffffffffffffffL;
+			{{26|cuda_xor_r3_inv(46, 23, 3)}}
+			node1 *= 0x14eaae5968790e1L;
+			node1 &= 0x03ffffffffffffffL;
+			{{35|cuda_xor_lr_inv(3)}}
+			{{23|cuda_xor_lr_inv(3)}}
+			break;
+		case 8:
+			{{27|cuda_xor_r_inv(3)}}
+			node1 *= 0x1fdf88f19a49f61L;
+			node1 &= 0x03ffffffffffffffL;
+			{{29|cuda_xor_r3_inv(40, 20, 3)}}
+			node1 *= 0xdbbcfbf69154c1L;
+			node1 &= 0x03ffffffffffffffL;
+			{{34|cuda_xor_lr_inv(3)}}
+			{{31|cuda_xor_lr_inv(3)}}
+			break;
+		case 9:
+			{{30|cuda_xor_r_inv(3)}}
+			node1 *= 0x2565bb394a9f561L;
+			node1 &= 0x03ffffffffffffffL;
+			{{40|cuda_xor_r3_inv(33, 25, 3)}}
+			node1 *= 0x209a299946a201L;
+			node1 &= 0x03ffffffffffffffL;
+			{{20|cuda_xor_lr_inv(3)}}
+			{{24|cuda_xor_lr_inv(3)}}
+			break;
+		case 10:
+			{{28|cuda_xor_r_inv(3)}}
+			node1 *= 0x2749093cc470e01L;
+			node1 &= 0x03ffffffffffffffL;
+			{{26|cuda_xor_r3_inv(46, 23, 3)}}
+			node1 *= 0x397388d192dcc81L;
+			node1 &= 0x03ffffffffffffffL;
+			{{19|cuda_xor_lr_inv(3)}}
+			{{10|cuda_xor_lr_inv(3)}}
+			break;
+		case 11:
+			{{31|cuda_xor_r_inv(3)}}
+			node1 *= 0x31b72238ae7fba1L;
+			node1 &= 0x03ffffffffffffffL;
+			{{43|cuda_xor_r3_inv(12, 26, 3)}}
+			node1 *= 0x17db804c1d6e261L;
+			node1 &= 0x03ffffffffffffffL;
+			{{30|cuda_xor_lr_inv(3)}}
+			{{14|cuda_xor_lr_inv(3)}}
+			break;
+		case 12:
+			{{25|cuda_xor_r_inv(3)}}
+			node1 *= 0x17cd12a8d2eeb41L;
+			node1 &= 0x03ffffffffffffffL;
+			{{24|cuda_xor_r3_inv(39, 21, 3)}}
+			node1 *= 0xdda8affbefdb61L;
+			node1 &= 0x03ffffffffffffffL;
+			{{41|cuda_xor_lr_inv(3)}}
+			{{19|cuda_xor_lr_inv(3)}}
+			break;
+		case 13:
+			{{27|cuda_xor_r_inv(3)}}
+			node1 *= 0x13d6fbb801b6301L;
+			node1 &= 0x03ffffffffffffffL;
+			{{32|cuda_xor_r3_inv(40, 24, 3)}}
+			node1 *= 0x34aade611b82a21L;
+			node1 &= 0x03ffffffffffffffL;
+			{{15|cuda_xor_lr_inv(3)}}
+			{{28|cuda_xor_lr_inv(3)}}
+			break;
+		case 14:
+			{{26|cuda_xor_r_inv(3)}}
+			node1 *= 0x303124e6af65701L;
+			node1 &= 0x03ffffffffffffffL;
+			{{31|cuda_xor_r3_inv(46, 28, 3)}}
+			node1 *= 0x2b47151bd0a7c61L;
+			node1 &= 0x03ffffffffffffffL;
+			{{32|cuda_xor_lr_inv(3)}}
+			{{43|cuda_xor_lr_inv(3)}}
+			break;
+		case 15:
+			{{28|cuda_xor_r_inv(3)}}
+			node1 *= 0x1941bdcc12c0021L;
+			node1 &= 0x03ffffffffffffffL;
+			{{25|cuda_xor_r3_inv(44, 29, 3)}}
+			node1 *= 0x998456ffaa62a1L;
+			node1 &= 0x03ffffffffffffffL;
+			{{42|cuda_xor_lr_inv(3)}}
+			{{35|cuda_xor_lr_inv(3)}}
 			break;
 	}
 	return node1;
@@ -492,7 +834,7 @@ inline __device__ uint8_t get_hash_id(global_inttype n) {
 
 // Root version.
 inline __device__ uint8_t get_hash_id_root(global_inttype n) {
-	uint8_t hid = (uint8_t) (n >>> 27);
+	uint8_t hid = (uint8_t) (n >> 27);
 	// Remove the 'new' flag.
 	return (hid & 0x0F);
 }
@@ -502,7 +844,7 @@ inline __device__ uint8_t get_hash_id_root(global_inttype n) {
 inline __device__ inttype get_uncompressed_node(global_inttype n, indextype i) {
 	inttype e = (((inttype) i) << 29);
 	// Obtain hash function ID.
-	uint8_t hid = (uint8_t) (n >>> 29);
+	uint8_t hid = (uint8_t) (n >> 29);
 	// Remove three bits for hash function ID.
 	e |= (inttype) (n & 0x1FFFFFFF);
 	// Retrieve uncompressed node and return it.
@@ -513,7 +855,7 @@ inline __device__ inttype get_uncompressed_node(global_inttype n, indextype i) {
 inline __device__ inttype get_uncompressed_node_root(global_inttype n, indextype i) {
 	inttype e = (((inttype) i) << 27);
 	// Obtain hash function ID.
-	uint8_t hid = (uint8_t) (n >>> 27);
+	uint8_t hid = (uint8_t) (n >> 27);
 	hid &= 0x0F;
 	// Remove four bits for hash function ID + one for 'new' flag.
 	e |= (inttype) (n & 0x07FFFFFF);
