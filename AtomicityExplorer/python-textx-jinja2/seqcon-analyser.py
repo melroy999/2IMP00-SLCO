@@ -1098,6 +1098,7 @@ def process_critical_cycles():
 			#print("here: " + str(CY))
 			# Compress the P-traces
 			CY_summary = []
+			CY_summary_cycle_starts = []
 			P_traces = {}
 			scanning_start = 0
 			for i in range(0, len(CY)):
@@ -1121,6 +1122,9 @@ def process_critical_cycles():
 					if s == t:
 						CY_summary.append((P_trace_start,s))
 						P_traces[tuple((P_trace_start,s))] = trace
+						# if we have not yet found a critical cycle for this P trace, mark it as a starting point
+						if tuple(trace) not in critical_P_traces:
+							CY_summary_cycle_starts.append(len(CY_summary)-1)
 						trace = []
 				else:
 					if s == P_trace_start:
@@ -1129,6 +1133,9 @@ def process_critical_cycles():
 						t_summary = (P_trace_start,s)
 					CY_summary.append(t_summary)
 					P_traces[t_summary] = trace
+					# if we have not yet found a critical cycle for this P trace, mark it as a starting point
+					if tuple(trace) not in critical_P_traces:
+						CY_summary_cycle_starts.append(len(CY_summary)-1)
 					trace = []
 				i = (i+1)%len(CY)
 			# next, we try to identify for each P-trace in CY whether we can construct an access-level cycle in which that P-trace is unsafe
@@ -1137,13 +1144,14 @@ def process_critical_cycles():
 			# first limit the accesses per statement to take C-edges into account
 			cycle_accesses = {}
 			#print(CY_summary)
-			for i in range(0,len(CY_summary)):
-				t_start = CY_summary[i][0]
-				t_end = CY_summary[i][len(CY_summary[i])-1]
-				previous = (i-1)%len(CY_summary)
-				next = (i+1)%len(CY_summary)
+			for i in range(0,len(CY_summary_cycle_starts)):
+				index = CY_summary_cycle_starts[i]
+				t_start = CY_summary[index][0]
+				t_end = CY_summary[index][len(CY_summary[index])-1]
+				previous = (index-1)%len(CY_summary)
+				next_index = (index+1)%len(CY_summary)
 				predecessor = CY_summary[previous][len(CY_summary[previous])-1]
-				successor = CY_summary[next][0]
+				successor = CY_summary[next_index][0]
 				ap = accesspattern[t_start]
 				#print(t_start)
 				L = [('C',a) for a in ap[0]] + [('R',a) for a in ap[1]] + [('W',a) for a in ap[2]]
