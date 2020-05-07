@@ -16,15 +16,6 @@ from slcolib import *
 from SCCTarjan import identifySCCs
 this_folder = dirname(__file__)
 
-# on-the-fly atomicity violation checking
-check_onthefly = False
-# lock on-the-fly
-lock_onthefly = False
-# apply por
-apply_por = False
-# default search without static analysis
-default_search = False
-
 modelname = ""
 model = ""
 
@@ -574,8 +565,8 @@ def statement_condition_varlist(s):
 	return result
 
 def statement_condition(s, owner):
-	"""Provide the condition associated to the given statement. Owner is the owner of statement s."""
-	global statemachine, smclass, porttypes, ochannel
+	"""Provide the condition associated to the given statement. Owner is the Object owner of statement s."""
+	global statemachine, smclass, porttypes, ochannel, trans
 	result = ""
 	if s.__class__.__name__ == "Expression":
 		if not expression_is_actionref(s):
@@ -598,6 +589,15 @@ def statement_condition(s, owner):
 	elif s.__class__.__name__ == "Composite":
 		if s.guard != None:
 			result += expression(s.guard, statemachine[s], smclass[statemachine[s]], {}, owner)
+	# Add the negation of conditions of any alternatives with higher priority than s
+	tr = s.parent
+	sm = tr.parent
+	c = sm.parent
+	src = tr.source
+	T = trans[c][sm][src]
+	for t in T:
+		if t.priority < tr.priority:
+			result += " && !(" + statement_condition(t.statements[0], owner) + ")"
 	return result
 
 def sync_statement_condition(s_rcv, rcv_owner, s_snd, snd_owner):
@@ -1041,10 +1041,14 @@ def mcrl2_accesspattern(s, o, b):
 		access = statement_condition_access[o][s]
 	return mcrl2_accesspattern_to_string(access)
 
-def mcrl2_structure_accesspattern(s, o):
-	"""Return the access pattern of the given statement, minus its condition, for use in an mCRL2 specification. Owner o is also given."""
-	global statement_structure_access
-	alist = statement_structure_access[o][s]
+def mcrl2_structure_accesspattern(s, o, enabled):
+	"""Return the access pattern structure of the given statement, for use in an mCRL2 specification. Owner o is also given.
+	Enabled is a boolean indicating whether all accesses (true) or only those to check the condition of s (false) should be returned."""
+	global statement_structure_access, statement_condition_access
+	if enabled:
+		alist = statement_structure_access[o][s]
+	else:
+		alist = [statement_condition_access[o][s]]
 	return mcrl2_accesspatterns_to_string(alist)
 
 def mcrl2_accesspattern_to_string(access):
@@ -1241,7 +1245,7 @@ def peek(stack):
 	return stack[len(stack) - 1]
 
 def identify_por_safe_statements(model):
-	global statemachine, smclass, safe_por_statements, conditionally_safe_por_statements, trans, default_search
+	global statemachine, smclass, safe_por_statements, conditionally_safe_por_statements, trans
 
 	# in case of the default search, no statement is por safe
 	safe_por_statements = set([])
@@ -1588,7 +1592,7 @@ def build_accessed_sharedvars(m):
 
 def identify_safe_unsafe_statements(m):
 	"""Partition the statements of the model into safe and unsafe statements"""
-	global safe_statements, unsafe_statements, statement_access, statemachine, smclass, unsafe_variables, default_search, filtered_statement_access, filtered_statemachine_access
+	global safe_statements, unsafe_statements, statement_access, statemachine, smclass, unsafe_variables, filtered_statement_access, filtered_statemachine_access
 
 	# Distribute statements over the sets safe and unsafe
 	safe_statements = set([])
@@ -1609,80 +1613,80 @@ def identify_safe_unsafe_statements(m):
 	unsafe_variables = set([])
 
 	# do we create a list of unsafe statements and variables with simply all statements / variables?
-	if default_search:
-		for c in model.classes:
-			for sm in c.statemachines:
-				for tr in sm.transitions:
-					for st in tr.statements:
-						unsafe_statements.add(st)
-		# create complete list of global variables
-		for o in model.objects:
-			for v in o.type.variables:
-				varname = o.name + "'" + v.name
-				if v.type.size > 1:
-					for i in range(0,v.type.size):
-						varindex = "(index\'(" + str(i) + "))"
-						unsafe_variables.add(varname + varindex)
-				else:
-					unsafe_variables.add(varname)		
-	else:
-		# create dictionary of statements
-		sdict = {}
-		for o in classobjects:
-			c = o.type
-			cdict = {}
-			for sm in c.statemachines:
-				stset = set([])
-				for tr in sm.transitions:
-					for st in tr.statements:
-						stset.add(st)
-				cdict[sm] = stset
-			sdict[c] = cdict
+	# if default_search:
+	for c in model.classes:
+		for sm in c.statemachines:
+			for tr in sm.transitions:
+				for st in tr.statements:
+					unsafe_statements.add(st)
+	# create complete list of global variables
+	for o in model.objects:
+		for v in o.type.variables:
+			varname = o.name + "'" + v.name
+			if v.type.size > 1:
+				for i in range(0,v.type.size):
+					varindex = "(index\'(" + str(i) + "))"
+					unsafe_variables.add(varname + varindex)
+			else:
+				unsafe_variables.add(varname)		
+	# else:
+	# 	# create dictionary of statements
+	# 	sdict = {}
+	# 	for o in classobjects:
+	# 		c = o.type
+	# 		cdict = {}
+	# 		for sm in c.statemachines:
+	# 			stset = set([])
+	# 			for tr in sm.transitions:
+	# 				for st in tr.statements:
+	# 					stset.add(st)
+	# 			cdict[sm] = stset
+	# 		sdict[c] = cdict
 
-		for o in classobjects:
-			# check possibility for sequential consistency violations
-			depgraph = build_dep_graph(o)
-			SCCs = list()
-			identifySCCs(depgraph, {}, SCCs)
-			# check which SCCs possibly constitute violations
-			for scc in SCCs:
-				# gather the involved statements in a set
-				sccset = set([st for st in scc[1].keys()])
-				# obtain list of sm's that are involved in the scc
-				smlist = list()
-				for sm in o.type.statemachines:
-					interset = sccset & sdict[o.type][sm]
-					if interset != set([]):
-						# check if sm is sufficiently involved
-						if len(interset) > 1:
-							smlist.append(sm)
-						else:
-							# check if the single element has connections to multiple other nodes in scc (C-edges being bidirectional causes the problem here)
-							for st in interset:
-								conset = depgraph[st] & sccset
-								if len(conset) > 1:
-									smlist.append(sm)
-								else:
-									# check if the single element has conflicts with multiple accesses
-									for st2 in conset:
-										fa = filtered_statement_access[o][st2]
-										count = 0
-										count += count_conflicts2(fa[1], filtered_statement_access[o][st][0], 2)
-										if count < 2:
-											count += count_conflicts2(fa[0], filtered_statement_access[o][st][1], 2)
-											if count < 2:
-												count += count_conflicts2(fa[1], filtered_statement_access[o][st][1], 2)
-										if count > 1:
-											smlist.append(sm)
-				if len(smlist) > 1:
-					# the scc is relevant for violations. add the involved statements to unsafe_statements, and their involved accesses to unsafe_filtered_accesses
-					for sm in smlist:
-						interset = sccset & sdict[o.type][sm]
-						unsafe_statements |= interset
-						for o2 in model.objects:
-							if o2.type == o.type:
-								for st in interset:
-									unsafe_filtered_accesses.append(filtered_statement_access[o2][st])
+	# 	for o in classobjects:
+	# 		# check possibility for sequential consistency violations
+	# 		depgraph = build_dep_graph(o)
+	# 		SCCs = list()
+	# 		identifySCCs(depgraph, {}, SCCs)
+	# 		# check which SCCs possibly constitute violations
+	# 		for scc in SCCs:
+	# 			# gather the involved statements in a set
+	# 			sccset = set([st for st in scc[1].keys()])
+	# 			# obtain list of sm's that are involved in the scc
+	# 			smlist = list()
+	# 			for sm in o.type.statemachines:
+	# 				interset = sccset & sdict[o.type][sm]
+	# 				if interset != set([]):
+	# 					# check if sm is sufficiently involved
+	# 					if len(interset) > 1:
+	# 						smlist.append(sm)
+	# 					else:
+	# 						# check if the single element has connections to multiple other nodes in scc (C-edges being bidirectional causes the problem here)
+	# 						for st in interset:
+	# 							conset = depgraph[st] & sccset
+	# 							if len(conset) > 1:
+	# 								smlist.append(sm)
+	# 							else:
+	# 								# check if the single element has conflicts with multiple accesses
+	# 								for st2 in conset:
+	# 									fa = filtered_statement_access[o][st2]
+	# 									count = 0
+	# 									count += count_conflicts2(fa[1], filtered_statement_access[o][st][0], 2)
+	# 									if count < 2:
+	# 										count += count_conflicts2(fa[0], filtered_statement_access[o][st][1], 2)
+	# 										if count < 2:
+	# 											count += count_conflicts2(fa[1], filtered_statement_access[o][st][1], 2)
+	# 									if count > 1:
+	# 										smlist.append(sm)
+	# 			if len(smlist) > 1:
+	# 				# the scc is relevant for violations. add the involved statements to unsafe_statements, and their involved accesses to unsafe_filtered_accesses
+	# 				for sm in smlist:
+	# 					interset = sccset & sdict[o.type][sm]
+	# 					unsafe_statements |= interset
+	# 					for o2 in model.objects:
+	# 						if o2.type == o.type:
+	# 							for st in interset:
+	# 								unsafe_filtered_accesses.append(filtered_statement_access[o2][st])
 
 	for ac in unsafe_filtered_accesses:
 		for a in ac[0][0]:
@@ -1927,7 +1931,7 @@ def preprocess():
 
 def translate():
 	"""The translation function"""
-	global model, modelname, statemachinenames, statemachine, tr, smlocalvars, accessed_sharedvars, states, actions, class_receives, class_sends, vartypes, mcrl2varprefix, channeltypes, asynclossytypes, asynclosslesstypes, synctypes, statement_access, statement_condition_access, statement_structure_access, unsafe_statements, object_sync_commpairs, syncing_statements, check_onthefly, lock_onthefly, apply_por, sorted_variables, unsafe_variables, IntArraySizes, BoolArraySizes
+	global model, modelname, statemachinenames, statemachine, tr, smlocalvars, accessed_sharedvars, states, actions, class_receives, class_sends, vartypes, mcrl2varprefix, channeltypes, asynclossytypes, asynclosslesstypes, synctypes, statement_access, statement_condition_access, statement_structure_access, unsafe_statements, object_sync_commpairs, syncing_statements, sorted_variables, unsafe_variables, IntArraySizes, BoolArraySizes
 	
 	path, name = split(modelname)
 	if name.endswith('.slco'):
@@ -2000,14 +2004,14 @@ def translate():
 	# produce_summands(model)
 	# load the mCRL2 template
 	template = jinja_env.get_template('mcrl2-seqcon.jinja2template')
-	out = template.render(model=model, statemachinenames=statemachinenames, states=states, vartypes=vartypes, mcrl2varprefix=mcrl2varprefix, channeltypes=channeltypes, asynclosslesstypes=asynclosslesstypes, asynclossytypes=asynclossytypes, synctypes=synctypes, trans=trans, ochannel=ochannel, object_sync_commpairs=object_sync_commpairs, syncing_statements=syncing_statements, transowner=trowner, statemachine=statemachine, check_onthefly=check_onthefly, lock_onthefly=lock_onthefly, apply_por=apply_por, sorted_variables=sorted_variables, unsafe_variables=unsafe_variables, sorted_objects=sorted_objects, sorted_statemachines=sorted_statemachines, accessed_sharedvars=accessed_sharedvars, IntArraySizes=IntArraySizes, BoolArraySizes=BoolArraySizes)
+	out = template.render(model=model, statemachinenames=statemachinenames, states=states, vartypes=vartypes, mcrl2varprefix=mcrl2varprefix, channeltypes=channeltypes, asynclosslesstypes=asynclosslesstypes, asynclossytypes=asynclossytypes, synctypes=synctypes, trans=trans, ochannel=ochannel, object_sync_commpairs=object_sync_commpairs, syncing_statements=syncing_statements, transowner=trowner, statemachine=statemachine, sorted_variables=sorted_variables, unsafe_variables=unsafe_variables, sorted_objects=sorted_objects, sorted_statemachines=sorted_statemachines, accessed_sharedvars=accessed_sharedvars, IntArraySizes=IntArraySizes, BoolArraySizes=BoolArraySizes)
 	# write mCRL2 spec
 	outFile.write(out)
 	outFile.close()
 
 def main(args):
 	"""The main function"""
-	global modelname, model, check_onthefly, apply_por, lock_onthefly, default_search
+	global modelname, model
 	if len(args) == 0:
 		print("Missing argument: SLCO model")
 		sys.exit(1)
@@ -2016,34 +2020,9 @@ def main(args):
 			print("Usage: pypy/python3 slco2mcrl2 [-rc]")
 			print("")
 			print("Transform an SLCO 2.0 model to an mCRL2 model for sequential consistency violation checking.")
-			print(" -d                                    default search. do NOT apply static analysis [default setting]")
-			print(" -o                                    apply on-the-fly sequential consistency violation checking")
-			print(" -l                                    lock on-the-fly (applies checking on-the-fly and acts on result by locking variables)")
-			print(" -r                                    apply partial-order reduction")
 			sys.exit(0)
 		else:
-			default_search = True
-			check_onthefly = False
-			lock_onthefly = False
-			apply_por = False
-			for i in range(0,len(args)):
-				if args[i] == '-d':
-					default_search = True
-					check_onthefly = False
-					lock_onthefly = False
-					apply_por = False
-				elif args[i] == '-o':
-					default_search = False
-					check_onthefly = True
-					lock_onthefly = False
-				elif args[i] == '-r':
-					apply_por = True
-				elif args[i] == '-l':
-					default_search = False
-					lock_onthefly = True
-					check_onthefly = True
-				else:
-					modelname = args[i]
+			modelname = args[0]
 
 	batch = []
 	if modelname.endswith('.slco'):
