@@ -220,7 +220,10 @@ def mcrl2type(s):
 
 def mcrl2value(s):
 	"""Maps values from SLCO to mCRL2 values"""
-	return str(s).lower()
+	if s == "True" or s == "False":
+		return str(s).lower()
+	else:
+		return s
 
 def mcrl2typetuple(s):
 	"""Maps list of type names from SLCO to mCRL2"""
@@ -930,7 +933,7 @@ def statement_condition_accesspattern(s, o):
 		readset = set([])
 		if s.guard != None:
 			readset = expression_varset(s.guard,statemachine[s],smclass[statemachine[s]],{},o,False)
-		# in SLCO ReceiveSignal, it is not possible to refer to the old value of a variable to which you are reading. Hence, reading AND writing to the same variable cannot occur
+		# in SLCO ReceiveSignal, it is not possible to refer to the old value of a variable to which you are writing. Hence, reading AND writing to the same variable cannot occur
 		readset = readset - writeset
 		return tuple([readset, set([])])
 	elif s.__class__.__name__ == "Expression":

@@ -242,11 +242,16 @@ eqn rwpattern_structure_st(o',st_,b'{{model|mcrl2_model_vars(True)}}) = [A'([],[
 {% for o in model.objects %}
 {% for stm in o.type.statemachines %}
 {% for tr in stm.transitions %}
-    rwpattern_structure_st({{o.name}}, ST'{{tr._tx_position}}, true{{model|mcrl2_model_vars(True)}}) = {{tr.statements[0]|mcrl2_structure_accesspattern(o, True)}};
-    rwpattern_structure_st({{o.name}}, ST'{{tr._tx_position}}, false{{model|mcrl2_model_vars(True)}}) = {{tr.statements[0]|mcrl2_structure_accesspattern(o, False)}};
+    rwpattern_structure_st({{o.name}}, ST'{{tr._tx_position}}, true{{model|mcrl2_model_vars(True)}}) = remove_invalid_accesses_from_list'({{tr.statements[0]|mcrl2_structure_accesspattern(o, True)}});
+    rwpattern_structure_st({{o.name}}, ST'{{tr._tx_position}}, false{{model|mcrl2_model_vars(True)}}) = remove_invalid_accesses_from_list'({{tr.statements[0]|mcrl2_structure_accesspattern(o, False)}});
 {% endfor %}
 {% endfor %}
 {% endfor %}
+
+map remove_invalid_accesses_from_list': List(AccessPattern') -> List(AccessPattern');
+var L': List(AccessPattern');
+eqn remove_invalid_accesses_from_list'([]) = [];
+(L' != []) -> remove_invalid_accesses_from_list'(L') = [remove_invalid_accesses'(head(L'))] ++ remove_invalid_accesses_from_list'(tail(L'));
 
 map remove_invalid_accesses': AccessPattern' -> AccessPattern';
 var a': AccessPattern';
@@ -260,7 +265,7 @@ eqn remove_invalid_accesses'1([]) = [];
 map remove_invalid_accesses'2: Var' -> List(Var');
 var n': Int;
 {% for v in sorted_variables %}
-{% if loop.first %}eqn {% endif %}{% if v is hasindex %}(n' >= 0 && n' < {{v[2]}}) -> {% else %}    {% endif %}remove_invalid_accesses'2({{mcrl2varprefix}}{{v[1]}}{{'(n\')' if v is hasindex}}) = {% if v is hasindex %}[{{mcrl2varprefix}}{{v[1]}}(n')]{% else %}[{{mcrl2varprefix}}{{v[1]}}]{% endif %};
+{% if v is hasindex %}(n' >= 0 && n' < {{v[2]}}) -> {% else %}{% if loop.first %}eqn {% else %}    {% endif %}{% endif %}remove_invalid_accesses'2({{mcrl2varprefix}}{{v[1]}}{{'(n\')' if v is hasindex}}) = {% if v is hasindex %}[{{mcrl2varprefix}}{{v[1]}}(n')]{% else %}[{{mcrl2varprefix}}{{v[1]}}]{% endif %};
 {% if v is hasindex %}(n' < 0 || n' >= {{v[2]}}) -> remove_invalid_accesses'2({{mcrl2varprefix}}{{v[1]}}(n')) = [];
 {% endif %}
 {% endfor %}
