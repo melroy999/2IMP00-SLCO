@@ -66,12 +66,15 @@ template <class A_Type> class SearchableVector {
 		}
 
 		// Store item, if not yet done, and return index in storage
-		void insert(A_Type item) {
+		int insert(A_Type item) {
 			auto it = m.find(item);
 			if (it == m.end()) {
 				m.insert(pair<A_Type, int>(item, counter));
-				counter++;
-				storage.insert(item);
+				storage.insert(storage.end(), item);
+				return counter++;
+			}
+			else {
+				return it->second;
 			}
 		}
 
@@ -102,10 +105,18 @@ struct Access {
 	bool cond_only; // Is the access part of checking a condition only, or of executing a complete instruction?
 };
 
+bool operator<(const Access& a1, const Access& a2) {
+     return (a1.location<a2.location || (a1.location==a1.location && a1.local<a2.local)
+     	|| (a1.location==a1.location && a1.local==a2.local && a1.type < a2.type)
+     	|| (a1.location==a1.location && a1.local==a2.local && a1.type==a2.type && a1.instruction < a2.instruction)
+     	|| (a1.location==a1.location && a1.local==a2.local && a1.type==a2.type && a1.instruction==a2.instruction && a1.tid < a2.tid)
+        || (a1.location==a1.location && a1.local==a2.local && a1.type==a2.type && a1.instruction==a2.instruction && a1.tid==a2.tid && a1.cond_only < a2.cond_only) );
+}
+
 // Struct to store LTS instruction label
 struct Instruction {
 	int tid; // SLCO state machine (thread) ID
-	vector<Access> accesses; // List of accesses performed by the instruction
+	vector<int> accesses; // List of accesses performed by the instruction
 };
 
 // Struct to store an LTS state
@@ -166,10 +177,13 @@ int main (int argc, char *argv[]) {
 		}
 	}
 
+	// Accesses
+	SearchableVector<Access> accesses;
+
 	// PR relation
-	map<Access, vector<Access>> pr;
+	map<int, vector<int>> PR;
 	// CMP relation
-	map<Access, vector<Access>> cmp;
+	map<int, vector<int>> CMP;
 	
 	// Various IndexedMaps to keep track of information extracted from the LTS
 	IndexedMap<string> instruction_positions;
@@ -205,7 +219,9 @@ int main (int argc, char *argv[]) {
 			sep1 = line.find_first_of(",");
 			int src = stoi(line.substr(1,sep1-1));
 			if (src != prev_src) {
-				lts_states[prev_src].outgoing_end = current_trans_index;
+				if (prev_src != -1) {
+					lts_states[prev_src].outgoing_end = current_trans_index;
+				}
 				first_trans = true;
 				prev_src = src;
 				current_state_index++;
@@ -214,14 +230,17 @@ int main (int argc, char *argv[]) {
 				first_trans = false;
 			}
 			sep2 = line.find_first_of("\"", sep1+2);
-			string label = line.substr(sep1+2, sep2-(sep1+2));
+			string translabel = line.substr(sep1+2, sep2-(sep1+2));
 			int tgt = stoi(line.substr(sep2+2, line.length()-(sep2+2)-1));
+			// List of previous and current accesses, used to build intra-instruction PR-relation
+			vector<int> prev_accesses, curr_accesses;
 
 			// Check if instruction is already stored. If not, create it
-			if (instructions.find(label) == instructions.end()) {
-				if (label.compare("tau") != 0) {
+			if (instructions.find(translabel) == instructions.end()) {
+				if (translabel.compare("tau") != 0) {
+					//cout << translabel << endl;
 					// Break label further down
-					label = label.substr(3, label.length()-4);
+					string label = translabel.substr(3, translabel.length()-4);
 					// cout << label << endl;
 					sep1 = label.find_first_of(",");
 					sep2 = label.find_first_of(",", sep1+1);
@@ -242,6 +261,10 @@ int main (int argc, char *argv[]) {
 					string accs = label.substr(sep2, sep1-sep2+1);
 					// cout << "Accs:" << endl;
 					// cout << accs << endl;
+
+					// List of previous and current accesses, used to build intra-instruction PR-relation
+					prev_accesses.clear();
+					curr_accesses.clear();
 
 					while (accs.compare("") != 0) {
 						sep1 = accs.find_first_of("'");
@@ -281,13 +304,28 @@ int main (int argc, char *argv[]) {
 							// cout << tid << endl;
 							acc.cond_only = (src == tgt && accs.find_first_of("'") == string::npos && writes.compare("") == 0);
 							// cout << acc.cond_only << endl;
-							instr.accesses.insert(instr.accesses.end(), acc);
+							int aid = accesses.insert(acc);
+							//cout << "read " << aid << " : " << read << endl;
+							instr.accesses.insert(instr.accesses.end(), aid);
+							curr_accesses.insert(curr_accesses.end(), aid);
 
 							// cout << read << endl;
 							int start = sep1+(sep1 < reads.length() ? 2 : 0);
 							reads = reads.substr(start, reads.length()-start);
 							// cout << "here" << endl;
 						}
+						if (!curr_accesses.empty()) {
+							// If needed, update PR
+							if (!prev_accesses.empty()) {
+								for (auto a : prev_accesses) {
+									PR.insert(pair<int, vector<int>>(a, curr_accesses));
+								}
+							}
+							// Swap lists of accesses
+							prev_accesses = curr_accesses;
+							curr_accesses.clear();
+						}
+
 						while (writes.compare("") != 0) {
 							// cout << "Writes:" << endl;
 							// cout << writes << endl;
@@ -312,7 +350,10 @@ int main (int argc, char *argv[]) {
 							// cout << tid << endl;
 							acc.cond_only = false;
 							// cout << acc.cond_only << endl;
-							instr.accesses.insert(instr.accesses.end(), acc);
+							int aid = accesses.insert(acc);
+							//cout << "write " << aid << " : " << write << endl;
+							instr.accesses.insert(instr.accesses.end(), aid);
+							curr_accesses.insert(curr_accesses.end(), aid);
 
 							// cout << write << endl;
 							int start = sep1+(sep1 < writes.length() ? 2 : 0);
@@ -320,6 +361,18 @@ int main (int argc, char *argv[]) {
 							// cout << "here" << endl;
 						}
 						// cout << accs << endl;
+
+						if (!curr_accesses.empty()) {
+							// If needed, update PR
+							if (!prev_accesses.empty()) {
+								for (auto a : prev_accesses) {
+									PR.insert(pair<int, vector<int>>(a, curr_accesses));
+								}
+							}
+							// Swap lists of accesses
+							prev_accesses = curr_accesses;
+							curr_accesses.clear();
+						}
 					}
 				}
 				else {
@@ -328,10 +381,10 @@ int main (int argc, char *argv[]) {
 					instr.accesses.clear();
 				}
 				// Store the instruction
-				auto it = instructions.insert(pair<string, Instruction>(label, instr));
+				auto it = instructions.insert(pair<string, Instruction>(translabel, instr));
 			}
 			// Get the instruction
-			auto it = instructions.find(label);
+			auto it = instructions.find(translabel);
 			// Store the transition
 			lts_transitions[current_trans_index].target = tgt;
 			lts_transitions[current_trans_index].instruction = it;
@@ -347,6 +400,11 @@ int main (int argc, char *argv[]) {
 		// 	cout << (*i).second.label << endl;
 		// 	cout << (*i).second.tid << endl;
 		// }
+		for (auto i : PR) {
+			for (auto j : i.second) {
+				cout << "(" << i.first << ", " << j << ")" << endl;
+			}
+		}
 		ltsfile.close();
 	}
 	else {

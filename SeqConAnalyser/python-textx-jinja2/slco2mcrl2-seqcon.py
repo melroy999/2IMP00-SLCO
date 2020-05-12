@@ -100,20 +100,29 @@ def RepresentsInt(s):
         return False
 
 def hascondition(s, o):
-	"""Returns if the given statement has a condition. o is the Object owning s."""
-	global ochannel
+	"""Returns if the given statement has a condition. o is the Object owning s.
+	A statement has a condition if it is guarded, or there are statements with a higher priority."""
+	global ochannel, trans
+	result = False
 	if s.__class__.__name__ == "Expression":
-		return not expression_is_actionref(s)
+		result = (not expression_is_actionref(s))
 	elif s.__class__.__name__ == "SendSignal":
-		return ochannel[o][s].synctype == "async"
+		result = (ochannel[o][s].synctype == "async")
 	elif s.__class__.__name__ == "ReceiveSignal":
 		if s.guard != None:
-			return True
+			result = True
 		else:
 			return ochannel[o][s].synctype == "async"
 	elif s.__class__.__name__ == "Composite":
-		return s.guard != None
-	return False
+		result = (s.guard != None)
+	if not result:
+		# Check for higher priority transitions
+		prio = s.parent.priority
+		outgoing = trans[o.type][s.parent.parent][s.parent.source]
+		for t in outgoing:
+			if t.priority < prio:
+				return True
+	return result
 
 def variabledefault(s):
 	""" return default value for given variable """
@@ -600,7 +609,9 @@ def statement_condition(s, owner):
 	T = trans[c][sm][src]
 	for t in T:
 		if t.priority < tr.priority:
-			result += " && !(" + statement_condition(t.statements[0], owner) + ")"
+			if result != "":
+				result += " && "
+			result += "!(" + statement_condition(t.statements[0], owner) + ")"
 	return result
 
 def sync_statement_condition(s_rcv, rcv_owner, s_snd, snd_owner):
