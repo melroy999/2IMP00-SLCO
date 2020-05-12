@@ -1,2 +1,2 @@
 all:
-	clang++ seqcon-analyser.cpp -o seqcon-analyser
+	clang++ -std=c++11 seqcon-analyser.cpp -o seqcon-analyser
