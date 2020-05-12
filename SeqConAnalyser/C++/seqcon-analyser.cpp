@@ -105,18 +105,21 @@ struct Access {
 	bool cond_only; // Is the access part of checking a condition only, or of executing a complete instruction?
 };
 
+// < operator for Accesses, to be able to store them in a map
 bool operator<(const Access& a1, const Access& a2) {
-     return (a1.location<a2.location || (a1.location==a1.location && a1.local<a2.local)
-     	|| (a1.location==a1.location && a1.local==a2.local && a1.type < a2.type)
-     	|| (a1.location==a1.location && a1.local==a2.local && a1.type==a2.type && a1.instruction < a2.instruction)
-     	|| (a1.location==a1.location && a1.local==a2.local && a1.type==a2.type && a1.instruction==a2.instruction && a1.tid < a2.tid)
-        || (a1.location==a1.location && a1.local==a2.local && a1.type==a2.type && a1.instruction==a2.instruction && a1.tid==a2.tid && a1.cond_only < a2.cond_only) );
+     return (a1.location<a2.location || (a1.location==a2.location && a1.local<a2.local)
+     	|| (a1.location==a2.location && a1.local==a2.local && a1.type < a2.type)
+     	|| (a1.location==a2.location && a1.local==a2.local && a1.type==a2.type && a1.instruction < a2.instruction)
+     	|| (a1.location==a2.location && a1.local==a2.local && a1.type==a2.type && a1.instruction==a2.instruction && a1.tid < a2.tid)
+        || (a1.location==a2.location && a1.local==a2.local && a1.type==a2.type && a1.instruction==a2.instruction && a1.tid==a2.tid && a1.cond_only < a2.cond_only) );
 }
 
 // Struct to store LTS instruction label
 struct Instruction {
 	int tid; // SLCO state machine (thread) ID
 	vector<int> accesses; // List of accesses performed by the instruction
+	vector<int> bottom_accs; // List of PR-smallest accesses
+	vector<int> top_accs; // List of PR-largest accesses
 };
 
 // Struct to store an LTS state
@@ -253,6 +256,8 @@ int main (int argc, char *argv[]) {
 					// Set the instruction info
 					instr.tid = tid;
 					instr.accesses.clear();
+					instr.bottom_accs.clear();
+					instr.top_accs.clear();
 
 					sep2 = label.find_first_of("[", sep1);
 					sep1 = label.find_last_of("]");
@@ -265,6 +270,8 @@ int main (int argc, char *argv[]) {
 					// List of previous and current accesses, used to build intra-instruction PR-relation
 					prev_accesses.clear();
 					curr_accesses.clear();
+
+					bool first = true;
 
 					while (accs.compare("") != 0) {
 						sep1 = accs.find_first_of("'");
@@ -321,6 +328,11 @@ int main (int argc, char *argv[]) {
 									PR.insert(pair<int, vector<int>>(a, curr_accesses));
 								}
 							}
+							// Store PR-smallest accesses
+							if (first) {
+								first = false;
+								instr.bottom_accs = curr_accesses;
+							}
 							// Swap lists of accesses
 							prev_accesses = curr_accesses;
 							curr_accesses.clear();
@@ -369,11 +381,18 @@ int main (int argc, char *argv[]) {
 									PR.insert(pair<int, vector<int>>(a, curr_accesses));
 								}
 							}
+							// Store PR-smallest accesses
+							if (first) {
+								first = false;
+								instr.bottom_accs = curr_accesses;
+							}
 							// Swap lists of accesses
 							prev_accesses = curr_accesses;
 							curr_accesses.clear();
 						}
 					}
+					// Store PR-largest accesses
+					instr.top_accs = prev_accesses;
 				}
 				else {
 					// Store a dummy tau instruction
