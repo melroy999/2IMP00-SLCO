@@ -148,8 +148,7 @@ bool operator<(const Access& a1, const Access& a2) {
      return (a1.location<a2.location || (a1.location==a2.location && a1.local<a2.local)
      	|| (a1.location==a2.location && a1.local==a2.local && a1.type < a2.type)
      	|| (a1.location==a2.location && a1.local==a2.local && a1.type==a2.type && a1.instruction < a2.instruction)
-     	|| (a1.location==a2.location && a1.local==a2.local && a1.type==a2.type && a1.instruction==a2.instruction && a1.tid < a2.tid)
-        || (a1.location==a2.location && a1.local==a2.local && a1.type==a2.type && a1.instruction==a2.instruction && a1.tid==a2.tid && a1.cond_only < a2.cond_only) );
+     	|| (a1.location==a2.location && a1.local==a2.local && a1.type==a2.type && a1.instruction==a2.instruction && a1.tid < a2.tid));
 }
 
 // Struct to store LTS instruction label
@@ -224,6 +223,8 @@ int main (int argc, char *argv[]) {
 
 	// PR relation
 	Relation PR;
+	// Dependency relation (DP)
+	Relation DP;
 	// CMP relation
 	Relation CMP;
 	
@@ -320,55 +321,49 @@ int main (int argc, char *argv[]) {
 						}
 						// Find the matching closing ']' of the reads of the next access pattern,
 						// indicating the end of the (next) list of read accesses
-						int bracket_counter = 1;
-						for (int sep2 = sep1+2; sep2 < accs.length(); sep2++) {
+						int bracket_counter = 0;
+						for (sep2 = sep1+2; sep2 < accs.length(); sep2++) {
 							if (accs[sep2] == ']') {
-								if (bracket_counter == 0) {
+								if (bracket_counter == 1) {
 									break;
 								}
 								else {
 									bracket_counter--;
+									cout << "--" << endl;
 								}
 							}
-							else if (accs[sep2] == ']') {
+							else if (accs[sep2] == '[') {
 								bracket_counter++;
+								cout << "++" << endl;
 							}
 						}
-						string reads = accs.substr(sep1+3, sep2-(sep1+3));
+						cout << "label: " << accs << endl;
+						string reads = accs.substr(sep1+2, sep2-(sep1+1));
+						cout << "reads: " << reads << endl;
 						// Find the next "[" and "]", the corresponding list of write accesses
 						sep1 = accs.find_first_of("[", sep2);
-						int bracket_counter = 1;
-						for (int sep2 = sep1+2; sep2 < accs.length(); sep2++) {
-							if (accs[sep2] == ']') {
-								if (bracket_counter == 0) {
-									break;
-								}
-								else {
-									bracket_counter--;
-								}
-							}
-							else if (accs[sep2] == ']') {
-								bracket_counter++;
-							}
-						}
-						string writes = accs.substr(sep1+1, sep2-(sep1+1));
+						sep2 = accs.find_first_of("]", sep1);
+						string writes = accs.substr(sep1, sep2+1-sep1);
 						accs = accs.substr(sep2);
+						cout << "writes: " << writes << endl;
 
 						while (true) {
 							// cout << "Reads:" << endl;
 							// cout << reads << endl;
 							sep2 = reads.find_first_of("'");
-							if (sep2 == reads.end()) {
+							if (sep2 == string::npos) {
 								break;
 							}
 							// Record the read access
-							if (reads[sep2-1] == "d") {
-								sep1 = reads.find_first_of(",");
+							sep1 = reads.find_first_of(",", sep2);
+							if (sep1 == string::npos) {
+								sep1 = reads.length()-1;
 							}
-							else {
-								sep1 = reads.find_first_of(")");
+							if (reads[sep2-1] == 'c') {
+								sep1--;
 							}
 							string read = reads.substr(sep2+2, sep1-(sep2+2));
+							cout << read << endl;
 							// Create and store read access
 							int loc = location_ids.insert(read);
 							acc.location = loc;
@@ -387,39 +382,32 @@ int main (int argc, char *argv[]) {
 							instr.accesses.insert(instr.accesses.end(), aid);
 							curr_accesses.insert(curr_accesses.end(), aid);
 
-							if (reads[sep2-1] == "d") {
+							if (reads[sep2-1] == 'p') {
 								// we have a tuple with a read and a list of address dependencies of that read
 								// record the dependencies
-
+								size_t sep3 = sep1+3;
+								while (true) {
+									size_t sep4 = reads.find_first_of(",]", sep3);
+									string depread = reads.substr(sep3, sep4-sep3);
+									cout << "depread: " << depread << endl;
+									// Store this read access
+									loc = location_ids.insert(depread);
+									acc.location = loc;
+									acc.local = count(depread.begin(), depread.end(), '\'') > 1;
+									int depaid = accesses.insert(acc);
+									// Store dependency
+									DP.insert(aid, depaid);
+									sep3 = sep4+2;
+									if (reads[sep4] == ']') {
+										break;
+									}
+								}
+								reads = reads.substr(sep3, reads.length()-sep3);
+								cout << "reads: " << reads << endl;
 							}
-							sep1 = reads.find_first_of(",");
-							if (sep1 == string::npos) {
-								sep1 = reads.length();
+							else {
+								reads = reads.substr(sep1, reads.length()-sep1);
 							}
-							string read = reads.substr(0, sep1);
-
-							// Create and store read access
-							int loc = location_ids.insert(read);
-							acc.location = loc;
-							// cout << loc << endl;
-							// Is the variable thread-local? (encoded in name by the fact that ' occurs more than once)
-							acc.local = count(read.begin(), read.end(), '\'') > 1;
-							// cout << acc.local << endl;
-							acc.type = (writes.compare("") == 0 ? CONDREAD : READ);
-							// cout << acc.type << endl;
-							acc.instruction = iid;
-							// cout << acc.instruction << endl;
-							acc.tid = tid;
-							// cout << tid << endl;
-							int aid = accesses.insert(acc);
-							//cout << "read " << aid << " : " << read << endl;
-							instr.accesses.insert(instr.accesses.end(), aid);
-							curr_accesses.insert(curr_accesses.end(), aid);
-
-							// cout << read << endl;
-							int start = sep1+(sep1 < reads.length() ? 2 : 0);
-							reads = reads.substr(start, reads.length()-start);
-							// cout << "here" << endl;
 						}
 						if (!curr_accesses.empty()) {
 							// If needed, update PR
@@ -438,14 +426,19 @@ int main (int argc, char *argv[]) {
 							curr_accesses.clear();
 						}
 
-						while (writes.compare("") != 0) {
+						while (true) {
 							// cout << "Writes:" << endl;
 							// cout << writes << endl;
-							sep1 = writes.find_first_of(",");
+							sep1 = writes.find_first_of("'");
 							if (sep1 == string::npos) {
-								sep1 = writes.length();
+								break;
 							}
-							string write = writes.substr(0, sep1);
+							sep2 = writes.find_first_of(",");
+							if (sep2 == string::npos) {
+								sep2 = writes.length()-1;
+							}
+							sep2--;
+							string write = writes.substr(sep1+2, sep2-(sep1+2));
 
 							// Create and store write access
 							int loc = location_ids.insert(write);
@@ -465,9 +458,8 @@ int main (int argc, char *argv[]) {
 							instr.accesses.insert(instr.accesses.end(), aid);
 							curr_accesses.insert(curr_accesses.end(), aid);
 
-							// cout << write << endl;
-							int start = sep1+(sep1 < writes.length() ? 2 : 0);
-							writes = writes.substr(start, writes.length()-start);
+							cout << write << endl;
+							writes = writes.substr(sep2, writes.length()-sep2);
 							// cout << "here" << endl;
 						}
 						// cout << accs << endl;
