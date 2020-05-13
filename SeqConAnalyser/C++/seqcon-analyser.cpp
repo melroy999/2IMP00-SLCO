@@ -10,7 +10,9 @@
 #include <fstream>
 #include <map>
 #include <vector>
+#include <set>
 #include <algorithm>
+
 using namespace std;
 
 // Memory model
@@ -95,6 +97,43 @@ template <class A_Type> class SearchableVector {
 		}
 };
 
+// Class to maintain a relation between integers.
+class Relation {
+	private:
+		map<int, set<int>> r;
+	public:
+		void insert(int i, vector<int> J) {
+			auto it = r.find(i);
+			if (it == r.end()) {
+				r.insert(pair<int, set<int>>(i, set<int>(J.begin(), J.end())));
+			}
+			else {
+				copy(J.begin(), J.end(), inserter(it->second, it->second.end()));
+			}
+		}
+
+		void insert(int i, int j) {
+			auto it = r.find(i);
+			if (it == r.end()) {
+				r.insert(pair<int, set<int>>(i, { j }));
+			}
+			else {
+				it->second.insert(j);
+			}
+		}
+
+		map<int, set<int>>::iterator get(int i) {
+			return r.find(i);
+		}
+
+		map<int, set<int>>::iterator begin() {
+			return r.begin();
+		}
+		map<int, set<int>>::iterator end() {
+			return r.end();
+		}
+};
+
 // Struct to store info on Memory accesses
 struct Access {
 	int location; // Memory location
@@ -116,6 +155,7 @@ bool operator<(const Access& a1, const Access& a2) {
 
 // Struct to store LTS instruction label
 struct Instruction {
+	int pos; // Instruction position in the input model
 	int tid; // SLCO state machine (thread) ID
 	vector<int> accesses; // List of accesses performed by the instruction
 	vector<int> bottom_accs; // List of PR-smallest accesses
@@ -184,9 +224,9 @@ int main (int argc, char *argv[]) {
 	SearchableVector<Access> accesses;
 
 	// PR relation
-	map<int, vector<int>> PR;
+	Relation PR;
 	// CMP relation
-	map<int, vector<int>> CMP;
+	Relation CMP;
 	
 	// Various IndexedMaps to keep track of information extracted from the LTS
 	IndexedMap<string> instruction_positions;
@@ -254,6 +294,7 @@ int main (int argc, char *argv[]) {
 					int iid = instruction_positions.insert(statement);
 
 					// Set the instruction info
+					instr.pos = iid;
 					instr.tid = tid;
 					instr.accesses.clear();
 					instr.bottom_accs.clear();
@@ -325,7 +366,7 @@ int main (int argc, char *argv[]) {
 							// If needed, update PR
 							if (!prev_accesses.empty()) {
 								for (auto a : prev_accesses) {
-									PR.insert(pair<int, vector<int>>(a, curr_accesses));
+									PR.insert(a, curr_accesses);
 								}
 							}
 							// Store PR-smallest accesses
@@ -378,7 +419,7 @@ int main (int argc, char *argv[]) {
 							// If needed, update PR
 							if (!prev_accesses.empty()) {
 								for (auto a : prev_accesses) {
-									PR.insert(pair<int, vector<int>>(a, curr_accesses));
+									PR.insert(a, curr_accesses);
 								}
 							}
 							// Store PR-smallest accesses
@@ -419,12 +460,49 @@ int main (int argc, char *argv[]) {
 		// 	cout << (*i).second.label << endl;
 		// 	cout << (*i).second.tid << endl;
 		// }
+		// for (auto i : PR) {
+		// 	for (auto j : i.second) {
+		// 		cout << "(" << i.first << ", " << j << ")" << endl;
+		// 	}
+		// }
+		ltsfile.close();
+
+		// Set of (instruction position, thread id) pairs of outgoing transitions of a state
+		set<pair<int, int>> out;
+		// Compute inter-instruction PR
+		for (auto s : lts_states) {
+			out.clear();
+			// Collect info on outgoing transitions
+			for (int i = s.outgoing_begin; i < s.outgoing_end; i++) {
+				auto instr = (*(lts_transitions[i].instruction)).second;
+				out.insert(pair<int, int>(instr.pos, instr.tid));
+			}
+			// Check successors
+			for (int i = s.outgoing_begin; i < s.outgoing_end; i++) {
+				int tgt = lts_transitions[i].target;
+				auto instr = (*(lts_transitions[i].instruction)).second;
+				int pos = instr.pos;
+				int tid = instr.tid;
+				for (int j = lts_states[tgt].outgoing_begin; j < lts_states[tgt].outgoing_end; j++) {
+					auto tgt_instr = (*(lts_transitions[j].instruction)).second;
+					int tgt_pos = tgt_instr.pos;
+					int tgt_tid = tgt_instr.tid;
+					if (tgt_tid == tid) {
+						if (out.find(pair<int, int>(tgt_pos, tgt_tid)) == out.end()) {
+							// PR-relate top elements of instr with bottom elements of tgt_instr
+							for (auto ta : instr.top_accs) {
+								PR.insert(ta, tgt_instr.bottom_accs);
+							}
+						}
+					}
+				}
+			}
+		}
 		for (auto i : PR) {
 			for (auto j : i.second) {
 				cout << "(" << i.first << ", " << j << ")" << endl;
 			}
 		}
-		ltsfile.close();
 	}
 	else {
 		cout << "LTS file does not exist!" << endl;

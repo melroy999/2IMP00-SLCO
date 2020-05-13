@@ -130,22 +130,6 @@ cons {% for v in sorted_variables|select("hasnoindex") %}{{', ' if not loop.firs
 
 {% for v in sorted_variables|select("hasindex") %}{% if loop.first %}     {% else %}, {% endif %}{{mcrl2varprefix}}{{v[1]}}{% if loop.last %}: Int -> Var';{% endif %}{% endfor %}
 
-map var_index1, var_index2: Var' -> Int;
-var v1, v2: Var';
-    n': Int;
-{% for v in sorted_variables %}
-{% if loop.first %}eqn {% else %}    {% endif %}var_index1({{mcrl2varprefix}}{{v[1]}}{{'(n\')' if v is hasindex}}) = {{loop.index0}};
-{% endfor %}
-{% for v in sorted_variables %}
-    var_index2({{mcrl2varprefix}}{{v[1]}}{{'(n\')' if v is hasindex}}) = {% if v is hasindex %}n'{% else %}0{% endif %};
-{% endfor %}
-(var_index1(v1) < var_index1(v2)) -> v1 < v2 = true;
-(var_index1(v1) > var_index1(v2)) -> v1 < v2 = false;
-(var_index1(v1) == var_index1(v2)) -> v1 < v2 = var_index2(v1) < var_index2(v2);
-(var_index1(v1) < var_index1(v2)) -> v1 > v2 = false;
-(var_index1(v1) > var_index1(v2)) -> v1 > v2 = true;
-(var_index1(v1) == var_index1(v2)) -> v1 > v2 = var_index2(v1) > var_index2(v2);
-
 {% if channeltypes|length > 0 %}
 % *** SPECIFICATION OF SIGNALS ***
 
@@ -166,53 +150,15 @@ sort M'{% for d in ct %}{{d|datatypeacronym}}{% endfor %} = struct m'{% for d in
 
 % ----- END DEFINITIONS OF BASIC MODEL ASPECTS -----
 
-% ----- START FUNCTIONS TO WORK WITH LISTS OF VARIABLES -----
-
-% *** FUNCTION TO IDENTIFY ARRAY ACCESSES ***
-
-map is_array_access: Var' -> Bool;
-var n': Int;
-{% for v in sorted_variables %}
-{% if loop.first %}eqn {% else %}    {% endif %}is_array_access({{mcrl2varprefix}}{{v[1]}}{{'(n\')' if v is hasindex}}) = {{v is hasindex|lower}};
-{% endfor %}
-
-% *** FUNCTION (WITH AUXILIARY FUNCTIONS) TO SORT ARRAY ACCESSES IN LIST OF VARIABLES ***
-
-map sorted_array_accesses: List(Var') -> List(Var');
-var L': List(Var');
-eqn sorted_array_accesses([]) = [];
-(L' != [] && !is_array_access(head(L'))) -> sorted_array_accesses(L') = [head(L')] ++ sorted_array_accesses(tail(L'));
-(is_array_access(head(L'))) -> sorted_array_accesses(L') = sorted_array_accesses(smallerlist(head(L'), L')) ++ [head(L')] ++ sorted_array_accesses(largerlist(head(L'), L'));
-
-map smallerlist: Var' # List(Var') -> List(Var');
-var v': Var', L': List(Var');
-eqn smallerlist(v', []) = [];
-(L' != [] && head(L') < v') -> smallerlist(v', L') = [head(L')] ++ smallerlist(v', tail(L'));
-(L' != [] && !(head(L') < v')) -> smallerlist(v', L') = smallerlist(v', tail(L'));
-
-map largerlist: Var' # List(Var') -> List(Var');
-var v': Var', L': List(Var');
-eqn largerlist(v', []) = [];
-(L' != [] && !(v' < head(L'))) -> largerlist(v', L') = largerlist(v', tail(L'));
-(L' != [] && v' < head(L')) -> largerlist(v', L') = [head(L')] ++ largerlist(v', tail(L'));
-
-% *** UNION OF TWO LISTS OF VARIABLES ***
-
-map union': List(Var') # List(Var') -> List(Var');
-var L1, L2: List(Var');
-eqn union'([], L2) = L2;
-    union'(L1, []) = L1;
-(L1 != [] && L2 != [] && head(L1) == head(L2)) -> union'(L1, L2) = [head(L1)] ++ union'(tail(L1), tail(L2));
-(L1 != [] && head(L1) < head(L2))  -> union'(L1, L2) = [head(L1)] ++ union'(tail(L1), L2);
-(L2 != [] && head(L1) > head(L2))  -> union'(L1, L2) = [head(L2)] ++ union'(L1, tail(L2));
-
-% ----- END FUNCTIONS TO WORK WITH LISTS OF VARIABLES -----
-
 % ----- START ACCESS PATTERNS -----
+
+% *** SPECIFICATION OF READ ACCESS ***
+
+sort Access' = struct lcdp'(Var', List(Var')) | lc'(Var');
 
 % *** SPECIFICATION OF ACCESS PATTERN ***
 
-sort AccessPattern' = struct A'(R': List(Var'), W': List(Var'));
+sort AccessPattern' = struct A'(R': List(Access'), W': List(Access'));
 
 % *** FUNCTION PROVIDING ACCESS PATTERNS OF STATEMENTS (IF BOOLEAN FLAG IS FALSE, THE FUNCTION RETURNS SET OF READ ACCESSES FOR CONDITION CHECKING) ***
 
@@ -257,16 +203,34 @@ map remove_invalid_accesses': AccessPattern' -> AccessPattern';
 var a': AccessPattern';
 eqn remove_invalid_accesses'(a') = A'(remove_invalid_accesses'1(R'(a')), remove_invalid_accesses'1(W'(a')));
 
-map remove_invalid_accesses'1: List(Var') -> List(Var');
-var L': List(Var');
+map remove_invalid_accesses'1: List(Access') -> List(Access');
+var L': List(Access');
 eqn remove_invalid_accesses'1([]) = [];
 (L' != []) -> remove_invalid_accesses'1(L') = remove_invalid_accesses'2(head(L')) ++ remove_invalid_accesses'1(tail(L'));
 
-map remove_invalid_accesses'2: Var' -> List(Var');
-var n': Int;
+map remove_invalid_accesses'2: Access' -> List(Access');
+var v': Var';
+    L': List(Var');
+    n': Int;
 {% for v in sorted_variables %}
-{% if v is hasindex %}(n' >= 0 && n' < {{v[2]}}) -> {% else %}{% if loop.first %}eqn {% else %}    {% endif %}{% endif %}remove_invalid_accesses'2({{mcrl2varprefix}}{{v[1]}}{{'(n\')' if v is hasindex}}) = {% if v is hasindex %}[{{mcrl2varprefix}}{{v[1]}}(n')]{% else %}[{{mcrl2varprefix}}{{v[1]}}]{% endif %};
-{% if v is hasindex %}(n' < 0 || n' >= {{v[2]}}) -> remove_invalid_accesses'2({{mcrl2varprefix}}{{v[1]}}(n')) = [];
+{% if v is hasindex %}(n' >= 0 && n' < {{v[2]}}) -> {% else %}{% if loop.first %}eqn {% else %}    {% endif %}{% endif %}remove_invalid_accesses'2(lc'({{mcrl2varprefix}}{{v[1]}}{{'(n\')' if v is hasindex}})) = {% if v is hasindex %}[lc'({{mcrl2varprefix}}{{v[1]}}(n'))]{% else %}[lc'({{mcrl2varprefix}}{{v[1]}})]{% endif %};
+{% if v is hasindex %}(n' < 0 || n' >= {{v[2]}}) -> remove_invalid_accesses'2(lc'({{mcrl2varprefix}}{{v[1]}}(n'))) = [];
+{% endif %}
+{% endfor %}
+(remove_invalid_accessvars_from_list'(L') == L' && remove_invalid_accessvar'(v') == [v']) -> remove_invalid_accesses'2(lcdp'(v', L')) = [lcdp'(v', L')];
+(remove_invalid_accessvars_from_list'(L') != L' || remove_invalid_accessvar'(v') == []) -> remove_invalid_accesses'2(lcdp'(v', L')) = [];
+
+map remove_invalid_accessvars_from_list': List(Var') -> List(Var');
+var L': List(Var');
+eqn remove_invalid_accessvars_from_list'([]) = [];
+(L' != []) -> remove_invalid_accessvars_from_list'(L') = remove_invalid_accessvar'(head(L')) ++ remove_invalid_accessvars_from_list'(tail(L'));
+
+map remove_invalid_accessvar': Var' -> List(Var');
+var v': Var';
+    n': Int;
+{% for v in sorted_variables %}
+{% if v is hasindex %}(n' >= 0 && n' < {{v[2]}}) -> {% else %}{% if loop.first %}eqn {% else %}    {% endif %}{% endif %}remove_invalid_accessvar'({{mcrl2varprefix}}{{v[1]}}{{'(n\')' if v is hasindex}}) = {% if v is hasindex %}[{{mcrl2varprefix}}{{v[1]}}(n')]{% else %}[{{mcrl2varprefix}}{{v[1]}}]{% endif %};
+{% if v is hasindex %}(n' < 0 || n' >= {{v[2]}}) -> remove_invalid_accessvar'({{mcrl2varprefix}}{{v[1]}}(n')) = [];
 {% endif %}
 {% endfor %}
 
