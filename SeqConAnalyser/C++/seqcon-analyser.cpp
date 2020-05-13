@@ -141,7 +141,6 @@ struct Access {
 	AccessType type; // Type of access
 	int instruction; // Instruction of which the access is part
 	int tid; // Thread executing the access
-	bool cond_only; // Is the access part of checking a condition only, or of executing a complete instruction?
 };
 
 // < operator for Accesses, to be able to store them in a map
@@ -319,18 +318,80 @@ int main (int argc, char *argv[]) {
 						if (sep1 == string::npos) {
 							break;
 						}
-						// Find the first closing ']', indicating the end of the (next) list of read accesses
-						sep2 = accs.find_first_of("]", sep1);
+						// Find the matching closing ']' of the reads of the next access pattern,
+						// indicating the end of the (next) list of read accesses
+						int bracket_counter = 1;
+						for (int sep2 = sep1+2; sep2 < accs.length(); sep2++) {
+							if (accs[sep2] == ']') {
+								if (bracket_counter == 0) {
+									break;
+								}
+								else {
+									bracket_counter--;
+								}
+							}
+							else if (accs[sep2] == ']') {
+								bracket_counter++;
+							}
+						}
 						string reads = accs.substr(sep1+3, sep2-(sep1+3));
 						// Find the next "[" and "]", the corresponding list of write accesses
 						sep1 = accs.find_first_of("[", sep2);
-						sep2 = accs.find_first_of("]", sep1);
+						int bracket_counter = 1;
+						for (int sep2 = sep1+2; sep2 < accs.length(); sep2++) {
+							if (accs[sep2] == ']') {
+								if (bracket_counter == 0) {
+									break;
+								}
+								else {
+									bracket_counter--;
+								}
+							}
+							else if (accs[sep2] == ']') {
+								bracket_counter++;
+							}
+						}
 						string writes = accs.substr(sep1+1, sep2-(sep1+1));
 						accs = accs.substr(sep2);
 
-						while (reads.compare("") != 0) {
+						while (true) {
 							// cout << "Reads:" << endl;
 							// cout << reads << endl;
+							sep2 = reads.find_first_of("'");
+							if (sep2 == reads.end()) {
+								break;
+							}
+							// Record the read access
+							if (reads[sep2-1] == "d") {
+								sep1 = reads.find_first_of(",");
+							}
+							else {
+								sep1 = reads.find_first_of(")");
+							}
+							string read = reads.substr(sep2+2, sep1-(sep2+2));
+							// Create and store read access
+							int loc = location_ids.insert(read);
+							acc.location = loc;
+							// cout << loc << endl;
+							// Is the variable thread-local? (encoded in name by the fact that ' occurs more than once)
+							acc.local = count(read.begin(), read.end(), '\'') > 1;
+							// cout << acc.local << endl;
+							acc.type = (writes.compare("") == 0 ? CONDREAD : READ);
+							// cout << acc.type << endl;
+							acc.instruction = iid;
+							// cout << acc.instruction << endl;
+							acc.tid = tid;
+							// cout << tid << endl;
+							int aid = accesses.insert(acc);
+							//cout << "read " << aid << " : " << read << endl;
+							instr.accesses.insert(instr.accesses.end(), aid);
+							curr_accesses.insert(curr_accesses.end(), aid);
+
+							if (reads[sep2-1] == "d") {
+								// we have a tuple with a read and a list of address dependencies of that read
+								// record the dependencies
+
+							}
 							sep1 = reads.find_first_of(",");
 							if (sep1 == string::npos) {
 								sep1 = reads.length();
@@ -350,8 +411,6 @@ int main (int argc, char *argv[]) {
 							// cout << acc.instruction << endl;
 							acc.tid = tid;
 							// cout << tid << endl;
-							acc.cond_only = (src == tgt && accs.find_first_of("'") == string::npos && writes.compare("") == 0);
-							// cout << acc.cond_only << endl;
 							int aid = accesses.insert(acc);
 							//cout << "read " << aid << " : " << read << endl;
 							instr.accesses.insert(instr.accesses.end(), aid);
@@ -401,8 +460,6 @@ int main (int argc, char *argv[]) {
 							// cout << acc.instruction << endl;
 							acc.tid = tid;
 							// cout << tid << endl;
-							acc.cond_only = false;
-							// cout << acc.cond_only << endl;
 							int aid = accesses.insert(acc);
 							//cout << "write " << aid << " : " << write << endl;
 							instr.accesses.insert(instr.accesses.end(), aid);
