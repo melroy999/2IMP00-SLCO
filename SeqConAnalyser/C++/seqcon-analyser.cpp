@@ -18,7 +18,7 @@ using namespace std;
 // Memory model
 enum MM { TSO, PSO, ARM };
 // Access type
-enum AccessType { READ, CONDREAD, WRITE };
+enum AccessType { READ, WRITE };
 
 // Template class to maintain a map of objects
 // of type A_Type, each mapped to a unique ID.
@@ -95,6 +95,16 @@ template <class A_Type> class SearchableVector {
 		A_Type get(int index) {
 			return storage[index];
 		}
+
+		typedef typename vector<A_Type>::iterator VAiterator;
+
+		VAiterator begin() {
+			return storage.begin();
+		}
+
+		VAiterator end() {
+			return storage.end();
+		}
 };
 
 // Class to maintain a relation between integers.
@@ -122,6 +132,12 @@ class Relation {
 			}
 		}
 
+		bool contains(int i) {
+			auto it = r.find(i);
+			return (it != r.end());
+		}
+
+		// Precondition: an entry exists for i in r
 		map<int, set<int>>::iterator get(int i) {
 			return r.find(i);
 		}
@@ -155,7 +171,8 @@ bool operator<(const Access& a1, const Access& a2) {
 struct Instruction {
 	int pos; // Instruction position in the input model
 	int tid; // SLCO state machine (thread) ID
-	vector<int> accesses; // List of accesses performed by the instruction
+	bool is_guarded; // Does the instruction have a condition?
+	vector<int> shared_accesses; // List of shared accesses performed by the instruction
 	vector<int> bottom_accs; // List of PR-smallest accesses
 	vector<int> top_accs; // List of PR-largest accesses
 };
@@ -207,14 +224,13 @@ int main (int argc, char *argv[]) {
 			cout << "Usage: seqcon-analyser [-wsa] model" << endl;
 			cout << "" << endl;
 			cout << "Check for sequentially inconsistent behaviour in the given .aut file containing the state space of an SLCO model, unless '-s' is used." << endl;
-			cout << " -w                                  weak memory model to consider (SC,TSO,PSO,ARM)  (default: TSO)" << endl;
+			cout << " -w                                  weak memory model to consider (TSO,PSO,ARM)  (default: TSO)" << endl;
 			cout << " -s                                  apply only static analysis (ignore state space) (default: no)" << endl;
 			cout << "                                       -> this option requires a .instr file listing the instructions of the SLCO model" << endl;
 			cout << " -a                                  apply atomicity checking in combination with SC checking (default: no)" << endl;
 		}
 		else {
 			modelname = string(argv[i]);
-			cout << modelname << endl;
 		}
 	}
 
@@ -223,8 +239,13 @@ int main (int argc, char *argv[]) {
 
 	// PR relation
 	Relation PR;
-	// Dependency relation (DP)
+	// Transitive closure of PR
+	Relation PRplus;
+	// Dependency relations (DP and 'direct' (non-transitive) version DPdirect)
 	Relation DP;
+	Relation DPdirect;
+	// RF relation for thread-local variables; needed to close DP
+	Relation RFlocal;
 	// CMP relation
 	Relation CMP;
 	
@@ -276,7 +297,7 @@ int main (int argc, char *argv[]) {
 			string translabel = line.substr(sep1+2, sep2-(sep1+2));
 			int tgt = stoi(line.substr(sep2+2, line.length()-(sep2+2)-1));
 			// List of previous and current accesses, used to build intra-instruction PR-relation
-			vector<int> prev_accesses, curr_accesses;
+			vector<int> prev_accesses, curr_accesses_bottom, curr_accesses_top;
 
 			// Check if instruction is already stored. If not, create it
 			if (instructions.find(translabel) == instructions.end()) {
@@ -296,7 +317,8 @@ int main (int argc, char *argv[]) {
 					// Set the instruction info
 					instr.pos = iid;
 					instr.tid = tid;
-					instr.accesses.clear();
+					instr.is_guarded = false;
+					instr.shared_accesses.clear();
 					instr.bottom_accs.clear();
 					instr.top_accs.clear();
 
@@ -310,7 +332,8 @@ int main (int argc, char *argv[]) {
 
 					// List of previous and current accesses, used to build intra-instruction PR-relation
 					prev_accesses.clear();
-					curr_accesses.clear();
+					curr_accesses_bottom.clear();
+					curr_accesses_top.clear();
 
 					bool first = true;
 
@@ -329,23 +352,23 @@ int main (int argc, char *argv[]) {
 								}
 								else {
 									bracket_counter--;
-									cout << "--" << endl;
 								}
 							}
 							else if (accs[sep2] == '[') {
 								bracket_counter++;
-								cout << "++" << endl;
 							}
 						}
-						cout << "label: " << accs << endl;
+						//cout << "label: " << accs << endl;
 						string reads = accs.substr(sep1+2, sep2-(sep1+1));
-						cout << "reads: " << reads << endl;
+						//cout << "reads: " << reads << endl;
 						// Find the next "[" and "]", the corresponding list of write accesses
 						sep1 = accs.find_first_of("[", sep2);
 						sep2 = accs.find_first_of("]", sep1);
 						string writes = accs.substr(sep1, sep2+1-sep1);
 						accs = accs.substr(sep2);
-						cout << "writes: " << writes << endl;
+						//cout << "writes: " << writes << endl;
+
+						bool reads_stored = false;
 
 						while (true) {
 							// cout << "Reads:" << endl;
@@ -363,7 +386,13 @@ int main (int argc, char *argv[]) {
 								sep1--;
 							}
 							string read = reads.substr(sep2+2, sep1-(sep2+2));
-							cout << read << endl;
+							//cout << read << endl;
+
+							// The instruction is guarded if there are no writes at this point
+							if (writes.compare("[]") == 0) {
+								instr.is_guarded = true;
+							}
+
 							// Create and store read access
 							int loc = location_ids.insert(read);
 							acc.location = loc;
@@ -371,16 +400,25 @@ int main (int argc, char *argv[]) {
 							// Is the variable thread-local? (encoded in name by the fact that ' occurs more than once)
 							acc.local = count(read.begin(), read.end(), '\'') > 1;
 							// cout << acc.local << endl;
-							acc.type = (writes.compare("") == 0 ? CONDREAD : READ);
+							acc.type = READ;
 							// cout << acc.type << endl;
 							acc.instruction = iid;
 							// cout << acc.instruction << endl;
 							acc.tid = tid;
 							// cout << tid << endl;
 							int aid = accesses.insert(acc);
-							//cout << "read " << aid << " : " << read << endl;
-							instr.accesses.insert(instr.accesses.end(), aid);
-							curr_accesses.insert(curr_accesses.end(), aid);
+							cout << "read " << aid << " : " << read << ": " << label << endl;
+							if (!acc.local) {
+								instr.shared_accesses.insert(instr.shared_accesses.end(), aid);
+							}
+							reads_stored = true;
+
+							if (reads[sep2-1] != 'p') {
+								curr_accesses_bottom.insert(curr_accesses_bottom.end(), aid);
+							}
+							else {
+								curr_accesses_top.insert(curr_accesses_bottom.end(), aid);
+							}
 
 							if (reads[sep2-1] == 'p') {
 								// we have a tuple with a read and a list of address dependencies of that read
@@ -389,41 +427,51 @@ int main (int argc, char *argv[]) {
 								while (true) {
 									size_t sep4 = reads.find_first_of(",]", sep3);
 									string depread = reads.substr(sep3, sep4-sep3);
-									cout << "depread: " << depread << endl;
+									//cout << "depread: " << depread << endl;
 									// Store this read access
 									loc = location_ids.insert(depread);
 									acc.location = loc;
 									acc.local = count(depread.begin(), depread.end(), '\'') > 1;
 									int depaid = accesses.insert(acc);
-									// Store dependency
-									DP.insert(aid, depaid);
+									cout << "read " << depaid << " : " << depread << ": " << label << endl;
+
+									// Store dependencies
+									DPdirect.insert(aid, depaid);
+									PR.insert(depaid, aid);
+
 									sep3 = sep4+2;
 									if (reads[sep4] == ']') {
 										break;
 									}
 								}
 								reads = reads.substr(sep3, reads.length()-sep3);
-								cout << "reads: " << reads << endl;
+								//cout << "reads: " << reads << endl;
 							}
 							else {
 								reads = reads.substr(sep1, reads.length()-sep1);
 							}
 						}
-						if (!curr_accesses.empty()) {
+						if (!curr_accesses_bottom.empty()) {
 							// If needed, update PR
 							if (!prev_accesses.empty()) {
 								for (auto a : prev_accesses) {
-									PR.insert(a, curr_accesses);
+									PR.insert(a, curr_accesses_bottom);
 								}
 							}
 							// Store PR-smallest accesses
 							if (first) {
 								first = false;
-								instr.bottom_accs = curr_accesses;
+								instr.bottom_accs.insert(instr.bottom_accs.end(), curr_accesses_bottom.begin(), curr_accesses_bottom.end());
 							}
 							// Swap lists of accesses
-							prev_accesses = curr_accesses;
-							curr_accesses.clear();
+							if (!curr_accesses_top.empty()) {
+								prev_accesses = curr_accesses_top;
+								curr_accesses_top.clear();
+							}
+							else {
+								prev_accesses = curr_accesses_bottom;
+							}
+							curr_accesses_bottom.clear();
 						}
 
 						while (true) {
@@ -455,39 +503,47 @@ int main (int argc, char *argv[]) {
 							// cout << tid << endl;
 							int aid = accesses.insert(acc);
 							//cout << "write " << aid << " : " << write << endl;
-							instr.accesses.insert(instr.accesses.end(), aid);
-							curr_accesses.insert(curr_accesses.end(), aid);
+							if (!acc.local) {
+								instr.shared_accesses.insert(instr.shared_accesses.end(), aid);
+							}
+							curr_accesses_bottom.insert(curr_accesses_bottom.end(), aid);
 
-							cout << write << endl;
+							//cout << write << endl;
 							writes = writes.substr(sep2, writes.length()-sep2);
 							// cout << "here" << endl;
 						}
 						// cout << accs << endl;
 
-						if (!curr_accesses.empty()) {
+						if (!curr_accesses_bottom.empty()) {
 							// If needed, update PR
 							if (!prev_accesses.empty()) {
 								for (auto a : prev_accesses) {
-									PR.insert(a, curr_accesses);
+									PR.insert(a, curr_accesses_bottom);
+								}
+								// Writes depend on directly preceding reads
+								if (reads_stored) {
+									for (auto a : curr_accesses_bottom) {
+										DPdirect.insert(a, prev_accesses);
+									}
 								}
 							}
 							// Store PR-smallest accesses
 							if (first) {
 								first = false;
-								instr.bottom_accs = curr_accesses;
+								instr.bottom_accs.insert(instr.bottom_accs.end(), curr_accesses_bottom.begin(), curr_accesses_bottom.end());
 							}
 							// Swap lists of accesses
-							prev_accesses = curr_accesses;
-							curr_accesses.clear();
+							prev_accesses = curr_accesses_bottom;
+							curr_accesses_bottom.clear();
 						}
 					}
 					// Store PR-largest accesses
-					instr.top_accs = prev_accesses;
+					instr.top_accs.insert(instr.top_accs.end(), prev_accesses.begin(), prev_accesses.end());
 				}
 				else {
 					// Store a dummy tau instruction
 					instr.tid = -1;
-					instr.accesses.clear();
+					instr.shared_accesses.clear();
 				}
 				// Store the instruction
 				auto it = instructions.insert(pair<string, Instruction>(translabel, instr));
@@ -547,7 +603,98 @@ int main (int argc, char *argv[]) {
 				}
 			}
 		}
+
+		// Compute the RF relation for thread-local variables
+		set<int> open;
+		set<int> closed;
 		for (auto i : PR) {
+			Access a = accesses.get(i.first);
+			if (a.local && a.type == WRITE) {
+				open.clear();
+				closed.clear();
+				closed.insert(i.first);
+				// Search for reachable reads from the same location
+				open.insert(i.second.begin(), i.second.end());
+				while (!open.empty()) {
+					int j = *(open.begin());
+					open.erase(j);
+					closed.insert(j);
+					Access b = accesses.get(j);
+					if (a.location == b.location) {
+						if (b.type == READ) {
+							RFlocal.insert(j, i.first);
+						}
+					}
+					else {
+						if (PR.contains(j)) {
+							auto it = PR.get(j);
+							for (auto k : it->second) {
+								if (closed.find(k) == closed.end()) {
+									open.insert(k);
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		// Close DPdirect over local variables, using RFlocal. This results in DP
+		for (auto i : DPdirect) {
+			Access a = accesses.get(i.first);
+			if (!a.local) {
+				open.clear();
+				closed.clear();
+				closed.insert(i.first);
+				open.insert(i.second.begin(), i.second.end());
+				while (!open.empty()) {
+					int j = *(open.begin());
+					open.erase(j);
+					closed.insert(j);
+					Access b = accesses.get(j);
+					if (!b.local) {
+						DP.insert(i.first, j);
+					}
+					else {
+						auto it = RFlocal.get(j);
+						for (auto k : it->second) {
+							if (DPdirect.contains(k)) {
+								auto it2 = DPdirect.get(k);
+								for (auto l : it2->second) {
+									if (closed.find(l) == closed.end()) {
+										open.insert(l);
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		cout << "locality info:" << endl;
+		for (auto a : accesses) {
+			cout << accesses.find(a) << ": " << a.local << endl;
+		}
+		cout << "PR:" << endl;
+		for (auto i : PR) {
+			for (auto j : i.second) {
+				cout << "(" << i.first << ", " << j << ")" << endl;
+			}
+		}
+		cout << "RFlocal:" << endl;
+		for (auto i : RFlocal) {
+			for (auto j : i.second) {
+				cout << "(" << i.first << ", " << j << ")" << endl;
+			}
+		}
+		cout << "DPdirect:" << endl;
+		for (auto i : DPdirect) {
+			for (auto j : i.second) {
+				cout << "(" << i.first << ", " << j << ")" << endl;
+			}
+		}
+		cout << "DP:" << endl;
+		for (auto i : DP) {
 			for (auto j : i.second) {
 				cout << "(" << i.first << ", " << j << ")" << endl;
 			}
