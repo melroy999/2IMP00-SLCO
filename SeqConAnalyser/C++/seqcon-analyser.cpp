@@ -105,20 +105,29 @@ template <class A_Type> class SearchableVector {
 		VAiterator end() {
 			return storage.end();
 		}
+
+		int size() {
+			return storage.size();
+		}
 };
 
 // Class to maintain a relation between integers.
 class Relation {
-	private:
+	protected:
 		map<int, set<int>> r;
 	public:
+		void copy(Relation R) {
+			r.clear();
+			r.insert(R.begin(), R.end());
+		}
+
 		void insert(int i, vector<int> J) {
 			auto it = r.find(i);
 			if (it == r.end()) {
 				r.insert(pair<int, set<int>>(i, set<int>(J.begin(), J.end())));
 			}
 			else {
-				copy(J.begin(), J.end(), inserter(it->second, it->second.end()));
+				::copy(J.begin(), J.end(), inserter(it->second, it->second.end()));
 			}
 		}
 
@@ -150,6 +159,12 @@ class Relation {
 		}
 };
 
+// Class to maintain a symmetric relation between integers.
+class SymmRelation : public Relation {
+	protected:
+		map<int, set<int>> r_rev;
+}
+
 // Struct to store info on Memory accesses
 struct Access {
 	int location; // Memory location
@@ -174,6 +189,8 @@ struct Instruction {
 	bool is_guarded; // Does the instruction have a condition?
 	vector<int> shared_accesses; // List of shared accesses performed by the instruction
 	vector<int> bottom_accs; // List of PR-smallest accesses
+	vector<int> cond_reads; // List of reads to check a condition, in addition to the ones in bottom_accs
+							// (the reads in cond_reads are address dependent on some in bottom_accs)
 	vector<int> top_accs; // List of PR-largest accesses
 };
 
@@ -241,11 +258,11 @@ int main (int argc, char *argv[]) {
 	Relation PR;
 	// Transitive closure of PR
 	Relation PRplus;
-	// Dependency relations (DP and 'direct' (non-transitive) version DPdirect)
+	// Dependency relation DP
+	// Covers value and address dependencies, and RF for thread-local variables
 	Relation DP;
-	Relation DPdirect;
-	// RF relation for thread-local variables; needed to close DP
-	Relation RFlocal;
+	// CTRL dependency relation
+	Relation CTRL;
 	// CMP relation
 	Relation CMP;
 	
@@ -320,6 +337,7 @@ int main (int argc, char *argv[]) {
 					instr.is_guarded = false;
 					instr.shared_accesses.clear();
 					instr.bottom_accs.clear();
+					instr.cond_reads.clear();
 					instr.top_accs.clear();
 
 					sep2 = label.find_first_of("[", sep1);
@@ -388,11 +406,6 @@ int main (int argc, char *argv[]) {
 							string read = reads.substr(sep2+2, sep1-(sep2+2));
 							//cout << read << endl;
 
-							// The instruction is guarded if there are no writes at this point
-							if (writes.compare("[]") == 0) {
-								instr.is_guarded = true;
-							}
-
 							// Create and store read access
 							int loc = location_ids.insert(read);
 							acc.location = loc;
@@ -408,9 +421,7 @@ int main (int argc, char *argv[]) {
 							// cout << tid << endl;
 							int aid = accesses.insert(acc);
 							cout << "read " << aid << " : " << read << ": " << label << endl;
-							if (!acc.local) {
-								instr.shared_accesses.insert(instr.shared_accesses.end(), aid);
-							}
+							instr.shared_accesses.insert(instr.shared_accesses.end(), aid);
 							reads_stored = true;
 
 							if (reads[sep2-1] != 'p') {
@@ -433,10 +444,9 @@ int main (int argc, char *argv[]) {
 									acc.location = loc;
 									acc.local = count(depread.begin(), depread.end(), '\'') > 1;
 									int depaid = accesses.insert(acc);
-									cout << "read " << depaid << " : " << depread << ": " << label << endl;
 
 									// Store dependencies
-									DPdirect.insert(aid, depaid);
+									DP.insert(aid, depaid);
 									PR.insert(depaid, aid);
 
 									sep3 = sep4+2;
@@ -449,6 +459,14 @@ int main (int argc, char *argv[]) {
 							}
 							else {
 								reads = reads.substr(sep1, reads.length()-sep1);
+							}
+						}
+						// The instruction is guarded if there are no writes at this point
+						if (writes.compare("[]") == 0) {
+							instr.is_guarded = true;
+							// Store additional reads to check the condition (besides those in bottom_accs), if needed
+							if (!curr_accesses_top.empty()) {
+								instr.cond_reads = curr_accesses_top;
 							}
 						}
 						if (!curr_accesses_bottom.empty()) {
@@ -502,10 +520,8 @@ int main (int argc, char *argv[]) {
 							acc.tid = tid;
 							// cout << tid << endl;
 							int aid = accesses.insert(acc);
-							//cout << "write " << aid << " : " << write << endl;
-							if (!acc.local) {
-								instr.shared_accesses.insert(instr.shared_accesses.end(), aid);
-							}
+							cout << "write " << aid << " : " << write << ": " << label << endl;
+							instr.shared_accesses.insert(instr.shared_accesses.end(), aid);
 							curr_accesses_bottom.insert(curr_accesses_bottom.end(), aid);
 
 							//cout << write << endl;
@@ -523,7 +539,7 @@ int main (int argc, char *argv[]) {
 								// Writes depend on directly preceding reads
 								if (reads_stored) {
 									for (auto a : curr_accesses_bottom) {
-										DPdirect.insert(a, prev_accesses);
+										DP.insert(a, prev_accesses);
 									}
 								}
 							}
@@ -604,7 +620,7 @@ int main (int argc, char *argv[]) {
 			}
 		}
 
-		// Compute the RF relation for thread-local variables
+		// Compute the RF relation for thread-local variables. This is integrated into DP.
 		set<int> open;
 		set<int> closed;
 		for (auto i : PR) {
@@ -620,12 +636,10 @@ int main (int argc, char *argv[]) {
 					open.erase(j);
 					closed.insert(j);
 					Access b = accesses.get(j);
-					if (a.location == b.location) {
-						if (b.type == READ) {
-							RFlocal.insert(j, i.first);
+					if (a.location != b.location || b.type == READ) {
+						if (a.location == b.location) {
+							DP.insert(j, i.first);
 						}
-					}
-					else {
 						if (PR.contains(j)) {
 							auto it = PR.get(j);
 							for (auto k : it->second) {
@@ -638,63 +652,66 @@ int main (int argc, char *argv[]) {
 				}
 			}
 		}
-		// Close DPdirect over local variables, using RFlocal. This results in DP
-		for (auto i : DPdirect) {
-			Access a = accesses.get(i.first);
-			if (!a.local) {
-				open.clear();
-				closed.clear();
-				closed.insert(i.first);
-				open.insert(i.second.begin(), i.second.end());
-				while (!open.empty()) {
-					int j = *(open.begin());
-					open.erase(j);
-					closed.insert(j);
-					Access b = accesses.get(j);
-					if (!b.local) {
-						DP.insert(i.first, j);
-					}
-					else {
-						auto it = RFlocal.get(j);
-						for (auto k : it->second) {
-							if (DPdirect.contains(k)) {
-								auto it2 = DPdirect.get(k);
-								for (auto l : it2->second) {
-									if (closed.find(l) == closed.end()) {
-										open.insert(l);
-									}
-								}
-							}
+		// Compute PRplus via Floyd-Warshall
+		PRplus.copy(PR);
+
+		for (int k = 0; k < accesses.size(); k++) {
+			for (int i = 0; i < accesses.size(); i++) {
+				if (PRplus.contains(i) && PRplus.contains(k)) {
+					auto ii = PRplus.get(i);
+					auto ik = PRplus.get(k);
+					for (int j = 0; j < accesses.size(); j++) {
+						if (ii->second.find(k) != ii->second.end() && ik->second.find(j) != ik->second.end()) {
+							PRplus.insert(i, j);
 						}
 					}
 				}
 			}
 		}
 
-		cout << "locality info:" << endl;
-		for (auto a : accesses) {
-			cout << accesses.find(a) << ": " << a.local << endl;
+		// Using PRplus, compute the CTRL relation
+		for (auto i : instructions) {
+			if (i.second.is_guarded) {
+				// The bottom accesses of i and those in cond_reads are the reads necessary to evaluate a condition
+				for (auto ai : i.second.bottom_accs) {
+					if (PRplus.contains(ai)) {
+						auto it = PRplus.get(ai);
+						for (auto aj : it->second) {
+							CTRL.insert(aj, ai);
+						}
+					}
+				}
+				for (auto ai : i.second.cond_reads) {
+					if (PRplus.contains(ai)) {
+						auto it = PRplus.get(ai);
+						for (auto aj : it->second) {
+							CTRL.insert(aj, ai);
+						}
+					}
+				}
+			}
 		}
+
 		cout << "PR:" << endl;
 		for (auto i : PR) {
 			for (auto j : i.second) {
 				cout << "(" << i.first << ", " << j << ")" << endl;
 			}
 		}
-		cout << "RFlocal:" << endl;
-		for (auto i : RFlocal) {
-			for (auto j : i.second) {
-				cout << "(" << i.first << ", " << j << ")" << endl;
-			}
-		}
-		cout << "DPdirect:" << endl;
-		for (auto i : DPdirect) {
+		cout << "PRplus:" << endl;
+		for (auto i : PRplus) {
 			for (auto j : i.second) {
 				cout << "(" << i.first << ", " << j << ")" << endl;
 			}
 		}
 		cout << "DP:" << endl;
 		for (auto i : DP) {
+			for (auto j : i.second) {
+				cout << "(" << i.first << ", " << j << ")" << endl;
+			}
+		}
+		cout << "CTRL:" << endl;
+		for (auto i : CTRL) {
 			for (auto j : i.second) {
 				cout << "(" << i.first << ", " << j << ")" << endl;
 			}
