@@ -92,8 +92,8 @@ template <class A_Type> class SearchableVector {
 		}
 
 		// Get the element at given index
-		A_Type get(int index) {
-			return storage[index];
+		A_Type& get(int index) {
+			return storage.at(index);
 		}
 
 		typedef typename vector<A_Type>::iterator VAiterator;
@@ -121,7 +121,7 @@ class Relation {
 			r.insert(R.begin(), R.end());
 		}
 
-		void insert(int i, vector<int> J) {
+		virtual void insert(int i, vector<int> J) {
 			auto it = r.find(i);
 			if (it == r.end()) {
 				r.insert(pair<int, set<int>>(i, set<int>(J.begin(), J.end())));
@@ -131,7 +131,7 @@ class Relation {
 			}
 		}
 
-		void insert(int i, int j) {
+		virtual void insert(int i, int j) {
 			auto it = r.find(i);
 			if (it == r.end()) {
 				r.insert(pair<int, set<int>>(i, { j }));
@@ -144,6 +144,16 @@ class Relation {
 		bool contains(int i) {
 			auto it = r.find(i);
 			return (it != r.end());
+		}
+
+		bool are_related(int i, int j) {
+			if (!contains(i)) {
+				return false;
+			}
+			else {
+				auto it = get(i);
+				return it->second.find(j) != it->second.end();
+			}
 		}
 
 		// Precondition: an entry exists for i in r
@@ -159,11 +169,113 @@ class Relation {
 		}
 };
 
-// Class to maintain a symmetric relation between integers.
-class SymmRelation : public Relation {
+// Class to maintain a bidirectional relation between integers.
+// Checking in the opposite direction of the relation can be done efficiently.
+class BiRelation : public Relation {
 	protected:
 		map<int, set<int>> r_rev;
-}
+	public:
+		typedef int value_type;
+
+		void copy(BiRelation R) {
+			r.clear();
+			r_rev.clear();
+			r.insert(R.begin(), R.end());
+			r_rev.insert(R.rev_begin(), R.rev_end());
+		}
+
+		void insert(int i, vector<int> J) override {
+			auto it = r.find(i);
+			if (it == r.end()) {
+				r.insert(pair<int, set<int>>(i, set<int>(J.begin(), J.end())));
+			}
+			else {
+				::copy(J.begin(), J.end(), inserter(it->second, it->second.end()));
+			}
+			for (auto j : J) {
+				it = r_rev.find(j);
+				if (it == r_rev.end()) {
+					r_rev.insert(pair<int, set<int>>(j, { i }));
+				}
+				else {
+					it->second.insert(i);
+				}
+			}
+		}
+
+		void insert(int i, int j) override {
+			auto it = r.find(i);
+			if (it == r.end()) {
+				r.insert(pair<int, set<int>>(i, { j }));
+			}
+			else {
+				it->second.insert(j);
+			}
+			it = r_rev.find(j);
+			if (it == r_rev.end()) {
+				r_rev.insert(pair<int, set<int>>(j, { i }));
+			}
+			else {
+				it->second.insert(i);
+			}
+		}
+
+		// Insert into the relation element i, with predecessors pred and successors succ
+		void insert(int i, vector<int> pred, vector<int> succ) {
+			insert(i, succ);
+			for (auto ai : pred) {
+				insert(ai, i);
+			}
+		}
+
+		// Remove the relation between i and j
+		void remove(int i, int j) {
+			if (contains(i)) {
+				auto it = get(i);
+				it->second.erase(j);
+				it = get_rev(j);
+				it->second.erase(i);
+			}
+		}
+
+		// Update the relation for element i
+		void update(int i, vector<int> pred, vector<int> succ) {
+			if (contains(i)) {
+				auto it = get(i);
+				for (auto ai : it->second) {
+					(get_rev(ai))->second.erase(i);
+					if ((get_rev(ai))->second.empty()) {
+						r_rev.erase(ai);
+					}
+				}
+				if (succ.empty()) {
+					r.erase(i);
+				}
+				else {
+					it->second.clear();
+				}
+			}
+			insert(i, pred, succ);
+		}
+
+		bool contains_rev(int i) {
+			auto it = r_rev.find(i);
+			return (it != r_rev.end());
+		}
+
+		// Precondition: an entry exists for i in r_rev
+		map<int, set<int>>::iterator get_rev(int i) {
+			return r_rev.find(i);
+		}
+
+		map<int, set<int>>::iterator rev_begin() {
+			return r_rev.begin();
+		}
+
+		map<int, set<int>>::iterator rev_end() {
+			return r_rev.end();
+		}
+};
 
 // Struct to store info on Memory accesses
 struct Access {
@@ -187,7 +299,7 @@ struct Instruction {
 	int pos; // Instruction position in the input model
 	int tid; // SLCO state machine (thread) ID
 	bool is_guarded; // Does the instruction have a condition?
-	vector<int> shared_accesses; // List of shared accesses performed by the instruction
+	set<int> accesses; // Set of accesses performed by the instruction
 	vector<int> bottom_accs; // List of PR-smallest accesses
 	vector<int> cond_reads; // List of reads to check a condition, in addition to the ones in bottom_accs
 							// (the reads in cond_reads are address dependent on some in bottom_accs)
@@ -203,8 +315,142 @@ struct State {
 // Struct to store LTS transition
 struct Transition {
 	int target; // Target state
-	map<string, Instruction>::iterator instruction; // Instruction associated with the transition
+	map<int, Instruction>::iterator instruction; // Instruction associated with the transition
 };
+
+// Function to check whether two accesses can be reordered
+bool can_reorder(int ai, int bi, SearchableVector<Access> accesses, MM mmodel, Relation DP, Relation CTRL) {
+	Access& a = accesses.get(ai);
+	Access& b = accesses.get(bi);
+	if (a.type == WRITE) {
+		if (b.type == WRITE) {
+			if (a.location == b.location) {
+				return true;
+			}
+			else {
+				return (mmodel == TSO);
+			}
+		}
+		else {
+			return false;
+		}
+	}
+	else {
+		if (b.type == WRITE) {
+			if (mmodel != ARM) {
+				return true;
+			}
+			else {
+				if (DP.are_related(bi, ai)) {
+					return true;
+				}
+				else return CTRL.are_related(bi, ai);
+			}
+		}
+		else {
+			if (mmodel != ARM) {
+				return true;
+			}
+			else {
+				return (a.location == b.location || DP.are_related(bi, ai));
+			}
+		}
+	}
+}
+
+// Function to PPR-reorder a given access ai, under the given relations, into the given instruction.
+// Postcondition: ai is properly placed in the PPR-relation.
+bool reorder(int ai, int instr_id, map<int, Instruction> instructions, SearchableVector<Access> accesses, MM mmodel,
+				vector<BiRelation> PPR, BiRelation PR, Relation DP, Relation CTRL, bool from_outside_instr) {
+	// Get the PPR-predecessors of ai.
+	bool reordered = false;
+	if ((!from_outside_instr && PR.contains_rev(ai)) || (from_outside_instr && !((instructions.find(instr_id))->second.top_accs.empty()))) {
+		auto instr = (instructions.find(instr_id))->second;
+		auto instr_accesses = instr.accesses;
+		set<int> set1, set2;
+		set<int>& open = set1;
+		set<int>& tmp = set1;
+		set<int>& next = set2;
+
+		if (!from_outside_instr) {
+			auto it_pred = PR.get_rev(ai);
+			for (auto bi : it_pred->second) {
+				if (instr_accesses.find(bi) != instr_accesses.end()) {
+					open.insert(bi);
+				}
+			}
+		}
+		else {
+			for (int bi : (instr.top_accs) {
+				open.insert(bi);
+			}
+		}
+		while (!open.empty()) {
+			for (int bi : open) {
+				if (can_reorder(bi, ai, accesses, mmodel, DP, CTRL)) {
+					PPR[instr_id].remove(bi, ai);
+					if (!from_outside_instr) {
+						if (PR.contains_rev(bi)) {
+							auto it = PR.get_rev(bi);
+							for (auto ci : it->second) {
+								if (instr_accesses.find(ci) != instr_accesses.end()) {
+									next.insert(ci);
+								}
+							}
+						}
+					}
+					else {
+						if (PPR[instr_id].contains_rev(bi)) {
+							auto it = PPR[instr_id].get_rev(bi);
+							next.insert(it->second.begin(), it->second.end());
+						}
+						if (!reordered) {
+							instr_accesses.insert(ai);
+						}
+					}
+					reordered = true;
+				}
+				else {
+					// ai cannot be reordered before bi, but maybe it can be, together with bi, before bi's PR-predecessors (those that are not PPR-predecessors of bi,
+					// since we require that bi can also be reordered before them).
+					PPR[instr_id].insert(bi, ai);
+					if (!from_outside_instr) {
+						if (PR.contains_rev(bi)) {
+							map<int, set<int>>::iterator it_bi_pr_pred = PR.get_rev(bi);
+							map<int, set<int>>::iterator it_bi_ppr_pred;
+							bool has_PPR_preds = false;
+							if (PPR[instr_id].contains_rev(bi)) {
+								it_bi_ppr_pred = PPR[instr_id].get_rev(bi);
+								has_PPR_preds = true;
+							}
+							for (int ci : it_bi_pr_pred->second) {
+								if (instr_accesses.find(ci) != instr_accesses.end()) {
+									if (!has_PPR_preds || it_bi_ppr_pred->second.find(ci) == it_bi_ppr_pred->second.end()) {
+										next.insert(ci);
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+			// Swap the sets
+			open = next;
+			next = tmp;
+			tmp = open;
+			next.clear();
+		}
+		// If ai ends up not having PPR-predecessors, it is a new bottom access
+		if (!PPR[instr_id].contains_rev(ai) && (from_outside_instr || PR.contains_rev(ai))) {
+			instr.bottom_accs.insert(instr.bottom_accs.end(), ai);
+		}
+		// If ai ends up not having PR-successors, it is a new top access
+		if (!PPR[instr_id].contains(ai) && (from_outside_instr || PR.contains(ai))) {
+			instr.top_accs.insert(instr.top_accs.end(), ai);
+		}
+	}
+	return reordered;
+}
 
 int main (int argc, char *argv[]) {
 	string modelname = "";
@@ -255,9 +501,11 @@ int main (int argc, char *argv[]) {
 	SearchableVector<Access> accesses;
 
 	// PR relation
-	Relation PR;
+	BiRelation PR;
 	// Transitive closure of PR
 	Relation PRplus;
+	// PR relation at instruction level
+	BiRelation PRinstr;
 	// Dependency relation DP
 	// Covers value and address dependencies, and RF for thread-local variables
 	Relation DP;
@@ -267,8 +515,9 @@ int main (int argc, char *argv[]) {
 	Relation CMP;
 	
 	// Various IndexedMaps to keep track of information extracted from the LTS
-	IndexedMap<string> instruction_positions;
-	map<string, Instruction> instructions;
+	IndexedMap<string> instruction_positions; // Maps short instruction position strings to integer IDs
+	IndexedMap<string> instruction_ids; // Maps long instruction strings to integer IDs
+	map<int, Instruction> instructions;
 	IndexedMap<string> thread_ids;
 	IndexedMap<string> location_ids;
 
@@ -311,17 +560,20 @@ int main (int argc, char *argv[]) {
 				first_trans = false;
 			}
 			sep2 = line.find_first_of("\"", sep1+2);
-			string translabel = line.substr(sep1+2, sep2-(sep1+2));
+			string label = line.substr(sep1+2, sep2-(sep1+2));
 			int tgt = stoi(line.substr(sep2+2, line.length()-(sep2+2)-1));
 			// List of previous and current accesses, used to build intra-instruction PR-relation
 			vector<int> prev_accesses, curr_accesses_bottom, curr_accesses_top;
 
+			// Store long instruction string description
+			int iid = instruction_ids.find(label);
 			// Check if instruction is already stored. If not, create it
-			if (instructions.find(translabel) == instructions.end()) {
-				if (translabel.compare("tau") != 0) {
-					//cout << translabel << endl;
+			if (iid == -1) {
+				iid = instruction_ids.insert(label);
+				if (label.compare("tau") != 0) {
+					//cout << label << endl;
 					// Break label further down
-					string label = translabel.substr(3, translabel.length()-4);
+					label = label.substr(3, label.length()-4);
 					// cout << label << endl;
 					sep1 = label.find_first_of(",");
 					sep2 = label.find_first_of(",", sep1+1);
@@ -329,13 +581,14 @@ int main (int argc, char *argv[]) {
 					int tid = thread_ids.insert(thread);
 					sep1 = label.find_first_of(",", sep2+1);
 					string statement = label.substr(sep2+2, sep1-sep2-2);
-					int iid = instruction_positions.insert(statement);
+					cout << statement << endl;
+					int ipos = instruction_positions.insert(statement);
 
 					// Set the instruction info
-					instr.pos = iid;
+					instr.pos = ipos;
 					instr.tid = tid;
 					instr.is_guarded = false;
-					instr.shared_accesses.clear();
+					instr.accesses.clear();
 					instr.bottom_accs.clear();
 					instr.cond_reads.clear();
 					instr.top_accs.clear();
@@ -415,13 +668,13 @@ int main (int argc, char *argv[]) {
 							// cout << acc.local << endl;
 							acc.type = READ;
 							// cout << acc.type << endl;
-							acc.instruction = iid;
+							acc.instruction = ipos;
 							// cout << acc.instruction << endl;
 							acc.tid = tid;
 							// cout << tid << endl;
 							int aid = accesses.insert(acc);
-							cout << "read " << aid << " : " << read << ": " << label << endl;
-							instr.shared_accesses.insert(instr.shared_accesses.end(), aid);
+							//cout << "read " << aid << " : " << read << ": " << label << endl;
+							instr.accesses.insert(instr.accesses.end(), aid);
 							reads_stored = true;
 
 							if (reads[sep2-1] != 'p') {
@@ -515,13 +768,13 @@ int main (int argc, char *argv[]) {
 							// cout << acc.local << endl;
 							acc.type = WRITE;
 							// cout << acc.type << endl;
-							acc.instruction = iid;
+							acc.instruction = ipos;
 							// cout << acc.instruction << endl;
 							acc.tid = tid;
 							// cout << tid << endl;
 							int aid = accesses.insert(acc);
-							cout << "write " << aid << " : " << write << ": " << label << endl;
-							instr.shared_accesses.insert(instr.shared_accesses.end(), aid);
+							//cout << "write " << aid << " : " << write << ": " << label << endl;
+							instr.accesses.insert(instr.accesses.end(), aid);
 							curr_accesses_bottom.insert(curr_accesses_bottom.end(), aid);
 
 							//cout << write << endl;
@@ -559,13 +812,13 @@ int main (int argc, char *argv[]) {
 				else {
 					// Store a dummy tau instruction
 					instr.tid = -1;
-					instr.shared_accesses.clear();
+					instr.accesses.clear();
 				}
 				// Store the instruction
-				auto it = instructions.insert(pair<string, Instruction>(translabel, instr));
+				auto it = instructions.insert(pair<int, Instruction>(iid, instr));
 			}
 			// Get the instruction
-			auto it = instructions.find(translabel);
+			auto it = instructions.find(iid);
 			// Store the transition
 			lts_transitions[current_trans_index].target = tgt;
 			lts_transitions[current_trans_index].instruction = it;
@@ -588,9 +841,26 @@ int main (int argc, char *argv[]) {
 		// }
 		ltsfile.close();
 
+		// For each instruction, construct an access reorder relation (PPR, subrelation of PR, consisting of the PR-pairs safe under the weak memory model).
+		// Initially, this is equal to PR
+		vector<BiRelation> PPR(instructions.size());
+
+		for (auto i : instructions) {
+			for (auto ai : i.second.accesses) {
+				if (PR.contains(ai)) {
+					auto it = PR.get(ai);
+					for (auto aj : it->second) {
+						if (i.second.accesses.find(aj) != i.second.accesses.end()) {
+							PPR[i.first].insert(ai, aj);
+						}
+					}
+				}
+			}
+		}
+
 		// Set of (instruction position, thread id) pairs of outgoing transitions of a state
 		set<pair<int, int>> out;
-		// Compute inter-instruction PR
+		// Compute inter-instruction PR and PRinstr
 		for (auto s : lts_states) {
 			out.clear();
 			// Collect info on outgoing transitions
@@ -602,9 +872,11 @@ int main (int argc, char *argv[]) {
 			for (int i = s.outgoing_begin; i < s.outgoing_end; i++) {
 				int tgt = lts_transitions[i].target;
 				auto instr = (*(lts_transitions[i].instruction)).second;
+				int instr_id = (*(lts_transitions[i].instruction)).first;
 				int pos = instr.pos;
 				int tid = instr.tid;
 				for (int j = lts_states[tgt].outgoing_begin; j < lts_states[tgt].outgoing_end; j++) {
+					int tgt_instr_id = (*(lts_transitions[j].instruction)).first;
 					auto tgt_instr = (*(lts_transitions[j].instruction)).second;
 					int tgt_pos = tgt_instr.pos;
 					int tgt_tid = tgt_instr.tid;
@@ -613,6 +885,7 @@ int main (int argc, char *argv[]) {
 							// PR-relate top elements of instr with bottom elements of tgt_instr
 							for (auto ta : instr.top_accs) {
 								PR.insert(ta, tgt_instr.bottom_accs);
+								PRinstr.insert(instr_id, tgt_instr_id);
 							}
 						}
 					}
@@ -624,7 +897,7 @@ int main (int argc, char *argv[]) {
 		set<int> open;
 		set<int> closed;
 		for (auto i : PR) {
-			Access a = accesses.get(i.first);
+			Access& a = accesses.get(i.first);
 			if (a.local && a.type == WRITE) {
 				open.clear();
 				closed.clear();
@@ -635,7 +908,7 @@ int main (int argc, char *argv[]) {
 					int j = *(open.begin());
 					open.erase(j);
 					closed.insert(j);
-					Access b = accesses.get(j);
+					Access& b = accesses.get(j);
 					if (a.location != b.location || b.type == READ) {
 						if (a.location == b.location) {
 							DP.insert(j, i.first);
@@ -692,26 +965,61 @@ int main (int argc, char *argv[]) {
 			}
 		}
 
-		cout << "PR:" << endl;
-		for (auto i : PR) {
-			for (auto j : i.second) {
-				cout << "(" << i.first << ", " << j << ")" << endl;
+		// In each instruction, reorder accesses to obtain the PPR-relations
+		set<int> set1, set2;
+		set<int>& openset = set1;
+		set<int>& tmpset = set1;
+		set<int>& nextset = set2;
+		for (auto instr : instructions) {
+			openset.clear();
+			nextset.clear();
+			openset.insert(instr.second.bottom_accs.begin(), instr.second.bottom_accs.end());
+			while (!openset.empty()) {
+				for (int ai : openset) {
+					reorder(ai, instr.first, instructions, accesses, weakmemmodel, PPR, PR, DP, CTRL);
+					if (PR.contains(ai)) {
+						auto it = PR.get(ai);
+						for (int bi : it->second) {
+							if (instr.second.accesses.find(bi) != instr.second.accesses.end()) {
+								nextset.insert(bi);
+							}
+						}
+					}
+				}
+				// Swap the sets
+				openset = nextset;
+				nextset = tmpset;
+				tmpset = openset;
+				nextset.clear();
 			}
 		}
-		cout << "PRplus:" << endl;
-		for (auto i : PRplus) {
-			for (auto j : i.second) {
-				cout << "(" << i.first << ", " << j << ")" << endl;
-			}
-		}
-		cout << "DP:" << endl;
-		for (auto i : DP) {
-			for (auto j : i.second) {
-				cout << "(" << i.first << ", " << j << ")" << endl;
-			}
-		}
-		cout << "CTRL:" << endl;
-		for (auto i : CTRL) {
+
+		// cout << "PR:" << endl;
+		// for (auto i : PR) {
+		// 	for (auto j : i.second) {
+		// 		cout << "(" << i.first << ", " << j << ")" << endl;
+		// 	}
+		// }
+		// cout << "PRplus:" << endl;
+		// for (auto i : PRplus) {
+		// 	for (auto j : i.second) {
+		// 		cout << "(" << i.first << ", " << j << ")" << endl;
+		// 	}
+		// }
+		// cout << "DP:" << endl;
+		// for (auto i : DP) {
+		// 	for (auto j : i.second) {
+		// 		cout << "(" << i.first << ", " << j << ")" << endl;
+		// 	}
+		// }
+		// cout << "CTRL:" << endl;
+		// for (auto i : CTRL) {
+		// 	for (auto j : i.second) {
+		// 		cout << "(" << i.first << ", " << j << ")" << endl;
+		// 	}
+		// }
+		cout << "PRinstr:" << endl;
+		for (auto i : PRinstr) {
 			for (auto j : i.second) {
 				cout << "(" << i.first << ", " << j << ")" << endl;
 			}
