@@ -325,48 +325,48 @@ bool can_reorder(int ai, int bi, SearchableVector<Access> accesses, MM mmodel, R
 	if (a.type == WRITE) {
 		if (b.type == WRITE) {
 			if (a.location == b.location) {
-				return true;
+				return false;
 			}
 			else {
-				return (mmodel == TSO);
+				return !(mmodel == TSO);
 			}
 		}
 		else {
-			return false;
+			return true;
 		}
 	}
 	else {
 		if (b.type == WRITE) {
 			if (mmodel != ARM) {
-				return true;
+				return false;
 			}
 			else {
 				if (DP.are_related(bi, ai)) {
-					return true;
+					return false;
 				}
-				else return CTRL.are_related(bi, ai);
+				else return !CTRL.are_related(bi, ai);
 			}
 		}
 		else {
 			if (mmodel != ARM) {
-				return true;
+				return false;
 			}
 			else {
-				return (a.location == b.location || DP.are_related(bi, ai));
+				return !(a.location == b.location || DP.are_related(bi, ai));
 			}
 		}
 	}
 }
 
 // Function to PPR-reorder a given access ai, under the given relations, into the given instruction.
+// Precondition: if ai stems from another instruction, then it is not yet reordered into instruction instr_id.
 // Postcondition: ai is properly placed in the PPR-relation.
 bool reorder(int ai, int instr_id, map<int, Instruction> instructions, SearchableVector<Access> accesses, MM mmodel,
-				vector<BiRelation> PPR, BiRelation PR, Relation DP, Relation CTRL, bool from_outside_instr) {
+				vector<BiRelation>& PPR, BiRelation PR, Relation DP, Relation CTRL, bool from_outside_instr) {
 	// Get the PPR-predecessors of ai.
-	bool reordered = false;
-	if ((!from_outside_instr && PR.contains_rev(ai)) || (from_outside_instr && !((instructions.find(instr_id))->second.top_accs.empty()))) {
-		auto instr = (instructions.find(instr_id))->second;
-		auto instr_accesses = instr.accesses;
+	bool moved_into = false;
+	auto instr = (instructions.find(instr_id))->second;
+	if ((!from_outside_instr && PR.contains_rev(ai)) || (from_outside_instr && !(instr.top_accs.empty()))) {
 		set<int> set1, set2;
 		set<int>& open = set1;
 		set<int>& tmp = set1;
@@ -375,25 +375,24 @@ bool reorder(int ai, int instr_id, map<int, Instruction> instructions, Searchabl
 		if (!from_outside_instr) {
 			auto it_pred = PR.get_rev(ai);
 			for (auto bi : it_pred->second) {
-				if (instr_accesses.find(bi) != instr_accesses.end()) {
+				if (instr.accesses.find(bi) != instr.accesses.end()) {
 					open.insert(bi);
 				}
 			}
 		}
 		else {
-			for (int bi : (instr.top_accs) {
+			for (int bi : instr.top_accs) {
 				open.insert(bi);
 			}
 		}
 		while (!open.empty()) {
 			for (int bi : open) {
 				if (can_reorder(bi, ai, accesses, mmodel, DP, CTRL)) {
-					PPR[instr_id].remove(bi, ai);
 					if (!from_outside_instr) {
 						if (PR.contains_rev(bi)) {
 							auto it = PR.get_rev(bi);
 							for (auto ci : it->second) {
-								if (instr_accesses.find(ci) != instr_accesses.end()) {
+								if (instr.accesses.find(ci) != instr.accesses.end()) {
 									next.insert(ci);
 								}
 							}
@@ -404,15 +403,16 @@ bool reorder(int ai, int instr_id, map<int, Instruction> instructions, Searchabl
 							auto it = PPR[instr_id].get_rev(bi);
 							next.insert(it->second.begin(), it->second.end());
 						}
-						if (!reordered) {
-							instr_accesses.insert(ai);
+						if (!moved_into) {
+							instr.accesses.insert(ai);
+							moved_into = true;
 						}
 					}
-					reordered = true;
 				}
 				else {
 					// ai cannot be reordered before bi, but maybe it can be, together with bi, before bi's PR-predecessors (those that are not PPR-predecessors of bi,
 					// since we require that bi can also be reordered before them).
+					cout << "here " << instr_id << " " << bi << " " << ai << endl;
 					PPR[instr_id].insert(bi, ai);
 					if (!from_outside_instr) {
 						if (PR.contains_rev(bi)) {
@@ -424,7 +424,7 @@ bool reorder(int ai, int instr_id, map<int, Instruction> instructions, Searchabl
 								has_PPR_preds = true;
 							}
 							for (int ci : it_bi_pr_pred->second) {
-								if (instr_accesses.find(ci) != instr_accesses.end()) {
+								if (instr.accesses.find(ci) != instr.accesses.end()) {
 									if (!has_PPR_preds || it_bi_ppr_pred->second.find(ci) == it_bi_ppr_pred->second.end()) {
 										next.insert(ci);
 									}
@@ -440,16 +440,22 @@ bool reorder(int ai, int instr_id, map<int, Instruction> instructions, Searchabl
 			tmp = open;
 			next.clear();
 		}
-		// If ai ends up not having PPR-predecessors, it is a new bottom access
-		if (!PPR[instr_id].contains_rev(ai) && (from_outside_instr || PR.contains_rev(ai))) {
-			instr.bottom_accs.insert(instr.bottom_accs.end(), ai);
-		}
-		// If ai ends up not having PR-successors, it is a new top access
-		if (!PPR[instr_id].contains(ai) && (from_outside_instr || PR.contains(ai))) {
-			instr.top_accs.insert(instr.top_accs.end(), ai);
+	}
+	else if (from_outside_instr) {
+		if (instr.accesses.find(ai) == instr.accesses.end()) {
+			moved_into = true;
+			instr.accesses.insert(ai);
 		}
 	}
-	return reordered;
+	// If ai ends up not having PPR-predecessors, it is a new bottom access
+	if (!PPR[instr_id].contains_rev(ai) && (from_outside_instr || PR.contains_rev(ai))) {
+		instr.bottom_accs.insert(instr.bottom_accs.end(), ai);
+	}
+	// If ai ends up not having PR-successors, it is a new top access
+	if (!PPR[instr_id].contains(ai) && (from_outside_instr || PR.contains(ai))) {
+		instr.top_accs.insert(instr.top_accs.end(), ai);
+	}
+	return moved_into;
 }
 
 int main (int argc, char *argv[]) {
@@ -570,6 +576,7 @@ int main (int argc, char *argv[]) {
 			// Check if instruction is already stored. If not, create it
 			if (iid == -1) {
 				iid = instruction_ids.insert(label);
+				cout << iid << ": " << label << endl;
 				if (label.compare("tau") != 0) {
 					//cout << label << endl;
 					// Break label further down
@@ -699,7 +706,9 @@ int main (int argc, char *argv[]) {
 									int depaid = accesses.insert(acc);
 
 									// Store dependencies
-									DP.insert(aid, depaid);
+									if (weakmemmodel == ARM) {
+										DP.insert(aid, depaid);
+									}
 									PR.insert(depaid, aid);
 
 									sep3 = sep4+2;
@@ -790,7 +799,7 @@ int main (int argc, char *argv[]) {
 									PR.insert(a, curr_accesses_bottom);
 								}
 								// Writes depend on directly preceding reads
-								if (reads_stored) {
+								if (reads_stored and weakmemmodel == ARM) {
 									for (auto a : curr_accesses_bottom) {
 										DP.insert(a, prev_accesses);
 									}
@@ -830,10 +839,6 @@ int main (int argc, char *argv[]) {
 		}
 		// Store outgoing transitions end for final state
 		lts_states[current_state_index].outgoing_end = current_trans_index;
-		// for (auto i = instructions.begin(); i != instructions.end(); ++i) {
-		// 	cout << (*i).second.label << endl;
-		// 	cout << (*i).second.tid << endl;
-		// }
 		// for (auto i : PR) {
 		// 	for (auto j : i.second) {
 		// 		cout << "(" << i.first << ", " << j << ")" << endl;
@@ -841,22 +846,9 @@ int main (int argc, char *argv[]) {
 		// }
 		ltsfile.close();
 
-		// For each instruction, construct an access reorder relation (PPR, subrelation of PR, consisting of the PR-pairs safe under the weak memory model).
-		// Initially, this is equal to PR
+		// For each instruction, create an access reorder relation (PPR, subrelation of PR, consisting of the PR-pairs safe under the weak memory model).
+		// Initially, this is empty.
 		vector<BiRelation> PPR(instructions.size());
-
-		for (auto i : instructions) {
-			for (auto ai : i.second.accesses) {
-				if (PR.contains(ai)) {
-					auto it = PR.get(ai);
-					for (auto aj : it->second) {
-						if (i.second.accesses.find(aj) != i.second.accesses.end()) {
-							PPR[i.first].insert(ai, aj);
-						}
-					}
-				}
-			}
-		}
 
 		// Set of (instruction position, thread id) pairs of outgoing transitions of a state
 		set<pair<int, int>> out;
@@ -894,30 +886,32 @@ int main (int argc, char *argv[]) {
 		}
 
 		// Compute the RF relation for thread-local variables. This is integrated into DP.
-		set<int> open;
-		set<int> closed;
-		for (auto i : PR) {
-			Access& a = accesses.get(i.first);
-			if (a.local && a.type == WRITE) {
-				open.clear();
-				closed.clear();
-				closed.insert(i.first);
-				// Search for reachable reads from the same location
-				open.insert(i.second.begin(), i.second.end());
-				while (!open.empty()) {
-					int j = *(open.begin());
-					open.erase(j);
-					closed.insert(j);
-					Access& b = accesses.get(j);
-					if (a.location != b.location || b.type == READ) {
-						if (a.location == b.location) {
-							DP.insert(j, i.first);
-						}
-						if (PR.contains(j)) {
-							auto it = PR.get(j);
-							for (auto k : it->second) {
-								if (closed.find(k) == closed.end()) {
-									open.insert(k);
+		if (weakmemmodel == ARM) {
+			set<int> open;
+			set<int> closed;
+			for (auto i : PR) {
+				Access& a = accesses.get(i.first);
+				if (a.local && a.type == WRITE) {
+					open.clear();
+					closed.clear();
+					closed.insert(i.first);
+					// Search for reachable reads from the same location
+					open.insert(i.second.begin(), i.second.end());
+					while (!open.empty()) {
+						int j = *(open.begin());
+						open.erase(j);
+						closed.insert(j);
+						Access& b = accesses.get(j);
+						if (a.location != b.location || b.type == READ) {
+							if (a.location == b.location) {
+								DP.insert(j, i.first);
+							}
+							if (PR.contains(j)) {
+								auto it = PR.get(j);
+								for (auto k : it->second) {
+									if (closed.find(k) == closed.end()) {
+										open.insert(k);
+									}
 								}
 							}
 						}
@@ -925,6 +919,7 @@ int main (int argc, char *argv[]) {
 				}
 			}
 		}
+
 		// Compute PRplus via Floyd-Warshall
 		PRplus.copy(PR);
 
@@ -942,23 +937,25 @@ int main (int argc, char *argv[]) {
 			}
 		}
 
-		// Using PRplus, compute the CTRL relation
-		for (auto i : instructions) {
-			if (i.second.is_guarded) {
-				// The bottom accesses of i and those in cond_reads are the reads necessary to evaluate a condition
-				for (auto ai : i.second.bottom_accs) {
-					if (PRplus.contains(ai)) {
-						auto it = PRplus.get(ai);
-						for (auto aj : it->second) {
-							CTRL.insert(aj, ai);
+		if (weakmemmodel == ARM) {
+			// Using PRplus, compute the CTRL relation
+			for (auto i : instructions) {
+				if (i.second.is_guarded) {
+					// The bottom accesses of i and those in cond_reads are the reads necessary to evaluate a condition
+					for (auto ai : i.second.bottom_accs) {
+						if (PRplus.contains(ai)) {
+							auto it = PRplus.get(ai);
+							for (auto aj : it->second) {
+								CTRL.insert(aj, ai);
+							}
 						}
 					}
-				}
-				for (auto ai : i.second.cond_reads) {
-					if (PRplus.contains(ai)) {
-						auto it = PRplus.get(ai);
-						for (auto aj : it->second) {
-							CTRL.insert(aj, ai);
+					for (auto ai : i.second.cond_reads) {
+						if (PRplus.contains(ai)) {
+							auto it = PRplus.get(ai);
+							for (auto aj : it->second) {
+								CTRL.insert(aj, ai);
+							}
 						}
 					}
 				}
@@ -976,7 +973,7 @@ int main (int argc, char *argv[]) {
 			openset.insert(instr.second.bottom_accs.begin(), instr.second.bottom_accs.end());
 			while (!openset.empty()) {
 				for (int ai : openset) {
-					reorder(ai, instr.first, instructions, accesses, weakmemmodel, PPR, PR, DP, CTRL);
+					reorder(ai, instr.first, instructions, accesses, weakmemmodel, PPR, PR, DP, CTRL, false);
 					if (PR.contains(ai)) {
 						auto it = PR.get(ai);
 						for (int bi : it->second) {
@@ -994,12 +991,93 @@ int main (int argc, char *argv[]) {
 			}
 		}
 
-		// cout << "PR:" << endl;
-		// for (auto i : PR) {
-		// 	for (auto j : i.second) {
-		// 		cout << "(" << i.first << ", " << j << ")" << endl;
-		// 	}
-		// }
+		// Now reorder accesses across instructions
+		vector<vector<int>> accvector1(instructions.size());
+		vector<vector<int>> accvector2(instructions.size());
+		vector<vector<int>>& newly_added_accesses = accvector1;
+		vector<vector<int>>& next_added_accesses = accvector2;
+		vector<vector<int>>& tmp_accesses = accvector1;
+
+		for (auto instr : instructions) {
+			openset.clear();
+			nextset.clear();
+			openset.insert(instr.second.bottom_accs.begin(), instr.second.bottom_accs.end());
+			while (!openset.empty()) {
+				for (int ai : openset) {
+					newly_added_accesses[instr.first].insert(newly_added_accesses[instr.first].end(), ai);
+					if (PPR[instr.first].contains(ai)) {
+						auto it = PPR[instr.first].get(ai);
+						for (int bi : it->second) {
+							if (nextset.find(bi) == nextset.end()) {
+								nextset.insert(bi);
+							}
+						}
+					}
+				}
+				openset = nextset;
+				nextset = tmpset;
+				tmpset = openset;
+				nextset.clear();
+			}
+		}
+
+		openset.clear();
+		nextset.clear();
+		for (int i = 0; i < instructions.size(); i++) {
+			openset.insert(i);
+		}
+		while (!openset.empty()) {
+			for (int instr_id : openset) {
+				if (PRinstr.contains(instr_id)) {
+					auto instr_it = PRinstr.get(instr_id);
+					for (int instr_id2 : instr_it->second) {
+						if (!newly_added_accesses[instr_id2].empty()) {
+							for (int ai : newly_added_accesses[instr_id2]) {
+								auto instr = (instructions.find(instr_id))->second;
+								if (instr.accesses.find(ai) == instr.accesses.end()) {
+									int result = reorder(ai, instr_id, instructions, accesses, weakmemmodel, PPR, PR, DP, CTRL, true);
+									if (result) {
+										if (next_added_accesses[instr_id].empty()) {
+											if (PRinstr.contains_rev(instr_id)) {
+												auto instr_it2 = PRinstr.get_rev(instr_id);
+												nextset.insert(instr_it2->second.begin(), instr_it2->second.end());
+											}
+										}
+										next_added_accesses[instr_id].insert(next_added_accesses[instr_id].end(), ai);
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+			// Swap
+			openset = nextset;
+			nextset = tmpset;
+			tmpset = openset;
+			nextset.clear();
+			newly_added_accesses = next_added_accesses;
+			next_added_accesses = tmp_accesses;
+			tmp_accesses = newly_added_accesses;
+			for (int i = 0; i < instructions.size(); i++) {
+				next_added_accesses[i].clear();
+			}
+		}
+
+		cout << "PR:" << endl;
+		for (auto i : PR) {
+			for (auto j : i.second) {
+				cout << "(" << i.first << ", " << j << ")" << endl;
+			}
+		}
+		cout << "The PPRs: " << endl;
+		for (int i = 0; i < instructions.size(); i++) {
+			for (auto i : PPR[i]) {
+				for (auto j : i.second) {
+					cout << "(" << i.first << ", " << j << ")" << endl;
+				}
+			}
+		}
 		// cout << "PRplus:" << endl;
 		// for (auto i : PRplus) {
 		// 	for (auto j : i.second) {
