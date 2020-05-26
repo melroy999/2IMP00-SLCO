@@ -19,6 +19,8 @@ using namespace std;
 enum MM { TSO, PSO, ARM };
 // Access type
 enum AccessType { READ, WRITE };
+// Type of edge in an Abstract Event Graph
+enum edgeType { PRSAFE, PRUNSAFE, CMP };
 
 // Template class to maintain a map of objects
 // of type A_Type, each mapped to a unique ID.
@@ -179,6 +181,46 @@ class Relation {
 		}
 };
 
+// Class to maintain a relation between integers, with the related integers stored in a vector, as opposed to a set.
+// Benefit: indices can be used to retrieve the integer at a given index from the vector associated to another integer
+// Drawback: the structure is less suitable for checking whether a given integer is related to another integer
+class VectorRelation {
+	protected:
+		vector<vector<int>> r;
+	public:
+		VectorRelation(size_t size) {
+			r.resize(size);
+		}
+
+		void insert(int i, vector<int> J) {
+			r[i].insert(r[i].end(), J.begin(), J.end());
+		}
+
+		void insert(int i, set<int> J) {
+			r[i].insert(r[i].end(), J.begin(), J.end());
+		}
+
+		void insert(int i, int j) {
+			r[i].insert(r[i].end(), j);
+		}
+
+		int get_element(int i, int index) {
+			return r[i].at(index);
+		}
+
+		vector<int>& get(int i) {
+			return r[i];
+		}
+
+		int size() {
+			return r.size();
+		}
+
+		int get_size(int i) {
+			return r[i].size();
+		}
+};
+
 // Class to maintain a bidirectional relation between integers.
 // Checking in the opposite direction of the relation can be done efficiently.
 class BiRelation : public Relation {
@@ -249,169 +291,24 @@ class BiRelation : public Relation {
 			}
 		}
 
-		virtual bool contains_rev(int i) {
+		bool contains_rev(int i) {
 			auto it = r_rev.find(i);
 			return (it != r_rev.end());
 		}
 
 		// Precondition: an entry exists for i in r_rev
-		virtual map<int, set<int>>::iterator get_rev(int i) {
+		map<int, set<int>>::iterator get_rev(int i) {
 			return r_rev.find(i);
 		}
 
-		virtual map<int, set<int>>::iterator rev_begin() {
+		map<int, set<int>>::iterator rev_begin() {
 			return r_rev.begin();
 		}
 
-		virtual map<int, set<int>>::iterator rev_end() {
+		map<int, set<int>>::iterator rev_end() {
 			return r_rev.end();
 		}
 };
-
-// Class to maintain a transitive bidirectional relation between integers.
-// Checking both in the opposite direction of the relation and transitively can be done efficiently.
-class TransitiveBiRelation : public BiRelation {
-	public:
-		typedef int value_type;
-
-		void copy(TransitiveBiRelation R) {
-			r.clear();
-			r_rev.clear();
-			r.insert(R.begin(), R.end());
-			r_rev.insert(R.rev_begin(), R.rev_end());
-		}
-
-		void insert_direct(int i, vector<int> J) {
-			auto it = r.find(i);
-			if (it == r.end()) {
-				r.insert(pair<int, set<int>>(i, set<int>(J.begin(), J.end())));
-			}
-			else {
-				::copy(J.begin(), J.end(), inserter(it->second, it->second.end()));
-			}
-			for (auto j : J) {
-				it = r_rev.find(j);
-				if (it == r_rev.end()) {
-					r_rev.insert(pair<int, set<int>>(j, { i }));
-				}
-				else {
-					it->second.insert(i);
-				}
-			}			
-		}
-
-		void insert_direct(int i, set<int> J) {
-			auto it = r.find(i);
-			if (it == r.end()) {
-				r.insert(pair<int, set<int>>(i, set<int>(J.begin(), J.end())));
-			}
-			else {
-				::copy(J.begin(), J.end(), inserter(it->second, it->second.end()));
-			}
-			for (auto j : J) {
-				it = r_rev.find(j);
-				if (it == r_rev.end()) {
-					r_rev.insert(pair<int, set<int>>(j, { i }));
-				}
-				else {
-					it->second.insert(i);
-				}
-			}			
-		}
-
-		void insert(int i, vector<int> J) override {
-			insert_direct(i, J);
-			// Successors of J are successors of i
-			for (auto j : J) {
-				auto it = r.find(j);
-				if (it != r.end()) {
-					insert_direct(i, it->second);
-				}
-			}
-			// Update the predecessors of i
-			auto it = r.find(i);
-			auto it2 = r_rev.find(i);
-			if (it2 != r_rev.end()) {
-				for (auto j : it2->second) {
-					insert_direct(j, it->second);
-				}
-			}
-		}
-
-		void insert(int i, set<int> J) override {
-			insert_direct(i, J);
-			// Successors of J are successors of i
-			for (auto j : J) {
-				auto it = r.find(j);
-				if (it != r.end()) {
-					insert_direct(i, it->second);
-				}
-			}
-			// Update the predecessors of i
-			auto it = r.find(i);
-			auto it2 = r_rev.find(i);
-			if (it2 != r_rev.end()) {
-				for (auto j : it2->second) {
-					insert_direct(j, it->second);
-				}
-			}
-		}
-
-		void insert_direct(int i, int j) {
-			auto it = r.find(i);
-			if (it == r.end()) {
-				r.insert(pair<int, set<int>>(i, { j }));
-			}
-			else {
-				it->second.insert(j);
-			}
-			it = r_rev.find(j);
-			if (it == r_rev.end()) {
-				r_rev.insert(pair<int, set<int>>(j, { i }));
-			}
-			else {
-				it->second.insert(i);
-			}			
-		}
-
-		void insert(int i, int j) override {
-			insert_direct(i, j);
-			// Successors of j are successors of i
-			auto it = r.find(j);
-			if (it != r.end()) {
-				insert_direct(i, it->second);
-			}
-			// Update the predecessors of i
-			auto it2 = r_rev.find(i);
-			if (it2 != r_rev.end()) {
-				for (auto k : it2->second) {
-					insert_direct(k, j);
-					if (it != r.end()) {
-						insert_direct(k, it->second);
-					}
-				}
-			}
-		}
-
-		bool contains_rev(int i) override {
-			auto it = r_rev.find(i);
-			return (it != r_rev.end());
-		}
-
-		// Precondition: an entry exists for i in r_rev
-		map<int, set<int>>::iterator get_rev(int i) override {
-			return r_rev.find(i);
-		}
-
-		map<int, set<int>>::iterator rev_begin() override {
-			return r_rev.begin();
-		}
-
-		map<int, set<int>>::iterator rev_end() override {
-			return r_rev.end();
-		}
-};
-
 
 // Struct to store info on Memory accesses
 struct Access {
@@ -498,17 +395,17 @@ bool can_reorder(int ai, int bi, SearchableVector<Access> accesses, MM mmodel, R
 // Precondition: if ai stems from another instruction, then it is not yet reordered into instruction instr_id.
 // Postcondition: ai is properly placed in the PPR-relation.
 bool reorder(int ai, int instr_id, map<int, Instruction>& instructions, SearchableVector<Access> accesses, MM mmodel,
-				vector<TransitiveBiRelation>& PPR, BiRelation PR, Relation DP, Relation CTRL, bool from_outside_instr) {
+				vector<BiRelation>& PPR, BiRelation PR, Relation DP, Relation CTRL, bool from_outside_instr) {
 	// Get the PPR-predecessors of ai.
 	bool moved_into = false;
 	auto instr = (instructions.find(instr_id));
+	set<int> reordered;
 	//cout << "reordering " << ai << endl;
 	if ((!from_outside_instr && PR.contains_rev(ai)) || (from_outside_instr && !(instr->second.top_accs.empty()))) {
 		set<int> set1, set2;
 		set<int>& open = set1;
 		set<int>& tmp = set1;
 		set<int>& next = set2;
-		set<int> remove;
 
 		if (!from_outside_instr) {
 			auto it_pred = PR.get_rev(ai);
@@ -525,68 +422,68 @@ bool reorder(int ai, int instr_id, map<int, Instruction>& instructions, Searchab
 		}
 		while (!open.empty()) {
 			for (int bi : open) {
-				if (can_reorder(bi, ai, accesses, mmodel, DP, CTRL)) {
-					if (!from_outside_instr) {
-						if (PR.contains_rev(bi)) {
-							auto it = PR.get_rev(bi);
-							for (auto ci : it->second) {
-								if (instr->second.accesses.find(ci) != instr->second.accesses.end()) {
-									next.insert(ci);
-								}
-							}
-						}
-					}
-					else {
-						if (PPR[instr_id].contains_rev(bi)) {
-							auto it = PPR[instr_id].get_rev(bi);
-							next.insert(it->second.begin(), it->second.end());
-						}
-						if (!moved_into) {
-							instr->second.accesses.insert(ai);
-							moved_into = true;
+				// Only consider bi if all its PPR-successors are in reordered.
+				bool check = true;
+				if (PPR[instr_id].contains(bi)) {
+					auto it = PPR[instr_id].get(bi);
+					for (int ci : it->second) {
+						if (reordered.find(ci) == reordered.end()) {
+							check = false;
 						}
 					}
 				}
-				else {
-					// ai cannot be reordered before bi, but maybe it can be, together with bi, before bi's PR-predecessors (those that are not PPR-predecessors of bi,
-					// since we require that bi can also be reordered before them).
-					//cout << "cannot reorder " << ai << " and " << bi << endl;
-					PPR[instr_id].insert(bi, ai);
-					if (!from_outside_instr) {
-						if (PR.contains_rev(bi)) {
-							map<int, set<int>>::iterator it_bi_pr_pred = PR.get_rev(bi);
-							map<int, set<int>>::iterator it_bi_ppr_pred;
-							bool has_PPR_preds = false;
-							if (PPR[instr_id].contains_rev(bi)) {
-								it_bi_ppr_pred = PPR[instr_id].get_rev(bi);
-								has_PPR_preds = true;
-							}
-							for (int ci : it_bi_pr_pred->second) {
-								if (instr->second.accesses.find(ci) != instr->second.accesses.end()) {
-									if (!has_PPR_preds || it_bi_ppr_pred->second.find(ci) == it_bi_ppr_pred->second.end()) {
+				if (check) {
+					if (can_reorder(bi, ai, accesses, mmodel, DP, CTRL)) {
+						reordered.insert(bi);
+						if (!from_outside_instr) {
+							if (PR.contains_rev(bi)) {
+								auto it = PR.get_rev(bi);
+								for (auto ci : it->second) {
+									if (instr->second.accesses.find(ci) != instr->second.accesses.end()) {
 										next.insert(ci);
 									}
 								}
-								else {
-									remove.insert(ci);
-								}
+							}
+						}
+						else {
+							if (PPR[instr_id].contains_rev(bi)) {
+								auto it = PPR[instr_id].get_rev(bi);
+								next.insert(it->second.begin(), it->second.end());
+							}
+							if (!moved_into) {
+								instr->second.accesses.insert(ai);
+								moved_into = true;
 							}
 						}
 					}
 					else {
-						// Do not consider the predecessors of bi
-						if (PPR[instr_id].contains_rev(bi)) {
-							auto it_bi_ppr_pred = PPR[instr_id].get_rev(bi);
-							remove.insert(it_bi_ppr_pred->second.begin(), it_bi_ppr_pred->second.end());
+						// ai cannot be reordered before bi, but maybe it can be, together with bi, before bi's PR-predecessors (those that are not PPR-predecessors of bi,
+						// since we require that bi can also be reordered before them).
+						//cout << "cannot reorder " << ai << " and " << bi << endl;
+						PPR[instr_id].insert(bi, ai);
+						if (!from_outside_instr) {
+							if (PR.contains_rev(bi)) {
+								map<int, set<int>>::iterator it_bi_pr_pred = PR.get_rev(bi);
+								map<int, set<int>>::iterator it_bi_ppr_pred;
+								bool has_PPR_preds = false;
+								if (PPR[instr_id].contains_rev(bi)) {
+									it_bi_ppr_pred = PPR[instr_id].get_rev(bi);
+									has_PPR_preds = true;
+								}
+								for (int ci : it_bi_pr_pred->second) {
+									if (instr->second.accesses.find(ci) != instr->second.accesses.end()) {
+										if (!has_PPR_preds || it_bi_ppr_pred->second.find(ci) == it_bi_ppr_pred->second.end()) {
+											next.insert(ci);
+										}
+									}
+								}
+							}
 						}
 					}
 				}
 			}
 			// Swap the sets
 			open = next;
-			for (int bi : remove) {
-				open.erase(bi);
-			}
 			next = tmp;
 			tmp = open;
 			next.clear();
@@ -615,6 +512,17 @@ bool reorder(int ai, int instr_id, map<int, Instruction>& instructions, Searchab
 	}
 	return moved_into;
 }
+
+// Function to iterate over the outgoing edges of an access with ID ai in an Abstract Event Graph.
+// The edges are stored in three vectors. This function simplifies iterating over all elements
+// in those three separate vectors.
+// Returns the ID of the target access of the next edge, as well as a pair of integers indicating
+// the next edge to be retrieved when get_next_edge is called
+// pair<int, pair<int, int>> get_next_edge(int ai, edgeType vpos, int apos, vector<int> PRsafe, vector<int> PRunsafe, vector<int> CMP) {
+// 	if (vpos == PRSAFE) {
+
+// 	}
+// }
 
 int main (int argc, char *argv[]) {
 	string modelname = "";
@@ -667,7 +575,7 @@ int main (int argc, char *argv[]) {
 	// PR relation
 	BiRelation PR;
 	// Transitive closure of PR
-	TransitiveBiRelation PRplus;
+	Relation PRplus;
 	// PR relation at instruction level
 	BiRelation PRinstr;
 	// Dependency relation DP
@@ -675,8 +583,10 @@ int main (int argc, char *argv[]) {
 	Relation DP;
 	// CTRL dependency relation
 	Relation CTRL;
-	// CMP relation
-	Relation CMP;
+	// Unsafe CMP relation, corresponding for ARM with RFE (external read from)
+	Relation RFE;
+	// Map that provides for a pair <access, thread ID> the accesses of thread ID that conflict with the access
+	map<pair<int, int>, vector<int>> CMP_per_thread;
 	
 	// Various IndexedMaps to keep track of information extracted from the LTS
 	IndexedMap<string> instruction_positions; // Maps short instruction position strings to integer IDs
@@ -868,7 +778,6 @@ int main (int argc, char *argv[]) {
 										DP.insert(aid, depaid);
 									}
 									PR.insert(depaid, aid);
-									PRplus.insert(depaid, aid);
 
 									sep3 = sep4+2;
 									if (reads[sep4] == ']') {
@@ -895,7 +804,6 @@ int main (int argc, char *argv[]) {
 							if (!prev_accesses.empty()) {
 								for (auto a : prev_accesses) {
 									PR.insert(a, curr_accesses_bottom);
-									PRplus.insert(a, curr_accesses_bottom);
 								}
 							}
 							// Store PR-smallest accesses
@@ -957,7 +865,6 @@ int main (int argc, char *argv[]) {
 							if (!prev_accesses.empty()) {
 								for (auto a : prev_accesses) {
 									PR.insert(a, curr_accesses_bottom);
-									PRplus.insert(a, curr_accesses_bottom);
 								}
 								// Writes depend on directly preceding reads
 								if (reads_stored and weakmemmodel == ARM) {
@@ -1009,7 +916,7 @@ int main (int argc, char *argv[]) {
 
 		// For each instruction, create an access reorder relation (PPR, subrelation of PR, consisting of the PR-pairs safe under the weak memory model).
 		// Initially, this is empty.
-		vector<TransitiveBiRelation> PPR(instructions.size());
+		vector<BiRelation> PPR(instructions.size());
 
 		// Set of (instruction position, thread id) pairs of outgoing transitions of a state
 		set<pair<int, int>> out;
@@ -1038,7 +945,6 @@ int main (int argc, char *argv[]) {
 							// PR-relate top elements of instr with bottom elements of tgt_instr
 							for (auto ta : instr.top_accs) {
 								PR.insert(ta, tgt_instr.bottom_accs);
-								PRplus.insert(ta, tgt_instr.bottom_accs);
 								PRinstr.insert(instr_id, tgt_instr_id);
 							}
 						}
@@ -1083,21 +989,21 @@ int main (int argc, char *argv[]) {
 		}
 
 		// Compute PRplus via Floyd-Warshall
-		// PRplus.copy(PR);
+		PRplus.copy(PR);
 
-		// for (int k = 0; k < accesses.size(); k++) {
-		// 	for (int i = 0; i < accesses.size(); i++) {
-		// 		if (PRplus.contains(i) && PRplus.contains(k)) {
-		// 			auto ii = PRplus.get(i);
-		// 			auto ik = PRplus.get(k);
-		// 			for (int j = 0; j < accesses.size(); j++) {
-		// 				if (ii->second.find(k) != ii->second.end() && ik->second.find(j) != ik->second.end()) {
-		// 					PRplus.insert(i, j);
-		// 				}
-		// 			}
-		// 		}
-		// 	}
-		// }
+		for (int k = 0; k < accesses.size(); k++) {
+			for (int i = 0; i < accesses.size(); i++) {
+				if (PRplus.contains(i) && PRplus.contains(k)) {
+					auto ii = PRplus.get(i);
+					auto ik = PRplus.get(k);
+					for (int j = 0; j < accesses.size(); j++) {
+						if (ii->second.find(k) != ii->second.end() && ik->second.find(j) != ik->second.end()) {
+							PRplus.insert(i, j);
+						}
+					}
+				}
+			}
+		}
 
 		if (weakmemmodel == ARM) {
 			// Using PRplus, compute the CTRL relation
@@ -1226,26 +1132,154 @@ int main (int argc, char *argv[]) {
 			}
 		}
 
-		cout << "PR:" << endl;
-		for (auto i : PR) {
-			for (auto j : i.second) {
-				cout << "(" << i.first << ", " << j << ")" << endl;
-			}
-		}
-		cout << "The PPRs: " << endl;
-		for (int i = 0; i < instructions.size(); i++) {
-			for (auto i : PPR[i]) {
-				for (auto j : i.second) {
-					cout << "(" << i.first << ", " << j << ")" << endl;
+		// CMP relation
+		VectorRelation CMP(accesses.size());
+		// Unsafe CMP relation, corresponding for ARM with RFE (external read from)
+		Relation RFE;
+		// CMP at thread level (for a given access a provides the thread IDs of accesses that conflict with a)
+		VectorRelation CMPt(accesses.size());
+
+		// Compute CMP, using the reordering information in the instructions
+		for (auto s : lts_states) {
+			// Compare outgoing instructions of different threads
+			for (int i = s.outgoing_begin; i < s.outgoing_end; i++) {
+				auto instr_i = (*(lts_transitions[i].instruction)).second;
+				int tid_i = instr_i.tid;
+				for (int j = i; j < s.outgoing_end; j++) {
+					auto instr_j = (*(lts_transitions[j].instruction)).second;
+					int tid_j = instr_j.tid;
+					if (tid_i != tid_j) {
+						for (int ai : instr_i.accesses) {
+							for (int bi : instr_j.accesses) {
+								Access& a = accesses.get(ai);
+								Access& b = accesses.get(bi);
+								if (a.location == b.location && (a.type == WRITE || b.type == WRITE)) {
+									CMP.insert(ai, bi);
+									CMP.insert(bi, ai);
+								}
+							}
+						}
+					}
 				}
 			}
 		}
-		// cout << "PRplus:" << endl;
-		// for (auto i : PRplus) {
+
+		// Transitively close the PPR relations, via Floyd-Warshall
+		for (int w = 0; w < instructions.size(); w++) {
+			Instruction& instr = instructions.find(w)->second;
+			for (int k = 0; k < instr.accesses.size(); k++) {
+				for (int i = 0; i < instr.accesses.size(); i++) {
+					if (PPR[w].contains(i) && PPR[w].contains(k)) {
+						auto ii = PPR[w].get(i);
+						auto ik = PPR[w].get(k);
+						for (int j = 0; j < instr.accesses.size(); j++) {
+							if (ii->second.find(k) != ii->second.end() && ik->second.find(j) != ik->second.end()) {
+								PPR[w].insert(i, j);
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// For each access, create two vectors, one containing all accesses that can be PR reached via only PR-safe paths,
+		// and one containing all accesses that can be reached via a PR-unsafe path
+		vector<vector<int>> PRunsafe_reachable(accesses.size());
+		vector<vector<int>> PRsafe_reachable(accesses.size());
+
+		for (int ai = 0; ai < accesses.size(); ai++) {
+			Access& a = accesses.get(ai);
+			Instruction& instr = instructions.find(a.instruction)->second;
+			// Collect the accesses that are PPR reachable inside instr from a
+			bool has_PPR_succs = false;
+			map<int, set<int>>::iterator PPR_succ_it;
+			
+			if (PPR[a.instruction].contains(ai)) {
+				has_PPR_succs = true;
+				PPR_succ_it = PPR[a.instruction].get(ai);
+			}
+			// Get the PRplus successors of a
+			bool has_PRplus_succs = false;
+			map<int, set<int>>::iterator PRplus_succ_it;
+			
+			if (PRplus.contains(ai)) {
+				has_PRplus_succs = true;
+				PRplus_succ_it = PRplus.get(ai);
+			}
+			if (has_PRplus_succs) {
+				for (auto bi : PRplus_succ_it->second) {
+					if (instr.accesses.find(bi) == instr.accesses.end()) {
+						PRsafe_reachable[ai].insert(PRsafe_reachable[ai].end(), bi);
+					}
+					else if (has_PPR_succs) {
+						if (PPR_succ_it->second.find(bi) != PPR_succ_it->second.end()) {
+							PRsafe_reachable[ai].insert(PRsafe_reachable[ai].end(), bi);
+						}
+						else {
+							PRunsafe_reachable[ai].insert(PRunsafe_reachable[ai].end(), bi);
+						}
+					}
+					else {
+						PRunsafe_reachable[ai].insert(PRunsafe_reachable[ai].end(), bi);
+					}
+				}
+			}
+		}
+
+		// Store a set of pairs of accesses that are unsafely related via CMP (ARM only)
+		// This is the RFE (external read from) relation
+		if (weakmemmodel == ARM) {
+			for (int ai = 0; ai < accesses.size(); ai++) {
+				Access& a = accesses.get(ai);
+				if (a.type == WRITE) {
+					vector<int>& S = CMP.get(ai);
+					for (int bi : S) {
+						Access& b = accesses.get(bi);
+						if (b.type == READ) {
+							RFE.insert(ai, bi);
+						}
+					}
+				}
+			}
+		}
+
+		// Compute CMPt and CMP_per_thread
+		for (int ai = 0; ai < accesses.size(); ai++) {
+			Access& a = accesses.get(ai);
+			openset.clear();
+			vector<int>& S = CMP.get(ai);
+			for (int bi : S) {
+				Access& b = accesses.get(bi);
+				if (openset.find(b.tid) == openset.end()) {
+					openset.insert(b.tid);
+					CMP_per_thread.insert(pair<pair<int, int>, vector<int>>(pair<int, int>(ai, b.tid), { bi }));
+				}
+				auto b_it = CMP_per_thread.find(pair<int, int>(ai, b.tid));
+				b_it->second.insert(b_it->second.end(), bi);
+			}
+			CMPt.insert(ai, openset);
+		}
+
+		// cout << "PR:" << endl;
+		// for (auto i : PR) {
 		// 	for (auto j : i.second) {
 		// 		cout << "(" << i.first << ", " << j << ")" << endl;
 		// 	}
 		// }
+		// cout << "The PPRs: " << endl;
+		// for (int i = 0; i < instructions.size(); i++) {
+		// 	for (auto i : PPR[i]) {
+		// 		for (auto j : i.second) {
+		// 			cout << "(" << i.first << ", " << j << ")" << endl;
+		// 		}
+		// 	}
+		// }
+		cout << "PRplus:" << endl;
+		for (auto i : PRplus) {
+			for (auto j : i.second) {
+				cout << "(" << i.first << ", " << j << ")" << endl;
+			}
+		}
 		// cout << "DP:" << endl;
 		// for (auto i : DP) {
 		// 	for (auto j : i.second) {
@@ -1258,12 +1292,26 @@ int main (int argc, char *argv[]) {
 		// 		cout << "(" << i.first << ", " << j << ")" << endl;
 		// 	}
 		// }
-		cout << "PRinstr:" << endl;
-		for (auto i : PRinstr) {
-			for (auto j : i.second) {
-				cout << "(" << i.first << ", " << j << ")" << endl;
+		// cout << "PRinstr:" << endl;
+		// for (auto i : PRinstr) {
+		// 	for (auto j : i.second) {
+		// 		cout << "(" << i.first << ", " << j << ")" << endl;
+		// 	}
+		// }
+		cout << "CMP:" << endl;
+		for (int i = 0; i < CMP.size(); i++) {
+			vector<int>& S = CMP.get(i);
+			for (auto j : S) {
+				cout << "(" << i << ", " << j << ")" << endl;
 			}
 		}
+		cout << "CMPt:" << endl;
+		for (int i = 0; i < CMPt.size(); i++) {
+			vector<int>& S = CMPt.get(i);
+			for (auto j : S) {
+				cout << "(" << i << ", " << j << ")" << endl;
+			}
+		}	
 	}
 	else {
 		cout << "LTS file does not exist!" << endl;
