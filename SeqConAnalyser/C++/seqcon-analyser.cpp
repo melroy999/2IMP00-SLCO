@@ -131,6 +131,16 @@ class Relation {
 			}
 		}
 
+		virtual void insert(int i, set<int> J) {
+			auto it = r.find(i);
+			if (it == r.end()) {
+				r.insert(pair<int, set<int>>(i, set<int>(J.begin(), J.end())));
+			}
+			else {
+				::copy(J.begin(), J.end(), inserter(it->second, it->second.end()));
+			}
+		}
+
 		virtual void insert(int i, int j) {
 			auto it = r.find(i);
 			if (it == r.end()) {
@@ -203,6 +213,25 @@ class BiRelation : public Relation {
 			}
 		}
 
+		void insert(int i, set<int> J) override {
+			auto it = r.find(i);
+			if (it == r.end()) {
+				r.insert(pair<int, set<int>>(i, set<int>(J.begin(), J.end())));
+			}
+			else {
+				::copy(J.begin(), J.end(), inserter(it->second, it->second.end()));
+			}
+			for (auto j : J) {
+				it = r_rev.find(j);
+				if (it == r_rev.end()) {
+					r_rev.insert(pair<int, set<int>>(j, { i }));
+				}
+				else {
+					it->second.insert(i);
+				}
+			}
+		}
+
 		void insert(int i, int j) override {
 			auto it = r.find(i);
 			if (it == r.end()) {
@@ -220,62 +249,169 @@ class BiRelation : public Relation {
 			}
 		}
 
-		// Insert into the relation element i, with predecessors pred and successors succ
-		void insert(int i, vector<int> pred, vector<int> succ) {
-			insert(i, succ);
-			for (auto ai : pred) {
-				insert(ai, i);
-			}
-		}
-
-		// Remove the relation between i and j
-		void remove(int i, int j) {
-			if (contains(i)) {
-				auto it = get(i);
-				it->second.erase(j);
-				it = get_rev(j);
-				it->second.erase(i);
-			}
-		}
-
-		// Update the relation for element i
-		void update(int i, vector<int> pred, vector<int> succ) {
-			if (contains(i)) {
-				auto it = get(i);
-				for (auto ai : it->second) {
-					(get_rev(ai))->second.erase(i);
-					if ((get_rev(ai))->second.empty()) {
-						r_rev.erase(ai);
-					}
-				}
-				if (succ.empty()) {
-					r.erase(i);
-				}
-				else {
-					it->second.clear();
-				}
-			}
-			insert(i, pred, succ);
-		}
-
-		bool contains_rev(int i) {
+		virtual bool contains_rev(int i) {
 			auto it = r_rev.find(i);
 			return (it != r_rev.end());
 		}
 
 		// Precondition: an entry exists for i in r_rev
-		map<int, set<int>>::iterator get_rev(int i) {
+		virtual map<int, set<int>>::iterator get_rev(int i) {
 			return r_rev.find(i);
 		}
 
-		map<int, set<int>>::iterator rev_begin() {
+		virtual map<int, set<int>>::iterator rev_begin() {
 			return r_rev.begin();
 		}
 
-		map<int, set<int>>::iterator rev_end() {
+		virtual map<int, set<int>>::iterator rev_end() {
 			return r_rev.end();
 		}
 };
+
+// Class to maintain a transitive bidirectional relation between integers.
+// Checking both in the opposite direction of the relation and transitively can be done efficiently.
+class TransitiveBiRelation : public BiRelation {
+	public:
+		typedef int value_type;
+
+		void copy(TransitiveBiRelation R) {
+			r.clear();
+			r_rev.clear();
+			r.insert(R.begin(), R.end());
+			r_rev.insert(R.rev_begin(), R.rev_end());
+		}
+
+		void insert_direct(int i, vector<int> J) {
+			auto it = r.find(i);
+			if (it == r.end()) {
+				r.insert(pair<int, set<int>>(i, set<int>(J.begin(), J.end())));
+			}
+			else {
+				::copy(J.begin(), J.end(), inserter(it->second, it->second.end()));
+			}
+			for (auto j : J) {
+				it = r_rev.find(j);
+				if (it == r_rev.end()) {
+					r_rev.insert(pair<int, set<int>>(j, { i }));
+				}
+				else {
+					it->second.insert(i);
+				}
+			}			
+		}
+
+		void insert_direct(int i, set<int> J) {
+			auto it = r.find(i);
+			if (it == r.end()) {
+				r.insert(pair<int, set<int>>(i, set<int>(J.begin(), J.end())));
+			}
+			else {
+				::copy(J.begin(), J.end(), inserter(it->second, it->second.end()));
+			}
+			for (auto j : J) {
+				it = r_rev.find(j);
+				if (it == r_rev.end()) {
+					r_rev.insert(pair<int, set<int>>(j, { i }));
+				}
+				else {
+					it->second.insert(i);
+				}
+			}			
+		}
+
+		void insert(int i, vector<int> J) override {
+			insert_direct(i, J);
+			// Successors of J are successors of i
+			for (auto j : J) {
+				auto it = r.find(j);
+				if (it != r.end()) {
+					insert_direct(i, it->second);
+				}
+			}
+			// Update the predecessors of i
+			auto it = r.find(i);
+			auto it2 = r_rev.find(i);
+			if (it2 != r_rev.end()) {
+				for (auto j : it2->second) {
+					insert_direct(j, it->second);
+				}
+			}
+		}
+
+		void insert(int i, set<int> J) override {
+			insert_direct(i, J);
+			// Successors of J are successors of i
+			for (auto j : J) {
+				auto it = r.find(j);
+				if (it != r.end()) {
+					insert_direct(i, it->second);
+				}
+			}
+			// Update the predecessors of i
+			auto it = r.find(i);
+			auto it2 = r_rev.find(i);
+			if (it2 != r_rev.end()) {
+				for (auto j : it2->second) {
+					insert_direct(j, it->second);
+				}
+			}
+		}
+
+		void insert_direct(int i, int j) {
+			auto it = r.find(i);
+			if (it == r.end()) {
+				r.insert(pair<int, set<int>>(i, { j }));
+			}
+			else {
+				it->second.insert(j);
+			}
+			it = r_rev.find(j);
+			if (it == r_rev.end()) {
+				r_rev.insert(pair<int, set<int>>(j, { i }));
+			}
+			else {
+				it->second.insert(i);
+			}			
+		}
+
+		void insert(int i, int j) override {
+			insert_direct(i, j);
+			// Successors of j are successors of i
+			auto it = r.find(j);
+			if (it != r.end()) {
+				insert_direct(i, it->second);
+			}
+			// Update the predecessors of i
+			auto it2 = r_rev.find(i);
+			if (it2 != r_rev.end()) {
+				for (auto k : it2->second) {
+					insert_direct(k, j);
+					if (it != r.end()) {
+						insert_direct(k, it->second);
+					}
+				}
+			}
+		}
+
+		bool contains_rev(int i) override {
+			auto it = r_rev.find(i);
+			return (it != r_rev.end());
+		}
+
+		// Precondition: an entry exists for i in r_rev
+		map<int, set<int>>::iterator get_rev(int i) override {
+			return r_rev.find(i);
+		}
+
+		map<int, set<int>>::iterator rev_begin() override {
+			return r_rev.begin();
+		}
+
+		map<int, set<int>>::iterator rev_end() override {
+			return r_rev.end();
+		}
+};
+
 
 // Struct to store info on Memory accesses
 struct Access {
@@ -300,10 +436,10 @@ struct Instruction {
 	int tid; // SLCO state machine (thread) ID
 	bool is_guarded; // Does the instruction have a condition?
 	set<int> accesses; // Set of accesses performed by the instruction
-	vector<int> bottom_accs; // List of PR-smallest accesses
+	set<int> bottom_accs; // List of PR-smallest accesses
 	vector<int> cond_reads; // List of reads to check a condition, in addition to the ones in bottom_accs
 							// (the reads in cond_reads are address dependent on some in bottom_accs)
-	vector<int> top_accs; // List of PR-largest accesses
+	set<int> top_accs; // List of PR-largest accesses
 };
 
 // Struct to store an LTS state
@@ -361,27 +497,29 @@ bool can_reorder(int ai, int bi, SearchableVector<Access> accesses, MM mmodel, R
 // Function to PPR-reorder a given access ai, under the given relations, into the given instruction.
 // Precondition: if ai stems from another instruction, then it is not yet reordered into instruction instr_id.
 // Postcondition: ai is properly placed in the PPR-relation.
-bool reorder(int ai, int instr_id, map<int, Instruction> instructions, SearchableVector<Access> accesses, MM mmodel,
-				vector<BiRelation>& PPR, BiRelation PR, Relation DP, Relation CTRL, bool from_outside_instr) {
+bool reorder(int ai, int instr_id, map<int, Instruction>& instructions, SearchableVector<Access> accesses, MM mmodel,
+				vector<TransitiveBiRelation>& PPR, BiRelation PR, Relation DP, Relation CTRL, bool from_outside_instr) {
 	// Get the PPR-predecessors of ai.
 	bool moved_into = false;
-	auto instr = (instructions.find(instr_id))->second;
-	if ((!from_outside_instr && PR.contains_rev(ai)) || (from_outside_instr && !(instr.top_accs.empty()))) {
+	auto instr = (instructions.find(instr_id));
+	//cout << "reordering " << ai << endl;
+	if ((!from_outside_instr && PR.contains_rev(ai)) || (from_outside_instr && !(instr->second.top_accs.empty()))) {
 		set<int> set1, set2;
 		set<int>& open = set1;
 		set<int>& tmp = set1;
 		set<int>& next = set2;
+		set<int> remove;
 
 		if (!from_outside_instr) {
 			auto it_pred = PR.get_rev(ai);
 			for (auto bi : it_pred->second) {
-				if (instr.accesses.find(bi) != instr.accesses.end()) {
+				if (instr->second.accesses.find(bi) != instr->second.accesses.end()) {
 					open.insert(bi);
 				}
 			}
 		}
 		else {
-			for (int bi : instr.top_accs) {
+			for (int bi : instr->second.top_accs) {
 				open.insert(bi);
 			}
 		}
@@ -392,7 +530,7 @@ bool reorder(int ai, int instr_id, map<int, Instruction> instructions, Searchabl
 						if (PR.contains_rev(bi)) {
 							auto it = PR.get_rev(bi);
 							for (auto ci : it->second) {
-								if (instr.accesses.find(ci) != instr.accesses.end()) {
+								if (instr->second.accesses.find(ci) != instr->second.accesses.end()) {
 									next.insert(ci);
 								}
 							}
@@ -404,7 +542,7 @@ bool reorder(int ai, int instr_id, map<int, Instruction> instructions, Searchabl
 							next.insert(it->second.begin(), it->second.end());
 						}
 						if (!moved_into) {
-							instr.accesses.insert(ai);
+							instr->second.accesses.insert(ai);
 							moved_into = true;
 						}
 					}
@@ -412,7 +550,7 @@ bool reorder(int ai, int instr_id, map<int, Instruction> instructions, Searchabl
 				else {
 					// ai cannot be reordered before bi, but maybe it can be, together with bi, before bi's PR-predecessors (those that are not PPR-predecessors of bi,
 					// since we require that bi can also be reordered before them).
-					cout << "here " << instr_id << " " << bi << " " << ai << endl;
+					//cout << "cannot reorder " << ai << " and " << bi << endl;
 					PPR[instr_id].insert(bi, ai);
 					if (!from_outside_instr) {
 						if (PR.contains_rev(bi)) {
@@ -424,36 +562,56 @@ bool reorder(int ai, int instr_id, map<int, Instruction> instructions, Searchabl
 								has_PPR_preds = true;
 							}
 							for (int ci : it_bi_pr_pred->second) {
-								if (instr.accesses.find(ci) != instr.accesses.end()) {
+								if (instr->second.accesses.find(ci) != instr->second.accesses.end()) {
 									if (!has_PPR_preds || it_bi_ppr_pred->second.find(ci) == it_bi_ppr_pred->second.end()) {
 										next.insert(ci);
 									}
 								}
+								else {
+									remove.insert(ci);
+								}
 							}
+						}
+					}
+					else {
+						// Do not consider the predecessors of bi
+						if (PPR[instr_id].contains_rev(bi)) {
+							auto it_bi_ppr_pred = PPR[instr_id].get_rev(bi);
+							remove.insert(it_bi_ppr_pred->second.begin(), it_bi_ppr_pred->second.end());
 						}
 					}
 				}
 			}
 			// Swap the sets
 			open = next;
+			for (int bi : remove) {
+				open.erase(bi);
+			}
 			next = tmp;
 			tmp = open;
 			next.clear();
 		}
 	}
 	else if (from_outside_instr) {
-		if (instr.accesses.find(ai) == instr.accesses.end()) {
+		if (instr->second.accesses.find(ai) == instr->second.accesses.end()) {
 			moved_into = true;
-			instr.accesses.insert(ai);
+			instr->second.accesses.insert(ai);
 		}
 	}
 	// If ai ends up not having PPR-predecessors, it is a new bottom access
 	if (!PPR[instr_id].contains_rev(ai) && (from_outside_instr || PR.contains_rev(ai))) {
-		instr.bottom_accs.insert(instr.bottom_accs.end(), ai);
+		instr->second.bottom_accs.insert(instr->second.bottom_accs.end(), ai);
 	}
-	// If ai ends up not having PR-successors, it is a new top access
+	// If ai ends up not having PPR-successors, it is a new top access
 	if (!PPR[instr_id].contains(ai) && (from_outside_instr || PR.contains(ai))) {
-		instr.top_accs.insert(instr.top_accs.end(), ai);
+		instr->second.top_accs.insert(instr->second.top_accs.end(), ai);
+		// PPR-predecessors are not top accesses
+		if (PPR[instr_id].contains_rev(ai)) {
+			auto it = PPR[instr_id].get_rev(ai);
+			for (int bi : it->second) {
+				instr->second.top_accs.erase(bi);
+			}
+		}
 	}
 	return moved_into;
 }
@@ -509,7 +667,7 @@ int main (int argc, char *argv[]) {
 	// PR relation
 	BiRelation PR;
 	// Transitive closure of PR
-	Relation PRplus;
+	TransitiveBiRelation PRplus;
 	// PR relation at instruction level
 	BiRelation PRinstr;
 	// Dependency relation DP
@@ -680,7 +838,7 @@ int main (int argc, char *argv[]) {
 							acc.tid = tid;
 							// cout << tid << endl;
 							int aid = accesses.insert(acc);
-							//cout << "read " << aid << " : " << read << ": " << label << endl;
+							cout << "read " << aid << " : " << read << ": " << label << endl;
 							instr.accesses.insert(instr.accesses.end(), aid);
 							reads_stored = true;
 
@@ -710,6 +868,7 @@ int main (int argc, char *argv[]) {
 										DP.insert(aid, depaid);
 									}
 									PR.insert(depaid, aid);
+									PRplus.insert(depaid, aid);
 
 									sep3 = sep4+2;
 									if (reads[sep4] == ']') {
@@ -736,12 +895,13 @@ int main (int argc, char *argv[]) {
 							if (!prev_accesses.empty()) {
 								for (auto a : prev_accesses) {
 									PR.insert(a, curr_accesses_bottom);
+									PRplus.insert(a, curr_accesses_bottom);
 								}
 							}
 							// Store PR-smallest accesses
 							if (first) {
 								first = false;
-								instr.bottom_accs.insert(instr.bottom_accs.end(), curr_accesses_bottom.begin(), curr_accesses_bottom.end());
+								instr.bottom_accs.insert(curr_accesses_bottom.begin(), curr_accesses_bottom.end());
 							}
 							// Swap lists of accesses
 							if (!curr_accesses_top.empty()) {
@@ -782,7 +942,7 @@ int main (int argc, char *argv[]) {
 							acc.tid = tid;
 							// cout << tid << endl;
 							int aid = accesses.insert(acc);
-							//cout << "write " << aid << " : " << write << ": " << label << endl;
+							cout << "write " << aid << " : " << write << ": " << label << endl;
 							instr.accesses.insert(instr.accesses.end(), aid);
 							curr_accesses_bottom.insert(curr_accesses_bottom.end(), aid);
 
@@ -797,6 +957,7 @@ int main (int argc, char *argv[]) {
 							if (!prev_accesses.empty()) {
 								for (auto a : prev_accesses) {
 									PR.insert(a, curr_accesses_bottom);
+									PRplus.insert(a, curr_accesses_bottom);
 								}
 								// Writes depend on directly preceding reads
 								if (reads_stored and weakmemmodel == ARM) {
@@ -808,7 +969,7 @@ int main (int argc, char *argv[]) {
 							// Store PR-smallest accesses
 							if (first) {
 								first = false;
-								instr.bottom_accs.insert(instr.bottom_accs.end(), curr_accesses_bottom.begin(), curr_accesses_bottom.end());
+								instr.bottom_accs.insert(curr_accesses_bottom.begin(), curr_accesses_bottom.end());
 							}
 							// Swap lists of accesses
 							prev_accesses = curr_accesses_bottom;
@@ -816,7 +977,7 @@ int main (int argc, char *argv[]) {
 						}
 					}
 					// Store PR-largest accesses
-					instr.top_accs.insert(instr.top_accs.end(), prev_accesses.begin(), prev_accesses.end());
+					instr.top_accs.insert(prev_accesses.begin(), prev_accesses.end());
 				}
 				else {
 					// Store a dummy tau instruction
@@ -848,7 +1009,7 @@ int main (int argc, char *argv[]) {
 
 		// For each instruction, create an access reorder relation (PPR, subrelation of PR, consisting of the PR-pairs safe under the weak memory model).
 		// Initially, this is empty.
-		vector<BiRelation> PPR(instructions.size());
+		vector<TransitiveBiRelation> PPR(instructions.size());
 
 		// Set of (instruction position, thread id) pairs of outgoing transitions of a state
 		set<pair<int, int>> out;
@@ -877,6 +1038,7 @@ int main (int argc, char *argv[]) {
 							// PR-relate top elements of instr with bottom elements of tgt_instr
 							for (auto ta : instr.top_accs) {
 								PR.insert(ta, tgt_instr.bottom_accs);
+								PRplus.insert(ta, tgt_instr.bottom_accs);
 								PRinstr.insert(instr_id, tgt_instr_id);
 							}
 						}
@@ -921,21 +1083,21 @@ int main (int argc, char *argv[]) {
 		}
 
 		// Compute PRplus via Floyd-Warshall
-		PRplus.copy(PR);
+		// PRplus.copy(PR);
 
-		for (int k = 0; k < accesses.size(); k++) {
-			for (int i = 0; i < accesses.size(); i++) {
-				if (PRplus.contains(i) && PRplus.contains(k)) {
-					auto ii = PRplus.get(i);
-					auto ik = PRplus.get(k);
-					for (int j = 0; j < accesses.size(); j++) {
-						if (ii->second.find(k) != ii->second.end() && ik->second.find(j) != ik->second.end()) {
-							PRplus.insert(i, j);
-						}
-					}
-				}
-			}
-		}
+		// for (int k = 0; k < accesses.size(); k++) {
+		// 	for (int i = 0; i < accesses.size(); i++) {
+		// 		if (PRplus.contains(i) && PRplus.contains(k)) {
+		// 			auto ii = PRplus.get(i);
+		// 			auto ik = PRplus.get(k);
+		// 			for (int j = 0; j < accesses.size(); j++) {
+		// 				if (ii->second.find(k) != ii->second.end() && ik->second.find(j) != ik->second.end()) {
+		// 					PRplus.insert(i, j);
+		// 				}
+		// 			}
+		// 		}
+		// 	}
+		// }
 
 		if (weakmemmodel == ARM) {
 			// Using PRplus, compute the CTRL relation
@@ -1033,8 +1195,8 @@ int main (int argc, char *argv[]) {
 					for (int instr_id2 : instr_it->second) {
 						if (!newly_added_accesses[instr_id2].empty()) {
 							for (int ai : newly_added_accesses[instr_id2]) {
-								auto instr = (instructions.find(instr_id))->second;
-								if (instr.accesses.find(ai) == instr.accesses.end()) {
+								auto instr = (instructions.find(instr_id));
+								if (instr->second.accesses.find(ai) == instr->second.accesses.end()) {
 									int result = reorder(ai, instr_id, instructions, accesses, weakmemmodel, PPR, PR, DP, CTRL, true);
 									if (result) {
 										if (next_added_accesses[instr_id].empty()) {
