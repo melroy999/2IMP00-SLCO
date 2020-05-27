@@ -22,6 +22,37 @@ enum AccessType { READ, WRITE };
 // Type of edge in an Abstract Event Graph
 enum edgeType { PRSAFE, PRUNSAFE, CMP };
 
+// Template class for a stack with a fixed preallocated space
+template <class A_Type> class StaticStack {
+	private:
+		vector<A_Type> stack;
+		size_t top;
+	public:
+		StaticStack(size_t s) {
+			stack.resize(s);
+			top = -1;
+		}
+
+		// Precondition: the stack is not empty
+		A_Type& peek() {
+			return stack[top];
+		}
+
+		bool empty() {
+			return (top == -1);
+		}
+
+		// Precondition: the stack is not empty
+		void pop() {
+			top--;
+		}
+
+		void push(A_Type n) {
+			top++;
+			stack[top].copy(n);
+		}
+};
+
 // Template class to maintain a map of objects
 // of type A_Type, each mapped to a unique ID.
 template <class A_Type> class IndexedMap {
@@ -184,9 +215,9 @@ class Relation {
 // Class to maintain a relation between integers, with the related integers stored in a vector, as opposed to a set.
 // Benefit: indices can be used to retrieve the integer at a given index from the vector associated to another integer
 // Drawback: the structure is less suitable for checking whether a given integer is related to another integer
-class VectorRelation {
+template <class A_Type> class VectorRelation {
 	protected:
-		vector<vector<int>> r;
+		vector<vector<A_Type>> r;
 	public:
 		VectorRelation(size_t size) {
 			r.resize(size);
@@ -208,7 +239,7 @@ class VectorRelation {
 			return r[i].at(index);
 		}
 
-		vector<int>& get(int i) {
+		vector<A_Type>& get(int i) {
 			return r[i];
 		}
 
@@ -349,6 +380,46 @@ struct State {
 struct Transition {
 	int target; // Target state
 	map<int, Instruction>::iterator instruction; // Instruction associated with the transition
+};
+
+// Struct to store CMP lookup info (for an access, thread pair)
+struct ThreadAccessRange {
+	int tid;
+	int accesses_begin;
+	int accesses_end;
+};
+
+// Struct to store an item for the stackframe (in the elementary circuit detection procedure)
+struct StackItem {
+	int aid;
+	edgeType edge_type;
+	int edge_index;
+	int t_index;
+	bool cycle_found;
+
+	void init(int aid, bool cycle_found) {
+		this->aid = aid;
+		this->edge_type = PRSAFE;
+		this->edge_index = -1;
+		this->t_index = -1;
+		this->cycle_found = cycle_found;
+	}
+
+	void init_CMP(int aid, bool cycle_found) {
+		this->aid = aid;
+		this->edge_type = CMP;
+		this->edge_index = -1;
+		this->t_index = -1;
+		this->cycle_found = cycle_found;
+	}
+
+	void copy(StackItem n) {
+		this->aid = n.aid;
+		this->edge_type = n.edge_type;
+		this->edge_index = n.edge_index;
+		this->t_index = n.t_index;
+		this->cycle_found = n.cycle_found;
+	}
 };
 
 // Function to check whether two accesses can be reordered
@@ -513,16 +584,72 @@ bool reorder(int ai, int instr_id, map<int, Instruction>& instructions, Searchab
 	return moved_into;
 }
 
-// Function to iterate over the outgoing edges of an access with ID ai in an Abstract Event Graph.
+// Function to iterate over the outgoing edges in an Abstract Event Graph of an access pointed to in StackItem s.
 // The edges are stored in three vectors. This function simplifies iterating over all elements
 // in those three separate vectors.
-// Returns the ID of the target access of the next edge, as well as a pair of integers indicating
-// the next edge to be retrieved when get_next_edge is called
-// pair<int, pair<int, int>> get_next_edge(int ai, edgeType vpos, int apos, vector<int> PRsafe, vector<int> PRunsafe, vector<int> CMP) {
-// 	if (vpos == PRSAFE) {
-
-// 	}
-// }
+// Additional info provided to select edges:
+// - initial_tid: the ID of the thread executing the first access selected (at the bottom of the search stack).
+// - initial_ai: the initially selected access.
+// - must_close_cycle: The next access to be selected must be initial_ai (we are forced to close a cycle, or backtrack if not possible).
+// - unsafe_explored: at least one unsafe PR-path or CMP edge has been explored (hence a cycle may be produced).
+// Returns the ID of the target access of the next edge, and updates StackItem s to point to that selected edge.
+// If no suitable edge exists, -1 is returned.
+int get_next_edge(StackItem& s, int initial_tid, int initial_ai, bool must_close_cycle, bool unsafe_explored, MM weakmemmodel, Relation RFE,
+						SearchableVector<Access> accesses, vector<vector<int>> PRsafe, vector<vector<int>> PRunsafe,
+						VectorRelation<ThreadAccessRange> CMPt, VectorRelation<int> CMP, set<int>& visited_threads) {
+	int result = -1;
+	int selected;
+	if (s.edge_type == PRSAFE) {
+		for (int i = s.edge_index+1; i < PRsafe[s.aid].size(); i++) {
+			selected = PRsafe[s.aid][i];
+			if (selected >= initial_ai) {
+				// TODO: handle the case of starting with a new cycle!
+				if (accesses.get(s.aid).tid != initial_tid || (selected == initial_ai && unsafe_explored && visited.threads.size() > 1)) {
+					s.edge_index = i;
+					result = selected;
+					break;
+				}
+			}
+		}
+		if (result == -1) {
+			s.edge_type = PRUNSAFE;
+			s.edge_index = -1;
+		}
+	}
+	if (s.edge_type == PRUNSAFE) {
+		for (int i = s.edge_index+1; i < PRunsafe[s.aid].size(); i++) {
+			selected = PRunsafe[s.aid][i];
+			if (selected >= initial_ai) {
+				s.edge_index = i;
+				result = selected;
+				break;
+			}
+		}
+		if (result == -1) {
+			s.edge_type = CMP;
+			s.edge_index = -1;
+			s.t_index = 0;
+		}
+	}
+	if (s.edge_type == CMP) {
+		vector<ThreadAccessRange>& out = CMPt.get(s.aid);
+		for (int i = s.t_index; i < out.size(); i++) {
+			if (visited_threads.find(out[i].tid) == visited_threads.end()) {
+				for (int j = (i == s.t_index ? s.edge_index+1 : out[i].accesses_begin); j < out[i].accesses_end; j++) {
+					selected = CMP.get_element(s.aid, j);
+					if (selected >= initial_ai) {
+						s.edge_index = j;
+						s_t_index = i;
+						visited_threads.insert(out[i].tid);
+						result = selected;
+						break;
+					}
+				}
+			}
+		}
+	}
+	return result;
+}
 
 int main (int argc, char *argv[]) {
 	string modelname = "";
@@ -1133,11 +1260,12 @@ int main (int argc, char *argv[]) {
 		}
 
 		// CMP relation
-		VectorRelation CMP(accesses.size());
+		VectorRelation<int> CMP(accesses.size());
 		// Unsafe CMP relation, corresponding for ARM with RFE (external read from)
 		Relation RFE;
-		// CMP at thread level (for a given access a provides the thread IDs of accesses that conflict with a)
-		VectorRelation CMPt(accesses.size());
+		// CMP at thread level (for a given access a provides the thread IDs of accesses that conflict with a, plus their respective begin and
+		// end indices in the list of accesses CMP-conflicting with a)
+		VectorRelation<ThreadAccessRange> CMPt(accesses.size());
 
 		// Compute CMP, using the reordering information in the instructions
 		for (auto s : lts_states) {
