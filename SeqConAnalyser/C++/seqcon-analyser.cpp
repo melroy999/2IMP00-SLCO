@@ -20,7 +20,7 @@ enum MM { TSO, PSO, ARM };
 // Access type
 enum AccessType { READ, WRITE };
 // Type of edge in an Abstract Event Graph
-enum edgeType { PRSAFE, PRUNSAFE, CMP };
+enum edgeType { PRSAFE, PRUNSAFE, CMPEDGE };
 
 // Template class for a stack with a fixed preallocated space
 template <class A_Type> class StaticStack {
@@ -126,7 +126,7 @@ template <class A_Type> class SearchableVector {
 
 		// Get the element at given index
 		A_Type& get(int index) {
-			return storage.at(index);
+			return storage[index];
 		}
 
 		typedef typename vector<A_Type>::iterator VAiterator;
@@ -236,7 +236,7 @@ template <class A_Type> class VectorRelation {
 		}
 
 		int get_element(int i, int index) {
-			return r[i].at(index);
+			return r[i][index];
 		}
 
 		vector<A_Type>& get(int i) {
@@ -407,7 +407,7 @@ struct StackItem {
 
 	void init_CMP(int aid, bool cycle_found) {
 		this->aid = aid;
-		this->edge_type = CMP;
+		this->edge_type = CMPEDGE;
 		this->edge_index = -1;
 		this->t_index = -1;
 		this->cycle_found = cycle_found;
@@ -592,22 +592,31 @@ bool reorder(int ai, int instr_id, map<int, Instruction>& instructions, Searchab
 // - initial_ai: the initially selected access.
 // - must_close_cycle: The next access to be selected must be initial_ai (we are forced to close a cycle, or backtrack if not possible).
 // - unsafe_explored: at least one unsafe PR-path or CMP edge has been explored (hence a cycle may be produced).
+// - PR_explored: at least one PR-path has been explored (another condition for a critical cycle).
+// - atomicity_check: indicates whether atomicity checking should be performed.
 // Returns the ID of the target access of the next edge, and updates StackItem s to point to that selected edge.
 // If no suitable edge exists, -1 is returned.
-int get_next_edge(StackItem& s, int initial_tid, int initial_ai, bool must_close_cycle, bool unsafe_explored, MM weakmemmodel, Relation RFE,
-						SearchableVector<Access> accesses, vector<vector<int>> PRsafe, vector<vector<int>> PRunsafe,
+int get_next_edge(StackItem& s, int initial_tid, int initial_ai, bool must_close_cycle, bool& unsafe_explored, bool& PR_explored, bool atomicity_check,
+						Relation RFE, SearchableVector<Access> accesses, vector<vector<int>> PRsafe, vector<vector<int>> PRunsafe,
 						VectorRelation<ThreadAccessRange> CMPt, VectorRelation<int> CMP, set<int>& visited_threads) {
 	int result = -1;
 	int selected;
+	// Consider a safe PR-path
 	if (s.edge_type == PRSAFE) {
 		for (int i = s.edge_index+1; i < PRsafe[s.aid].size(); i++) {
 			selected = PRsafe[s.aid][i];
 			if (selected >= initial_ai) {
-				// TODO: handle the case of starting with a new cycle!
-				if (accesses.get(s.aid).tid != initial_tid || (selected == initial_ai && unsafe_explored && visited.threads.size() > 1)) {
-					s.edge_index = i;
-					result = selected;
-					break;
+				// Either we are considering a thread other than the first one, or we have only selected one thread so far (a cycle cannot be closed yet),
+				// or we must close a cycle. In that case, this step should lead to the initially selected access, and we must have at least one unsafe element
+				// in the cycle.
+				if (accesses.get(s.aid).tid != initial_tid || visited_threads.size() == 1 || (selected == initial_ai && unsafe_explored)) {
+					// Either we are atomicity checking, or, if not, the locations of the previous and next access are not the same (see Don't Sit On The Fence)
+					if (atomicity_check || accesses.get(s.aid).location != accesses.get(selected).location) {
+						s.edge_index = i;
+						result = selected;
+						PR_explored = true;
+						break;
+					}
 				}
 			}
 		}
@@ -616,33 +625,52 @@ int get_next_edge(StackItem& s, int initial_tid, int initial_ai, bool must_close
 			s.edge_index = -1;
 		}
 	}
+	// Consider an unsafe PR-path
 	if (s.edge_type == PRUNSAFE) {
 		for (int i = s.edge_index+1; i < PRunsafe[s.aid].size(); i++) {
 			selected = PRunsafe[s.aid][i];
 			if (selected >= initial_ai) {
-				s.edge_index = i;
-				result = selected;
-				break;
+				// Either we are considering a thread other than the first one, or we have only selected one thread so far (a cycle cannot be closed yet),
+				// or we must close a cycle. In that case, this step should lead to the initially selected access.
+				if (accesses.get(s.aid).tid != initial_tid || visited_threads.size() == 1 || selected == initial_ai) {
+					// Either we are atomicity checking, or, if not, the locations of the previous and next access are not the same (see Don't Sit On The Fence)
+					if (atomicity_check || accesses.get(s.aid).location != accesses.get(selected).location) {
+						s.edge_index = i;
+						result = selected;
+						PR_explored = true;
+						unsafe_explored = true;
+						break;
+					}
+				}
 			}
 		}
 		if (result == -1) {
-			s.edge_type = CMP;
+			s.edge_type = CMPEDGE;
 			s.edge_index = -1;
 			s.t_index = 0;
 		}
 	}
-	if (s.edge_type == CMP) {
+	// Consider a CMP-edge
+	if (s.edge_type == CMPEDGE) {
 		vector<ThreadAccessRange>& out = CMPt.get(s.aid);
 		for (int i = s.t_index; i < out.size(); i++) {
-			if (visited_threads.find(out[i].tid) == visited_threads.end()) {
+			if (visited_threads.find(out[i].tid) == visited_threads.end() || out[i].tid == initial_tid) {
 				for (int j = (i == s.t_index ? s.edge_index+1 : out[i].accesses_begin); j < out[i].accesses_end; j++) {
 					selected = CMP.get_element(s.aid, j);
 					if (selected >= initial_ai) {
-						s.edge_index = j;
-						s_t_index = i;
-						visited_threads.insert(out[i].tid);
-						result = selected;
-						break;
+						// If we return to the initial thread, then we can either select an access different from the initial one (if we did not at the
+						// start explore a PR-path of that thread, i.e., must_close_cycle is false), or we must select the initial access, by which we close a cycle.
+						// In that case, a PR-path must have been explored, and either an unsafe element must have been explored, or the selected CMP-edge is unsafe.
+						if (out[i].id != initial_tid || (selected != initial_ai && !must_close_cycle) || (selected == initial_ai && PR_explored && (unsafe_explored || RFE.are_related(s.aid, j)))) {
+							s.edge_index = j;
+							s_t_index = i;
+							result = selected;
+							visited_threads.insert(out[i].tid);
+							if (RFE.are_related(s.aid, j)) {
+								unsafe_explored = true;
+							}
+							break;
+						}
 					}
 				}
 			}
@@ -712,8 +740,6 @@ int main (int argc, char *argv[]) {
 	Relation CTRL;
 	// Unsafe CMP relation, corresponding for ARM with RFE (external read from)
 	Relation RFE;
-	// Map that provides for a pair <access, thread ID> the accesses of thread ID that conflict with the access
-	map<pair<int, int>, vector<int>> CMP_per_thread;
 	
 	// Various IndexedMaps to keep track of information extracted from the LTS
 	IndexedMap<string> instruction_positions; // Maps short instruction position strings to integer IDs
@@ -1259,7 +1285,7 @@ int main (int argc, char *argv[]) {
 			}
 		}
 
-		// CMP relation
+		//  relation
 		VectorRelation<int> CMP(accesses.size());
 		// Unsafe CMP relation, corresponding for ARM with RFE (external read from)
 		Relation RFE;
@@ -1291,6 +1317,9 @@ int main (int argc, char *argv[]) {
 				}
 			}
 		}
+
+		// Sort the CMP vectors stored by the CMP relation by thread ID
+
 
 		// Transitively close the PPR relations, via Floyd-Warshall
 		for (int w = 0; w < instructions.size(); w++) {
@@ -1371,7 +1400,8 @@ int main (int argc, char *argv[]) {
 			}
 		}
 
-		// Compute CMPt and CMP_per_thread
+		// Compute CMPt
+		ThreadAccessRange t;
 		for (int ai = 0; ai < accesses.size(); ai++) {
 			Access& a = accesses.get(ai);
 			openset.clear();
@@ -1387,6 +1417,11 @@ int main (int argc, char *argv[]) {
 			}
 			CMPt.insert(ai, openset);
 		}
+
+		// Perform critical cycle detection, based on Tarjan's algorithm for enumerating the elementary circuits in a graph
+		vector<bool> mark(accesses.size(), false);
+		StaticStack marked_stack(accesses.size());
+		StaticStack point_stack(accesses.size());
 
 		// cout << "PR:" << endl;
 		// for (auto i : PR) {
