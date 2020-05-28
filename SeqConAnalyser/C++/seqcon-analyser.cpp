@@ -22,37 +22,6 @@ enum AccessType { READ, WRITE };
 // Type of edge in an Abstract Event Graph
 enum edgeType { PRSAFE, PRUNSAFE, CMPEDGE };
 
-// Template class for a stack with a fixed preallocated space
-template <class A_Type> class StaticStack {
-	private:
-		vector<A_Type> stack;
-		size_t top;
-	public:
-		StaticStack(size_t s) {
-			stack.resize(s);
-			top = -1;
-		}
-
-		// Precondition: the stack is not empty
-		A_Type& peek() {
-			return stack[top];
-		}
-
-		bool empty() {
-			return (top == -1);
-		}
-
-		// Precondition: the stack is not empty
-		void pop() {
-			top--;
-		}
-
-		void push(A_Type n) {
-			top++;
-			stack[top].copy(n);
-		}
-};
-
 // Template class to maintain a map of objects
 // of type A_Type, each mapped to a unique ID.
 template <class A_Type> class IndexedMap {
@@ -182,6 +151,10 @@ class Relation {
 			else {
 				it->second.insert(j);
 			}
+		}
+
+		void erase(int i) {
+			r.erase(i);
 		}
 
 		bool contains(int i) {
@@ -397,29 +370,65 @@ struct StackItem {
 	int t_index;
 	bool cycle_found;
 
-	void init(int aid, bool cycle_found) {
+	void init(int aid) {
 		this->aid = aid;
 		this->edge_type = PRSAFE;
 		this->edge_index = -1;
 		this->t_index = -1;
-		this->cycle_found = cycle_found;
+		this->cycle_found = false;
 	}
 
-	void init_CMP(int aid, bool cycle_found) {
+	void init_CMP(int aid) {
 		this->aid = aid;
 		this->edge_type = CMPEDGE;
 		this->edge_index = -1;
 		this->t_index = 0;
-		this->cycle_found = cycle_found;
+		this->cycle_found = false;
 	}
+};
 
-	void copy(StackItem n) {
-		this->aid = n.aid;
-		this->edge_type = n.edge_type;
-		this->edge_index = n.edge_index;
-		this->t_index = n.t_index;
-		this->cycle_found = n.cycle_found;
-	}
+// Copy functions
+void copy(StackItem n, StackItem m) {
+	n.aid = m.aid;
+	n.edge_type = m.edge_type;
+	n.edge_index = m.edge_index;
+	n.t_index = m.t_index;
+	n.cycle_found = m.cycle_found;
+}
+
+void copy(int n, int m) {
+	n = m;
+}
+
+// Template class for a stack with a fixed preallocated space
+template <class A_Type> class StaticStack {
+	private:
+		vector<A_Type> stack;
+		size_t top;
+	public:
+		StaticStack(size_t s) {
+			stack.resize(s);
+			top = -1;
+		}
+
+		// Precondition: the stack is not empty
+		A_Type& peek() {
+			return stack[top];
+		}
+
+		bool empty() {
+			return (top == -1);
+		}
+
+		// Precondition: the stack is not empty
+		void pop() {
+			top--;
+		}
+
+		void push(A_Type n) {
+			top++;
+			copy(stack[top], n);
+		}
 };
 
 // Accesses. Global structure, to make it accessible by the comparison function for sorting
@@ -602,14 +611,14 @@ bool reorder(int ai, int instr_id, map<int, Instruction>& instructions, MM mmode
 // - unsafe_explored: at least one unsafe PR-path or CMP edge has been explored (hence a cycle may be produced).
 // - PR_explored: at least one PR-path has been explored (another condition for a critical cycle).
 // - atomicity_check: indicates whether atomicity checking should be performed.
-// Returns the ID of the target access of the next edge, and a Boolean value indicating if a cycle has been closed,
+// Returns the ID of the target access of the next edge.
 // In addition, StackItem s has been updated to point to the selected edge. If no suitable edge exists, -1 is returned.
-pair<int, bool> get_next_edge(StackItem& s, int initial_tid, int initial_ai, bool& must_close_cycle, bool& unsafe_explored, bool& PR_explored, bool atomicity_check,
+int get_next_edge(StackItem& s, int initial_ai, bool& must_close_cycle, bool& unsafe_explored, bool& PR_explored, bool atomicity_check,
 						Relation RFE, vector<vector<int>> PRsafe, vector<vector<int>> PRunsafe,
 						VectorRelation<ThreadAccessRange> CMPt, VectorRelation<int> CMP, set<int>& visited_threads) {
 	int result = -1;
 	int selected;
-	bool cycle_flag = false;
+	int initial_tid = accesses.get(initial_ai).tid;
 	// Consider a safe PR-path
 	if (s.edge_type == PRSAFE) {
 		for (int i = s.edge_index+1; i < PRsafe[s.aid].size(); i++) {
@@ -627,7 +636,6 @@ pair<int, bool> get_next_edge(StackItem& s, int initial_tid, int initial_ai, boo
 						if (s.aid == initial_ai) {
 							must_close_cycle = true;
 						}
-						cycle_flag = (selected == initial_ai and visited_threads.size() > 1);
 						break;
 					}
 				}
@@ -655,7 +663,6 @@ pair<int, bool> get_next_edge(StackItem& s, int initial_tid, int initial_ai, boo
 						if (s.aid == initial_ai) {
 							must_close_cycle = true;
 						}
-						cycle_flag = (selected == initial_ai and visited_threads.size() > 1);
 						break;
 					}
 				}
@@ -676,10 +683,10 @@ pair<int, bool> get_next_edge(StackItem& s, int initial_tid, int initial_ai, boo
 					selected = CMP.get_element(s.aid, j);
 					if (selected >= initial_ai) {
 						// If we return to the initial thread, then we can either select an access different from the initial one (if we did not at the
-						// start explore a PR-path of that thread, i.e., must_close_cycle is false), or we must select the initial access, by which we close a cycle.
-						// In that case, a PR-path has been explored (at least at the start), and either an unsafe element must have been explored,
+						// start explore a PR-path of that thread, i.e., must_close_cycle is false), or we can select the initial access, by which we close a cycle.
+						// In that case, the cycle should be critical, i.e., a PR-path must have been explored, and either an unsafe element must have been explored,
 						// or the selected CMP-edge is unsafe.
-						if (out[i].tid != initial_tid || (selected != initial_ai && !must_close_cycle) || (selected == initial_ai && must_close_cycle && (unsafe_explored || RFE.are_related(s.aid, j)))) {
+						if (out[i].tid != initial_tid || (selected != initial_ai && !must_close_cycle) || (selected == initial_ai && PR_explored && (unsafe_explored || RFE.are_related(s.aid, j)))) {
 							s.edge_index = j;
 							s.t_index = i;
 							result = selected;
@@ -688,10 +695,8 @@ pair<int, bool> get_next_edge(StackItem& s, int initial_tid, int initial_ai, boo
 								unsafe_explored = true;
 							}
 							if (s.aid == initial_ai) {
-								// still have to handle selfloop from initial_ai!!!
 								must_close_cycle = false;
 							}
-							cycle_flag = (selected == initial_ai);
 							break;
 						}
 					}
@@ -699,7 +704,7 @@ pair<int, bool> get_next_edge(StackItem& s, int initial_tid, int initial_ai, boo
 			}
 		}
 	}
-	return pair<int, bool>(result, cycle_flag);
+	return result;
 }
 
 int main (int argc, char *argv[]) {
@@ -760,6 +765,8 @@ int main (int argc, char *argv[]) {
 	Relation CTRL;
 	// Unsafe CMP relation, corresponding for ARM with RFE (external read from)
 	Relation RFE;
+	// Unsafe PR selfloops
+	set<int> PRunsafe_selfloops;
 	
 	// Various IndexedMaps to keep track of information extracted from the LTS
 	IndexedMap<string> instruction_positions; // Maps short instruction position strings to integer IDs
@@ -1201,6 +1208,34 @@ int main (int argc, char *argv[]) {
 					}
 				}
 			}
+			// Using PRplus, store the presence of unsafe PR-selfloops (i.e., self-loops for read accesses)
+			for (int ai = 0; ai < accesses.size(); ai++) {
+				if (PRplus.contains(ai)) {
+					auto it = PRplus.get(ai);
+					if (it->second.find(ai) != it->second.end()) {
+						if (accesses.get(ai).type == READ) {
+							PRunsafe_selfloops.insert(ai);
+						}
+					}
+				}
+			}
+		}
+
+		// Remove self-loops and local variable accesses from PRplus
+		for (int ai = 0; ai < accesses.size(); ai++) {
+			if (PRplus.contains(ai)) {
+				if (accesses.get(ai).local) {
+					PRplus.erase(ai);
+				}
+				else {
+					auto it = PRplus.get(ai);
+					for (int bi : it->second) {
+						if (bi == ai || accesses.get(bi).local) {
+							it->second.erase(bi);
+						}
+					}
+				}
+			}
 		}
 
 		// In each instruction, reorder accesses to obtain the PPR-relations
@@ -1313,6 +1348,7 @@ int main (int argc, char *argv[]) {
 		// end indices in the list of accesses CMP-conflicting with a)
 		VectorRelation<ThreadAccessRange> CMPt(accesses.size());
 
+		set<pair<int, int>> pairset;
 		// Compute CMP, using the reordering information in the instructions
 		for (auto s : lts_states) {
 			// Compare outgoing instructions of different threads
@@ -1328,8 +1364,9 @@ int main (int argc, char *argv[]) {
 								Access& a = accesses.get(ai);
 								Access& b = accesses.get(bi);
 								if (a.location == b.location && (a.type == WRITE || b.type == WRITE)) {
-									CMP.insert(ai, bi);
-									CMP.insert(bi, ai);
+									if (pairset.find(pair<int, int>(ai, bi)) == pairset.end() && pairset.find(pair<int, int>(bi, ai)) == pairset.end()) {
+										pairset.insert(pair<int, int>(ai, bi));
+									}
 								}
 							}
 						}
@@ -1337,6 +1374,11 @@ int main (int argc, char *argv[]) {
 				}
 			}
 		}
+		for (pair<int, int> p : pairset) {
+			CMP.insert(p.first, p.second);
+			CMP.insert(p.second, p.first);
+		}
+		pairset.clear();
 
 		// Sort the CMP vectors stored by the CMP relation by thread ID
 		for (int ai = 0; ai < accesses.size(); ai++) {
@@ -1450,18 +1492,67 @@ int main (int argc, char *argv[]) {
 
 		// Perform critical cycle detection, based on Tarjan's algorithm for enumerating the elementary circuits in a graph
 		vector<bool> mark(accesses.size(), false);
-		StaticStack<StackItem> marked_stack(accesses.size());
+		StaticStack<int> marked_stack(accesses.size());
 		StaticStack<StackItem> point_stack(accesses.size());
 
 		StackItem st_tmp;
+		bool g;
+		bool must_close_cycle, atomicity_check;
+		int unsafe_explored, PR_explored;
+		set<int> visited_threads;
 		for (int s = 0; s < accesses.size(); s++) {
-			st_tmp.init(s, false);
-			point_stack.push(st_tmp);
-			mark[s] = true;
-			marked_stack.push(st_tmp);
-			while (!point_stack.empty()) {
-				int w = get_next_edge(point_stack.peek(), );
-
+			if (!accesses.get(s).local) {
+				Access& sa = accesses.get(s);
+				st_tmp.init(s);
+				point_stack.push(st_tmp);
+				mark[s] = true;
+				marked_stack.push(s);
+				must_close_cycle = false;
+				unsafe_explored = 0;
+				PR_explored = 0;
+				atomicity_check = false;
+				visited_threads.clear();
+				visited_threads.insert(sa.tid);
+				while (!point_stack.empty()) {
+					StackItem& v_st = point_stack.peek();
+					int w = get_next_edge(v_st, s, must_close_cycle, unsafe_explored, PR_explored, atomicity_check, RFE, PRsafe_reachable, PRunsafe_reachable, CMPt, CMP, visited_threads);
+					if (w == -1) {
+						// Backtrack
+						if (v_st.cycle_found) {
+							while (marked_stack.peek() != v_st.aid) {
+								mark[marked_stack.peek()] = false;
+								marked_stack.pop();
+							}
+							mark[v_st.aid] = false;
+							marked_stack.pop();
+						}
+						g = v_st.cycle_found;
+						point_stack.pop();
+						if (!point_stack.empty()) {
+							point_stack.peek().cycle_found = point_stack.peek().cycle_found || g;
+						}
+					}
+					else if (w == s) {
+						// Process cycle on point stack
+						v_st.cycle_found = true;
+					}
+					else if (!mark[w]) {
+						if (accesses.get(v_st.aid).tid == accesses.get(w).tid) {
+							st_tmp.init_CMP(w);
+						}
+						else {
+							st_tmp.init(w);
+						}
+						point_stack.push(st_tmp);
+						mark[w] = true;
+						marked_stack.push(w);
+						continue;
+					}
+				}
+				while (!marked_stack.empty()) {
+					mark[marked_stack.peek()] = false;
+					marked_stack.pop();
+				}
 			}
 		}
 
@@ -1485,12 +1576,12 @@ int main (int argc, char *argv[]) {
 		// 		}
 		// 	}
 		// }
-		cout << "PRplus:" << endl;
-		for (auto i : PRplus) {
-			for (auto j : i.second) {
-				cout << "(" << i.first << ", " << j << ")" << endl;
-			}
-		}
+		// cout << "PRplus:" << endl;
+		// for (auto i : PRplus) {
+		// 	for (auto j : i.second) {
+		// 		cout << "(" << i.first << ", " << j << ")" << endl;
+		// 	}
+		// }
 		// cout << "DP:" << endl;
 		// for (auto i : DP) {
 		// 	for (auto j : i.second) {
@@ -1520,7 +1611,7 @@ int main (int argc, char *argv[]) {
 		for (int i = 0; i < CMPt.size(); i++) {
 			vector<ThreadAccessRange>& S = CMPt.get(i);
 			for (ThreadAccessRange j : S) {
-				cout << "(" << i << ", " << j.tid << ")" << endl;
+				cout << "(" << i << ", " << j.tid << ", " << j.accesses_begin << ", " << j.accesses_end << ")" << endl;
 			}
 		}	
 	}
