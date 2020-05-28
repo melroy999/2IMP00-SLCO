@@ -223,19 +223,19 @@ template <class A_Type> class VectorRelation {
 			r.resize(size);
 		}
 
-		void insert(int i, vector<int> J) {
+		void insert(int i, vector<A_Type> J) {
 			r[i].insert(r[i].end(), J.begin(), J.end());
 		}
 
-		void insert(int i, set<int> J) {
+		void insert(int i, set<A_Type> J) {
 			r[i].insert(r[i].end(), J.begin(), J.end());
 		}
 
-		void insert(int i, int j) {
+		void insert(int i, A_Type j) {
 			r[i].insert(r[i].end(), j);
 		}
 
-		int get_element(int i, int index) {
+		A_Type get_element(int i, int index) {
 			return r[i][index];
 		}
 
@@ -409,7 +409,7 @@ struct StackItem {
 		this->aid = aid;
 		this->edge_type = CMPEDGE;
 		this->edge_index = -1;
-		this->t_index = -1;
+		this->t_index = 0;
 		this->cycle_found = cycle_found;
 	}
 
@@ -422,8 +422,16 @@ struct StackItem {
 	}
 };
 
+// Accesses. Global structure, to make it accessible by the comparison function for sorting
+SearchableVector<Access> accesses;
+
+// Comparison function for sorting indices to accesses
+bool compare_access_indices(int i, int j) {
+	return accesses.get(i).tid < accesses.get(j).tid;
+}
+
 // Function to check whether two accesses can be reordered
-bool can_reorder(int ai, int bi, SearchableVector<Access> accesses, MM mmodel, Relation DP, Relation CTRL) {
+bool can_reorder(int ai, int bi, MM mmodel, Relation DP, Relation CTRL) {
 	Access& a = accesses.get(ai);
 	Access& b = accesses.get(bi);
 	if (a.type == WRITE) {
@@ -465,7 +473,7 @@ bool can_reorder(int ai, int bi, SearchableVector<Access> accesses, MM mmodel, R
 // Function to PPR-reorder a given access ai, under the given relations, into the given instruction.
 // Precondition: if ai stems from another instruction, then it is not yet reordered into instruction instr_id.
 // Postcondition: ai is properly placed in the PPR-relation.
-bool reorder(int ai, int instr_id, map<int, Instruction>& instructions, SearchableVector<Access> accesses, MM mmodel,
+bool reorder(int ai, int instr_id, map<int, Instruction>& instructions, MM mmodel,
 				vector<BiRelation>& PPR, BiRelation PR, Relation DP, Relation CTRL, bool from_outside_instr) {
 	// Get the PPR-predecessors of ai.
 	bool moved_into = false;
@@ -504,7 +512,7 @@ bool reorder(int ai, int instr_id, map<int, Instruction>& instructions, Searchab
 					}
 				}
 				if (check) {
-					if (can_reorder(bi, ai, accesses, mmodel, DP, CTRL)) {
+					if (can_reorder(bi, ai, mmodel, DP, CTRL)) {
 						reordered.insert(bi);
 						if (!from_outside_instr) {
 							if (PR.contains_rev(bi)) {
@@ -594,13 +602,14 @@ bool reorder(int ai, int instr_id, map<int, Instruction>& instructions, Searchab
 // - unsafe_explored: at least one unsafe PR-path or CMP edge has been explored (hence a cycle may be produced).
 // - PR_explored: at least one PR-path has been explored (another condition for a critical cycle).
 // - atomicity_check: indicates whether atomicity checking should be performed.
-// Returns the ID of the target access of the next edge, and updates StackItem s to point to that selected edge.
-// If no suitable edge exists, -1 is returned.
-int get_next_edge(StackItem& s, int initial_tid, int initial_ai, bool must_close_cycle, bool& unsafe_explored, bool& PR_explored, bool atomicity_check,
-						Relation RFE, SearchableVector<Access> accesses, vector<vector<int>> PRsafe, vector<vector<int>> PRunsafe,
+// Returns the ID of the target access of the next edge, and a Boolean value indicating if a cycle has been closed,
+// In addition, StackItem s has been updated to point to the selected edge. If no suitable edge exists, -1 is returned.
+pair<int, bool> get_next_edge(StackItem& s, int initial_tid, int initial_ai, bool& must_close_cycle, bool& unsafe_explored, bool& PR_explored, bool atomicity_check,
+						Relation RFE, vector<vector<int>> PRsafe, vector<vector<int>> PRunsafe,
 						VectorRelation<ThreadAccessRange> CMPt, VectorRelation<int> CMP, set<int>& visited_threads) {
 	int result = -1;
 	int selected;
+	bool cycle_flag = false;
 	// Consider a safe PR-path
 	if (s.edge_type == PRSAFE) {
 		for (int i = s.edge_index+1; i < PRsafe[s.aid].size(); i++) {
@@ -615,6 +624,10 @@ int get_next_edge(StackItem& s, int initial_tid, int initial_ai, bool must_close
 						s.edge_index = i;
 						result = selected;
 						PR_explored = true;
+						if (s.aid == initial_ai) {
+							must_close_cycle = true;
+						}
+						cycle_flag = (selected == initial_ai and visited_threads.size() > 1);
 						break;
 					}
 				}
@@ -639,6 +652,10 @@ int get_next_edge(StackItem& s, int initial_tid, int initial_ai, bool must_close
 						result = selected;
 						PR_explored = true;
 						unsafe_explored = true;
+						if (s.aid == initial_ai) {
+							must_close_cycle = true;
+						}
+						cycle_flag = (selected == initial_ai and visited_threads.size() > 1);
 						break;
 					}
 				}
@@ -660,15 +677,21 @@ int get_next_edge(StackItem& s, int initial_tid, int initial_ai, bool must_close
 					if (selected >= initial_ai) {
 						// If we return to the initial thread, then we can either select an access different from the initial one (if we did not at the
 						// start explore a PR-path of that thread, i.e., must_close_cycle is false), or we must select the initial access, by which we close a cycle.
-						// In that case, a PR-path must have been explored, and either an unsafe element must have been explored, or the selected CMP-edge is unsafe.
-						if (out[i].id != initial_tid || (selected != initial_ai && !must_close_cycle) || (selected == initial_ai && PR_explored && (unsafe_explored || RFE.are_related(s.aid, j)))) {
+						// In that case, a PR-path has been explored (at least at the start), and either an unsafe element must have been explored,
+						// or the selected CMP-edge is unsafe.
+						if (out[i].tid != initial_tid || (selected != initial_ai && !must_close_cycle) || (selected == initial_ai && must_close_cycle && (unsafe_explored || RFE.are_related(s.aid, j)))) {
 							s.edge_index = j;
-							s_t_index = i;
+							s.t_index = i;
 							result = selected;
 							visited_threads.insert(out[i].tid);
 							if (RFE.are_related(s.aid, j)) {
 								unsafe_explored = true;
 							}
+							if (s.aid == initial_ai) {
+								// still have to handle selfloop from initial_ai!!!
+								must_close_cycle = false;
+							}
+							cycle_flag = (selected == initial_ai);
 							break;
 						}
 					}
@@ -676,7 +699,7 @@ int get_next_edge(StackItem& s, int initial_tid, int initial_ai, bool must_close
 			}
 		}
 	}
-	return result;
+	return pair<int, bool>(result, cycle_flag);
 }
 
 int main (int argc, char *argv[]) {
@@ -723,9 +746,6 @@ int main (int argc, char *argv[]) {
 			modelname = string(argv[i]);
 		}
 	}
-
-	// Accesses
-	SearchableVector<Access> accesses;
 
 	// PR relation
 	BiRelation PR;
@@ -1194,7 +1214,7 @@ int main (int argc, char *argv[]) {
 			openset.insert(instr.second.bottom_accs.begin(), instr.second.bottom_accs.end());
 			while (!openset.empty()) {
 				for (int ai : openset) {
-					reorder(ai, instr.first, instructions, accesses, weakmemmodel, PPR, PR, DP, CTRL, false);
+					reorder(ai, instr.first, instructions, weakmemmodel, PPR, PR, DP, CTRL, false);
 					if (PR.contains(ai)) {
 						auto it = PR.get(ai);
 						for (int bi : it->second) {
@@ -1256,7 +1276,7 @@ int main (int argc, char *argv[]) {
 							for (int ai : newly_added_accesses[instr_id2]) {
 								auto instr = (instructions.find(instr_id));
 								if (instr->second.accesses.find(ai) == instr->second.accesses.end()) {
-									int result = reorder(ai, instr_id, instructions, accesses, weakmemmodel, PPR, PR, DP, CTRL, true);
+									int result = reorder(ai, instr_id, instructions, weakmemmodel, PPR, PR, DP, CTRL, true);
 									if (result) {
 										if (next_added_accesses[instr_id].empty()) {
 											if (PRinstr.contains_rev(instr_id)) {
@@ -1285,7 +1305,7 @@ int main (int argc, char *argv[]) {
 			}
 		}
 
-		//  relation
+		// CMP relation
 		VectorRelation<int> CMP(accesses.size());
 		// Unsafe CMP relation, corresponding for ARM with RFE (external read from)
 		Relation RFE;
@@ -1319,7 +1339,9 @@ int main (int argc, char *argv[]) {
 		}
 
 		// Sort the CMP vectors stored by the CMP relation by thread ID
-
+		for (int ai = 0; ai < accesses.size(); ai++) {
+			sort(CMP.get(ai).begin(), CMP.get(ai).end(), compare_access_indices);
+		}
 
 		// Transitively close the PPR relations, via Floyd-Warshall
 		for (int w = 0; w < instructions.size(); w++) {
@@ -1403,25 +1425,51 @@ int main (int argc, char *argv[]) {
 		// Compute CMPt
 		ThreadAccessRange t;
 		for (int ai = 0; ai < accesses.size(); ai++) {
-			Access& a = accesses.get(ai);
-			openset.clear();
 			vector<int>& S = CMP.get(ai);
-			for (int bi : S) {
-				Access& b = accesses.get(bi);
-				if (openset.find(b.tid) == openset.end()) {
-					openset.insert(b.tid);
-					CMP_per_thread.insert(pair<pair<int, int>, vector<int>>(pair<int, int>(ai, b.tid), { bi }));
+			int current_thread = -1;
+			int bi;
+			for (bi = 0; bi < S.size(); bi++) {
+				Access& b = accesses.get(S[bi]);
+				if (b.tid != current_thread) {
+					// Store the current ThreadAccessRange entry, if we were making one, and start making a new one
+					if (current_thread != -1) {
+						t.accesses_end = bi;
+						CMPt.insert(ai, t);
+					}
+					current_thread = b.tid;
+					t.tid = current_thread;
+					t.accesses_begin = bi;
 				}
-				auto b_it = CMP_per_thread.find(pair<int, int>(ai, b.tid));
-				b_it->second.insert(b_it->second.end(), bi);
 			}
-			CMPt.insert(ai, openset);
+			// Finalise the final entry and store it
+			if (bi > 0) {
+				t.accesses_end = bi;
+				CMPt.insert(ai, t);
+			}
 		}
 
 		// Perform critical cycle detection, based on Tarjan's algorithm for enumerating the elementary circuits in a graph
 		vector<bool> mark(accesses.size(), false);
-		StaticStack marked_stack(accesses.size());
-		StaticStack point_stack(accesses.size());
+		StaticStack<StackItem> marked_stack(accesses.size());
+		StaticStack<StackItem> point_stack(accesses.size());
+
+		StackItem st_tmp;
+		for (int s = 0; s < accesses.size(); s++) {
+			st_tmp.init(s, false);
+			point_stack.push(st_tmp);
+			mark[s] = true;
+			marked_stack.push(st_tmp);
+			while (!point_stack.empty()) {
+				int w = get_next_edge(point_stack.peek(), );
+
+			}
+		}
+
+		// TODO in cycle postprocessing:
+		// - under ARM, check whether cycle can be extended with unsafe selfloops (from a read to itself)
+		// - mark unsafe PR-paths in cycle as safe (after counting the involved accesses)
+		// DURING cycle detection: check whether there are still unsafe PR-paths and/or unsafe CMP-edges left
+		// If no, cycle detection can stop
 
 		// cout << "PR:" << endl;
 		// for (auto i : PR) {
@@ -1470,9 +1518,9 @@ int main (int argc, char *argv[]) {
 		}
 		cout << "CMPt:" << endl;
 		for (int i = 0; i < CMPt.size(); i++) {
-			vector<int>& S = CMPt.get(i);
-			for (auto j : S) {
-				cout << "(" << i << ", " << j << ")" << endl;
+			vector<ThreadAccessRange>& S = CMPt.get(i);
+			for (ThreadAccessRange j : S) {
+				cout << "(" << i << ", " << j.tid << ")" << endl;
 			}
 		}	
 	}
