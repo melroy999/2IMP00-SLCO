@@ -20,7 +20,7 @@ enum MM { TSO, PSO, ARM };
 // Access type
 enum AccessType { READ, WRITE };
 // Type of edge in an Abstract Event Graph
-enum edgeType { PRSAFE, PRUNSAFE, CMPEDGE };
+enum edgeType { PRUNSAFE, PRSAFE, CMPEDGE };
 
 // Template class to maintain a map of objects
 // of type A_Type, each mapped to a unique ID.
@@ -373,7 +373,7 @@ struct StackItem {
 
 	void init(int aid, int l) {
 		this->aid = aid;
-		this->edge_type = PRSAFE;
+		this->edge_type = PRUNSAFE;
 		this->edge_index = -1;
 		this->t_index = -1;
 		this->cycle_found = false;
@@ -388,20 +388,38 @@ struct StackItem {
 		this->cycle_found = false;
 		this->loc_count = l;
 	}
+
+	void print() {
+		cout << "(" << aid << ", ";
+		if (edge_type == PRUNSAFE) {
+			cout << "PR UNSAFE";
+		}
+		else if (edge_type == PRSAFE) {
+			cout << "PR SAFE";
+		}
+		else {
+			cout << "CMP";
+		}
+		cout << ", edge_index=" << edge_index << ", t_index=" << t_index << ", cycle_found=" << cycle_found << ", loc_count=" << loc_count << ")" << endl;
+	}
 };
 
 // Copy functions
-void copy(StackItem n, StackItem m) {
+void copy(StackItem& n, StackItem m) {
 	n.aid = m.aid;
 	n.edge_type = m.edge_type;
 	n.edge_index = m.edge_index;
 	n.t_index = m.t_index;
 	n.cycle_found = m.cycle_found;
-	n.l = m.l;
+	n.loc_count = m.loc_count;
 }
 
-void copy(int n, int m) {
+void copy(int& n, int m) {
 	n = m;
+}
+
+void print(int n) {
+	cout << n << endl;
 }
 
 // Template class for a stack with a fixed preallocated space
@@ -432,6 +450,26 @@ template <class A_Type> class StaticStack {
 		void push(A_Type n) {
 			top++;
 			copy(stack[top], n);
+		}
+
+		size_t size() {
+			return top+1;
+		}
+
+		typename vector<A_Type>::iterator begin() {
+			return stack.begin();
+		}
+
+		typename vector<A_Type>::iterator end() {
+			return stack.begin() + top;
+		}
+
+		void print() {
+			cout << "Stack content:" << endl;
+			for (int i = 0; i < top+1; i++) {
+				stack[i].print();
+			}
+			cout << "end stack content" << endl;
 		}
 };
 
@@ -612,7 +650,7 @@ bool reorder(int ai, int instr_id, map<int, Instruction>& instructions, MM mmode
 // - initial_tid: the ID of the thread executing the first access selected (at the bottom of the search stack).
 // - initial_ai: the initially selected access.
 // - initial_loc_count: the number of times the initially chosen location has been visited.
-// - explored_locs: set of locations that have previously been explored.
+// - visited_locs: set of locations that have previously been visited.
 // - visited_threads: set of visited threads.
 // - initial_ai_PR_explored: from initial_ai, a PR-path has been explored (this is relevant to know how a cycle can/must be closed).
 // - unsafe_explored: at least one unsafe PR-path or CMP edge has been explored (hence a cycle may be produced).
@@ -627,37 +665,38 @@ int get_next_edge(StackItem& s, int initial_ai, int& initial_loc_count, set<int>
 	int result = -1;
 	int selected;
 	int initial_tid = accesses.get(initial_ai).tid;
-	// Consider a safe PR-path
-	if (s.edge_type == PRSAFE) {
-		for (int i = s.edge_index+1; i < PRsafe[s.aid].size(); i++) {
-			selected = PRsafe[s.aid][i];
-			if (selected >= initial_ai) {
-				Access& a = accesses.get(s.aid);
-				Access& b = accesses.get(selected);
-				Access& a_initial = accesses.get(initial_ai);
-				// Either we are considering a thread other than the first one, or we have only selected one thread so far (a cycle cannot be closed yet),
-				// or we must close a cycle. In that case, this step should lead to the initially selected access, and we must have at least one unsafe element
-				// in the cycle.
-				if (a.tid != initial_tid || visited_threads.size() == 1 || (selected == initial_ai && unsafe_explored > 0)) {
-					// Either we are atomicity checking, or, if not, the locations of the previous and next access are not the same (see Don't Sit On The Fence)
-					if (atomicity_check || a.location != b.location) {
-						// Check the location conditions: either the location is not accessed before, or it is equal to the latest one, and the number of accesses
-						// to that location does not exceed 3, or it is equal to the initial location, and the number of accesses does not exceed 3
-						if (explored_locs.find(b.location) == explored_locs.end() || (a.location == b.location && s.loc_count < 3) ||
-								(b.location == a_initial.location && initial_loc_count < 3)) {
-							// Cycle closing location condition: if s.aid accesses the initial location, then if either initially a PR-path has been selected,
-							// or at least two threads have been visited, the new access must also access the initial location
-							if ((a.location == a_initial.location && (initial_ai_PR_explored || explored_locs > 1) &&
-								b.location == a_initial.location && (selected == initial_ai || initial_loc_count < 3)) ||
-								(!(a.location == a_initial.location && (initial_ai_PR_explored || explored_locs > 1)) &&
-										((a.location != a_initial.location && a.location == b.location && s.loc_count < 3) ||
-											explored_locs.find(b.location) == explored_locs.end() || (b.location == a_initial.location && initial_loc_count < 3)))) {
+	// Consider an unsafe PR-path
+	if (s.edge_type == PRUNSAFE) {
+		// Special case: if we are constructing a cycle visiting just one location, with initially a PR-path, then we are not allowed to select a PR-path.
+		// In other words, we have constructed a path a -PR-> b -CMP-> c so far, a, b, c all accessing the same location, and only c -CMP-> a can be selected
+		// (not relevant when atomicity checking is not done, as cycles with one location are not interesting).
+		Access& a = accesses.get(s.aid);
+		Access& a_initial = accesses.get(initial_ai);
+		if (!(a.location == a_initial.location && initial_ai_PR_explored && s.loc_count == 3)) {
+			for (int i = s.edge_index+1; i < PRunsafe[s.aid].size(); i++) {
+				selected = PRunsafe[s.aid][i];
+				if (selected >= initial_ai) {
+					Access& b = accesses.get(selected);
+					// Either we are considering a thread other than the first one, or we have only selected one thread so far (a cycle cannot be closed yet),
+					// or we must close a cycle. In that case, this step should lead to the initially selected access.
+					if (a.tid != initial_tid || visited_threads.size() == 1 || selected == initial_ai) {
+						// Either we are atomicity checking, or, if not, the locations of the previous and next access are not the same (see Don't Sit On The Fence)
+						if (atomicity_check || a.location != b.location) {
+							// Cycle closing location condition: if we are revisiting the initial location, then we must keep selecting that location to close the cycle.
+							// If not, then we may either select a.location again, if s.loc_count allows it, or we can select a previously unvisited location.
+							if ( (a.location == a_initial.location && visited_locs.size() > 1 && s.loc_count < 3 && b.location == a_initial.location) ||
+								 ( !(a.location == a_initial.location && visited_locs.size() > 1) &&
+								 		((s.loc_count < 3 && a.location == b.location) || visited_locs.find(b.location) == visited_locs.end())
+								 			|| (initial_loc_count < 3 && b.location == a_initial.location) )
+								) {
 								s.edge_index = i;
 								result = selected;
 								PR_explored++;
+								unsafe_explored++;
 								if (s.aid == initial_ai) {
 									initial_ai_PR_explored = true;
 								}
+								visited_locs.insert(b.location);
 								break;
 							}
 						}
@@ -666,43 +705,47 @@ int get_next_edge(StackItem& s, int initial_ai, int& initial_loc_count, set<int>
 			}
 		}
 		if (result == -1) {
-			s.edge_type = PRUNSAFE;
+			s.edge_type = PRSAFE;
 			s.edge_index = -1;
+			s.t_index = 0;
 		}
 	}
-	// Consider an unsafe PR-path
-	if (s.edge_type == PRUNSAFE) {
-		for (int i = s.edge_index+1; i < PRunsafe[s.aid].size(); i++) {
-			selected = PRunsafe[s.aid][i];
-			if (selected >= initial_ai) {
-				// Either we are considering a thread other than the first one, or we have only selected one thread so far (a cycle cannot be closed yet),
-				// or we must close a cycle. In that case, this step should lead to the initially selected access.
-				if (accesses.get(s.aid).tid != initial_tid || visited_threads.size() == 1 || selected == initial_ai) {
-					// Either we are atomicity checking, or, if not, the locations of the previous and next access are not the same (see Don't Sit On The Fence)
-					if (atomicity_check || accesses.get(s.aid).location != accesses.get(selected).location) {
-						// Handle cases in which the location remains the same
-						if (accesses.get(s.aid).location == accesses.get(selected).location) {
-							// Do not select this access if the location has already been visited three times before
-							if (s.loc_count >= 3) {
-								continue;
+	// Consider a safe PR-path
+	if (s.edge_type == PRSAFE) {
+		// Special case: if we are constructing a cycle visiting just one location, with initially a PR-path, then we are not allowed to select a PR-path.
+		// In other words, we have constructed a path a -PR-> b -CMP-> c so far, a, b, c all accessing the same location, and only c -CMP-> a can be selected
+		// (not relevant when atomicity checking is not done, as cycles with one location are not interesting).
+		Access& a = accesses.get(s.aid);
+		Access& a_initial = accesses.get(initial_ai);
+		if (!(a.location == a_initial.location && initial_ai_PR_explored && s.loc_count == 3)) {
+			for (int i = s.edge_index+1; i < PRsafe[s.aid].size(); i++) {
+				selected = PRsafe[s.aid][i];
+				cout << "checking " << selected << endl;
+				if (selected >= initial_ai) {
+					Access& b = accesses.get(selected);
+					// Either we are considering a thread other than the first one, or we have only selected one thread so far (a cycle cannot be closed yet),
+					// or we must close a cycle. In that case, this step should lead to the initially selected access, and we must have at least one unsafe element
+					// in the cycle.
+					if (a.tid != initial_tid || visited_threads.size() == 1 || (selected == initial_ai && unsafe_explored > 0)) {
+						// Either we are atomicity checking, or, if not, the locations of the previous and next access are not the same (see Don't Sit On The Fence)
+						if (atomicity_check || a.location != b.location) {
+							// Cycle closing location condition: if we are revisiting the initial location, then we must keep selecting that location to close the cycle.
+							// If not, then we may either select a.location again, if s.loc_count allows it, or we can select a previously unvisited location.
+							if ( (a.location == a_initial.location && visited_locs.size() > 1 && s.loc_count < 3 && b.location == a_initial.location) ||
+								 ( !(a.location == a_initial.location && visited_locs.size() > 1) &&
+								 		((s.loc_count < 3 && a.location == b.location) || visited_locs.find(b.location) == visited_locs.end()
+								 			|| (initial_loc_count < 3 && b.location == a_initial.location)) )
+								) {
+								s.edge_index = i;
+								result = selected;
+								PR_explored++;
+								if (s.aid == initial_ai) {
+									initial_ai_PR_explored = true;
+								}
+								visited_locs.insert(b.location);
+								break;
 							}
-							// If we are back at the initial thread, and the selected access is not the initial one, the location count must also still be no more than three.
-							if (accesses.get(s.aid).tid == initial_tid && selected != initial_ai && initial_loc_count == 3) {
-								continue;
-							}
 						}
-						else if (explored_locs.find(accesses.get(selected).location) != explored_locs.end()) {
-							// The location has been explored before. Ignore it now
-							continue;
-						}
-						s.edge_index = i;
-						result = selected;
-						PR_explored++;
-						unsafe_explored++;
-						if (s.aid == initial_ai) {
-							initial_ai_PR_explored = true;
-						}
-						break;
 					}
 				}
 			}
@@ -710,7 +753,6 @@ int get_next_edge(StackItem& s, int initial_ai, int& initial_loc_count, set<int>
 		if (result == -1) {
 			s.edge_type = CMPEDGE;
 			s.edge_index = -1;
-			s.t_index = 0;
 		}
 	}
 	// Consider a CMP-edge
@@ -721,22 +763,40 @@ int get_next_edge(StackItem& s, int initial_ai, int& initial_loc_count, set<int>
 				for (int j = (i == s.t_index ? s.edge_index+1 : out[i].accesses_begin); j < out[i].accesses_end; j++) {
 					selected = CMP.get_element(s.aid, j);
 					if (selected >= initial_ai) {
+						cout << "CMP: checking " << selected << endl;
+						Access& a = accesses.get(s.aid);
+						Access& b = accesses.get(selected);
+						Access& a_initial = accesses.get(initial_ai);
 						// If we return to the initial thread, then we can either select an access different from the initial one (if we did not at the
-						// start explore a PR-path of that thread, i.e., must_close_cycle is false), or we can select the initial access, by which we close a cycle.
+						// start explore a PR-path of that thread), or we can select the initial access, by which we close a cycle.
 						// In that case, the cycle should be critical, i.e., a PR-path must have been explored, and either an unsafe element must have been explored,
 						// or the selected CMP-edge is unsafe.
-						if (out[i].tid != initial_tid || (selected != initial_ai && !initial_ai_PR_explored) || (selected == initial_ai && PR_explored > 0 && (unsafe_explored > 0 || RFE.are_related(s.aid, j)))) {
-							s.edge_index = j;
-							s.t_index = i;
-							result = selected;
-							visited_threads.insert(out[i].tid);
-							if (RFE.are_related(s.aid, j)) {
-								unsafe_explored = true;
+						if (out[i].tid != initial_tid || (selected != initial_ai && !initial_ai_PR_explored) ||
+								(selected == initial_ai && PR_explored > 0 && (unsafe_explored > 0 || RFE.are_related(s.aid, j)))) {
+							// Cycle closing location condition: either we must select initial_ai (special case), or, if we are revisiting the initial location,
+							// then we must keep selecting that location to close the cycle. If not, then we may either select a.location again, if s.loc_count allows it,
+							// or we can select a previously unvisited location.
+							if (a.location == a_initial.location && initial_ai_PR_explored && s.loc_count == 3 && selected != initial_ai) {
+								continue;
 							}
-							if (s.aid == initial_ai) {
-								initial_ai_PR_explored = false;
+							if ( (a.location == a_initial.location && visited_locs.size() > 1 && s.loc_count < 3 && b.location == a_initial.location) ||
+								 ( !(a.location == a_initial.location && visited_locs.size() > 1) &&
+								 		((s.loc_count < 3 && a.location == b.location) || visited_locs.find(b.location) == visited_locs.end())
+								 			|| (initial_loc_count < 3 && b.location == a_initial.location) )
+								) {
+								s.edge_index = j;
+								s.t_index = i;
+								result = selected;
+								visited_threads.insert(out[i].tid);
+								if (RFE.are_related(s.aid, j)) {
+									unsafe_explored = true;
+								}
+								if (s.aid == initial_ai) {
+									initial_ai_PR_explored = false;
+								}
+								visited_locs.insert(b.location);								
+								return result;
 							}
-							break;
 						}
 					}
 				}
@@ -1268,9 +1328,12 @@ int main (int argc, char *argv[]) {
 				}
 				else {
 					auto it = PRplus.get(ai);
-					for (int bi : it->second) {
-						if (bi == ai || accesses.get(bi).local) {
-							it->second.erase(bi);
+					for (auto sit = it->second.begin(); sit != it->second.end();) {
+						if (*sit == ai || accesses.get(*sit).local) {
+							sit = it->second.erase(sit);
+						}
+						else {
+							++sit;
 						}
 					}
 				}
@@ -1536,28 +1599,53 @@ int main (int argc, char *argv[]) {
 
 		StackItem st_tmp;
 		bool g;
-		bool must_close_cycle, atomicity_check;
+		bool initial_ai_PR_explored, atomicity_check;
 		int unsafe_explored, PR_explored, initial_loc_count;
 		set<int> visited_threads;
-		set<int> explored_locs;
-		for (int s = 0; s < accesses.size(); s++) {
+		set<int> visited_locs;
+		set<pair<int, int>> PR_paths_requiring_fences;
+
+		// Count the number of unsafe elements in the program. As soon as everything is marked for fencing, we can stop (early)
+		int unsafe_elements_counter;
+		for (int i = 0; i < accesses.size(); i++) {
+			unsafe_elements_counter += PRunsafe_reachable[i].size();
+			// if (RFE.contains(i)) {
+			// 	auto it = RFE.get(i);
+			// 	unsafe_elements_counter += it->second.size();
+			// }
+		}
+
+		for (int s = 0; s < accesses.size() && unsafe_elements_counter > 0; s++) {
 			if (!accesses.get(s).local) {
 				Access& sa = accesses.get(s);
 				st_tmp.init(s, 1);
+				print(st_tmp.loc_count);
 				point_stack.push(st_tmp);
+				print(point_stack.peek().loc_count);				
 				mark[s] = true;
 				marked_stack.push(s);
-				must_close_cycle = false;
+				initial_ai_PR_explored = false;
 				unsafe_explored = 0;
 				PR_explored = 0;
 				initial_loc_count = 1;
 				atomicity_check = false;
-				explored_locs.clear();
+				visited_locs.clear();
+				visited_locs.insert(sa.location);
 				visited_threads.clear();
 				visited_threads.insert(sa.tid);
-				while (!point_stack.empty()) {
+				while (!point_stack.empty() && unsafe_elements_counter > 0) {
+					point_stack.print();
+					cout << "initial_PR_explored=" << initial_ai_PR_explored << ", unsafe_explored=" << unsafe_explored << ", PR_explored=" << PR_explored << ", initial_loc_count=" << initial_loc_count << endl;
+					cout << "visited locations:" << endl;
+					for (int i : visited_locs) {
+						cout << i << endl;
+					}
+					cout << "visited threads:" << endl;
+					for (int i : visited_threads) {
+						cout << i << endl;
+					}
 					StackItem& v_st = point_stack.peek();
-					int w = get_next_edge(v_st, s, initial_loc_count, visited_locs, visited_threads, must_close_cycle,
+					int w = get_next_edge(v_st, s, initial_loc_count, visited_locs, visited_threads, initial_ai_PR_explored,
 								unsafe_explored, PR_explored, atomicity_check, RFE, PRsafe_reachable, PRunsafe_reachable, CMPt, CMP);
 					if (w == -1) {
 						// Backtrack
@@ -1571,20 +1659,101 @@ int main (int argc, char *argv[]) {
 						}
 						g = v_st.cycle_found;
 						point_stack.pop();
+						// Update info relevant for critical cycle conditions
+						StackItem& v_st_next = point_stack.peek();
+						Access& va = accesses.get(v_st.aid);
+						Access& va_next = accesses.get(v_st_next.aid);
+						// Number of initial location visits decreases if va accesses the initial location
+						if (va.location == sa.location) {
+							initial_loc_count--;
+						}
+						// If not, and if the next access accesses another location, remove the location from the visited locations set
+						else if (va.location != va_next.location) {
+							visited_locs.erase(va.location);
+						}
+						// If we backtrack over a thread, remove it from the visited threads set
+						if (va.tid != sa.tid && va.tid != va_next.tid) {
+							visited_threads.erase(va.tid);
+						}
+						// If we are back at the start, we have not explored a PR-path initially
+						if (point_stack.size() == 1) {
+							initial_ai_PR_explored = false;
+						}
+						// Update the number of explored unsafe elements
+						if (v_st_next.edge_type == PRUNSAFE || (v_st_next.edge_type == CMPEDGE && RFE.are_related(v_st_next.aid, v_st.aid))) {
+							unsafe_explored--;
+						}
+						// Update the number of explored PR-paths
+						if (v_st_next.edge_type == PRUNSAFE || v_st_next.edge_type == PRSAFE) {
+							PR_explored--;
+						}
 						if (!point_stack.empty()) {
-							point_stack.peek().cycle_found = point_stack.peek().cycle_found || g;
+							v_st_next.cycle_found = v_st_next.cycle_found || g;
 						}
 					}
 					else if (w == s) {
 						// Process cycle on point stack
+						bool mark_next_PR = false;
+						for (vector<StackItem>::iterator st = point_stack.begin(); st < point_stack.end(); st++) {
+							vector<StackItem>::iterator st_next;
+							if (st != point_stack.end()) {
+								st_next = st+1;
+							}
+							else {
+								st_next = point_stack.begin();
+							}
+							if (st->edge_type == PRUNSAFE || (st->edge_type == PRSAFE && mark_next_PR)) {
+								PR_paths_requiring_fences.insert(pair<int, int>(st->aid, st_next->aid));
+								mark_next_PR = false;
+								// Mark the path as safe
+								if (st->edge_type == PRUNSAFE) {
+									PRsafe_reachable[st->aid].insert(PRsafe_reachable[st->aid].end(), st_next->aid);
+									for (int i = 0; i < PRunsafe_reachable[st->aid].size(); i++) {
+										if (PRunsafe_reachable[st->aid][i] == st_next->aid) {
+											PRunsafe_reachable[st->aid][i] = -1;
+											break;
+										}
+									}
+									unsafe_elements_counter--;
+								}
+							}
+							else if (weakmemmodel == ARM && st->edge_type == CMPEDGE) {
+								// If we observe an unsafe CMP edge, mark the subsequent PR-path for fencing
+								if (RFE.are_related(st->aid, st_next->aid)) {
+									mark_next_PR = true;
+								}
+							}
+						}
+						// Continue looking for a PR-path to fence, if needed
+						if (mark_next_PR) {
+							for (vector<StackItem>::iterator st = point_stack.begin(); st < point_stack.end(); st++) {
+								vector<StackItem>::iterator st_next;
+								if (st != point_stack.begin()) {
+									st_next = st+1;
+								}
+								else {
+									st_next = point_stack.begin();
+								}
+								if (st->edge_type == PRUNSAFE || st->edge_type == PRSAFE) {
+									PR_paths_requiring_fences.insert(pair<int, int>(st->aid, st_next->aid));
+									break;
+								}
+							}
+						}
+						cout << "Cycle!" << endl;
 						v_st.cycle_found = true;
+						unsafe_explored = 0;
 					}
 					else if (!mark[w]) {
 						int loc_count = 1;
 						Access& va = accesses.get(v_st.aid);
 						Access& wa = accesses.get(w);
-						if (va.location == wa.location) {
-							loc_count = va.loc_count+1;
+						if (wa.location == sa.location) {
+							loc_count = initial_loc_count+1;
+							initial_loc_count++;
+						}
+						else if (va.location == wa.location) {
+							loc_count = v_st.loc_count+1;
 						}
 						if (va.tid == wa.tid) {
 							st_tmp.init_CMP(w, loc_count);
@@ -1603,6 +1772,10 @@ int main (int argc, char *argv[]) {
 					marked_stack.pop();
 				}
 			}
+		}
+		cout << "Marked for fencing:" << endl;
+		for (auto p : PR_paths_requiring_fences) {
+			cout << p.first << " -PR-> " << p.second << endl;
 		}
 
 		// TODO in cycle postprocessing:
@@ -1625,12 +1798,12 @@ int main (int argc, char *argv[]) {
 		// 		}
 		// 	}
 		// }
-		// cout << "PRplus:" << endl;
-		// for (auto i : PRplus) {
-		// 	for (auto j : i.second) {
-		// 		cout << "(" << i.first << ", " << j << ")" << endl;
-		// 	}
-		// }
+		cout << "PRplus:" << endl;
+		for (auto i : PRplus) {
+			for (auto j : i.second) {
+				cout << "(" << i.first << ", " << j << ")" << endl;
+			}
+		}
 		// cout << "DP:" << endl;
 		// for (auto i : DP) {
 		// 	for (auto j : i.second) {
@@ -1656,13 +1829,13 @@ int main (int argc, char *argv[]) {
 				cout << "(" << i << ", " << j << ")" << endl;
 			}
 		}
-		cout << "CMPt:" << endl;
-		for (int i = 0; i < CMPt.size(); i++) {
-			vector<ThreadAccessRange>& S = CMPt.get(i);
-			for (ThreadAccessRange j : S) {
-				cout << "(" << i << ", " << j.tid << ", " << j.accesses_begin << ", " << j.accesses_end << ")" << endl;
-			}
-		}	
+		// cout << "CMPt:" << endl;
+		// for (int i = 0; i < CMPt.size(); i++) {
+		// 	vector<ThreadAccessRange>& S = CMPt.get(i);
+		// 	for (ThreadAccessRange j : S) {
+		// 		cout << "(" << i << ", " << j.tid << ", " << j.accesses_begin << ", " << j.accesses_end << ")" << endl;
+		// 	}
+		// }	
 	}
 	else {
 		cout << "LTS file does not exist!" << endl;
