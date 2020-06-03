@@ -714,8 +714,8 @@ int get_next_edge(StackItem& s, int initial_ai, int& initial_loc_count, set<int>
 							// If not, then we may either select a.location again, if s.loc_count allows it, or we can select a previously unvisited location.
 							if ( (a.location == a_initial.location && visited_locs.size() > 1 && s.loc_count < 3 && b.location == a_initial.location) ||
 								 ( !(a.location == a_initial.location && visited_locs.size() > 1) &&
-								 		((s.loc_count < 3 && a.location == b.location) || visited_locs.find(b.location) == visited_locs.end())
-								 			|| (initial_loc_count < 3 && b.location == a_initial.location) )
+								 		(((s.loc_count < 3 && a.location == b.location) || visited_locs.find(b.location) == visited_locs.end())
+								 			|| (initial_loc_count < 3 && b.location == a_initial.location)) )
 								) {
 								s.edge_index = i;
 								result = selected;
@@ -766,8 +766,8 @@ int get_next_edge(StackItem& s, int initial_ai, int& initial_loc_count, set<int>
 							}
 							if ( (a.location == a_initial.location && visited_locs.size() > 1 && s.loc_count < 3 && b.location == a_initial.location) ||
 								 ( !(a.location == a_initial.location && visited_locs.size() > 1) &&
-								 		((s.loc_count < 3 && a.location == b.location) || visited_locs.find(b.location) == visited_locs.end())
-								 			|| (initial_loc_count < 3 && b.location == a_initial.location) )
+								 		(((s.loc_count < 3 && a.location == b.location) || visited_locs.find(b.location) == visited_locs.end())
+								 			|| (initial_loc_count < 3 && b.location == a_initial.location)) )
 								) {
 								s.edge_index = j;
 								s.t_index = i;
@@ -918,7 +918,7 @@ int main (int argc, char *argv[]) {
 					int tid = thread_ids.insert(thread);
 					sep1 = label.find_first_of(",", sep2+1);
 					string statement = label.substr(sep2+2, sep1-sep2-2);
-					cout << statement << endl;
+					cout << "here: " << statement << endl;
 					int ipos = instruction_positions.insert(statement);
 
 					// Set the instruction info
@@ -1748,6 +1748,8 @@ int main (int argc, char *argv[]) {
 		cout << "Marked for fencing:" << endl;
 		for (auto p : PR_paths_requiring_fences) {
 			cout << p.first << " -PR-> " << p.second << endl;
+			cout << p.first << " is part of instruction " << accesses.get(p.first).instruction << endl;
+			cout << p.second << " is part of instruction " << accesses.get(p.second).instruction << endl;
 		}
 
 		// Postprocess the marked PR-pairs, to identify how many fences should be placed, of which kind, and how many
