@@ -481,6 +481,11 @@ bool compare_access_indices(int i, int j) {
 	return accesses.get(i).tid < accesses.get(j).tid;
 }
 
+// Comparison function for sorting (access ID, bool) pairs
+bool compare_access_bool_pairs(pair<int, bool> p1, pair<int, bool> p2) {
+	
+}
+
 // Function to check whether two accesses can be reordered
 bool can_reorder(int ai, int bi, MM mmodel, Relation DP, Relation CTRL) {
 	Access& a = accesses.get(ai);
@@ -1505,10 +1510,9 @@ int main (int argc, char *argv[]) {
 			}
 		}
 
-		// For each access, create two vectors, one containing all accesses that can be PR reached via only PR-safe paths,
-		// and one containing all accesses that can be reached via a PR-unsafe path
-		vector<vector<int>> PRunsafe_reachable(accesses.size());
-		vector<vector<int>> PRsafe_reachable(accesses.size());
+		// For each access, create a vector containing int, bool pairs, with the int being IDs of accesses that are PR-reachable,
+		// and the bool indicating whether the access can be reached via a PR-unsafe path or not
+		vector<vector<pair<int, bool>>> PR_reachable(accesses.size());
 
 		for (int ai = 0; ai < accesses.size(); ai++) {
 			Access& a = accesses.get(ai);
@@ -1532,20 +1536,22 @@ int main (int argc, char *argv[]) {
 			if (has_PRplus_succs) {
 				for (auto bi : PRplus_succ_it->second) {
 					if (instr.accesses.find(bi) == instr.accesses.end()) {
-						PRsafe_reachable[ai].insert(PRsafe_reachable[ai].end(), bi);
+						PR_reachable[ai].insert(PRsafe_reachable[ai].end(), pair<int, bool>(bi, false));
 					}
 					else if (has_PPR_succs) {
 						if (PPR_succ_it->second.find(bi) != PPR_succ_it->second.end()) {
-							PRsafe_reachable[ai].insert(PRsafe_reachable[ai].end(), bi);
+							PR_reachable[ai].insert(PRsafe_reachable[ai].end(), pair<int, bool>(bi, false));
 						}
 						else {
-							PRunsafe_reachable[ai].insert(PRunsafe_reachable[ai].end(), bi);
+							PR_reachable[ai].insert(PRunsafe_reachable[ai].end(), pair<int, bool>(bi, true));
 						}
 					}
 					else {
-						PRunsafe_reachable[ai].insert(PRunsafe_reachable[ai].end(), bi);
+						PR_reachable[ai].insert(PRunsafe_reachable[ai].end(), pair<int, bool>(bi, true));
 					}
 				}
+				// Sort the final vector based on PR-unsafe reachability (unsafe has priority over safe)
+				sort(PR_reachable[ai].begin(), PR_reachable[ai].end(), compare_access_bool_pairs);
 			}
 		}
 
@@ -1681,6 +1687,7 @@ int main (int argc, char *argv[]) {
 						}
 						// Update the number of explored unsafe elements
 						if (v_st_next.edge_type == PRUNSAFE || (v_st_next.edge_type == CMPEDGE && RFE.are_related(v_st_next.aid, v_st.aid))) {
+							// TODO: improve!
 							unsafe_explored--;
 						}
 						// Update the number of explored PR-paths
@@ -1721,6 +1728,18 @@ int main (int argc, char *argv[]) {
 								// If we observe an unsafe CMP edge, mark the subsequent PR-path for fencing
 								if (RFE.are_related(st->aid, st_next->aid)) {
 									mark_next_PR = true;
+								}
+								// If the previous edge in the cycle is also CMP, check if the access has an unsafe selfloop.
+								// If so, that should be marked as well.
+								vector<StackItem>::iterator st_prev;
+								if (st != point_stack.begin()) {
+									st_prev = st-1;
+								}
+								else {
+									st_prev = point_stack.end()-1;
+								}
+								if (st_prev->edge_type == CMPEDGE && PRunsafe_selfloops.find(st->aid) != PRunsafe_selfloops.end()) {
+									PR_paths_requiring_fences.insert(pair<int, int>(st->aid, st->aid));
 								}
 							}
 						}
@@ -1777,6 +1796,7 @@ int main (int argc, char *argv[]) {
 		for (auto p : PR_paths_requiring_fences) {
 			cout << p.first << " -PR-> " << p.second << endl;
 		}
+
 
 		// TODO in cycle postprocessing:
 		// - under ARM, check whether cycle can be extended with unsafe selfloops (from a read to itself)
