@@ -55,6 +55,10 @@ template <class A_Type> class IndexedMap {
 				return -1;
 			}
 		}
+
+		size_t size() {
+			return counter;
+		}
 };
 
 // Template class for a searchable vector of elements of type A_Type.
@@ -319,7 +323,8 @@ struct Access {
 	int location; // Memory location
 	bool local; // Is the variable local or not?
 	AccessType type; // Type of access
-	int instruction; // Instruction of which the access is part
+	int ipos; // Pos of instructions of which the access is part
+	vector<int> instr; // The IDs of the instruction of which the access is part
 	int tid; // Thread executing the access
 };
 
@@ -327,8 +332,8 @@ struct Access {
 bool operator<(const Access& a1, const Access& a2) {
      return (a1.location<a2.location || (a1.location==a2.location && a1.local<a2.local)
      	|| (a1.location==a2.location && a1.local==a2.local && a1.type < a2.type)
-     	|| (a1.location==a2.location && a1.local==a2.local && a1.type==a2.type && a1.instruction < a2.instruction)
-     	|| (a1.location==a2.location && a1.local==a2.local && a1.type==a2.type && a1.instruction==a2.instruction && a1.tid < a2.tid));
+     	|| (a1.location==a2.location && a1.local==a2.local && a1.type==a2.type && a1.ipos < a2.ipos)
+     	|| (a1.location==a2.location && a1.local==a2.local && a1.type==a2.type && a1.ipos==a2.ipos && a1.tid < a2.tid));
 }
 
 // Struct to store LTS instruction label
@@ -1005,7 +1010,7 @@ int main (int argc, char *argv[]) {
 							// cout << acc.local << endl;
 							acc.type = READ;
 							// cout << acc.type << endl;
-							acc.instruction = ipos;
+							acc.ipos = ipos;
 							// cout << acc.instruction << endl;
 							acc.tid = tid;
 							// cout << tid << endl;
@@ -1107,7 +1112,7 @@ int main (int argc, char *argv[]) {
 							// cout << acc.local << endl;
 							acc.type = WRITE;
 							// cout << acc.type << endl;
-							acc.instruction = ipos;
+							acc.ipos = ipos;
 							// cout << acc.instruction << endl;
 							acc.tid = tid;
 							// cout << tid << endl;
@@ -1175,6 +1180,13 @@ int main (int argc, char *argv[]) {
 		// 	}
 		// }
 		ltsfile.close();
+
+		// For each access, create a list of instructions of which it is part
+		for (auto p : instructions) {
+			for (int ai : p.second.accesses) {
+				accesses.get(ai).instr.insert(accesses.get(ai).instr.end(), p.first);
+			}
+		}
 
 		// For each instruction, create an access reorder relation (PPR, subrelation of PR, consisting of the PR-pairs safe under the weak memory model).
 		// Initially, this is empty.
@@ -1483,17 +1495,9 @@ int main (int argc, char *argv[]) {
 
 		for (int ai = 0; ai < accesses.size(); ai++) {
 			Access& a = accesses.get(ai);
-			Instruction& instr = instructions.find(a.instruction)->second;
-			// Collect the accesses that are PPR reachable inside instr from a
-			bool has_PPR_succs = false;
-			map<int, set<int>>::iterator PPR_succ_it;
-			
-			if (PPR[a.instruction].contains(ai)) {
-				has_PPR_succs = true;
-				PPR_succ_it = PPR[a.instruction].get(ai);
-			}
 			// Get the PRplus successors of a
 			bool has_PRplus_succs = false;
+			bool unsafe_PRpath_exists;
 			map<int, set<int>>::iterator PRplus_succ_it;
 			
 			if (PRplus.contains(ai)) {
@@ -1502,20 +1506,24 @@ int main (int argc, char *argv[]) {
 			}
 			if (has_PRplus_succs) {
 				for (auto bi : PRplus_succ_it->second) {
-					if (instr.accesses.find(bi) == instr.accesses.end()) {
-						PR_reachable[ai].insert(PR_reachable[ai].end(), pair<int, bool>(bi, false));
-					}
-					else if (has_PPR_succs) {
-						if (PPR_succ_it->second.find(bi) != PPR_succ_it->second.end()) {
-							PR_reachable[ai].insert(PR_reachable[ai].end(), pair<int, bool>(bi, false));
+					unsafe_PRpath_exists = false;
+					for (int a_instr : a.instr) {
+						Instruction& instr = instructions.find(a_instr)->second;
+						if (instr.accesses.find(bi) != instr.accesses.end()) {
+							if (PPR[a_instr].contains(ai)) {
+								auto PPR_succ_it = PPR[a_instr].get(ai);
+								if (PPR_succ_it->second.find(bi) == PPR_succ_it->second.end()) {
+									unsafe_PRpath_exists = true;
+									break;
+								}
+							}
+							else {
+								unsafe_PRpath_exists = true;
+								break;
+							}
 						}
-						else {
-							PR_reachable[ai].insert(PR_reachable[ai].end(), pair<int, bool>(bi, true));
-						}
 					}
-					else {
-						PR_reachable[ai].insert(PR_reachable[ai].end(), pair<int, bool>(bi, true));
-					}
+					PR_reachable[ai].insert(PR_reachable[ai].end(), pair<int, bool>(bi, unsafe_PRpath_exists));
 				}
 				// Sort the final vector based on PR-unsafe reachability (unsafe has priority over safe)
 				sort(PR_reachable[ai].begin(), PR_reachable[ai].end(), compare_access_bool_pairs);
@@ -1748,8 +1756,24 @@ int main (int argc, char *argv[]) {
 		cout << "Marked for fencing:" << endl;
 		for (auto p : PR_paths_requiring_fences) {
 			cout << p.first << " -PR-> " << p.second << endl;
-			cout << p.first << " is part of instruction " << accesses.get(p.first).instruction << endl;
-			cout << p.second << " is part of instruction " << accesses.get(p.second).instruction << endl;
+			cout << p.first << " is part of static instruction " << accesses.get(p.first).ipos << endl;
+			cout << p.second << " is part of static instruction " << accesses.get(p.second).ipos << endl;
+			cout << p.first << " is part of dynamic instructions ";
+			for (int i : accesses.get(p.first).instr) {
+				Instruction& instr = instructions.find(i)->second;
+				if (instr.accesses.find(p.first) != instr.accesses.end()) {
+					cout << " " << i;
+				}
+			}
+			cout << endl;
+			cout << p.second << " is part of dynamic instructions ";
+			for (int i : accesses.get(p.second).instr) {
+				Instruction& instr = instructions.find(i)->second;
+				if (instr.accesses.find(p.second) != instr.accesses.end()) {
+					cout << " " << i;
+				}
+			}
+			cout << endl;
 		}
 
 		// Postprocess the marked PR-pairs, to identify how many fences should be placed, of which kind, and how many
@@ -1763,40 +1787,100 @@ int main (int argc, char *argv[]) {
 		set<int> fenced_instructions;
 
 		StackItem_fencing st_f;
-		for (pair<int, bool> p : PR_paths_requiring_fences) {
-			int instr1_id = accesses.get(p.first).instruction;
-			int instr2_id = accesses.get(p.second).instruction;
-			if (instr1_id != instr2_id) {
-				// Put instr1_id on the processing stack, and search for a path leading to instr2_id
-				closed_instr.clear();
-				st_f.instruction = instr1_id;
-				st_f.next.clear();
-				if (PRinstr.contains(instr1_id)) {
-					st_f.next.insert(st_f.next.end(), PRinstr.get(instr1_id)->second.begin(), PRinstr.get(instr1_id)->second.end());
-				}
-				else {
+		set<int> instr2_ids;
+		for (pair<int, int> p : PR_paths_requiring_fences) {
+			vector<int>& instr1_ids = accesses.get(p.first).instr;
+			instr2_ids.clear();
+			instr2_ids.insert(accesses.get(p.second).instr.begin(), accesses.get(p.second).instr.end());
+			if (accesses.get(p.first).ipos == accesses.get(p.second).ipos) {
+				fenced_instructions.insert(accesses.get(p.first).ipos);
+				cout << "adding fence to instruction " << accesses.get(p.first).ipos << endl;
+			}
+			else {
+				vector<int>& instr1_ids = accesses.get(p.first).instr;
+				instr2_ids.clear();
+				instr2_ids.insert(accesses.get(p.second).instr.begin(), accesses.get(p.second).instr.end());
+				for (int instr1_id : instr1_ids) {
+					// Put instr1_id on the processing stack, and search for a path leading to an instruction in instr2_ids
+					closed_instr.clear();
+					st_f.instruction = instr1_id;
+					st_f.next.clear();
+					if (PRinstr.contains(instr1_id)) {
+						st_f.next.insert(st_f.next.end(), PRinstr.get(instr1_id)->second.begin(), PRinstr.get(instr1_id)->second.end());
+					}
 					st_f.essential_instr.clear();
-				}
-				processing_stack.push(st_f);
-				marked_instr[instr1_id] = true;
-				bool progress = true;
-				while (!processing_stack.empty()) {
-					StackItem_fencing& st_top = processing_stack.peek();
-					progress = false;
-					while (!st_top.next.empty()) {
-						int next_instr_id = st_top.next.back();
-						st_top.next.pop_back();
-						if (next_instr_id != instr2_id) {
-							auto it = closed_instr.find(next_instr_id);
-							if (it != closed_instr.end()) {
-								// Instruction already visited. Update the set of essential instructions
-								if (st_top.essential_instr.empty()) {
-									st_top.essential_instr.insert(it->second.begin(), it->second.end());
+					processing_stack.push(st_f);
+					marked_instr[instr1_id] = true;
+					bool progress = true;
+					while (!processing_stack.empty()) {
+						StackItem_fencing& st_top = processing_stack.peek();
+						cout << "checking for " << st_top.instruction << endl;
+						int ipos = instructions.find(st_top.instruction)->second.pos;
+						progress = false;
+						while (!st_top.next.empty()) {
+							int next_instr_id = st_top.next.back();
+							cout << "next out: " << next_instr_id << endl;
+							st_top.next.pop_back();
+							if (instr2_ids.find(next_instr_id) == instr2_ids.end()) {
+								auto it = closed_instr.find(next_instr_id);
+								if (it != closed_instr.end()) {
+									// Instruction already visited. Update the set of essential instructions
+									if (st_top.essential_instr.empty()) {
+										st_top.essential_instr.insert(it->second.begin(), it->second.end());
+										cout << "adding essentials:" << endl;
+										for (int i : st_top.essential_instr) {
+											cout << " " << i << endl;
+										}
+									}
+									else {
+										for (auto sit = st_top.essential_instr.begin(); sit != st_top.essential_instr.end();) {
+											if (*sit != ipos && it->second.find(*sit) == it->second.end()) {
+												sit = st_top.essential_instr.erase(sit);
+											}
+											else {
+												++sit;
+											}
+										}
+										cout << "new essentials:" << endl;
+										for (int i : st_top.essential_instr) {
+											cout << " " << i << endl;
+										}
+									}
+								}
+								else if (!marked_instr[next_instr_id]) {
+									st_f.instruction = next_instr_id;
+									st_f.next.clear();
+									if (PRinstr.contains(next_instr_id)) {
+										st_f.next.insert(st_f.next.end(), PRinstr.get(next_instr_id)->second.begin(), PRinstr.get(next_instr_id)->second.end());
+									}
+									st_f.essential_instr.clear();
+									processing_stack.push(st_f);
+									marked_instr[next_instr_id] = true;
+									progress = true;
+									break;
+								}
+							}
+							else {
+								// We reached one of the instructions in instr2_ids. Add instr1_id as an essential instruction to reach it
+								cout << "goal instruction found, adding " << ipos << endl;
+								st_top.essential_instr.insert(ipos);
+							}
+						}
+						if (!progress) {
+							cout << "closing " << st_top.instruction << endl;
+							st_top.essential_instr.insert(ipos);
+							closed_instr.insert(pair<int, set<int>>(st_top.instruction, st_top.essential_instr));
+							processing_stack.pop();
+							marked_instr[st_top.instruction] = false;
+							if (!processing_stack.empty()) {
+								StackItem_fencing& st_prev = processing_stack.peek();
+								if (st_prev.essential_instr.empty()) {
+									st_prev.essential_instr.insert(st_top.essential_instr.begin(), st_top.essential_instr.end());
 								}
 								else {
-									for (auto sit = st_top.essential_instr.begin(); sit != st_top.essential_instr.end();) {
-										if (it->second.find(*sit) == it->second.end()) {
-											sit = st_top.essential_instr.erase(sit);
+									for (auto sit = st_prev.essential_instr.begin(); sit != st_prev.essential_instr.end();) {
+										if (st_top.essential_instr.find(*sit) == st_top.essential_instr.end()) {
+											sit = st_prev.essential_instr.erase(sit);
 										}
 										else {
 											++sit;
@@ -1804,32 +1888,19 @@ int main (int argc, char *argv[]) {
 									}
 								}
 							}
-							else if (!marked_instr[next_instr_id]) {
-								st_f.instruction = next_instr_id;
-								if (PRinstr.contains(next_instr_id)) {
-									st_f.next.insert(st_f.next.end(), PRinstr.get(next_instr_id)->second.begin(), PRinstr.get(next_instr_id)->second.end());
-								}
-								else {
-									st_f.essential_instr.clear();
-								}
-								processing_stack.push(st_f);
-								marked_instr[next_instr_id] = true;
-								progress = true;
-								break;
-							}
-						}
-						else {
-							fenced_instructions.insert(instr1_id);
 						}
 					}
-					if (!progress) {
-						st_top.essential_instr.insert(st_top.instruction);
-						closed_instr.insert(pair<int, set<int>>(st_top.instruction, st_top.essential_instr));
-						processing_stack.pop();
-					}
+					fence_candidates.insert(pair<int, set<int>>(instr1_id, closed_instr.find(instr1_id)->second));
 				}
-				fence_candidates.insert(pair<int, set<int>>(instr1_id, closed_instr.find(instr1_id)->second));
 			}
+		}
+		cout << "fence candidates:" << endl;
+		for (auto p : fence_candidates) {
+			cout << p.first << ": ";
+			for (int i : p.second) {
+				cout << " " << i;
+			}
+			cout << endl;
 		}
 		
 		// Place the fences
@@ -1842,8 +1913,16 @@ int main (int argc, char *argv[]) {
 
 		set<int> new_fences;
 		new_fences.insert(fenced_instructions.begin(), fenced_instructions.end());
+		// Select instructions that are single candidates for at least one fencing requirement
+		for (auto it : fence_candidates) {
+			if (it.second.size() == 1) {
+				new_fences.insert(*(it.second.begin()));
+				fenced_instructions.insert(*(it.second.begin()));
+			}
+		}
 		while (!new_fences.empty()) {
 			for (int i : new_fences) {
+				cout << "fencing " << i << endl;
 				for (auto sit = fence_candidates.begin(); sit != fence_candidates.end();) {
 					if (sit->second.find(i) != sit->second.end()) {
 						for (int j : sit->second) {
@@ -1855,6 +1934,14 @@ int main (int argc, char *argv[]) {
 						++sit;
 					}
 				}
+			}
+			cout << "fence candidates:" << endl;
+			for (auto p : fence_candidates) {
+				cout << p.first << ": ";
+				for (int i : p.second) {
+					cout << " " << i;
+				}
+				cout << endl;
 			}
 			new_fences.clear();
 			// Find the maximum count in instr_counts
