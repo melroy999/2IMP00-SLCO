@@ -22,6 +22,18 @@ enum AccessType { READ, WRITE };
 // Type of edge in an Abstract Event Graph
 enum edgeType { PREDGE, CMPEDGE };
 
+// Function to check set membership
+template<typename A_Type>
+bool set_contains(set<A_Type> S, A_Type e) {
+	return S.find(e) != S.end();
+}
+
+// Function to insert at end of vector
+template<typename A_Type>
+void vector_insert(vector<A_Type> V, A_Type e) {
+	V.insert(V.end(), e);
+}
+
 // Template class to maintain a map of objects
 // of type A_Type, each mapped to a unique ID.
 template <class A_Type> class IndexedMap {
@@ -78,7 +90,7 @@ template <class A_Type> class SearchableVector {
 			auto it = m.find(item);
 			if (it == m.end()) {
 				m.insert(pair<A_Type, int>(item, counter));
-				storage.insert(storage.end(), item);
+				vector_insert(storage, item);
 				return counter++;
 			}
 			else {
@@ -172,7 +184,7 @@ class Relation {
 			}
 			else {
 				auto it = get(i);
-				return it->second.find(j) != it->second.end();
+				return set_contains(it->second, j);
 			}
 		}
 
@@ -575,7 +587,7 @@ bool reorder(int ai, int instr_id, map<int, Instruction>& instructions, MM mmode
 		if (!from_outside_instr) {
 			auto it_pred = PR.get_rev(ai);
 			for (auto bi : it_pred->second) {
-				if (instr->second.accesses.find(bi) != instr->second.accesses.end()) {
+				if (set_contains(instr->second.accesses, bi)) {
 					open.insert(bi);
 				}
 			}
@@ -594,7 +606,7 @@ bool reorder(int ai, int instr_id, map<int, Instruction>& instructions, MM mmode
 				if (PPR[instr_id].contains(bi)) {
 					auto it = PPR[instr_id].get(bi);
 					for (int ci : it->second) {
-						if (reordered.find(ci) == reordered.end()) {
+						if (!set_contains(reordered, ci)) {
 							check = false;
 						}
 					}
@@ -609,7 +621,7 @@ bool reorder(int ai, int instr_id, map<int, Instruction>& instructions, MM mmode
 							if (PR.contains_rev(bi)) {
 								auto it = PR.get_rev(bi);
 								for (auto ci : it->second) {
-									if (instr->second.accesses.find(ci) != instr->second.accesses.end()) {
+									if (set_contains(instr->second.accesses, ci)) {
 										next.insert(ci);
 									}
 								}
@@ -644,8 +656,8 @@ bool reorder(int ai, int instr_id, map<int, Instruction>& instructions, MM mmode
 									has_PPR_preds = true;
 								}
 								for (int ci : it_bi_pr_pred->second) {
-									if (instr->second.accesses.find(ci) != instr->second.accesses.end()) {
-										if (!has_PPR_preds || it_bi_ppr_pred->second.find(ci) == it_bi_ppr_pred->second.end()) {
+									if (set_contains(instr->second.accesses., ci)) {
+										if (!has_PPR_preds || !set_contains(it_bi_ppr_pred->second, ci)) {
 											next.insert(ci);
 										}
 									}
@@ -666,18 +678,18 @@ bool reorder(int ai, int instr_id, map<int, Instruction>& instructions, MM mmode
 		}
 	}
 	else if (from_outside_instr) {
-		if (instr->second.accesses.find(ai) == instr->second.accesses.end()) {
+		if (!set_contains(instr->second.accesses, ai)) {
 			moved_into = true;
 			instr->second.accesses.insert(ai);
 		}
 	}
 	// If ai ends up not having PPR-predecessors, it is a new bottom access
 	if (!PPR[instr_id].contains_rev(ai) && (from_outside_instr || PR.contains_rev(ai))) {
-		instr->second.bottom_accs.insert(instr->second.bottom_accs.end(), ai);
+		vector_insert(instr->second.bottom_accs, ai);
 	}
 	// If ai ends up not having PPR-successors, it is a new top access
 	if (!PPR[instr_id].contains(ai) && (from_outside_instr || PR.contains(ai))) {
-		instr->second.top_accs.insert(instr->second.top_accs.end(), ai);
+		vector_insert(instr->second.top_accs, ai);
 		// PPR-predecessors are not top accesses
 		if (PPR[instr_id].contains_rev(ai)) {
 			auto it = PPR[instr_id].get_rev(ai);
@@ -762,7 +774,7 @@ int get_next_edge(StackItem& s, int initial_ai, int& initial_loc_count, set<int>
 	if (s.edge_type == CMPEDGE) {
 		vector<ThreadAccessRange>& out = CMPt.get(s.aid);
 		for (int i = s.t_index; i < out.size(); i++) {
-			if (visited_threads.find(out[i].tid) == visited_threads.end() || out[i].tid == initial_tid) {
+			if (!set_contains(visited_threads, out[i].tid) || out[i].tid == initial_tid) {
 				for (int j = (i == s.t_index ? s.edge_index+1 : out[i].accesses_begin); j < out[i].accesses_end; j++) {
 					selected = CMP.get_element(s.aid, j);
 					if (selected >= initial_ai) {
@@ -784,7 +796,7 @@ int get_next_edge(StackItem& s, int initial_ai, int& initial_loc_count, set<int>
 							}
 							if ( (a.location == a_initial.location && visited_locs.size() > 1 && s.loc_count < 3 && b.location == a_initial.location) ||
 								 ( !(a.location == a_initial.location && visited_locs.size() > 1) &&
-								 		(((s.loc_count < 3 && a.location == b.location) || visited_locs.find(b.location) == visited_locs.end())
+								 		(((s.loc_count < 3 && a.location == b.location) || !set_contains(visited_locs, b.location))
 								 			|| (initial_loc_count < 3 && b.location == a_initial.location)) )
 								) {
 								s.edge_index = j;
@@ -870,6 +882,8 @@ int main (int argc, char *argv[]) {
 	BiRelation PR;
 	// Transitive closure of PR
 	Relation PRplus;
+	// Transitive closure of PR per instruction
+	Relation PRplus_intra_instr;
 	// PR relation at instruction level
 	BiRelation PRinstr;
 	// Dependency relation DP
@@ -1292,12 +1306,28 @@ int main (int argc, char *argv[]) {
 
 		for (int k = 0; k < accesses.size(); k++) {
 			for (int i = 0; i < accesses.size(); i++) {
-				if (PRplus.contains(i) && PRplus.contains(k)) {
-					auto ii = PRplus.get(i);
-					auto ik = PRplus.get(k);
-					for (int j = 0; j < accesses.size(); j++) {
-						if (ii->second.find(k) != ii->second.end() && ik->second.find(j) != ik->second.end()) {
-							PRplus.insert(i, j);
+				for (int j = 0; j < accesses.size(); j++) {
+					if (PRplus.are_related(i, k) && PRplus.are_related(k, j)) {
+						PRplus.insert(i, j);
+					}
+				}
+			}
+		}
+
+		// If we check for atomicity, compute PRplus_intra_instr
+		if (check_atomicity) {
+			PRplus_intra_instr.copy(PR);
+			for (auto i : instructions) {
+				for (int ai : i.second.accesses) {
+					for (int bi : i.second.accesses) {
+						if (PRplus_intra_instr.contains(ai) && PRplus_intra_instr.contains(bi)) {
+							auto iai = PRplus_intra_instr.get(ai);
+							auto ibi = PRplus_intra_instr.get(bi);
+							for (int ci : i.second.accesses) {
+								if (ibi->second.find(ai) != ibi->second.end() && iai->second.find(ci) != iai->second.end()) {
+									PRplus_intra_instr.insert(bi, ci);
+								}
+							}
 						}
 					}
 				}
@@ -1501,13 +1531,9 @@ int main (int argc, char *argv[]) {
 			Instruction& instr = instructions.find(w)->second;
 			for (int k : instr.accesses) {
 				for (int i : instr.accesses) {
-					if (PPR[w].contains(i) && PPR[w].contains(k)) {
-						auto ii = PPR[w].get(i);
-						auto ik = PPR[w].get(k);
-						for (int j : instr.accesses) {
-							if (ii->second.find(k) != ii->second.end() && ik->second.find(j) != ik->second.end()) {
-								PPR[w].insert(i, j);
-							}
+					for (int j : instr.accesses) {
+						if (PPR[w].are_related(i, k) && PPR[w].are_related(k, j)) {
+							PPR[w].insert(i, j);
 						}
 					}
 				}
@@ -1531,20 +1557,34 @@ int main (int argc, char *argv[]) {
 			}
 			if (has_PRplus_succs) {
 				for (auto bi : PRplus_succ_it->second) {
+					Access& b = accesses.get(bi);
 					unsafe_PRpath_exists = false;
-					for (int a_instr : a.instr) {
-						Instruction& instr = instructions.find(a_instr)->second;
-						if (instr.accesses.find(bi) != instr.accesses.end()) {
-							if (PPR[a_instr].contains(ai)) {
-								auto PPR_succ_it = PPR[a_instr].get(ai);
-								if (PPR_succ_it->second.find(bi) == PPR_succ_it->second.end()) {
+					// The case that ai and bi stem from different instructions
+					if (a.ipos != b.ipos) {
+						for (int a_instr : a.instr) {
+							Instruction& instr = instructions.find(a_instr)->second;
+							if (instr.accesses.find(bi) != instr.accesses.end()) {
+								if (PPR[a_instr].contains(ai)) {
+									auto PPR_succ_it = PPR[a_instr].get(ai);
+									if (PPR_succ_it->second.find(bi) == PPR_succ_it->second.end()) {
+										unsafe_PRpath_exists = true;
+										break;
+									}
+								}
+								else {
 									unsafe_PRpath_exists = true;
 									break;
 								}
 							}
-							else {
-								unsafe_PRpath_exists = true;
-								break;
+						}
+					}
+					else {
+						for (int a_instr : a.instr) {
+							Instruction& instr = instructions.find(a_instr)->second;
+							if (instr.accesses.find(bi) != instr.accesses.end()) {
+								if (!PPR[a_instr].are_related(ai, bi) ) {
+
+								}
 							}
 						}
 					}
