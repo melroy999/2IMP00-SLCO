@@ -563,7 +563,9 @@ bool reorder(int ai, int instr_id, map<int, Instruction>& instructions, MM mmode
 	bool moved_into = false;
 	auto instr = (instructions.find(instr_id));
 	set<int> reordered;
-	//cout << "reordering " << ai << endl;
+	if (ai == 37) {
+		cout << "reordering " << ai << endl;
+	}
 	if ((!from_outside_instr && PR.contains_rev(ai)) || (from_outside_instr && !(instr->second.top_accs.empty()))) {
 		set<int> set1, set2;
 		set<int>& open = set1;
@@ -586,6 +588,8 @@ bool reorder(int ai, int instr_id, map<int, Instruction>& instructions, MM mmode
 		while (!open.empty()) {
 			for (int bi : open) {
 				// Only consider bi if all its PPR-successors are in reordered.
+				// Say we have bi -PR-> ci, bi -PR-> di, ci -PR-> ai and di -PR-> ai, then we may only consider reordering ai before bi if ai can be reordered
+				// both before ci and di.
 				bool check = true;
 				if (PPR[instr_id].contains(bi)) {
 					auto it = PPR[instr_id].get(bi);
@@ -597,6 +601,9 @@ bool reorder(int ai, int instr_id, map<int, Instruction>& instructions, MM mmode
 				}
 				if (check) {
 					if (can_reorder(bi, ai, mmodel, DP, CTRL)) {
+						if (ai == 37) {
+							cout << "SUCCESS!" << endl;
+						}
 						reordered.insert(bi);
 						if (!from_outside_instr) {
 							if (PR.contains_rev(bi)) {
@@ -620,6 +627,9 @@ bool reorder(int ai, int instr_id, map<int, Instruction>& instructions, MM mmode
 						}
 					}
 					else {
+						if (ai == 37) {
+							cout << "FAIL!" << endl;
+						}
 						// ai cannot be reordered before bi, but maybe it can be, together with bi, before bi's PR-predecessors (those that are not PPR-predecessors of bi,
 						// since we require that bi can also be reordered before them).
 						//cout << "cannot reorder " << ai << " and " << bi << endl;
@@ -643,6 +653,9 @@ bool reorder(int ai, int instr_id, map<int, Instruction>& instructions, MM mmode
 							}
 						}
 					}
+				}
+				else {
+					// ai and bi cannot be reordered
 				}
 			}
 			// Swap the sets
@@ -753,7 +766,7 @@ int get_next_edge(StackItem& s, int initial_ai, int& initial_loc_count, set<int>
 				for (int j = (i == s.t_index ? s.edge_index+1 : out[i].accesses_begin); j < out[i].accesses_end; j++) {
 					selected = CMP.get_element(s.aid, j);
 					if (selected >= initial_ai) {
-						cout << "CMP: checking " << selected << endl;
+						// cout << "CMP: checking " << selected << endl;
 						Access& a = accesses.get(s.aid);
 						Access& b = accesses.get(selected);
 						Access& a_initial = accesses.get(initial_ai);
@@ -826,6 +839,7 @@ int main (int argc, char *argv[]) {
 		}
 		else if (strcmp(argv[i], "-a") == 0) {
 			check_atomicity = true;
+			cout << "Atomicity checking will be performed!" << endl;
 		}
 		else if (strcmp(argv[i], "-h") == 0) {
 			cout << "Usage: seqcon-analyser [-wsa] model" << endl;
@@ -840,6 +854,17 @@ int main (int argc, char *argv[]) {
 			modelname = string(argv[i]);
 		}
 	}
+	cout << "Checking input model under ";
+	if (weakmemmodel == TSO) {
+		cout << "TSO";
+	}
+	else if (weakmemmodel == PSO) {
+		cout << "PSO";
+	}
+	else {
+		cout << "ARM";
+	}
+	cout << endl;
 
 	// PR relation
 	BiRelation PR;
@@ -923,7 +948,7 @@ int main (int argc, char *argv[]) {
 					int tid = thread_ids.insert(thread);
 					sep1 = label.find_first_of(",", sep2+1);
 					string statement = label.substr(sep2+2, sep1-sep2-2);
-					cout << "here: " << statement << endl;
+					// cout << "here: " << statement << endl;
 					int ipos = instruction_positions.insert(statement);
 
 					// Set the instruction info
@@ -1474,12 +1499,12 @@ int main (int argc, char *argv[]) {
 		// Transitively close the PPR relations, via Floyd-Warshall
 		for (int w = 0; w < instructions.size(); w++) {
 			Instruction& instr = instructions.find(w)->second;
-			for (int k = 0; k < instr.accesses.size(); k++) {
-				for (int i = 0; i < instr.accesses.size(); i++) {
+			for (int k : instr.accesses) {
+				for (int i : instr.accesses) {
 					if (PPR[w].contains(i) && PPR[w].contains(k)) {
 						auto ii = PPR[w].get(i);
 						auto ik = PPR[w].get(k);
-						for (int j = 0; j < instr.accesses.size(); j++) {
+						for (int j : instr.accesses) {
 							if (ii->second.find(k) != ii->second.end() && ik->second.find(j) != ik->second.end()) {
 								PPR[w].insert(i, j);
 							}
@@ -1523,11 +1548,33 @@ int main (int argc, char *argv[]) {
 							}
 						}
 					}
+					cout << "Adding PR " << ai << ", " << bi << " " << unsafe_PRpath_exists << endl;
 					PR_reachable[ai].insert(PR_reachable[ai].end(), pair<int, bool>(bi, unsafe_PRpath_exists));
 				}
-				// Sort the final vector based on PR-unsafe reachability (unsafe has priority over safe)
-				sort(PR_reachable[ai].begin(), PR_reachable[ai].end(), compare_access_bool_pairs);
 			}
+			// If we are atomicity checking, we also should allow moving against the PR-order
+			if (check_atomicity) {
+				cout << "HERE!" << endl;
+				openset.clear();
+				for (int a_instr : a.instr) {
+					Instruction& instr = instructions.find(a_instr)->second;
+					for (int bi : instr.accesses) {
+						if (openset.find(bi) == openset.end()) {
+							if (PRplus.are_related(bi, ai) && !PRplus.are_related(ai, bi)) {
+								Access& b = accesses.get(bi);
+								if (a.ipos == b.ipos) {
+									// bi stems from the same instruction, and is not PR-after ai (if it is, it has been considered in the previous step)
+									PR_reachable[ai].insert(PR_reachable[ai].end(), pair<int, bool>(bi, true));
+									openset.insert(bi);
+									cout << "Adding " << ai << ", " << bi << endl;
+								}
+							}
+						}
+					}
+				}
+			}
+			// Sort the final vector based on PR-unsafe reachability (unsafe has priority over safe)
+			sort(PR_reachable[ai].begin(), PR_reachable[ai].end(), compare_access_bool_pairs);			
 		}
 
 		// Store a set of pairs of accesses that are unsafely related via CMP (ARM only)
@@ -1587,7 +1634,7 @@ int main (int argc, char *argv[]) {
 		set<pair<int, int>> PR_paths_requiring_fences;
 
 		// Count the number of unsafe elements in the program. As soon as everything is marked for fencing, we can stop (early)
-		int unsafe_elements_counter;
+		int unsafe_elements_counter = 0;
 		for (int i = 0; i < accesses.size(); i++) {
 			for (pair<int, bool> p : PR_reachable[i]) {
 				if (p.second) {
@@ -1599,14 +1646,15 @@ int main (int argc, char *argv[]) {
 			// 	unsafe_elements_counter += it->second.size();
 			// }
 		}
+		cout << "Number of unsafe elements: " << unsafe_elements_counter << endl;
 
 		for (int s = 0; s < accesses.size() && unsafe_elements_counter > 0; s++) {
 			if (!accesses.get(s).local) {
 				Access& sa = accesses.get(s);
 				st_tmp.init(s, 1);
-				print(st_tmp.loc_count);
+				//print(st_tmp.loc_count);
 				point_stack.push(st_tmp);
-				print(point_stack.peek().loc_count);				
+				//print(point_stack.peek().loc_count);				
 				mark[s] = true;
 				marked_stack.push(s);
 				initial_ai_PR_explored = false;
@@ -1720,7 +1768,7 @@ int main (int argc, char *argv[]) {
 								}
 							}
 						}
-						cout << "Cycle!" << endl;
+						// cout << "Cycle!" << endl;
 						v_st.cycle_found = true;
 						unsafe_explored = 0;
 					}
@@ -1794,7 +1842,7 @@ int main (int argc, char *argv[]) {
 			instr2_ids.insert(accesses.get(p.second).instr.begin(), accesses.get(p.second).instr.end());
 			if (accesses.get(p.first).ipos == accesses.get(p.second).ipos) {
 				fenced_instructions.insert(accesses.get(p.first).ipos);
-				cout << "adding fence to instruction " << accesses.get(p.first).ipos << endl;
+				// cout << "adding fence to instruction " << accesses.get(p.first).ipos << endl;
 			}
 			else {
 				vector<int>& instr1_ids = accesses.get(p.first).instr;
@@ -1814,12 +1862,12 @@ int main (int argc, char *argv[]) {
 					bool progress = true;
 					while (!processing_stack.empty()) {
 						StackItem_fencing& st_top = processing_stack.peek();
-						cout << "checking for " << st_top.instruction << endl;
+						// cout << "checking for " << st_top.instruction << endl;
 						int ipos = instructions.find(st_top.instruction)->second.pos;
 						progress = false;
 						while (!st_top.next.empty()) {
 							int next_instr_id = st_top.next.back();
-							cout << "next out: " << next_instr_id << endl;
+							// cout << "next out: " << next_instr_id << endl;
 							st_top.next.pop_back();
 							if (instr2_ids.find(next_instr_id) == instr2_ids.end()) {
 								auto it = closed_instr.find(next_instr_id);
@@ -1827,10 +1875,10 @@ int main (int argc, char *argv[]) {
 									// Instruction already visited. Update the set of essential instructions
 									if (st_top.essential_instr.empty()) {
 										st_top.essential_instr.insert(it->second.begin(), it->second.end());
-										cout << "adding essentials:" << endl;
-										for (int i : st_top.essential_instr) {
-											cout << " " << i << endl;
-										}
+										// cout << "adding essentials:" << endl;
+										// for (int i : st_top.essential_instr) {
+										// 	cout << " " << i << endl;
+										// }
 									}
 									else {
 										for (auto sit = st_top.essential_instr.begin(); sit != st_top.essential_instr.end();) {
@@ -1841,10 +1889,10 @@ int main (int argc, char *argv[]) {
 												++sit;
 											}
 										}
-										cout << "new essentials:" << endl;
-										for (int i : st_top.essential_instr) {
-											cout << " " << i << endl;
-										}
+										// cout << "new essentials:" << endl;
+										// for (int i : st_top.essential_instr) {
+										// 	cout << " " << i << endl;
+										// }
 									}
 								}
 								else if (!marked_instr[next_instr_id]) {
@@ -1862,12 +1910,12 @@ int main (int argc, char *argv[]) {
 							}
 							else {
 								// We reached one of the instructions in instr2_ids. Add instr1_id as an essential instruction to reach it
-								cout << "goal instruction found, adding " << ipos << endl;
+								//cout << "goal instruction found, adding " << ipos << endl;
 								st_top.essential_instr.insert(ipos);
 							}
 						}
 						if (!progress) {
-							cout << "closing " << st_top.instruction << endl;
+							//cout << "closing " << st_top.instruction << endl;
 							st_top.essential_instr.insert(ipos);
 							closed_instr.insert(pair<int, set<int>>(st_top.instruction, st_top.essential_instr));
 							processing_stack.pop();
@@ -1920,7 +1968,7 @@ int main (int argc, char *argv[]) {
 				fenced_instructions.insert(*(it.second.begin()));
 			}
 		}
-		while (!new_fences.empty()) {
+		while (!fence_candidates.empty()) {
 			for (int i : new_fences) {
 				cout << "fencing " << i << endl;
 				for (auto sit = fence_candidates.begin(); sit != fence_candidates.end();) {
@@ -1972,26 +2020,27 @@ int main (int argc, char *argv[]) {
 		// DURING cycle detection: check whether there are still unsafe PR-paths and/or unsafe CMP-edges left
 		// If no, cycle detection can stop
 
-		// cout << "PR:" << endl;
-		// for (auto i : PR) {
-		// 	for (auto j : i.second) {
-		// 		cout << "(" << i.first << ", " << j << ")" << endl;
-		// 	}
-		// }
+		cout << "PR:" << endl;
+		for (auto i : PR) {
+			for (auto j : i.second) {
+				cout << "(" << i.first << ", " << j << ")" << endl;
+			}
+		}
 		// cout << "The PPRs: " << endl;
 		// for (int i = 0; i < instructions.size(); i++) {
+		// 	cout << "For instruction " << i << ":" << endl;
 		// 	for (auto i : PPR[i]) {
 		// 		for (auto j : i.second) {
 		// 			cout << "(" << i.first << ", " << j << ")" << endl;
 		// 		}
 		// 	}
 		// }
-		// cout << "PRplus:" << endl;
-		// for (auto i : PRplus) {
-		// 	for (auto j : i.second) {
-		// 		cout << "(" << i.first << ", " << j << ")" << endl;
-		// 	}
-		// }
+		cout << "PRplus:" << endl;
+		for (auto i : PRplus) {
+			for (auto j : i.second) {
+				cout << "(" << i.first << ", " << j << ")" << endl;
+			}
+		}
 		// cout << "DP:" << endl;
 		// for (auto i : DP) {
 		// 	for (auto j : i.second) {
@@ -2004,12 +2053,12 @@ int main (int argc, char *argv[]) {
 		// 		cout << "(" << i.first << ", " << j << ")" << endl;
 		// 	}
 		// }
-		cout << "PRinstr:" << endl;
-		for (auto i : PRinstr) {
-			for (auto j : i.second) {
-				cout << "(" << i.first << ", " << j << ")" << endl;
-			}
-		}
+		// cout << "PRinstr:" << endl;
+		// for (auto i : PRinstr) {
+		// 	for (auto j : i.second) {
+		// 		cout << "(" << i.first << ", " << j << ")" << endl;
+		// 	}
+		// }
 		// cout << "CMP:" << endl;
 		// for (int i = 0; i < CMP.size(); i++) {
 		// 	vector<int>& S = CMP.get(i);

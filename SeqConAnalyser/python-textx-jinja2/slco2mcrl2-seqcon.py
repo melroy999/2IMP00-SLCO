@@ -641,23 +641,23 @@ def statement_accesspattern(s, o):
 	global statemachine, smclass
 
 	if s.__class__.__name__ == "Assignment":
-		readset = expression_varset(s.right,statemachine[s],smclass[statemachine[s]],{},o,False)
+		readset = expression_full_varset(s.right,statemachine[s],smclass[statemachine[s]],{},o,False)
 		if s.left.index != None:
-			readset |= expression_varset(s.left.index,statemachine[s],smclass[statemachine[s]],{},o,False)
-		writeset = expression_varset(s.left,statemachine[s],smclass[statemachine[s]],{},o,True)
+			readset |= expression_full_varset(s.left.index,statemachine[s],smclass[statemachine[s]],{},o,False)
+		writeset = expression_full_varset(s.left,statemachine[s],smclass[statemachine[s]],{},o,True)
 		return tuple([readset, writeset])
 	elif s.__class__.__name__ == "Composite":
 		vardict = {}
 		readset = set([])
 		writeset = set([])
 		if s.guard != None:
-			readset |= expression_varset(s.guard,statemachine[s],smclass[statemachine[s]],vardict,o,False)
+			readset |= expression_full_varset(s.guard,statemachine[s],smclass[statemachine[s]],vardict,o,False)
 		for st in s.assignments:
 			# read accesses to variables that have already been written to do not need to be added, therefore '- writeset'
-			readset |= (expression_varset(st.right,statemachine[s],smclass[statemachine[s]],vardict,o,False) - writeset)
+			readset |= (expression_full_varset(st.right,statemachine[s],smclass[statemachine[s]],vardict,o,False) - writeset)
 			if st.left.index != None:
-				readset |= (expression_varset(st.left.index,statemachine[s],smclass[statemachine[s]],vardict,o,False) - writeset)
-			writeset |= expression_varset(st.left,statemachine[s],smclass[statemachine[s]],vardict,o,True)
+				readset |= (expression_full_varset(st.left.index,statemachine[s],smclass[statemachine[s]],vardict,o,False) - writeset)
+			writeset |= expression_full_varset(st.left,statemachine[s],smclass[statemachine[s]],vardict,o,True)
 			# update vardict (to correctly handle possible array index use in subsequent assignments)
 			newright = expression(st.right,statemachine[s],smclass[statemachine[s]],vardict,o)
 			varname = scopedvars[smclass[statemachine[s]].name + "'" + statemachine[s].name][st.left.var.name]
@@ -671,15 +671,15 @@ def statement_accesspattern(s, o):
 	elif s.__class__.__name__ == "SendSignal":
 		readset = set([])
 		for st in s.params:
-			readset |= expression_varset(st,statemachine[s],smclass[statemachine[s]],{},o,False)
+			readset |= expression_full_varset(st,statemachine[s],smclass[statemachine[s]],{},o,False)
 		return tuple([readset, set([])])
 	elif s.__class__.__name__ == "ReceiveSignal":
 		writeset = set([])
 		for st in s.params:
-			writeset |= expression_varset(st,statemachine[s],smclass[statemachine[s]],{},o,True)
+			writeset |= expression_full_varset(st,statemachine[s],smclass[statemachine[s]],{},o,True)
 		readset = set([])
 		if s.guard != None:
-			readset = expression_varset(s.guard,statemachine[s],smclass[statemachine[s]],{},o,False)
+			readset = expression_full_varset(s.guard,statemachine[s],smclass[statemachine[s]],{},o,False)
 		# in SLCO ReceiveSignal, it is not possible to refer to the old value of a variable to which you are reading. Hence, reading AND writing to the same variable cannot occur
 		readset = readset - writeset
 		return tuple([readset, writeset])
@@ -687,7 +687,7 @@ def statement_accesspattern(s, o):
 		if expression_is_actionref(s):
 			return tuple([set([]), set([])])
 		else:
-			readset = expression_varset(s,statemachine[s],smclass[statemachine[s]],{},o,False)
+			readset = expression_full_varset(s,statemachine[s],smclass[statemachine[s]],{},o,False)
 			return tuple([readset, set([])])
 
 def statement_condition_accesspattern(s, o):
