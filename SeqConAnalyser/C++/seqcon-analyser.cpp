@@ -22,17 +22,11 @@ enum AccessType { READ, WRITE };
 // Type of edge in an Abstract Event Graph
 enum edgeType { PREDGE, CMPEDGE };
 
-// Function to check set membership
-template<typename A_Type>
-bool set_contains(set<A_Type> S, A_Type e) {
-	return S.find(e) != S.end();
-}
+// Macro to check set membership. Defining this as an inline function somehow leads to performance penalty.
+#define set_contains(S, e) (S.find(e) != S.end())
 
-// Function to insert at end of vector
-template<typename A_Type>
-void vector_insert(vector<A_Type> V, A_Type e) {
-	V.insert(V.end(), e);
-}
+// Macro to insert at end of vector
+#define vector_insert(V, e) (V.insert(V.end(), e))
 
 // Template class to maintain a map of objects
 // of type A_Type, each mapped to a unique ID.
@@ -185,6 +179,18 @@ class Relation {
 			else {
 				auto it = get(i);
 				return set_contains(it->second, j);
+			}
+		}
+
+		void unrelate(int i, int j) {
+			if (contains(i)) {
+				auto it = get(i);
+				if (set_contains(it->second, j)) {
+					it->second.erase(j);
+				}
+				if (it->second.empty()) {
+					erase(i);
+				}
 			}
 		}
 
@@ -377,6 +383,13 @@ struct ThreadAccessRange {
 	int tid;
 	int accesses_begin;
 	int accesses_end;
+};
+
+// Struct to store PR reachability information
+struct PRreach_tuple {
+	int tgt;
+	bool unsafe_directed;
+	bool unsafe_undirected;
 };
 
 // Struct to store an item for the stackframe (in the elementary circuit detection procedure)
@@ -656,7 +669,7 @@ bool reorder(int ai, int instr_id, map<int, Instruction>& instructions, MM mmode
 									has_PPR_preds = true;
 								}
 								for (int ci : it_bi_pr_pred->second) {
-									if (set_contains(instr->second.accesses., ci)) {
+									if (set_contains(instr->second.accesses, ci)) {
 										if (!has_PPR_preds || !set_contains(it_bi_ppr_pred->second, ci)) {
 											next.insert(ci);
 										}
@@ -685,11 +698,11 @@ bool reorder(int ai, int instr_id, map<int, Instruction>& instructions, MM mmode
 	}
 	// If ai ends up not having PPR-predecessors, it is a new bottom access
 	if (!PPR[instr_id].contains_rev(ai) && (from_outside_instr || PR.contains_rev(ai))) {
-		vector_insert(instr->second.bottom_accs, ai);
+		instr->second.bottom_accs.insert(ai);
 	}
 	// If ai ends up not having PPR-successors, it is a new top access
 	if (!PPR[instr_id].contains(ai) && (from_outside_instr || PR.contains(ai))) {
-		vector_insert(instr->second.top_accs, ai);
+		instr->second.top_accs.insert(ai);
 		// PPR-predecessors are not top accesses
 		if (PPR[instr_id].contains_rev(ai)) {
 			auto it = PPR[instr_id].get_rev(ai);
@@ -718,7 +731,7 @@ bool reorder(int ai, int instr_id, map<int, Instruction>& instructions, MM mmode
 // In addition, StackItem s has been updated to point to the selected edge. If no suitable edge exists, -1 is returned.
 int get_next_edge(StackItem& s, int initial_ai, int& initial_loc_count, set<int>& visited_locs, set<int>& visited_threads,
 						bool& initial_ai_PR_explored, int& unsafe_explored, int& PR_explored, bool atomicity_check,
-						Relation RFE, vector<vector<pair<int, bool>>> PRedges, VectorRelation<ThreadAccessRange> CMPt, VectorRelation<int> CMP) {
+						Relation RFE, vector<vector<pair<int, bool>>> PRedges, Relation PRplus_unsafe, VectorRelation<ThreadAccessRange> CMPt, VectorRelation<int> CMP) {
 	int result = -1;
 	int selected;
 	int initial_tid = accesses.get(initial_ai).tid;
@@ -735,9 +748,10 @@ int get_next_edge(StackItem& s, int initial_ai, int& initial_loc_count, set<int>
 				selected = p.first;
 				if (selected >= initial_ai) {
 					Access& b = accesses.get(selected);
+					bool edge_is_unsafe = PRplus_unsafe.are_related(s.aid, selected) || PRplus_unsafe.are_related(selected, s.aid);
 					// Either we are considering a thread other than the first one, or we have only selected one thread so far (a cycle cannot be closed yet),
 					// or we must close a cycle. In that case, this step should lead to the initially selected access, and we must have explored at least one unsafe element.
-					if (a.tid != initial_tid || visited_threads.size() == 1 || (selected == initial_ai && (p.second || unsafe_explored > 0))) {
+					if (a.tid != initial_tid || visited_threads.size() == 1 || (selected == initial_ai && (edge_is_unsafe || unsafe_explored > 0))) {
 						// Either we are atomicity checking, or, if not, the locations of the previous and next access are not the same (see Don't Sit On The Fence)
 						if (atomicity_check || a.location != b.location) {
 							// Cycle closing location condition: if we are revisiting the initial location, then we must keep selecting that location to close the cycle.
@@ -750,7 +764,7 @@ int get_next_edge(StackItem& s, int initial_ai, int& initial_loc_count, set<int>
 								s.edge_index = i;
 								result = selected;
 								PR_explored++;
-								if (p.second) {
+								if (edge_is_unsafe) {
 									unsafe_explored++;
 								}
 								if (s.aid == initial_ai) {
@@ -772,11 +786,13 @@ int get_next_edge(StackItem& s, int initial_ai, int& initial_loc_count, set<int>
 	}
 	// Consider a CMP-edge
 	if (s.edge_type == CMPEDGE) {
+		cout << "considering CMP" << endl;
 		vector<ThreadAccessRange>& out = CMPt.get(s.aid);
 		for (int i = s.t_index; i < out.size(); i++) {
 			if (!set_contains(visited_threads, out[i].tid) || out[i].tid == initial_tid) {
 				for (int j = (i == s.t_index ? s.edge_index+1 : out[i].accesses_begin); j < out[i].accesses_end; j++) {
 					selected = CMP.get_element(s.aid, j);
+					cout << "considering " << selected << endl;
 					if (selected >= initial_ai) {
 						// cout << "CMP: checking " << selected << endl;
 						Access& a = accesses.get(s.aid);
@@ -788,17 +804,17 @@ int get_next_edge(StackItem& s, int initial_ai, int& initial_loc_count, set<int>
 						// or the selected CMP-edge is unsafe.
 						if (out[i].tid != initial_tid || (selected != initial_ai && !initial_ai_PR_explored) ||
 								(selected == initial_ai && PR_explored > 0 && (unsafe_explored > 0 || RFE.are_related(s.aid, j)))) {
-							// Cycle closing location condition: either we must select initial_ai (special case), or, if we are revisiting the initial location,
-							// then we must keep selecting that location to close the cycle. If not, then we may either select a.location again, if s.loc_count allows it,
-							// or we can select a previously unvisited location.
-							if (a.location == a_initial.location && initial_ai_PR_explored && s.loc_count == 3 && selected != initial_ai) {
+							// If we are not doing atomicity checking, single-location cycles are not interesting. If we are checking atomicity, we must select the initial access.
+							if (a.location == a_initial.location && initial_ai_PR_explored && s.loc_count == 3 && (selected != initial_ai || !atomicity_check)) {
 								continue;
 							}
-							if ( (a.location == a_initial.location && visited_locs.size() > 1 && s.loc_count < 3 && b.location == a_initial.location) ||
-								 ( !(a.location == a_initial.location && visited_locs.size() > 1) &&
-								 		(((s.loc_count < 3 && a.location == b.location) || !set_contains(visited_locs, b.location))
-								 			|| (initial_loc_count < 3 && b.location == a_initial.location)) )
-								) {
+							// If we are revisiting the initial location, we must keep selecting accesses to that location.
+							if (a.location == a_initial.location && visited_locs.size() > 1 && b.location != a_initial.location) {
+								continue;
+							}
+							// Select a valid location
+							if ((s.loc_count < 3 && a.location == b.location) || (initial_loc_count < 3 && b.location == a_initial.location) ||
+									selected == initial_ai || !set_contains(visited_locs, b.location)) {
 								s.edge_index = j;
 								s.t_index = i;
 								result = selected;
@@ -900,6 +916,8 @@ int main (int argc, char *argv[]) {
 	map<int, Instruction> instructions;
 	IndexedMap<string> thread_ids;
 	IndexedMap<string> location_ids;
+	// Per thread, a vector of access IDs is stored executed by that thread
+	vector<vector<int>> accesses_of_thread;
 
 	// Reading the input LTS
 	string line;
@@ -1055,14 +1073,14 @@ int main (int argc, char *argv[]) {
 							// cout << tid << endl;
 							int aid = accesses.insert(acc);
 							cout << "read " << aid << " : " << read << ": " << label << endl;
-							instr.accesses.insert(instr.accesses.end(), aid);
+							instr.accesses.insert(aid);
 							reads_stored = true;
 
 							if (reads[sep2-1] != 'p') {
-								curr_accesses_bottom.insert(curr_accesses_bottom.end(), aid);
+								vector_insert(curr_accesses_bottom, aid);
 							}
 							else {
-								curr_accesses_top.insert(curr_accesses_bottom.end(), aid);
+								vector_insert(curr_accesses_top, aid);
 							}
 
 							if (reads[sep2-1] == 'p') {
@@ -1157,8 +1175,8 @@ int main (int argc, char *argv[]) {
 							// cout << tid << endl;
 							int aid = accesses.insert(acc);
 							cout << "write " << aid << " : " << write << ": " << label << endl;
-							instr.accesses.insert(instr.accesses.end(), aid);
-							curr_accesses_bottom.insert(curr_accesses_bottom.end(), aid);
+							instr.accesses.insert(aid);
+							vector_insert(curr_accesses_bottom, aid);
 
 							//cout << write << endl;
 							writes = writes.substr(sep2, writes.length()-sep2);
@@ -1220,10 +1238,37 @@ int main (int argc, char *argv[]) {
 		// }
 		ltsfile.close();
 
+		// Construct the accesses of thread datastructure
+		accesses_of_thread.resize(thread_ids.size());
+		for (int ai = 0; ai < accesses.size(); ai++) {
+			Access& a = accesses.get(ai);
+			vector_insert(accesses_of_thread[a.tid], ai);
+		}
+
 		// For each access, create a list of instructions of which it is part
 		for (auto p : instructions) {
 			for (int ai : p.second.accesses) {
-				accesses.get(ai).instr.insert(accesses.get(ai).instr.end(), p.first);
+				vector_insert(accesses.get(ai).instr, p.first);
+			}
+		}
+
+		// If we check for atomicity, compute PRplus_intra_instr
+		if (check_atomicity) {
+			PRplus_intra_instr.copy(PR);
+			for (auto i : instructions) {
+				for (int ai : i.second.accesses) {
+					for (int bi : i.second.accesses) {
+						if (PRplus_intra_instr.contains(ai) && PRplus_intra_instr.contains(bi)) {
+							auto iai = PRplus_intra_instr.get(ai);
+							auto ibi = PRplus_intra_instr.get(bi);
+							for (int ci : i.second.accesses) {
+								if (ibi->second.find(ai) != ibi->second.end() && iai->second.find(ci) != iai->second.end()) {
+									PRplus_intra_instr.insert(bi, ci);
+								}
+							}
+						}
+					}
+				}
 			}
 		}
 
@@ -1305,28 +1350,13 @@ int main (int argc, char *argv[]) {
 		PRplus.copy(PR);
 
 		for (int k = 0; k < accesses.size(); k++) {
-			for (int i = 0; i < accesses.size(); i++) {
-				for (int j = 0; j < accesses.size(); j++) {
-					if (PRplus.are_related(i, k) && PRplus.are_related(k, j)) {
-						PRplus.insert(i, j);
-					}
-				}
-			}
-		}
-
-		// If we check for atomicity, compute PRplus_intra_instr
-		if (check_atomicity) {
-			PRplus_intra_instr.copy(PR);
-			for (auto i : instructions) {
-				for (int ai : i.second.accesses) {
-					for (int bi : i.second.accesses) {
-						if (PRplus_intra_instr.contains(ai) && PRplus_intra_instr.contains(bi)) {
-							auto iai = PRplus_intra_instr.get(ai);
-							auto ibi = PRplus_intra_instr.get(bi);
-							for (int ci : i.second.accesses) {
-								if (ibi->second.find(ai) != ibi->second.end() && iai->second.find(ci) != iai->second.end()) {
-									PRplus_intra_instr.insert(bi, ci);
-								}
+			if (PRplus.contains(k)) {
+				int tid = accesses.get(k).tid;
+				for (int i : accesses_of_thread[tid]) {
+					if (PRplus.are_related(i, k)) {
+						for (int j : accesses_of_thread[tid]) {
+							if (PRplus.are_related(k, j)) {
+								PRplus.insert(i, j);
 							}
 						}
 					}
@@ -1530,91 +1560,85 @@ int main (int argc, char *argv[]) {
 		for (int w = 0; w < instructions.size(); w++) {
 			Instruction& instr = instructions.find(w)->second;
 			for (int k : instr.accesses) {
-				for (int i : instr.accesses) {
-					for (int j : instr.accesses) {
-						if (PPR[w].are_related(i, k) && PPR[w].are_related(k, j)) {
-							PPR[w].insert(i, j);
+				if (PPR[w].contains(k)) {
+					for (int i : instr.accesses) {
+						if (PPR[w].are_related(i, k)) {
+							for (int j : instr.accesses) {
+								if (PPR[w].are_related(k, j)) {
+									PPR[w].insert(i, j);
+								}
+							}
 						}
 					}
 				}
 			}
 		}
 
-		// For each access, create a vector containing int, bool pairs, with the int being IDs of accesses that are PR-reachable,
-		// and the bool indicating whether the access can be reached via a PR-unsafe path or not
+		// For each access, create a vector containing int, bool tuples, with the int being IDs of accesses that are PR-reachable,
+		// , and the bool indicating whether an PR-unsafe path exists in any of the two directions between the two accesses.
+		// The bools are actually only used for the initial sorting of the vectors, not during cycle detection. For this, unsafety of PRpaths is derived
+		// from the (updated during the procedure) relation PRplus_unsafe.
 		vector<vector<pair<int, bool>>> PR_reachable(accesses.size());
+		// A Relation PRplus_unsafe to keep track of the unsafe PR-paths that still require analysis in cycle detection. Also made global for sorting comparison function
+		Relation PRplus_unsafe;
 
 		for (int ai = 0; ai < accesses.size(); ai++) {
 			Access& a = accesses.get(ai);
-			// Get the PRplus successors of a
-			bool has_PRplus_succs = false;
-			bool unsafe_PRpath_exists;
-			map<int, set<int>>::iterator PRplus_succ_it;
-			
-			if (PRplus.contains(ai)) {
-				has_PRplus_succs = true;
-				PRplus_succ_it = PRplus.get(ai);
-			}
-			if (has_PRplus_succs) {
-				for (auto bi : PRplus_succ_it->second) {
-					Access& b = accesses.get(bi);
-					unsafe_PRpath_exists = false;
-					// The case that ai and bi stem from different instructions
-					if (a.ipos != b.ipos) {
-						for (int a_instr : a.instr) {
-							Instruction& instr = instructions.find(a_instr)->second;
-							if (instr.accesses.find(bi) != instr.accesses.end()) {
-								if (PPR[a_instr].contains(ai)) {
-									auto PPR_succ_it = PPR[a_instr].get(ai);
-									if (PPR_succ_it->second.find(bi) == PPR_succ_it->second.end()) {
-										unsafe_PRpath_exists = true;
+			for (int bi : accesses_of_thread[a.tid]) {
+				if (bi > ai) {
+					bool unsafe_PRpath_exists_ai_to_bi = false;
+					bool unsafe_PRpath_exists_bi_to_ai = false;
+					// If ai and bi are related via PRplus, record their connection in PR_reachable
+					if (PRplus.are_related(ai, bi) || PRplus.are_related(bi, ai)) {
+						Access& b = accesses.get(bi);
+						// In the case of atomicity checking, the presence of a PR-path between ai and bi inside a single instruction is sufficient for the presence of an unsafe PR-path
+						if (a.ipos == b.ipos && check_atomicity && PRplus_intra_instr.are_related(bi, ai)) {
+							unsafe_PRpath_exists_ai_to_bi = true;
+						}
+						else {
+							// Is there an instruction in which both accesses occur (one has been reordered into the instruction of the other)
+							for (int a_instr : a.instr) {
+								Instruction& instr = instructions.find(a_instr)->second;
+								if (set_contains(instr.accesses, bi)) {
+									if (!PPR[a_instr].are_related(ai, bi)) {
+										unsafe_PRpath_exists_ai_to_bi = true;
 										break;
 									}
 								}
-								else {
-									unsafe_PRpath_exists = true;
-									break;
+							}
+						}
+						// Now repeat for the other direction
+						if (a.ipos == b.ipos && check_atomicity && PRplus_intra_instr.are_related(ai, bi)) {
+							unsafe_PRpath_exists_bi_to_ai = true;
+						}
+						else {
+							// Is there an instruction in which both accesses occur (one has been reordered into the instruction of the other)
+							for (int b_instr : b.instr) {
+								Instruction& instr = instructions.find(b_instr)->second;
+								if (set_contains(instr.accesses, ai)) {
+									if (!PPR[b_instr].are_related(bi, ai)) {
+										unsafe_PRpath_exists_bi_to_ai = true;
+										break;
+									}
 								}
 							}
 						}
-					}
-					else {
-						for (int a_instr : a.instr) {
-							Instruction& instr = instructions.find(a_instr)->second;
-							if (instr.accesses.find(bi) != instr.accesses.end()) {
-								if (!PPR[a_instr].are_related(ai, bi) ) {
-
-								}
-							}
+						// Record relation
+						vector_insert(PR_reachable[ai], (pair<int, bool>(bi, unsafe_PRpath_exists_ai_to_bi || unsafe_PRpath_exists_bi_to_ai)));
+						if (unsafe_PRpath_exists_ai_to_bi) {
+							PRplus_unsafe.insert(ai, bi);
 						}
-					}
-					cout << "Adding PR " << ai << ", " << bi << " " << unsafe_PRpath_exists << endl;
-					PR_reachable[ai].insert(PR_reachable[ai].end(), pair<int, bool>(bi, unsafe_PRpath_exists));
-				}
-			}
-			// If we are atomicity checking, we also should allow moving against the PR-order
-			if (check_atomicity) {
-				cout << "HERE!" << endl;
-				openset.clear();
-				for (int a_instr : a.instr) {
-					Instruction& instr = instructions.find(a_instr)->second;
-					for (int bi : instr.accesses) {
-						if (openset.find(bi) == openset.end()) {
-							if (PRplus.are_related(bi, ai) && !PRplus.are_related(ai, bi)) {
-								Access& b = accesses.get(bi);
-								if (a.ipos == b.ipos) {
-									// bi stems from the same instruction, and is not PR-after ai (if it is, it has been considered in the previous step)
-									PR_reachable[ai].insert(PR_reachable[ai].end(), pair<int, bool>(bi, true));
-									openset.insert(bi);
-									cout << "Adding " << ai << ", " << bi << endl;
-								}
-							}
+						vector_insert(PR_reachable[bi], (pair<int, bool>(ai, unsafe_PRpath_exists_ai_to_bi || unsafe_PRpath_exists_bi_to_ai)));
+						if (unsafe_PRpath_exists_bi_to_ai) {
+							PRplus_unsafe.insert(bi, ai);
 						}
+						cout << "PR path: " << ai << " -> " << bi << ": " << unsafe_PRpath_exists_ai_to_bi << endl;
+						cout << "PR path: " << bi << " -> " << ai << ": " << unsafe_PRpath_exists_bi_to_ai << endl;
 					}
 				}
 			}
 			// Sort the final vector based on PR-unsafe reachability (unsafe has priority over safe)
-			sort(PR_reachable[ai].begin(), PR_reachable[ai].end(), compare_access_bool_pairs);			
+			sort(PR_reachable[ai].begin(), PR_reachable[ai].end(), compare_access_bool_pairs);
 		}
 
 		// Store a set of pairs of accesses that are unsafely related via CMP (ARM only)
@@ -1628,6 +1652,7 @@ int main (int argc, char *argv[]) {
 						Access& b = accesses.get(bi);
 						if (b.type == READ) {
 							RFE.insert(ai, bi);
+							RFE.insert(bi, ai);
 						}
 					}
 				}
@@ -1667,7 +1692,7 @@ int main (int argc, char *argv[]) {
 
 		StackItem st_tmp;
 		bool g;
-		bool initial_ai_PR_explored, atomicity_check;
+		bool initial_ai_PR_explored;
 		int unsafe_explored, PR_explored, initial_loc_count;
 		set<int> visited_threads;
 		set<int> visited_locs;
@@ -1677,7 +1702,10 @@ int main (int argc, char *argv[]) {
 		int unsafe_elements_counter = 0;
 		for (int i = 0; i < accesses.size(); i++) {
 			for (pair<int, bool> p : PR_reachable[i]) {
-				if (p.second) {
+				if (PRplus_unsafe.are_related(i, p.first)) {
+					unsafe_elements_counter++;
+				}
+				if (PRplus_unsafe.are_related(p.first, i)) {
 					unsafe_elements_counter++;
 				}
 			}
@@ -1701,7 +1729,6 @@ int main (int argc, char *argv[]) {
 				unsafe_explored = 0;
 				PR_explored = 0;
 				initial_loc_count = 1;
-				atomicity_check = false;
 				visited_locs.clear();
 				visited_locs.insert(sa.location);
 				visited_threads.clear();
@@ -1719,7 +1746,7 @@ int main (int argc, char *argv[]) {
 					}
 					StackItem& v_st = point_stack.peek();
 					int w = get_next_edge(v_st, s, initial_loc_count, visited_locs, visited_threads, initial_ai_PR_explored,
-								unsafe_explored, PR_explored, atomicity_check, RFE, PR_reachable, CMPt, CMP);
+								unsafe_explored, PR_explored, check_atomicity, RFE, PR_reachable, PRplus_unsafe, CMPt, CMP);
 					if (w == -1) {
 						// Backtrack
 						if (v_st.cycle_found) {
@@ -1753,7 +1780,7 @@ int main (int argc, char *argv[]) {
 							initial_ai_PR_explored = false;
 						}
 						// Update the number of explored unsafe elements
-						if ((v_st_next.edge_type == PREDGE && PR_reachable[v_st_next.aid][v_st_next.edge_index].second)
+						if ((v_st_next.edge_type == PREDGE && (PRplus_unsafe.are_related(v_st.aid, v_st_next.aid) || PRplus_unsafe.are_related(v_st_next.aid, v_st.aid)))
 								|| (v_st_next.edge_type == CMPEDGE && RFE.are_related(v_st_next.aid, v_st.aid))) {
 							unsafe_explored--;
 						}
@@ -1766,8 +1793,9 @@ int main (int argc, char *argv[]) {
 						}
 					}
 					else if (w == s) {
-						// Process cycle on point stack
+						// Process cycle on point stack. Determine in both directions whether the undirected cycle actually represents a directed cycle.
 						bool mark_next_PR = false;
+						bool is_directed_cycle = true;
 						for (vector<StackItem>::iterator st = point_stack.begin(); st < point_stack.end(); st++) {
 							vector<StackItem>::iterator st_next;
 							if (st != point_stack.end()) {
@@ -1776,39 +1804,128 @@ int main (int argc, char *argv[]) {
 							else {
 								st_next = point_stack.begin();
 							}
-							if (st->edge_type == PREDGE && (mark_next_PR || PR_reachable[st->aid][st->edge_index].second)) {
-								PR_paths_requiring_fences.insert(pair<int, int>(st->aid, st_next->aid));
-								mark_next_PR = false;
-								// Mark the path as safe
-								if (PR_reachable[st->aid][st->edge_index].second) {
-									PR_reachable[st->aid][st->edge_index].second = false;
-									unsafe_elements_counter--;
+							// If there is actually no PR-path from st->aid to st_next->aid, stop interpreting in this direction of the cycle, unless
+							// both accesses stem from the same instruction and we are reasoning about atomicity
+							if (st->edge_type == PREDGE) {
+								if (!PRplus.are_related(st->aid, st_next->aid) && !(check_atomicity && PRplus_intra_instr.are_related(st_next->aid, st->aid))) {
+									is_directed_cycle = false;
+									break;
 								}
-							}
-							else if (weakmemmodel == ARM && st->edge_type == CMPEDGE) {
-								// If we observe an unsafe CMP edge, mark the subsequent PR-path for fencing
-								if (RFE.are_related(st->aid, st_next->aid)) {
-									mark_next_PR = true;
-								}
+
 							}
 						}
-						// Continue looking for a PR-path to fence, if needed
-						if (mark_next_PR) {
+						if (is_directed_cycle) {
+							// Scan the stack again, and mark the involved unsafe edges for fencing.
 							for (vector<StackItem>::iterator st = point_stack.begin(); st < point_stack.end(); st++) {
 								vector<StackItem>::iterator st_next;
-								if (st != point_stack.begin()) {
+								if (st != point_stack.end()-1) {
 									st_next = st+1;
 								}
 								else {
 									st_next = point_stack.begin();
 								}
-								if (st->edge_type == PREDGE && (mark_next_PR || PR_reachable[st->aid][st->edge_index].second)) {
+								if (st->edge_type == PREDGE && (mark_next_PR || PRplus_unsafe.are_related(st->aid, st_next->aid))) {
 									PR_paths_requiring_fences.insert(pair<int, int>(st->aid, st_next->aid));
-									break;
+									mark_next_PR = false;
+									// Mark the path as safe
+									if (PRplus_unsafe.are_related(st->aid, st_next->aid)) {
+										PRplus_unsafe.unrelate(st->aid, st_next->aid);
+										unsafe_elements_counter--;
+									}
+								}
+								else if (weakmemmodel == ARM && st->edge_type == CMPEDGE) {
+									// If we observe an unsafe CMP edge (in the right direction), mark the subsequent PR-path for fencing
+									Access& a = accesses.get(st->aid);
+									Access& b = accesses.get(st_next->aid);
+									if (RFE.are_related(st->aid, st_next->aid) && a.type == WRITE && b.type == READ) {
+										mark_next_PR = true;
+									}
+								}
+							}
+							// Continue looking for a PR-path to fence, if needed
+							if (mark_next_PR) {
+								for (vector<StackItem>::iterator st = point_stack.begin(); st < point_stack.end(); st++) {
+									vector<StackItem>::iterator st_next;
+									if (st != point_stack.end()-1) {
+										st_next = st+1;
+									}
+									else {
+										st_next = point_stack.begin();
+									}
+									if (st->edge_type == PREDGE) {
+										PR_paths_requiring_fences.insert(pair<int, int>(st->aid, st_next->aid));
+										break;
+									}
 								}
 							}
 						}
-						// cout << "Cycle!" << endl;
+						// Consider the other direction
+						mark_next_PR = false;
+						is_directed_cycle = true;
+						for (vector<StackItem>::iterator st = point_stack.end()-1; st >= point_stack.begin(); st--) {
+							vector<StackItem>::iterator st_next;
+							if (st != point_stack.begin()) {
+								st_next = st-1;
+							}
+							else {
+								st_next = point_stack.end()-1;
+							}
+							// If there is actually no PR-path from st->aid to st_next->aid, stop interpreting in this direction of the cycle, unless
+							// both accesses stem from the same instruction and we are reasoning about atomicity
+							if (st_next->edge_type == PREDGE) {
+								if (!PRplus.are_related(st->aid, st_next->aid) && !(check_atomicity && PRplus_intra_instr.are_related(st_next->aid, st->aid))) {
+									is_directed_cycle = false;
+									break;
+								}
+
+							}
+						}
+						if (is_directed_cycle) {
+							// Scan the stack again, and mark the involved unsafe edges for fencing.
+							for (vector<StackItem>::iterator st = point_stack.end()-1; st >= point_stack.begin(); st--) {
+								vector<StackItem>::iterator st_next;
+								if (st != point_stack.begin()) {
+									st_next = st-1;
+								}
+								else {
+									st_next = point_stack.end()-1;
+								}
+								if (st_next->edge_type == PREDGE && (mark_next_PR || PRplus_unsafe.are_related(st->aid, st_next->aid))) {
+									PR_paths_requiring_fences.insert(pair<int, int>(st->aid, st_next->aid));
+									mark_next_PR = false;
+									// Mark the path as safe
+									if (PRplus_unsafe.are_related(st->aid, st_next->aid)) {
+										PRplus_unsafe.unrelate(st->aid, st_next->aid);
+										unsafe_elements_counter--;
+									}
+								}
+								else if (weakmemmodel == ARM && st_next->edge_type == CMPEDGE) {
+									// If we observe an unsafe CMP edge (in the right direction), mark the subsequent PR-path for fencing
+									Access& a = accesses.get(st->aid);
+									Access& b = accesses.get(st_next->aid);
+									if (RFE.are_related(st->aid, st_next->aid) && a.type == WRITE && b.type == READ) {
+										mark_next_PR = true;
+									}
+								}
+							}
+							// Continue looking for a PR-path to fence, if needed
+							if (mark_next_PR) {
+								for (vector<StackItem>::iterator st = point_stack.end()-1; st >= point_stack.begin(); st--) {
+									vector<StackItem>::iterator st_next;
+									if (st != point_stack.begin()) {
+										st_next = st-1;
+									}
+									else {
+										st_next = point_stack.end()-1;
+									}
+									if (st->edge_type == PREDGE) {
+										PR_paths_requiring_fences.insert(pair<int, int>(st->aid, st_next->aid));
+										break;
+									}
+								}
+							}
+						}
+						cout << "Cycle!" << endl;
 						v_st.cycle_found = true;
 						unsafe_explored = 0;
 					}
@@ -1909,7 +2026,7 @@ int main (int argc, char *argv[]) {
 							int next_instr_id = st_top.next.back();
 							// cout << "next out: " << next_instr_id << endl;
 							st_top.next.pop_back();
-							if (instr2_ids.find(next_instr_id) == instr2_ids.end()) {
+							if (!set_contains(instr2_ids, next_instr_id)) {
 								auto it = closed_instr.find(next_instr_id);
 								if (it != closed_instr.end()) {
 									// Instruction already visited. Update the set of essential instructions
@@ -1967,7 +2084,7 @@ int main (int argc, char *argv[]) {
 								}
 								else {
 									for (auto sit = st_prev.essential_instr.begin(); sit != st_prev.essential_instr.end();) {
-										if (st_top.essential_instr.find(*sit) == st_top.essential_instr.end()) {
+										if (!set_contains(st_top.essential_instr, *sit)) {
 											sit = st_prev.essential_instr.erase(sit);
 										}
 										else {
@@ -2012,7 +2129,7 @@ int main (int argc, char *argv[]) {
 			for (int i : new_fences) {
 				cout << "fencing " << i << endl;
 				for (auto sit = fence_candidates.begin(); sit != fence_candidates.end();) {
-					if (sit->second.find(i) != sit->second.end()) {
+					if (set_contains(sit->second, i)) {
 						for (int j : sit->second) {
 							instr_counts[j]--;
 						}
@@ -2099,13 +2216,13 @@ int main (int argc, char *argv[]) {
 		// 		cout << "(" << i.first << ", " << j << ")" << endl;
 		// 	}
 		// }
-		// cout << "CMP:" << endl;
-		// for (int i = 0; i < CMP.size(); i++) {
-		// 	vector<int>& S = CMP.get(i);
-		// 	for (auto j : S) {
-		// 		cout << "(" << i << ", " << j << ")" << endl;
-		// 	}
-		// }
+		cout << "CMP:" << endl;
+		for (int i = 0; i < CMP.size(); i++) {
+			vector<int>& S = CMP.get(i);
+			for (auto j : S) {
+				cout << "(" << i << ", " << j << ")" << endl;
+			}
+		}
 		// cout << "CMPt:" << endl;
 		// for (int i = 0; i < CMPt.size(); i++) {
 		// 	vector<ThreadAccessRange>& S = CMPt.get(i);
