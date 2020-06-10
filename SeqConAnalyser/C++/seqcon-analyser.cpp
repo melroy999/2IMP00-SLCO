@@ -506,7 +506,15 @@ template <class A_Type> class StaticStack {
 		}
 
 		typename vector<A_Type>::iterator end() {
-			return stack.begin() + top;
+			return stack.begin() + top + 1;
+		}
+
+		typename vector<A_Type>::reverse_iterator rbegin() {
+			return stack.rend() - 1 - top;
+		}
+
+		typename vector<A_Type>::reverse_iterator rend() {
+			return stack.rend();
 		}
 
 		void print() {
@@ -1705,8 +1713,8 @@ int main (int argc, char *argv[]) {
 				//print(st_tmp.loc_count);
 				point_stack.push(st_tmp);
 				//print(point_stack.peek().loc_count);				
-				mark[s] = true;
-				marked_stack.push(s);
+				// mark[s] = true;
+				// marked_stack.push(s);
 				initial_ai_PR_explored = false;
 				unsafe_explored = 0;
 				PR_explored = 0;
@@ -1735,14 +1743,14 @@ int main (int argc, char *argv[]) {
 					}
 					if (w == -1) {
 						// Backtrack
-						if (v_st.cycle_found) {
-							while (marked_stack.peek() != v_st.aid) {
-								mark[marked_stack.peek()] = false;
-								marked_stack.pop();
-							}
-							mark[v_st.aid] = false;
-							marked_stack.pop();
-						}
+						// if (v_st.cycle_found) {
+						// 	while (marked_stack.peek() != v_st.aid) {
+						// 		mark[marked_stack.peek()] = false;
+						// 		marked_stack.pop();
+						// 	}
+						// 	mark[v_st.aid] = false;
+						// 	marked_stack.pop();
+						// }
 						g = v_st.cycle_found;
 						point_stack.pop();
 						// Update info relevant for critical cycle conditions
@@ -1782,9 +1790,9 @@ int main (int argc, char *argv[]) {
 						// Process cycle on point stack. Determine in both directions whether the undirected cycle actually represents a directed cycle.
 						bool mark_next_PR = false;
 						bool is_directed_cycle = true;
-						for (vector<StackItem>::iterator st = point_stack.begin(); st < point_stack.end(); st++) {
+						for (vector<StackItem>::iterator st = point_stack.begin(); st != point_stack.end(); ++st) {
 							vector<StackItem>::iterator st_next;
-							if (st != point_stack.end()) {
+							if (st+1 != point_stack.end()) {
 								st_next = st+1;
 							}
 							else {
@@ -1802,9 +1810,9 @@ int main (int argc, char *argv[]) {
 						}
 						if (is_directed_cycle) {
 							// Scan the stack again, and mark the involved unsafe edges for fencing.
-							for (vector<StackItem>::iterator st = point_stack.begin(); st < point_stack.end(); st++) {
+							for (vector<StackItem>::iterator st = point_stack.begin(); st != point_stack.end(); ++st) {
 								vector<StackItem>::iterator st_next;
-								if (st != point_stack.end()-1) {
+								if (st+1 != point_stack.end()) {
 									st_next = st+1;
 								}
 								else {
@@ -1817,6 +1825,9 @@ int main (int argc, char *argv[]) {
 									if (PRplus_unsafe.are_related(st->aid, st_next->aid)) {
 										PRplus_unsafe.unrelate(st->aid, st_next->aid);
 										unsafe_elements_counter--;
+										if (!PRplus_unsafe.are_related(st_next->aid, st->aid)) {
+											unsafe_explored--;
+										}
 									}
 								}
 								else if (weakmemmodel == ARM && st->edge_type == CMPEDGE) {
@@ -1825,14 +1836,15 @@ int main (int argc, char *argv[]) {
 									Access& b = accesses.get(st_next->aid);
 									if (RFE.are_related(st->aid, st_next->aid) && a.type == WRITE && b.type == READ) {
 										mark_next_PR = true;
+										unsafe_explored--;
 									}
 								}
 							}
 							// Continue looking for a PR-path to fence, if needed
 							if (mark_next_PR) {
-								for (vector<StackItem>::iterator st = point_stack.begin(); st < point_stack.end(); st++) {
+								for (vector<StackItem>::iterator st = point_stack.begin(); st != point_stack.end(); ++st) {
 									vector<StackItem>::iterator st_next;
-									if (st != point_stack.end()-1) {
+									if (st+1 != point_stack.end()) {
 										st_next = st+1;
 									}
 									else {
@@ -1848,18 +1860,23 @@ int main (int argc, char *argv[]) {
 						// Consider the other direction
 						mark_next_PR = false;
 						is_directed_cycle = true;
-						for (vector<StackItem>::iterator st = point_stack.end()-1; st >= point_stack.begin(); st--) {
-							vector<StackItem>::iterator st_next;
-							if (st != point_stack.begin()) {
-								st_next = st-1;
+						point_stack.print();
+						for (vector<StackItem>::reverse_iterator st = point_stack.rbegin(); st != point_stack.rend(); ++st) {
+							vector<StackItem>::reverse_iterator st_next;
+							if (st+1 != point_stack.rend()) {
+								st_next = st+1;
 							}
 							else {
-								st_next = point_stack.end()-1;
+								st_next = point_stack.rbegin();
 							}
+							cout << "from " << st_next->aid << " to " << st->aid << endl;
 							// If there is actually no PR-path from st->aid to st_next->aid, stop interpreting in this direction of the cycle, unless
 							// both accesses stem from the same instruction and we are reasoning about atomicity
 							if (st_next->edge_type == PREDGE) {
 								if (!PRplus.are_related(st->aid, st_next->aid) && !(check_atomicity && PRplus_intra_instr.are_related(st_next->aid, st->aid))) {
+									cout << "Not a directed cycle!" << endl;
+									cout << st_next->aid << endl;
+									cout << st->aid << endl;
 									is_directed_cycle = false;
 									break;
 								}
@@ -1868,13 +1885,13 @@ int main (int argc, char *argv[]) {
 						}
 						if (is_directed_cycle) {
 							// Scan the stack again, and mark the involved unsafe edges for fencing.
-							for (vector<StackItem>::iterator st = point_stack.end()-1; st >= point_stack.begin(); st--) {
-								vector<StackItem>::iterator st_next;
-								if (st != point_stack.begin()) {
-									st_next = st-1;
+							for (vector<StackItem>::reverse_iterator st = point_stack.rbegin(); st != point_stack.rend(); ++st) {
+								vector<StackItem>::reverse_iterator st_next;
+								if (st+1 != point_stack.rend()) {
+									st_next = st+1;
 								}
 								else {
-									st_next = point_stack.end()-1;
+									st_next = point_stack.rbegin();
 								}
 								if (st_next->edge_type == PREDGE && (mark_next_PR || PRplus_unsafe.are_related(st->aid, st_next->aid))) {
 									PR_paths_requiring_fences.insert(pair<int, int>(st->aid, st_next->aid));
@@ -1883,6 +1900,9 @@ int main (int argc, char *argv[]) {
 									if (PRplus_unsafe.are_related(st->aid, st_next->aid)) {
 										PRplus_unsafe.unrelate(st->aid, st_next->aid);
 										unsafe_elements_counter--;
+										if (!PRplus_unsafe.are_related(st_next->aid, st->aid)) {
+											unsafe_explored--;
+										}
 									}
 								}
 								else if (weakmemmodel == ARM && st_next->edge_type == CMPEDGE) {
@@ -1891,18 +1911,19 @@ int main (int argc, char *argv[]) {
 									Access& b = accesses.get(st_next->aid);
 									if (RFE.are_related(st->aid, st_next->aid) && a.type == WRITE && b.type == READ) {
 										mark_next_PR = true;
+										unsafe_explored--;
 									}
 								}
 							}
 							// Continue looking for a PR-path to fence, if needed
 							if (mark_next_PR) {
-								for (vector<StackItem>::iterator st = point_stack.end()-1; st >= point_stack.begin(); st--) {
-									vector<StackItem>::iterator st_next;
-									if (st != point_stack.begin()) {
-										st_next = st-1;
+								for (vector<StackItem>::reverse_iterator st = point_stack.rbegin(); st != point_stack.rend(); ++st) {
+									vector<StackItem>::reverse_iterator st_next;
+									if (st+1 != point_stack.rend()) {
+										st_next = st+1;
 									}
 									else {
-										st_next = point_stack.end()-1;
+										st_next = point_stack.rbegin();
 									}
 									if (st->edge_type == PREDGE) {
 										PR_paths_requiring_fences.insert(pair<int, int>(st->aid, st_next->aid));
@@ -1913,9 +1934,9 @@ int main (int argc, char *argv[]) {
 						}
 						cout << "Cycle!" << endl;
 						v_st.cycle_found = true;
-						unsafe_explored = 0;
 					}
-					else if (!mark[w]) {
+					// else if (!mark[w]) {
+					else {
 						Access& va = accesses.get(v_st.aid);
 						Access& wa = accesses.get(w);
 						if (v_st.edge_type == PREDGE) {
@@ -1952,15 +1973,15 @@ int main (int argc, char *argv[]) {
 							st_tmp.init(w, loc_count);
 						}
 						point_stack.push(st_tmp);
-						mark[w] = true;
-						marked_stack.push(w);
+						// mark[w] = true;
+						// marked_stack.push(w);
 						continue;
 					}
 				}
-				while (!marked_stack.empty()) {
-					mark[marked_stack.peek()] = false;
-					marked_stack.pop();
-				}
+				// while (!marked_stack.empty()) {
+				// 	mark[marked_stack.peek()] = false;
+				// 	marked_stack.pop();
+				// }
 			}
 		}
 		cout << "Marked for fencing:" << endl;
@@ -1989,12 +2010,16 @@ int main (int argc, char *argv[]) {
 		// Postprocess the marked PR-pairs, to identify how many fences should be placed, of which kind, and how many
 		StaticStack<StackItem_fencing> processing_stack(instructions.size());
 		// Map to store for each instruction after which a fence must be placed the set of instructions where such a fence can be placed
-		map<int, set<int>> fence_candidates;
+		map<int, set<pair<int, bool>>> fence_candidates;
 
 		map<int, set<int>> closed_instr;
 		vector<bool> marked_instr(instructions.size(), false);
-		// Set of instructions that have fences placed inside them
+		// Set of instructions that have fences placed inside/after them
 		set<int> fenced_instructions;
+		// Set of instructions that have A_cumulative fences placed inside/after them (see Don't Sit, only relevant for ARM)
+		set<int> Acum_fenced_instructions;
+		// Set of instructions that are locked (atomicity checking only)
+		set<int> locked_instructions;
 
 		StackItem_fencing st_f;
 		set<int> instr2_ids;
@@ -2003,13 +2028,19 @@ int main (int argc, char *argv[]) {
 			instr2_ids.clear();
 			instr2_ids.insert(accesses.get(p.second).instr.begin(), accesses.get(p.second).instr.end());
 			if (accesses.get(p.first).ipos == accesses.get(p.second).ipos) {
-				fenced_instructions.insert(accesses.get(p.first).ipos);
+				if (check_atomicity && PRplus_intra_instr.are_related(p.second, p.first)) {
+					locked_instructions.insert(accesses.get(p.first).ipos);
+				}
+				else {
+					fenced_instructions.insert(accesses.get(p.first).ipos);
+				}
 				// cout << "adding fence to instruction " << accesses.get(p.first).ipos << endl;
 			}
 			else {
 				vector<int>& instr1_ids = accesses.get(p.first).instr;
 				instr2_ids.clear();
 				instr2_ids.insert(accesses.get(p.second).instr.begin(), accesses.get(p.second).instr.end());
+				set<pair<int, bool>> candidateset;
 				for (int instr1_id : instr1_ids) {
 					// Put instr1_id on the processing stack, and search for a path leading to an instruction in instr2_ids
 					closed_instr.clear();
@@ -2100,15 +2131,29 @@ int main (int argc, char *argv[]) {
 							}
 						}
 					}
-					fence_candidates.insert(pair<int, set<int>>(instr1_id, closed_instr.find(instr1_id)->second));
+					candidateset.clear();
+					// Prepare set of candidate pairs
+					set<int>& C = closed_instr.find(instr1_id)->second;
+					for (int c : C) {
+						candidateset.insert(pair<int, bool>(c, true));
+					}
+					// Add the goal instruction
+					candidateset.insert(pair<int, bool>(accesses.get(p.second).ipos, false));
+					auto it = fence_candidates.find(instr1_id);
+					if (it == fence_candidates.end()) {
+						fence_candidates.insert(pair<int, set<pair<int, bool>>>(instr1_id, candidateset));
+					}
+					else {
+						it->second.insert(candidateset.begin(), candidateset.end());
+					}
 				}
 			}
 		}
 		cout << "fence candidates:" << endl;
 		for (auto p : fence_candidates) {
 			cout << p.first << ": ";
-			for (int i : p.second) {
-				cout << " " << i;
+			for (pair<int, bool> c : p.second) {
+				cout << " (" << c.first << ", " << c.second << ")";
 			}
 			cout << endl;
 		}
@@ -2116,27 +2161,76 @@ int main (int argc, char *argv[]) {
 		// Place the fences
 		vector<int> instr_counts(instructions.size(), 0);
 		for (auto it : fence_candidates) {
-			for (int i : it.second) {
-				instr_counts[i]++;
+			for (pair<int, bool> c : it.second) {
+				if (c.second) {
+					instr_counts[c.first]++;
+				}
 			}
 		}
 
 		set<int> new_fences;
+		
+		// Atomicity checking only: lock the instructions marked for locking
+		if (check_atomicity) {
+			for (int i : locked_instructions) {
+				cout << "locking " << i << endl;
+				for (auto sit = fence_candidates.begin(); sit != fence_candidates.end();) {
+					if (set_contains(sit->second, (pair<int, bool>(i, true))) || set_contains(sit->second, (pair<int, bool>(i, false)))) {
+						for (pair<int, bool> c : sit->second) {
+							instr_counts[c.first]--;
+						}
+						sit = fence_candidates.erase(sit);
+					}
+					else {
+						++sit;
+					}
+				}
+			}
+		}
 		new_fences.insert(fenced_instructions.begin(), fenced_instructions.end());
 		// Select instructions that are single candidates for at least one fencing requirement
 		for (auto it : fence_candidates) {
 			if (it.second.size() == 1) {
-				new_fences.insert(*(it.second.begin()));
-				fenced_instructions.insert(*(it.second.begin()));
+				new_fences.insert((it.second.begin())->first);
+				// ARM only: if there exists a marked PR-path starting from p.first that is safe, add an A_cumulative fence
+				if (weakmemmodel == ARM) {
+					bool fence_placed = false;
+					for (auto p : PR_paths_requiring_fences) {
+						Access& a = accesses.get(p.first);
+						if (a.ipos == it.first) {
+							bool is_unsafe = false;
+							for (int a_instr : a.instr) {
+								Instruction& instr = instructions.find(a_instr)->second;
+								if (set_contains(instr.accesses, p.second)) {
+									if (!PPR[a_instr].are_related(p.first, p.second)) {
+										is_unsafe = true;
+										break;
+									}
+								}
+							}
+							if (!is_unsafe) {
+								Acum_fenced_instructions.insert((it.second.begin())->first);
+								fence_placed = true;
+								break;
+							}
+						}
+					}
+					if (!fence_placed) {
+						fenced_instructions.insert((it.second.begin())->first);
+					}
+				}
+				else {
+					fenced_instructions.insert((it.second.begin())->first);
+				}
 			}
 		}
 		while (!fence_candidates.empty()) {
 			for (int i : new_fences) {
 				cout << "fencing " << i << endl;
 				for (auto sit = fence_candidates.begin(); sit != fence_candidates.end();) {
-					if (set_contains(sit->second, i)) {
-						for (int j : sit->second) {
-							instr_counts[j]--;
+					if (set_contains(sit->second, (pair<int, bool>(i, true)))) {
+						for (pair<int, bool> c : sit->second) {
+							instr_counts[c.first]--;
 						}
 						sit = fence_candidates.erase(sit);
 					}
@@ -2148,8 +2242,8 @@ int main (int argc, char *argv[]) {
 			cout << "fence candidates:" << endl;
 			for (auto p : fence_candidates) {
 				cout << p.first << ": ";
-				for (int i : p.second) {
-					cout << " " << i;
+				for (pair<int, bool> c : p.second) {
+					cout << " (" << c.first << ", " << c.second << ")";
 				}
 				cout << endl;
 			}
@@ -2166,21 +2260,68 @@ int main (int argc, char *argv[]) {
 			// If the highest count is larger than 0, mark the instruction for fencing, and repeat
 			if (max > 0) {
 				new_fences.insert(maxpos);
-				fenced_instructions.insert(maxpos);
+				// ARM only: if there exists a marked PR-path starting from p.first that is safe, add an A_cumulative fence
+				if (weakmemmodel == ARM) {
+					bool fence_placed = false;
+					for (auto p : PR_paths_requiring_fences) {
+						Access& a = accesses.get(p.first);
+						if (a.ipos == maxpos) {
+							bool is_unsafe = false;
+							for (int a_instr : a.instr) {
+								Instruction& instr = instructions.find(a_instr)->second;
+								if (set_contains(instr.accesses, p.second)) {
+									if (!PPR[a_instr].are_related(p.first, p.second)) {
+										is_unsafe = true;
+										break;
+									}
+								}
+							}
+							if (!is_unsafe) {
+								Acum_fenced_instructions.insert(maxpos);
+								fence_placed = true;
+								break;
+							}
+						}
+					}
+					if (!fence_placed) {
+						fenced_instructions.insert(maxpos);
+					}
+				}
+				else {
+					fenced_instructions.insert(maxpos);
+				}
 				instr_counts[maxpos] = 0;
 			}
 		}
 
-		cout << "Fences placed in/after " << fenced_instructions.size() << " instructions!" << endl;
-		cout << "The following instructions are fenced: ";
-		for (int i : fenced_instructions) {
-			cout << i << " ";
+		if (check_atomicity) {
+			cout << "Locks placed on " << locked_instructions.size() << " instructions!" << endl;
+			if (locked_instructions.size() > 0) {
+				cout << "The following instructions are locked: ";
+				for (int i : locked_instructions) {
+					cout << i << " ";
+				}
+				cout << endl;
+			}
 		}
-		cout << endl;
-
-		// TODO in cycle postprocessing:
-		// DURING cycle detection: check whether there are still unsafe PR-paths and/or unsafe CMP-edges left
-		// If no, cycle detection can stop
+		cout << "Fences placed in/after " << fenced_instructions.size() << " instructions!" << endl;
+		if (fenced_instructions.size() > 0) {
+			cout << "The following instructions are fenced: ";
+			for (int i : fenced_instructions) {
+				cout << i << " ";
+			}
+			cout << endl;
+		}
+		if (weakmemmodel == ARM) {
+			cout << "A_Cumulative Fences placed in/after " << Acum_fenced_instructions.size() << " instructions!" << endl;
+			if (Acum_fenced_instructions.size() > 0) {
+				cout << "The following instructions are A_Cumulatively fenced: ";
+				for (int i : Acum_fenced_instructions) {
+					cout << i << " ";
+				}
+				cout << endl;
+			}
+		}
 
 		cout << "PR:" << endl;
 		for (auto i : PR) {
@@ -2199,6 +2340,18 @@ int main (int argc, char *argv[]) {
 		// }
 		cout << "PRplus:" << endl;
 		for (auto i : PRplus) {
+			for (auto j : i.second) {
+				cout << "(" << i.first << ", " << j << ")" << endl;
+			}
+		}
+		cout << "PRplus_intra_instr:" << endl;
+		for (auto i : PRplus_intra_instr) {
+			for (auto j : i.second) {
+				cout << "(" << i.first << ", " << j << ")" << endl;
+			}
+		}
+		cout << "PRplus_unsafe:" << endl;
+		for (auto i : PRplus_unsafe) {
 			for (auto j : i.second) {
 				cout << "(" << i.first << ", " << j << ")" << endl;
 			}
