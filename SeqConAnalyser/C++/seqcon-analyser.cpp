@@ -763,14 +763,6 @@ int get_next_edge(StackItem& s, int initial_ai, int& initial_loc_count, set<int>
 								) {
 								s.edge_index = i;
 								result = selected;
-								PR_explored++;
-								if (edge_is_unsafe) {
-									unsafe_explored++;
-								}
-								if (s.aid == initial_ai) {
-									initial_ai_PR_explored = true;
-								}
-								visited_locs.insert(b.location);
 								break;
 							}
 						}
@@ -789,7 +781,9 @@ int get_next_edge(StackItem& s, int initial_ai, int& initial_loc_count, set<int>
 		cout << "considering CMP" << endl;
 		vector<ThreadAccessRange>& out = CMPt.get(s.aid);
 		for (int i = s.t_index; i < out.size(); i++) {
+			cout << "thread: " << out[i].tid << endl;
 			if (!set_contains(visited_threads, out[i].tid) || out[i].tid == initial_tid) {
+				cout << "not visited" << endl;
 				for (int j = (i == s.t_index ? s.edge_index+1 : out[i].accesses_begin); j < out[i].accesses_end; j++) {
 					selected = CMP.get_element(s.aid, j);
 					cout << "considering " << selected << endl;
@@ -818,14 +812,6 @@ int get_next_edge(StackItem& s, int initial_ai, int& initial_loc_count, set<int>
 								s.edge_index = j;
 								s.t_index = i;
 								result = selected;
-								visited_threads.insert(out[i].tid);
-								if (RFE.are_related(s.aid, j)) {
-									unsafe_explored = true;
-								}
-								if (s.aid == initial_ai) {
-									initial_ai_PR_explored = false;
-								}
-								visited_locs.insert(b.location);
 								return result;
 							}
 						}
@@ -1258,13 +1244,9 @@ int main (int argc, char *argv[]) {
 			for (auto i : instructions) {
 				for (int ai : i.second.accesses) {
 					for (int bi : i.second.accesses) {
-						if (PRplus_intra_instr.contains(ai) && PRplus_intra_instr.contains(bi)) {
-							auto iai = PRplus_intra_instr.get(ai);
-							auto ibi = PRplus_intra_instr.get(bi);
-							for (int ci : i.second.accesses) {
-								if (ibi->second.find(ai) != ibi->second.end() && iai->second.find(ci) != iai->second.end()) {
-									PRplus_intra_instr.insert(bi, ci);
-								}
+						for (int ci : i.second.accesses) {
+							if (PRplus_intra_instr.are_related(bi, ai) && PRplus_intra_instr.are_related(ai, ci)) {
+								PRplus_intra_instr.insert(bi, ci);
 							}
 						}
 					}
@@ -1747,6 +1729,10 @@ int main (int argc, char *argv[]) {
 					StackItem& v_st = point_stack.peek();
 					int w = get_next_edge(v_st, s, initial_loc_count, visited_locs, visited_threads, initial_ai_PR_explored,
 								unsafe_explored, PR_explored, check_atomicity, RFE, PR_reachable, PRplus_unsafe, CMPt, CMP);
+					cout << "returned: " << w << endl;
+					if (w > -1) {
+						cout << mark[w] << endl;
+					}
 					if (w == -1) {
 						// Backtrack
 						if (v_st.cycle_found) {
@@ -1930,9 +1916,28 @@ int main (int argc, char *argv[]) {
 						unsafe_explored = 0;
 					}
 					else if (!mark[w]) {
-						int loc_count = 1;
 						Access& va = accesses.get(v_st.aid);
 						Access& wa = accesses.get(w);
+						if (v_st.edge_type == PREDGE) {
+							PR_explored++;
+							if (PRplus_unsafe.are_related(v_st.aid, w) || PRplus_unsafe.are_related(w, v_st.aid)) {
+								unsafe_explored++;
+							}
+							if (v_st.aid == s) {
+								initial_ai_PR_explored = true;
+							}
+						}
+						else {
+							visited_threads.insert(wa.tid);
+							if (RFE.are_related(v_st.aid, w)) {
+								unsafe_explored = true;
+							}
+							if (v_st.aid == s) {
+								initial_ai_PR_explored = false;
+							}
+						}
+						visited_locs.insert(wa.location);
+						int loc_count = 1;
 						if (wa.location == sa.location) {
 							loc_count = initial_loc_count+1;
 							initial_loc_count++;
