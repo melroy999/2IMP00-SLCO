@@ -591,15 +591,13 @@ bool can_reorder(int ai, int bi, MM mmodel, Relation DP, Relation CTRL) {
 // Precondition: if ai stems from another instruction, then it is not yet reordered into instruction instr_id.
 // Postcondition: ai is properly placed in the PPR-relation.
 bool reorder(int ai, int instr_id, map<int, Instruction>& instructions, MM mmodel,
-				vector<BiRelation>& PPR, BiRelation PR, Relation DP, Relation CTRL, bool from_outside_instr) {
+				vector<BiRelation>& PPR, BiRelation PR, BiRelation PRplus_intra_instr, Relation DP, Relation CTRL, bool from_outside_instr) {
 	// Get the PPR-predecessors of ai.
 	bool moved_into = false;
 	auto instr = (instructions.find(instr_id));
 	set<int> reordered;
-	if (ai == 37) {
-		cout << "reordering " << ai << endl;
-	}
-	if ((!from_outside_instr && PR.contains_rev(ai)) || (from_outside_instr && !(instr->second.top_accs.empty()))) {
+	cout << "reordering " << ai << endl;
+	if ((!from_outside_instr && PRplus_intra_instr.contains_rev(ai)) || (from_outside_instr && !(instr->second.top_accs.empty()))) {
 		set<int> set1, set2;
 		set<int>& open = set1;
 		set<int>& tmp = set1;
@@ -636,7 +634,7 @@ bool reorder(int ai, int instr_id, map<int, Instruction>& instructions, MM mmode
 					if (can_reorder(bi, ai, mmodel, DP, CTRL)) {
 						reordered.insert(bi);
 						if (!from_outside_instr) {
-							if (PR.contains_rev(bi)) {
+							if (!set_contains(instr->second.bottom_accs, bi) && PR.contains_rev(bi)) {
 								auto it = PR.get_rev(bi);
 								for (auto ci : it->second) {
 									if (set_contains(instr->second.accesses, ci)) {
@@ -662,7 +660,7 @@ bool reorder(int ai, int instr_id, map<int, Instruction>& instructions, MM mmode
 						//cout << "cannot reorder " << ai << " and " << bi << endl;
 						PPR[instr_id].insert(bi, ai);
 						if (!from_outside_instr) {
-							if (PR.contains_rev(bi)) {
+							if (PRplus_intra_instr.contains_rev(bi)) {
 								map<int, set<int>>::iterator it_bi_pr_pred = PR.get_rev(bi);
 								map<int, set<int>>::iterator it_bi_ppr_pred;
 								bool has_PPR_preds = false;
@@ -892,7 +890,7 @@ int main (int argc, char *argv[]) {
 	// Transitive closure of PR
 	Relation PRplus;
 	// Transitive closure of PR per instruction
-	Relation PRplus_intra_instr;
+	BiRelation PRplus_intra_instr;
 	// PR relation at instruction level
 	BiRelation PRinstr;
 	// Dependency relation DP
@@ -1298,15 +1296,13 @@ int main (int argc, char *argv[]) {
 		}
 
 		// If we check for atomicity, compute PRplus_intra_instr
-		if (check_atomicity) {
-			PRplus_intra_instr.copy(PR);
-			for (auto i : instructions) {
-				for (int ai : i.second.accesses) {
-					for (int bi : i.second.accesses) {
-						for (int ci : i.second.accesses) {
-							if (PRplus_intra_instr.are_related(bi, ai) && PRplus_intra_instr.are_related(ai, ci)) {
-								PRplus_intra_instr.insert(bi, ci);
-							}
+		PRplus_intra_instr.copy(PR);
+		for (auto i : instructions) {
+			for (int ai : i.second.accesses) {
+				for (int bi : i.second.accesses) {
+					for (int ci : i.second.accesses) {
+						if (PRplus_intra_instr.are_related(bi, ai) && PRplus_intra_instr.are_related(ai, ci)) {
+							PRplus_intra_instr.insert(bi, ci);
 						}
 					}
 				}
@@ -1478,11 +1474,11 @@ int main (int argc, char *argv[]) {
 			openset.insert(instr.second.bottom_accs.begin(), instr.second.bottom_accs.end());
 			while (!openset.empty()) {
 				for (int ai : openset) {
-					reorder(ai, instr.first, instructions, weakmemmodel, PPR, PR, DP, CTRL, false);
-					if (PR.contains(ai)) {
+					reorder(ai, instr.first, instructions, weakmemmodel, PPR, PR, PRplus_intra_instr, DP, CTRL, false);
+					if (PR.contains(ai) && PRplus_intra_instr.contains(ai)) {
 						auto it = PR.get(ai);
 						for (int bi : it->second) {
-							if (instr.second.accesses.find(bi) != instr.second.accesses.end()) {
+							if (set_contains(instr.second.accesses, bi)) {
 								nextset.insert(bi);
 							}
 						}
@@ -1496,6 +1492,18 @@ int main (int argc, char *argv[]) {
 			}
 		}
 
+		cout << "The PPRs: " << endl;
+		for (int i = 0; i < instructions.size(); i++) {
+			cout << "For instruction " << i << ":" << endl;
+			for (auto i : PPR[i]) {
+				for (auto j : i.second) {
+					cout << "(" << i.first << ", " << j << ")" << endl;
+				}
+			}
+		}
+
+
+		cout << "here" << endl;
 		// Now reorder accesses across instructions
 		vector<vector<int>> accvector1(instructions.size());
 		vector<vector<int>> accvector2(instructions.size());
@@ -1513,8 +1521,9 @@ int main (int argc, char *argv[]) {
 					if (PPR[instr.first].contains(ai)) {
 						auto it = PPR[instr.first].get(ai);
 						for (int bi : it->second) {
-							if (nextset.find(bi) == nextset.end()) {
+							if (!set_contains(nextset, bi)) {
 								nextset.insert(bi);
+								cout << "adding " << bi << endl;
 							}
 						}
 					}
@@ -1525,6 +1534,7 @@ int main (int argc, char *argv[]) {
 				nextset.clear();
 			}
 		}
+		cout << "here2" << endl;
 
 		openset.clear();
 		nextset.clear();
@@ -1540,7 +1550,7 @@ int main (int argc, char *argv[]) {
 							for (int ai : newly_added_accesses[instr_id2]) {
 								auto instr = (instructions.find(instr_id));
 								if (instr->second.accesses.find(ai) == instr->second.accesses.end()) {
-									int result = reorder(ai, instr_id, instructions, weakmemmodel, PPR, PR, DP, CTRL, true);
+									bool result = reorder(ai, instr_id, instructions, weakmemmodel, PPR, PR, PRplus_intra_instr, DP, CTRL, true);
 									if (result) {
 										if (next_added_accesses[instr_id].empty()) {
 											if (PRinstr.contains_rev(instr_id)) {
@@ -2414,15 +2424,15 @@ int main (int argc, char *argv[]) {
 				cout << "(" << i.first << ", " << j << ")" << endl;
 			}
 		}
-		// cout << "The PPRs: " << endl;
-		// for (int i = 0; i < instructions.size(); i++) {
-		// 	cout << "For instruction " << i << ":" << endl;
-		// 	for (auto i : PPR[i]) {
-		// 		for (auto j : i.second) {
-		// 			cout << "(" << i.first << ", " << j << ")" << endl;
-		// 		}
-		// 	}
-		// }
+		cout << "The PPRs: " << endl;
+		for (int i = 0; i < instructions.size(); i++) {
+			cout << "For instruction " << i << ":" << endl;
+			for (auto i : PPR[i]) {
+				for (auto j : i.second) {
+					cout << "(" << i.first << ", " << j << ")" << endl;
+				}
+			}
+		}
 		cout << "PRplus:" << endl;
 		for (auto i : PRplus) {
 			for (auto j : i.second) {
