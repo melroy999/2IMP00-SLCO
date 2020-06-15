@@ -19,6 +19,9 @@ this_folder = dirname(__file__)
 modelname = ""
 model = ""
 
+# apply only static analysis
+static_analysis_only = False
+
 # type of ports
 porttypes = {}
 # statemachine names used in the model
@@ -1148,6 +1151,41 @@ def preprocess():
 	IntArraySizes = list(isizes)
 	BoolArraySizes = list(bsizes)
 
+def translate_sa():
+	"""The translation function for pure static analysis"""
+	global model, modelname, trans, statement_access, statement_condition_access, statement_full_condition_access, statement_structure_access
+
+	path, name = split(modelname)
+	if name.endswith('.slco'):
+		name = name[:-4]
+	else:
+		name = name[:-7]
+	outFile = open(join(path,name + "instructions"), 'w')
+
+	# compute statement access patterns
+	statement_access = compute_accesspatterns(model)
+	statement_condition_access = compute_condition_accesspatterns(model)
+	statement_full_condition_access = compute_full_condition_accesspatterns(model)
+	statement_structure_access = compute_structure_accesspatterns(model)
+
+	print("Writing statically derived model instruction information")
+	# Dump the instruction descriptions in the file
+	for o in model.objects:
+		for sm in o.type.statemachines:
+			for tr in sm.transitions:
+				outFile.write("rw(" + o.name + ", " + sm.name + ", ST'" + str(tr._tx_position) + ", " + mcrl2_structure_accesspattern(tr.statements[0], o, True) + "\n")
+	print("Writing statically derived PR-relation at instruction level")
+	for c in model.classes:
+		for sm in c.statemachines:
+			for s in sm.states:
+				outgoing_s = trans[c][sm][s]
+				for tr in outgoing_s:
+					t = tr.target
+					outgoing_t = trans[c][sm][t]
+					for tr2 in outgoing_t:
+						outFile.write("ST'" + str(tr._tx_position) + " ST'" + str(tr2._tx_position) + "\n")
+	outFile.close
+
 def translate():
 	"""The translation function"""
 	global model, modelname, statemachinenames, statemachine, tr, smlocalvars, states, actions, class_receives, class_sends, vartypes, mcrl2varprefix, channeltypes, asynclossytypes, asynclosslesstypes, synctypes, statement_access, statement_full_condition_access, statement_condition_access, statement_structure_access, object_sync_commpairs, syncing_statements, sorted_variables, IntArraySizes, BoolArraySizes
@@ -1212,7 +1250,7 @@ def translate():
 
 def main(args):
 	"""The main function"""
-	global modelname, model
+	global modelname, model, static_analysis_only
 	if len(args) == 0:
 		print("Missing argument: SLCO model")
 		sys.exit(1)
@@ -1221,9 +1259,16 @@ def main(args):
 			print("Usage: pypy/python3 slco2mcrl2 [-rc]")
 			print("")
 			print("Transform an SLCO 2.0 model to an mCRL2 model for sequential consistency violation checking.")
+			print(" -s                 instead of an mCRL2 model, produce a text file containing all instructions and the PR-relation for pure static analysis")
 			sys.exit(0)
 		else:
-			modelname = args[0]
+			i = 0
+			while i < len(args):
+				if args[i] == '-s':
+					static_analysis_only = True
+				else:
+					modelname = args[i]
+				i += 1
 
 	batch = []
 	if modelname.endswith('.slco'):
@@ -1265,7 +1310,10 @@ def main(args):
 			# preprocess model
 			preprocess()
 			# translate
-			translate()
+			if static_analysis_only:
+				translate_sa()
+			else:
+				translate()
 		except Exception:
 			print("failed to process model %s" % basename(file))
 			print(traceback.format_exc())

@@ -634,9 +634,6 @@ bool reorder(int ai, int instr_id, map<int, Instruction>& instructions, MM mmode
 				}
 				if (check) {
 					if (can_reorder(bi, ai, mmodel, DP, CTRL)) {
-						if (ai == 37) {
-							cout << "SUCCESS!" << endl;
-						}
 						reordered.insert(bi);
 						if (!from_outside_instr) {
 							if (PR.contains_rev(bi)) {
@@ -660,9 +657,6 @@ bool reorder(int ai, int instr_id, map<int, Instruction>& instructions, MM mmode
 						}
 					}
 					else {
-						if (ai == 37) {
-							cout << "FAIL!" << endl;
-						}
 						// ai cannot be reordered before bi, but maybe it can be, together with bi, before bi's PR-predecessors (those that are not PPR-predecessors of bi,
 						// since we require that bi can also be reordered before them).
 						//cout << "cannot reorder " << ai << " and " << bi << endl;
@@ -835,6 +829,7 @@ int main (int argc, char *argv[]) {
 	string modelname = "";
 	MM weakmemmodel = TSO;
 	bool check_atomicity = false;
+	bool static_analysis = false;
 
 	if (argc < 2) {
 		cout << "Model name missing!" << endl;
@@ -863,13 +858,17 @@ int main (int argc, char *argv[]) {
 			check_atomicity = true;
 			cout << "Atomicity checking will be performed!" << endl;
 		}
+		else if (strcmp(argv[i], "-s") == 0) {
+			static_analysis = true;
+			cout << "Analysis of statically derived information is performed!" << endl;
+		}
 		else if (strcmp(argv[i], "-h") == 0) {
 			cout << "Usage: seqcon-analyser [-wsa] model" << endl;
 			cout << "" << endl;
 			cout << "Check for sequentially inconsistent behaviour in the given .aut file containing the state space of an SLCO model, unless '-s' is used." << endl;
 			cout << " -w                                  weak memory model to consider (TSO,PSO,ARM)  (default: TSO)" << endl;
 			cout << " -s                                  apply only static analysis (ignore state space) (default: no)" << endl;
-			cout << "                                       -> this option requires a .instr file listing the instructions of the SLCO model" << endl;
+			cout << "                                       -> this option requires a .instructions file listing the instructions of the SLCO model" << endl;
 			cout << " -a                                  apply atomicity checking in combination with SC checking (default: no)" << endl;
 		}
 		else {
@@ -915,322 +914,374 @@ int main (int argc, char *argv[]) {
 
 	// Reading the input LTS
 	string line;
-	ifstream ltsfile (modelname);
-	if (ltsfile.is_open()) {
-		// Header: extract number of states
-		getline(ltsfile, line);
-		size_t sep1 = line.find_last_of(",");
-		int nr_of_states = stoi(line.substr(sep1+1, line.find_last_of(")")-(sep1+1)));
-		// Create vector for states
-		vector<State> lts_states(nr_of_states);
-		size_t sep2 = line.find_first_of(",");
-		int nr_of_trans = stoi(line.substr(sep2+1, sep1-(sep2+1)));
-		// Create vector for transitions
-		vector<Transition> lts_transitions(nr_of_trans);
+	ifstream inputfile (modelname);
+	if (inputfile.is_open()) {
+		size_t sep1, sep2;
+		int nr_of_states, nr_of_trans;
+		vector<State> lts_states;
+		vector<Transition> lts_transitions;
+		int current_state_index, current_trans_index, prev_src;
+		bool first_trans;
+		if (!static_analysis) {
+			// Header: extract number of states
+			getline(inputfile, line);
+			sep1 = line.find_last_of(",");
+			nr_of_states = stoi(line.substr(sep1+1, line.find_last_of(")")-(sep1+1)));
+			// Create vector for states
+			lts_states.resize(nr_of_states);
+			sep2 = line.find_first_of(",");
+			nr_of_trans = stoi(line.substr(sep2+1, sep1-(sep2+1)));
+			// Create vector for transitions
+			lts_transitions.resize(nr_of_trans);
 
-		int current_state_index = -1;
-		int current_trans_index = 0;
+			current_state_index = -1;
+			current_trans_index = 0;
+			prev_src = -1;
+		}
 		// Instruction instance to be used to create new instructions
 		Instruction instr;
 		// Access instance to be used to create new accesses
 		Access acc;
-		int prev_src = -1;
-		bool first_trans;
-		while (getline(ltsfile, line)) {
-			// Extract info from transition label, and store the transition
-			sep1 = line.find_first_of(",");
-			int src = stoi(line.substr(1,sep1-1));
-			if (src != prev_src) {
-				if (prev_src != -1) {
-					lts_states[prev_src].outgoing_end = current_trans_index;
-				}
-				first_trans = true;
-				prev_src = src;
-				current_state_index++;
+		string label;
+		int src, tgt;
+		int iid;
+		while (getline(inputfile, line)) {
+			if (static_analysis && line.substr(0,3) == "ST'") {
+				// We are analysing statically derived information, and are about to construct the PR-relation at instruction level
+				sep1 = line.find_first_of(" ");
+				string from = line.substr(0, sep1);
+				string to = line.substr(sep1+1, line.length()-(sep1+1));
+				src = instruction_positions.find(from);
+				tgt = instruction_positions.find(to);
+				PRinstr.insert(src, tgt);
 			}
 			else {
-				first_trans = false;
-			}
-			sep2 = line.find_first_of("\"", sep1+2);
-			string label = line.substr(sep1+2, sep2-(sep1+2));
-			int tgt = stoi(line.substr(sep2+2, line.length()-(sep2+2)-1));
-			// List of previous and current accesses, used to build intra-instruction PR-relation
-			vector<int> prev_accesses, curr_accesses_bottom, curr_accesses_top;
-
-			// Store long instruction string description
-			int iid = instruction_ids.find(label);
-			// Check if instruction is already stored. If not, create it
-			if (iid == -1) {
-				iid = instruction_ids.insert(label);
-				cout << iid << ": " << label << endl;
-				if (label.compare("tau") != 0) {
-					//cout << label << endl;
-					// Break label further down
-					label = label.substr(3, label.length()-4);
-					// cout << label << endl;
-					sep1 = label.find_first_of(",");
-					sep2 = label.find_first_of(",", sep1+1);
-					string thread = label.substr(sep1+2, sep2-sep1-2);
-					int tid = thread_ids.insert(thread);
-					sep1 = label.find_first_of(",", sep2+1);
-					string statement = label.substr(sep2+2, sep1-sep2-2);
-					// cout << "here: " << statement << endl;
-					int ipos = instruction_positions.insert(statement);
-
-					// Set the instruction info
-					instr.pos = ipos;
-					instr.tid = tid;
-					instr.is_guarded = false;
-					instr.accesses.clear();
-					instr.bottom_accs.clear();
-					instr.cond_reads.clear();
-					instr.top_accs.clear();
-
-					sep2 = label.find_first_of("[", sep1);
-					sep1 = label.find_last_of("]");
-					// cout << sep2 << endl;
-					// cout << sep1 << endl;
-					string accs = label.substr(sep2, sep1-sep2+1);
-					// cout << "Accs:" << endl;
-					// cout << accs << endl;
-
-					// List of previous and current accesses, used to build intra-instruction PR-relation
-					prev_accesses.clear();
-					curr_accesses_bottom.clear();
-					curr_accesses_top.clear();
-
-					bool first = true;
-
-					while (accs.compare("") != 0) {
-						sep1 = accs.find_first_of("'");
-						if (sep1 == string::npos) {
-							break;
+				if (!static_analysis) {
+					// Extract info from transition label, and store the transition
+					sep1 = line.find_first_of(",");
+					src = stoi(line.substr(1,sep1-1));
+					if (src != prev_src) {
+						if (prev_src != -1) {
+							lts_states[prev_src].outgoing_end = current_trans_index;
 						}
-						// Find the matching closing ']' of the reads of the next access pattern,
-						// indicating the end of the (next) list of read accesses
-						int bracket_counter = 0;
-						for (sep2 = sep1+2; sep2 < accs.length(); sep2++) {
-							if (accs[sep2] == ']') {
-								if (bracket_counter == 1) {
-									break;
-								}
-								else {
-									bracket_counter--;
-								}
-							}
-							else if (accs[sep2] == '[') {
-								bracket_counter++;
-							}
-						}
-						//cout << "label: " << accs << endl;
-						string reads = accs.substr(sep1+2, sep2-(sep1+1));
-						//cout << "reads: " << reads << endl;
-						// Find the next "[" and "]", the corresponding list of write accesses
-						sep1 = accs.find_first_of("[", sep2);
-						sep2 = accs.find_first_of("]", sep1);
-						string writes = accs.substr(sep1, sep2+1-sep1);
-						accs = accs.substr(sep2);
-						//cout << "writes: " << writes << endl;
-
-						bool reads_stored = false;
-
-						while (true) {
-							// cout << "Reads:" << endl;
-							// cout << reads << endl;
-							sep2 = reads.find_first_of("'");
-							if (sep2 == string::npos) {
-								break;
-							}
-							// Record the read access
-							sep1 = reads.find_first_of(",", sep2);
-							if (sep1 == string::npos) {
-								sep1 = reads.length()-1;
-							}
-							if (reads[sep2-1] == 'c') {
-								sep1--;
-							}
-							string read = reads.substr(sep2+2, sep1-(sep2+2));
-							//cout << read << endl;
-
-							// Create and store read access
-							int loc = location_ids.insert(read);
-							acc.location = loc;
-							// cout << loc << endl;
-							// Is the variable thread-local? (encoded in name by the fact that ' occurs more than once)
-							acc.local = count(read.begin(), read.end(), '\'') > 1;
-							// cout << acc.local << endl;
-							acc.type = READ;
-							// cout << acc.type << endl;
-							acc.ipos = ipos;
-							// cout << acc.instruction << endl;
-							acc.tid = tid;
-							// cout << tid << endl;
-							int aid = accesses.insert(acc);
-							cout << "read " << aid << " : " << read << ": " << label << endl;
-							instr.accesses.insert(aid);
-							reads_stored = true;
-
-							if (reads[sep2-1] != 'p') {
-								vector_insert(curr_accesses_bottom, aid);
-							}
-							else {
-								vector_insert(curr_accesses_top, aid);
-							}
-
-							if (reads[sep2-1] == 'p') {
-								// we have a tuple with a read and a list of address dependencies of that read
-								// record the dependencies
-								size_t sep3 = sep1+3;
-								while (true) {
-									size_t sep4 = reads.find_first_of(",]", sep3);
-									string depread = reads.substr(sep3, sep4-sep3);
-									//cout << "depread: " << depread << endl;
-									// Store this read access
-									loc = location_ids.insert(depread);
-									acc.location = loc;
-									acc.local = count(depread.begin(), depread.end(), '\'') > 1;
-									int depaid = accesses.insert(acc);
-
-									// Store dependencies
-									if (weakmemmodel == ARM) {
-										DP.insert(aid, depaid);
-									}
-									PR.insert(depaid, aid);
-
-									sep3 = sep4+2;
-									if (reads[sep4] == ']') {
-										break;
-									}
-								}
-								reads = reads.substr(sep3, reads.length()-sep3);
-								//cout << "reads: " << reads << endl;
-							}
-							else {
-								reads = reads.substr(sep1, reads.length()-sep1);
-							}
-						}
-						// The instruction is guarded if there are no writes at this point
-						if (writes.compare("[]") == 0) {
-							instr.is_guarded = true;
-							// Store additional reads to check the condition (besides those in bottom_accs), if needed
-							if (!curr_accesses_top.empty()) {
-								instr.cond_reads = curr_accesses_top;
-							}
-						}
-						if (!curr_accesses_bottom.empty()) {
-							// If needed, update PR
-							if (!prev_accesses.empty()) {
-								for (auto a : prev_accesses) {
-									PR.insert(a, curr_accesses_bottom);
-								}
-							}
-							// Store PR-smallest accesses
-							if (first) {
-								first = false;
-								instr.bottom_accs.insert(curr_accesses_bottom.begin(), curr_accesses_bottom.end());
-							}
-							// Swap lists of accesses
-							if (!curr_accesses_top.empty()) {
-								prev_accesses = curr_accesses_top;
-								curr_accesses_top.clear();
-							}
-							else {
-								prev_accesses = curr_accesses_bottom;
-							}
-							curr_accesses_bottom.clear();
-						}
-
-						while (true) {
-							// cout << "Writes:" << endl;
-							// cout << writes << endl;
-							sep1 = writes.find_first_of("'");
-							if (sep1 == string::npos) {
-								break;
-							}
-							sep2 = writes.find_first_of(",");
-							if (sep2 == string::npos) {
-								sep2 = writes.length()-1;
-							}
-							sep2--;
-							string write = writes.substr(sep1+2, sep2-(sep1+2));
-
-							// Create and store write access
-							int loc = location_ids.insert(write);
-							acc.location = loc;
-							// cout << loc << endl;
-							// Is the variable thread-local? (encoded in name by the fact that ' occurs more than once)
-							acc.local = count(write.begin(), write.end(), '\'') > 1;
-							// cout << acc.local << endl;
-							acc.type = WRITE;
-							// cout << acc.type << endl;
-							acc.ipos = ipos;
-							// cout << acc.instruction << endl;
-							acc.tid = tid;
-							// cout << tid << endl;
-							int aid = accesses.insert(acc);
-							cout << "write " << aid << " : " << write << ": " << label << endl;
-							instr.accesses.insert(aid);
-							vector_insert(curr_accesses_bottom, aid);
-
-							//cout << write << endl;
-							writes = writes.substr(sep2, writes.length()-sep2);
-							// cout << "here" << endl;
-						}
-						// cout << accs << endl;
-
-						if (!curr_accesses_bottom.empty()) {
-							// If needed, update PR
-							if (!prev_accesses.empty()) {
-								for (auto a : prev_accesses) {
-									PR.insert(a, curr_accesses_bottom);
-								}
-								// Writes depend on directly preceding reads
-								if (reads_stored and weakmemmodel == ARM) {
-									for (auto a : curr_accesses_bottom) {
-										DP.insert(a, prev_accesses);
-									}
-								}
-							}
-							// Store PR-smallest accesses
-							if (first) {
-								first = false;
-								instr.bottom_accs.insert(curr_accesses_bottom.begin(), curr_accesses_bottom.end());
-							}
-							// Swap lists of accesses
-							prev_accesses = curr_accesses_bottom;
-							curr_accesses_bottom.clear();
-						}
+						first_trans = true;
+						prev_src = src;
+						current_state_index++;
 					}
-					// Store PR-largest accesses
-					instr.top_accs.insert(prev_accesses.begin(), prev_accesses.end());
+					else {
+						first_trans = false;
+					}
+					sep2 = line.find_first_of("\"", sep1+2);
+					label = line.substr(sep1+2, sep2-(sep1+2));
+					tgt = stoi(line.substr(sep2+2, line.length()-(sep2+2)-1));
 				}
 				else {
-					// Store a dummy tau instruction
-					instr.tid = -1;
-					instr.accesses.clear();
+					label = line;
 				}
-				// Store the instruction
-				auto it = instructions.insert(pair<int, Instruction>(iid, instr));
+				// List of previous and current accesses, used to build intra-instruction PR-relation
+				vector<int> prev_accesses, curr_accesses_bottom, curr_accesses_top;
+
+				// Store long instruction string description
+				iid = instruction_ids.find(label);
+				// Check if instruction is already stored. If not, create it
+				if (iid == -1) {
+					iid = instruction_ids.insert(label);
+					cout << iid << ": " << label << endl;
+					if (label.compare("tau") != 0) {
+						//cout << label << endl;
+						// Break label further down
+						label = label.substr(3, label.length()-4);
+						// cout << label << endl;
+						sep1 = label.find_first_of(",");
+						sep2 = label.find_first_of(",", sep1+1);
+						string thread = label.substr(sep1+2, sep2-sep1-2);
+						int tid = thread_ids.insert(thread);
+						sep1 = label.find_first_of(",", sep2+1);
+						string statement = label.substr(sep2+2, sep1-sep2-2);
+						// cout << "here: " << statement << endl;
+						int ipos = instruction_positions.insert(statement);
+
+						// Set the instruction info
+						instr.pos = ipos;
+						instr.tid = tid;
+						instr.is_guarded = false;
+						instr.accesses.clear();
+						instr.bottom_accs.clear();
+						instr.cond_reads.clear();
+						instr.top_accs.clear();
+
+						sep2 = label.find_first_of("[", sep1);
+						sep1 = label.find_last_of("]");
+						// cout << sep2 << endl;
+						// cout << sep1 << endl;
+						string accs = label.substr(sep2, sep1-sep2+1);
+						// cout << "Accs:" << endl;
+						// cout << accs << endl;
+
+						// List of previous and current accesses, used to build intra-instruction PR-relation
+						prev_accesses.clear();
+						curr_accesses_bottom.clear();
+						curr_accesses_top.clear();
+
+						bool first = true;
+
+						while (accs.compare("") != 0) {
+							sep1 = accs.find_first_of("'");
+							if (sep1 == string::npos) {
+								break;
+							}
+							// Find the matching closing ']' of the reads of the next access pattern,
+							// indicating the end of the (next) list of read accesses
+							int bracket_counter = 0;
+							for (sep2 = sep1+2; sep2 < accs.length(); sep2++) {
+								if (accs[sep2] == ']') {
+									if (bracket_counter == 1) {
+										break;
+									}
+									else {
+										bracket_counter--;
+									}
+								}
+								else if (accs[sep2] == '[') {
+									bracket_counter++;
+								}
+							}
+							//cout << "label: " << accs << endl;
+							string reads = accs.substr(sep1+2, sep2-(sep1+1));
+							//cout << "reads: " << reads << endl;
+							// Find the next "[" and "]", the corresponding list of write accesses
+							sep1 = accs.find_first_of("[", sep2);
+							sep2 = accs.find_first_of("]", sep1);
+							string writes = accs.substr(sep1, sep2+1-sep1);
+							accs = accs.substr(sep2);
+							//cout << "writes: " << writes << endl;
+
+							bool reads_stored = false;
+
+							while (true) {
+								// cout << "Reads:" << endl;
+								// cout << reads << endl;
+								sep2 = reads.find_first_of("'");
+								if (sep2 == string::npos) {
+									break;
+								}
+								// Record the read access
+								sep1 = reads.find_first_of(",", sep2);
+								if (sep1 == string::npos) {
+									sep1 = reads.length()-1;
+								}
+								if (reads[sep2-1] == 'c') {
+									sep1--;
+								}
+								string read = reads.substr(sep2+2, sep1-(sep2+2));
+								
+								// In case we are using statically derived information, abstract away array index computations
+								if (static_analysis) {
+									size_t sep5 = read.find_first_of("(");
+									if (sep5 != string::npos) {
+										read = read.substr(0, sep5+1) + "*)";
+									}
+								}
+
+								// Create and store read access
+								int loc = location_ids.insert(read);
+								acc.location = loc;
+								// cout << loc << endl;
+								// Is the variable thread-local? (encoded in name by the fact that ' occurs more than once)
+								acc.local = count(read.begin(), read.end(), '\'') > 1;
+								// cout << acc.local << endl;
+								acc.type = READ;
+								// cout << acc.type << endl;
+								acc.ipos = ipos;
+								// cout << acc.instruction << endl;
+								acc.tid = tid;
+								// cout << tid << endl;
+								int aid = accesses.insert(acc);
+								cout << "read " << aid << " : " << read << ": " << label << endl;
+								instr.accesses.insert(aid);
+								reads_stored = true;
+
+								if (reads[sep2-1] != 'p') {
+									vector_insert(curr_accesses_bottom, aid);
+								}
+								else {
+									vector_insert(curr_accesses_top, aid);
+								}
+
+								if (reads[sep2-1] == 'p') {
+									// we have a tuple with a read and a list of address dependencies of that read
+									// record the dependencies
+									size_t sep3 = sep1+3;
+									while (true) {
+										size_t sep4 = reads.find_first_of(",]", sep3);
+										string depread = reads.substr(sep3, sep4-sep3);
+										// In case we are using statically derived information, abstract away array index computations
+										if (static_analysis) {
+											size_t sep5 = depread.find_first_of("(");
+											if (sep5 != string::npos) {
+												depread = depread.substr(0, sep5+1) + "*)";
+											}
+										}
+										//cout << "depread: " << depread << endl;
+										// Store this read access
+										loc = location_ids.insert(depread);
+										acc.location = loc;
+										acc.local = count(depread.begin(), depread.end(), '\'') > 1;
+										int depaid = accesses.insert(acc);
+
+										// Store dependencies
+										if (weakmemmodel == ARM) {
+											DP.insert(aid, depaid);
+										}
+										PR.insert(depaid, aid);
+
+										sep3 = sep4+2;
+										if (reads[sep4] == ']') {
+											break;
+										}
+									}
+									reads = reads.substr(sep3, reads.length()-sep3);
+									//cout << "reads: " << reads << endl;
+								}
+								else {
+									reads = reads.substr(sep1, reads.length()-sep1);
+								}
+							}
+							// The instruction is guarded if there are no writes at this point
+							if (writes.compare("[]") == 0) {
+								instr.is_guarded = true;
+								// Store additional reads to check the condition (besides those in bottom_accs), if needed
+								if (!curr_accesses_top.empty()) {
+									instr.cond_reads = curr_accesses_top;
+								}
+							}
+							if (!curr_accesses_bottom.empty()) {
+								// If needed, update PR
+								if (!prev_accesses.empty()) {
+									for (auto a : prev_accesses) {
+										PR.insert(a, curr_accesses_bottom);
+									}
+								}
+								// Store PR-smallest accesses
+								if (first) {
+									first = false;
+									instr.bottom_accs.insert(curr_accesses_bottom.begin(), curr_accesses_bottom.end());
+								}
+								// Swap lists of accesses
+								if (!curr_accesses_top.empty()) {
+									prev_accesses = curr_accesses_top;
+									curr_accesses_top.clear();
+								}
+								else {
+									prev_accesses = curr_accesses_bottom;
+								}
+								curr_accesses_bottom.clear();
+							}
+
+							while (true) {
+								// cout << "Writes:" << endl;
+								// cout << writes << endl;
+								sep1 = writes.find_first_of("'");
+								if (sep1 == string::npos) {
+									break;
+								}
+								sep2 = writes.find_first_of(",");
+								if (sep2 == string::npos) {
+									sep2 = writes.length()-1;
+								}
+								sep2--;
+								string write = writes.substr(sep1+2, sep2-(sep1+2));
+
+								// In case we are using statically derived information, abstract away array index computations
+								if (static_analysis) {
+									size_t sep5 = write.find_first_of("(");
+									if (sep5 != string::npos) {
+										write = write.substr(0, sep5+1) + "*)";
+									}
+								}
+
+								// Create and store write access
+								int loc = location_ids.insert(write);
+								acc.location = loc;
+								// cout << loc << endl;
+								// Is the variable thread-local? (encoded in name by the fact that ' occurs more than once)
+								acc.local = count(write.begin(), write.end(), '\'') > 1;
+								// cout << acc.local << endl;
+								acc.type = WRITE;
+								// cout << acc.type << endl;
+								acc.ipos = ipos;
+								// cout << acc.instruction << endl;
+								acc.tid = tid;
+								// cout << tid << endl;
+								int aid = accesses.insert(acc);
+								cout << "write " << aid << " : " << write << ": " << label << endl;
+								instr.accesses.insert(aid);
+								vector_insert(curr_accesses_bottom, aid);
+
+								//cout << write << endl;
+								writes = writes.substr(sep2, writes.length()-sep2);
+								// cout << "here" << endl;
+							}
+							// cout << accs << endl;
+
+							if (!curr_accesses_bottom.empty()) {
+								// If needed, update PR
+								if (!prev_accesses.empty()) {
+									for (auto a : prev_accesses) {
+										PR.insert(a, curr_accesses_bottom);
+									}
+									// Writes depend on directly preceding reads
+									if (reads_stored and weakmemmodel == ARM) {
+										for (auto a : curr_accesses_bottom) {
+											DP.insert(a, prev_accesses);
+										}
+									}
+								}
+								// Store PR-smallest accesses
+								if (first) {
+									first = false;
+									instr.bottom_accs.insert(curr_accesses_bottom.begin(), curr_accesses_bottom.end());
+								}
+								// Swap lists of accesses
+								prev_accesses = curr_accesses_bottom;
+								curr_accesses_bottom.clear();
+							}
+						}
+						// Store PR-largest accesses
+						instr.top_accs.insert(prev_accesses.begin(), prev_accesses.end());
+					}
+					else {
+						// Store a dummy tau instruction
+						instr.tid = -1;
+						instr.accesses.clear();
+					}
+					// Store the instruction
+					auto it = instructions.insert(pair<int, Instruction>(iid, instr));
+				}
 			}
-			// Get the instruction
-			auto it = instructions.find(iid);
-			// Store the transition
-			lts_transitions[current_trans_index].target = tgt;
-			lts_transitions[current_trans_index].instruction = it;
-			// Store the source state info
-			if (first_trans) {
-				lts_states[current_state_index].outgoing_begin = current_trans_index;
+			if (!static_analysis) {
+				// Get the instruction
+				auto it = instructions.find(iid);
+				// Store the transition
+				lts_transitions[current_trans_index].target = tgt;
+				lts_transitions[current_trans_index].instruction = it;
+				// Store the source state info
+				if (first_trans) {
+					lts_states[current_state_index].outgoing_begin = current_trans_index;
+				}
+				current_trans_index++;
 			}
-			current_trans_index++;
 		}
-		// Store outgoing transitions end for final state
-		lts_states[current_state_index].outgoing_end = current_trans_index;
+		if (!static_analysis) {
+			// Store outgoing transitions end for final state
+			lts_states[current_state_index].outgoing_end = current_trans_index;
+		}
 		// for (auto i : PR) {
 		// 	for (auto j : i.second) {
 		// 		cout << "(" << i.first << ", " << j << ")" << endl;
 		// 	}
 		// }
-		ltsfile.close();
+		inputfile.close();
 
 		// Construct the accesses of thread datastructure
 		accesses_of_thread.resize(thread_ids.size());
@@ -1266,35 +1317,52 @@ int main (int argc, char *argv[]) {
 		// Initially, this is empty.
 		vector<BiRelation> PPR(instructions.size());
 
-		// Set of (instruction position, thread id) pairs of outgoing transitions of a state
-		set<pair<int, int>> out;
-		// Compute inter-instruction PR and PRinstr
-		for (auto s : lts_states) {
-			out.clear();
-			// Collect info on outgoing transitions
-			for (int i = s.outgoing_begin; i < s.outgoing_end; i++) {
-				auto instr = (*(lts_transitions[i].instruction)).second;
-				out.insert(pair<int, int>(instr.pos, instr.tid));
-			}
-			// Check successors
-			for (int i = s.outgoing_begin; i < s.outgoing_end; i++) {
-				int tgt = lts_transitions[i].target;
-				auto instr = (*(lts_transitions[i].instruction)).second;
-				int instr_id = (*(lts_transitions[i].instruction)).first;
-				int pos = instr.pos;
-				int tid = instr.tid;
-				for (int j = lts_states[tgt].outgoing_begin; j < lts_states[tgt].outgoing_end; j++) {
-					int tgt_instr_id = (*(lts_transitions[j].instruction)).first;
-					auto tgt_instr = (*(lts_transitions[j].instruction)).second;
-					int tgt_pos = tgt_instr.pos;
-					int tgt_tid = tgt_instr.tid;
-					if (tgt_tid == tid) {
-						if (out.find(pair<int, int>(tgt_pos, tgt_tid)) == out.end()) {
-							// PR-relate top elements of instr with bottom elements of tgt_instr
-							for (auto ta : instr.top_accs) {
-								PR.insert(ta, tgt_instr.bottom_accs);
-								PRinstr.insert(instr_id, tgt_instr_id);
+		if (!static_analysis) {
+			// Set of (instruction position, thread id) pairs of outgoing transitions of a state
+			set<pair<int, int>> out;
+			// Compute inter-instruction PR and PRinstr
+			for (auto s : lts_states) {
+				out.clear();
+				// Collect info on outgoing transitions
+				for (int i = s.outgoing_begin; i < s.outgoing_end; i++) {
+					auto instr = (*(lts_transitions[i].instruction)).second;
+					out.insert(pair<int, int>(instr.pos, instr.tid));
+				}
+				// Check successors
+				for (int i = s.outgoing_begin; i < s.outgoing_end; i++) {
+					int tgt = lts_transitions[i].target;
+					auto instr = (*(lts_transitions[i].instruction)).second;
+					int instr_id = (*(lts_transitions[i].instruction)).first;
+					int pos = instr.pos;
+					int tid = instr.tid;
+					for (int j = lts_states[tgt].outgoing_begin; j < lts_states[tgt].outgoing_end; j++) {
+						int tgt_instr_id = (*(lts_transitions[j].instruction)).first;
+						auto tgt_instr = (*(lts_transitions[j].instruction)).second;
+						int tgt_pos = tgt_instr.pos;
+						int tgt_tid = tgt_instr.tid;
+						if (tgt_tid == tid) {
+							if (out.find(pair<int, int>(tgt_pos, tgt_tid)) == out.end()) {
+								// PR-relate top elements of instr with bottom elements of tgt_instr
+								for (auto ta : instr.top_accs) {
+									PR.insert(ta, tgt_instr.bottom_accs);
+									PRinstr.insert(instr_id, tgt_instr_id);
+								}
 							}
+						}
+					}
+				}
+			}
+		}
+		else {
+			// We are working with statically derived information. Compute inter-instruction PR based on already read PRinstr
+			for (int i = 0; i < instructions.size(); i++) {
+				if (PRinstr.contains(i)) {
+					Instruction& instr_i = instructions.find(i)->second;
+					auto it = PRinstr.get(i);
+					for (int j : it->second) {
+						Instruction& instr_j = instructions.find(j)->second;
+						for (int a : instr_i.top_accs) {
+							PR.insert(a, instr_j.bottom_accs);
 						}
 					}
 				}
@@ -1509,24 +1577,26 @@ int main (int argc, char *argv[]) {
 		// end indices in the list of accesses CMP-conflicting with a)
 		VectorRelation<ThreadAccessRange> CMPt(accesses.size());
 
-		set<pair<int, int>> pairset;
-		// Compute CMP, using the reordering information in the instructions
-		for (auto s : lts_states) {
-			// Compare outgoing instructions of different threads
-			for (int i = s.outgoing_begin; i < s.outgoing_end; i++) {
-				auto instr_i = (*(lts_transitions[i].instruction)).second;
-				int tid_i = instr_i.tid;
-				for (int j = i; j < s.outgoing_end; j++) {
-					auto instr_j = (*(lts_transitions[j].instruction)).second;
-					int tid_j = instr_j.tid;
-					if (tid_i != tid_j) {
-						for (int ai : instr_i.accesses) {
-							for (int bi : instr_j.accesses) {
-								Access& a = accesses.get(ai);
-								Access& b = accesses.get(bi);
-								if (a.location == b.location && (a.type == WRITE || b.type == WRITE)) {
-									if (pairset.find(pair<int, int>(ai, bi)) == pairset.end() && pairset.find(pair<int, int>(bi, ai)) == pairset.end()) {
-										pairset.insert(pair<int, int>(ai, bi));
+		if (!static_analysis) {
+			set<pair<int, int>> pairset;
+			// Compute CMP, using the reordering information in the instructions
+			for (auto s : lts_states) {
+				// Compare outgoing instructions of different threads
+				for (int i = s.outgoing_begin; i < s.outgoing_end; i++) {
+					auto instr_i = (*(lts_transitions[i].instruction)).second;
+					int tid_i = instr_i.tid;
+					for (int j = i; j < s.outgoing_end; j++) {
+						auto instr_j = (*(lts_transitions[j].instruction)).second;
+						int tid_j = instr_j.tid;
+						if (tid_i != tid_j) {
+							for (int ai : instr_i.accesses) {
+								for (int bi : instr_j.accesses) {
+									Access& a = accesses.get(ai);
+									Access& b = accesses.get(bi);
+									if (a.location == b.location && (a.type == WRITE || b.type == WRITE)) {
+										if (pairset.find(pair<int, int>(ai, bi)) == pairset.end() && pairset.find(pair<int, int>(bi, ai)) == pairset.end()) {
+											pairset.insert(pair<int, int>(ai, bi));
+										}
 									}
 								}
 							}
@@ -1534,12 +1604,27 @@ int main (int argc, char *argv[]) {
 					}
 				}
 			}
+			for (pair<int, int> p : pairset) {
+				CMP.insert(p.first, p.second);
+				CMP.insert(p.second, p.first);
+			}
+			pairset.clear();
 		}
-		for (pair<int, int> p : pairset) {
-			CMP.insert(p.first, p.second);
-			CMP.insert(p.second, p.first);
+		else {
+			// When working with statically derived information, CMP consists of all pairs of accesses of different threads that conflict
+			for (int ai = 0; ai < accesses.size(); ai++) {
+				Access& a = accesses.get(ai);
+				for (int bi = ai+1; bi < accesses.size(); bi++) {
+					Access& b = accesses.get(bi);
+					if (a.tid != b.tid) {
+						if (a.location == b.location && (a.type == WRITE || b.type == WRITE)) {
+							CMP.insert(ai, bi);
+							CMP.insert(bi, ai);
+						}
+					}
+				}
+			}
 		}
-		pairset.clear();
 
 		// Sort the CMP vectors stored by the CMP relation by thread ID
 		for (int ai = 0; ai < accesses.size(); ai++) {
