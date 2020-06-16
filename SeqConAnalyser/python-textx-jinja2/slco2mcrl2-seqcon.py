@@ -444,7 +444,8 @@ def expression_variables(s,stm,c,primmap,owner,ignore_indices,add_local):
 			else:
 				varname = owner.name + "'" + s.var.name
 			if s.index != None:
-				varname += "(index'(" + expression(s.index,stm,c,primmap,owner) + "))"
+				# varname += "(index'(" + expression(s.index,stm,c,primmap,owner) + "))"
+				varname += "(" + expression(s.index,stm,c,primmap,owner) + ")"
 				if not ignore_indices:
 					indices = expression_variables(s.index,stm,c,primmap,owner,ignore_indices,add_local)
 					output |= indices
@@ -464,7 +465,8 @@ def expression_variables(s,stm,c,primmap,owner,ignore_indices,add_local):
 					else:
 						varname = owner.name + "'" + s.ref.ref
 					if s.ref.index != None:
-						varname += "(index'(" + expression(s.ref.index,stm,c,primmap,owner) + "))"
+						# varname += "(index'(" + expression(s.ref.index,stm,c,primmap,owner) + "))"
+						varname += "(" + expression(s.ref.index,stm,c,primmap,owner) + ")"
 						if not ignore_indices:
 							indices = expression_variables(s.ref.index,stm,c,primmap,owner,ignore_indices,add_local)
 							output |= indices
