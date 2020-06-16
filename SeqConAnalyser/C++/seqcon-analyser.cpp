@@ -12,6 +12,7 @@
 #include <vector>
 #include <set>
 #include <algorithm>
+#include <chrono>
 
 using namespace std;
 
@@ -596,15 +597,10 @@ bool reorder(int ai, int instr_id, map<int, Instruction>& instructions, MM mmode
 	bool moved_into = false;
 	auto instr = (instructions.find(instr_id));
 	set<int> reordered;
-<<<<<<< HEAD
 	// if (ai == 37) {
 	// 	cout << "reordering " << ai << endl;
 	// }
-	if ((!from_outside_instr && PR.contains_rev(ai)) || (from_outside_instr && !(instr->second.top_accs.empty()))) {
-=======
-	cout << "reordering " << ai << endl;
 	if ((!from_outside_instr && PRplus_intra_instr.contains_rev(ai)) || (from_outside_instr && !(instr->second.top_accs.empty()))) {
->>>>>>> 5b49cd378f4d754654357fd3ba02d02207396e9a
 		set<int> set1, set2;
 		set<int>& open = set1;
 		set<int>& tmp = set1;
@@ -1295,6 +1291,8 @@ int main (int argc, char *argv[]) {
 		// }
 		inputfile.close();
 
+		chrono::steady_clock::time_point begin = chrono::steady_clock::now();
+
 		// Construct the accesses of thread datastructure
 		accesses_of_thread.resize(thread_ids.size());
 		for (int ai = 0; ai < accesses.size(); ai++) {
@@ -1506,18 +1504,18 @@ int main (int argc, char *argv[]) {
 			}
 		}
 
-		cout << "The PPRs: " << endl;
-		for (int i = 0; i < instructions.size(); i++) {
-			cout << "For instruction " << i << ":" << endl;
-			for (auto i : PPR[i]) {
-				for (auto j : i.second) {
-					cout << "(" << i.first << ", " << j << ")" << endl;
-				}
-			}
-		}
+		// cout << "The PPRs: " << endl;
+		// for (int i = 0; i < instructions.size(); i++) {
+		// 	cout << "For instruction " << i << ":" << endl;
+		// 	for (auto i : PPR[i]) {
+		// 		for (auto j : i.second) {
+		// 			cout << "(" << i.first << ", " << j << ")" << endl;
+		// 		}
+		// 	}
+		// }
 
 
-		cout << "here" << endl;
+		// cout << "here" << endl;
 		// Now reorder accesses across instructions
 		vector<vector<int>> accvector1(instructions.size());
 		vector<vector<int>> accvector2(instructions.size());
@@ -1537,7 +1535,7 @@ int main (int argc, char *argv[]) {
 						for (int bi : it->second) {
 							if (!set_contains(nextset, bi)) {
 								nextset.insert(bi);
-								cout << "adding " << bi << endl;
+								// cout << "adding " << bi << endl;
 							}
 						}
 					}
@@ -1548,7 +1546,7 @@ int main (int argc, char *argv[]) {
 				nextset.clear();
 			}
 		}
-		cout << "here2" << endl;
+		// cout << "here2" << endl;
 
 		openset.clear();
 		nextset.clear();
@@ -2433,7 +2431,10 @@ int main (int argc, char *argv[]) {
 			}
 		}
 
-<<<<<<< HEAD
+		chrono::steady_clock::time_point end = chrono::steady_clock::now();
+
+		cout << "Analysis time = " << chrono::duration_cast<chrono::microseconds>(end - begin).count() << "[µs]" << endl;
+
 		// cout << "PR:" << endl;
 		// for (auto i : PR) {
 		// 	for (auto j : i.second) {
@@ -2467,41 +2468,6 @@ int main (int argc, char *argv[]) {
 		// 		cout << "(" << i.first << ", " << j << ")" << endl;
 		// 	}
 		// }
-=======
-		cout << "PR:" << endl;
-		for (auto i : PR) {
-			for (auto j : i.second) {
-				cout << "(" << i.first << ", " << j << ")" << endl;
-			}
-		}
-		cout << "The PPRs: " << endl;
-		for (int i = 0; i < instructions.size(); i++) {
-			cout << "For instruction " << i << ":" << endl;
-			for (auto i : PPR[i]) {
-				for (auto j : i.second) {
-					cout << "(" << i.first << ", " << j << ")" << endl;
-				}
-			}
-		}
-		cout << "PRplus:" << endl;
-		for (auto i : PRplus) {
-			for (auto j : i.second) {
-				cout << "(" << i.first << ", " << j << ")" << endl;
-			}
-		}
-		cout << "PRplus_intra_instr:" << endl;
-		for (auto i : PRplus_intra_instr) {
-			for (auto j : i.second) {
-				cout << "(" << i.first << ", " << j << ")" << endl;
-			}
-		}
-		cout << "PRplus_unsafe:" << endl;
-		for (auto i : PRplus_unsafe) {
-			for (auto j : i.second) {
-				cout << "(" << i.first << ", " << j << ")" << endl;
-			}
-		}
->>>>>>> 5b49cd378f4d754654357fd3ba02d02207396e9a
 		// cout << "DP:" << endl;
 		// for (auto i : DP) {
 		// 	for (auto j : i.second) {
