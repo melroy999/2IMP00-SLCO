@@ -85,6 +85,62 @@ def RepresentsInt(s):
     except ValueError:
         return False
 
+def hasdynamicaddressing(s, sm):
+	"""Returns whether the given statement s contains dynamic array addressing"""
+	global actions
+
+	if s.__class__.__name__ == "Composite":
+		if s.guard != None:
+			result = hasdynamicaddressing(s.guard, sm)
+			if result:
+				return True
+		for e in s.assignments:
+			result = hasdynamicaddressing(e.right, sm)
+			if result:
+				return True
+			if e.left.index != None:
+				if expression_usedvars(e.left.index, sm, sm.parent, sm.parent) != []:
+					return True
+	elif s.__class__.__name__ == "Delay":
+		return False
+	elif s.__class__.__name__ == "SendSignal":
+		for p in s.params:
+			result = hasdynamicaddressing(p, sm)
+			if result:
+				return True
+	elif s.__class__.__name__ == "ReceiveSignal":
+		if s.guard != None:
+			result = hasdynamicaddressing(s.guard, sm)
+			if result:
+				return True
+		for p in s.params:
+			result = hasdynamicaddressing(p, sm)
+			if result:
+				return True
+	elif s.__class__.__name__ == "VariableRef":
+		if s.index != None:
+			if expression_usedvars(s.index, sm, sm.parent, sm.parent) != []:
+				return True
+	elif s.__class__.__name__ != "Primary":
+		result = hasdynamicaddressing(s.left, sm)
+		if result:
+			return True
+		if s.op != '':
+			result = hasdynamicaddressing(s.right, sm)
+			if result:
+				return True
+	else:
+		if s.ref != None:
+			if s.ref.ref not in actions:
+				if s.ref.index != None:
+					if expression_usedvars(s.ref.index, sm, sm.parent, sm.parent) != []:
+						return True
+		if s.body != None:
+			result = hasdynamicaddressing(s.body, sm)
+			if result:
+				return result
+	return False
+
 def hascondition(s, o):
 	"""Returns if the given statement has a condition. o is the Object owning s.
 	A statement has a condition if it is guarded, or there are statements with a higher priority."""
@@ -411,7 +467,6 @@ def expression_usedvars_scan(s,stm,c):
 			output |= expression_usedvars_scan(s.right,stm,c)
 	else:
 		if s.ref != None:
-			print(s.ref.ref)
 			if s.ref.ref not in actions:
 				output.add(scopedvars[c.name + "'" + stm.name][s.ref.ref])
 				if s.ref.index != None:
@@ -1234,6 +1289,7 @@ def translate():
 	# jinja_env.tests['hasvariables'] = hasvariables
 	jinja_env.tests['hasindex'] = hasindex
 	jinja_env.tests['hasnoindex'] = hasnoindex
+	jinja_env.tests['hasdynamicaddressing'] = hasdynamicaddressing
 
 	# compute statement access patterns
 	statement_access = compute_accesspatterns(model)

@@ -160,19 +160,19 @@ sort Access' = struct lcdp'(Var', List(Var')) | lc'(Var');
 
 sort AccessPattern' = struct A'(R': List(Access'), W': List(Access'));
 
-% *** FUNCTION PROVIDING ACCESS PATTERNS OF STATEMENTS (IF BOOLEAN FLAG IS FALSE, THE FUNCTION RETURNS SET OF READ ACCESSES FOR CONDITION CHECKING) ***
+% *** FUNCTION RETURNING WHETHER THE GIVEN STATEMENT HAS A NON-EMPTY ACCESS PATTERN (IF BOOLEAN FLAG IS FALSE, THE FUNCTION ONLY CONSIDERS READ ACCESSES FOR CONDITION CHECKING) ***
 
-map rwpattern_st: Object' # STID' # Bool{{model|mcrl2_model_vartypes(True)}} -> AccessPattern';
+map has_rwpattern_st: Object' # STID' # Bool{{model|mcrl2_model_vartypes(True)}} -> Bool;
 var o': Object';
     b': Bool;
     s': State';
     {{model|mcrl2_model_vars_with_types(False)}};
-eqn rwpattern_st(o',st_,b'{{model|mcrl2_model_vars(True)}}) = A'([],[]);
+eqn has_rwpattern_st(o',st_,b'{{model|mcrl2_model_vars(True)}}) = false;
 {% for o in model.objects %}
 {% for stm in o.type.statemachines %}
 {% for tr in stm.transitions %}
-    rwpattern_st({{o.name}}, ST'{{tr._tx_position}}, true{{model|mcrl2_model_vars(True)}}) = remove_invalid_accesses'({{tr.statements[0]|mcrl2_accesspattern(o,True)}});
-    rwpattern_st({{o.name}}, ST'{{tr._tx_position}}, false{{model|mcrl2_model_vars(True)}}) = remove_invalid_accesses'({{tr.statements[0]|mcrl2_accesspattern(o,False)}});
+    has_rwpattern_st({{o.name}}, ST'{{tr._tx_position}}, true{{model|mcrl2_model_vars(True)}}) = {% if tr.statements[0] is hasdynamicaddressing(stm) %}remove_invalid_accesses'({{tr.statements[0]|mcrl2_accesspattern(o,True)}}) == A'([],[]){% else %}{{ (tr.statements[0]|mcrl2_accesspattern(o,True) != "A'([],[])")|string|mcrl2value }}{% endif %};
+    has_rwpattern_st({{o.name}}, ST'{{tr._tx_position}}, false{{model|mcrl2_model_vars(True)}}) = {% if tr.statements[0] is hasdynamicaddressing(stm) %}remove_invalid_accesses'({{tr.statements[0]|mcrl2_accesspattern(o,False)}}) == A'([],[]){% else %}{{ (tr.statements[0]|mcrl2_accesspattern(o,False) != "A'([],[])")|string|mcrl2value }}{% endif %};
 {% endfor %}
 {% endfor %}
 {% endfor %}
@@ -188,8 +188,8 @@ eqn rwpattern_structure_st(o',st_,b'{{model|mcrl2_model_vars(True)}}) = [A'([],[
 {% for o in model.objects %}
 {% for stm in o.type.statemachines %}
 {% for tr in stm.transitions %}
-    rwpattern_structure_st({{o.name}}, ST'{{tr._tx_position}}, true{{model|mcrl2_model_vars(True)}}) = remove_invalid_accesses_from_list'({{tr.statements[0]|mcrl2_structure_accesspattern(o, True)}});
-    rwpattern_structure_st({{o.name}}, ST'{{tr._tx_position}}, false{{model|mcrl2_model_vars(True)}}) = remove_invalid_accesses_from_list'({{tr.statements[0]|mcrl2_structure_accesspattern(o, False)}});
+    rwpattern_structure_st({{o.name}}, ST'{{tr._tx_position}}, true{{model|mcrl2_model_vars(True)}}) = {% if tr.statements[0] is hasdynamicaddressing(stm) %}remove_invalid_accesses_from_list'({% endif %}{{tr.statements[0]|mcrl2_structure_accesspattern(o, True)}}{% if tr.statements[0] is hasdynamicaddressing(stm) %}){% endif %};
+    rwpattern_structure_st({{o.name}}, ST'{{tr._tx_position}}, false{{model|mcrl2_model_vars(True)}}) = {% if tr.statements[0] is hasdynamicaddressing(stm) %}remove_invalid_accesses_from_list'({% endif %}{{tr.statements[0]|mcrl2_structure_accesspattern(o, False)}}{% if tr.statements[0] is hasdynamicaddressing(stm) %}){% endif %};
 {% endfor %}
 {% endfor %}
 {% endfor %}
@@ -253,9 +253,9 @@ proc {{model.name}}({% for o in model.objects %}{% set oloop = loop %}{% for stm
 {% set trloop = loop %}
 {% if tr.statements[0].__class__.__name__ != "ReceiveSignal" or ochannel[o][tr.statements[0]].synctype == "async" %}
 ({{o.name}}'{{sm.name}}_state == {{tr.source.name}}{% if tr.statements[0]|hascondition(o) %}) -> (({{tr.statements[0]|statement_condition(o)}}{% endif %}) -> (
-{% if syncing_statements[o][tr.statements[0]]|length == 0 %}  (rwpattern_st({{o.name}}, ST'{{tr._tx_position}}, true{{model|mcrl2_model_vars(True)}}) != A'([],[])) -> rw({{o.name}}, {{sm.name}}, ST'{{tr._tx_position}}, rwpattern_structure_st({{o.name}}, ST'{{tr._tx_position}}, true{{model|mcrl2_model_vars(True)}})) . {{model.name}}({{o.name}}'{{sm.name}}_state={{tr.target.name}}{{tr.statements[0]|statementstatechanges(o)}}) +
-  (rwpattern_st({{o.name}}, ST'{{tr._tx_position}}, true{{model|mcrl2_model_vars(True)}}) == A'([],[])) -> tau . {{model.name}}({{o.name}}'{{sm.name}}_state={{tr.target.name}}{{tr.statements[0]|statementstatechanges(o)}})
-){% if tr.statements[0]|hascondition(o) %}<> (rwpattern_st({{o.name}}, ST'{{tr._tx_position}}, false{{model|mcrl2_model_vars(True)}}) != A'([],[])) -> rw({{o.name}}, {{sm.name}}, ST'{{tr._tx_position}}, rwpattern_structure_st({{o.name}}, ST'{{tr._tx_position}}, false{{model|mcrl2_model_vars(True)}})) . {{model.name}}()){% endif %}{%else %}{% for sync in syncing_statements[o][tr.statements[0]] %}    ({{sync[0].name}}'{{statemachine[sync[1]].name}}_state == {{transowner[sync[1]].source.name}}){% if sync[1]|hascondition(sync[0]) %}) -> (({{sync[1]|sync_statement_condition(sync[0], tr.statements[0], o)}}{% endif %}) -> (rw({{o.name}}, {{sm.name}}, ST'{{tr._tx_position}}, R'(rwpattern_st({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}})), W'(rwpattern_st({{o.name}}, ST'{{tr._tx_position}}, true{{model|mcrl2_model_vars(True)}})), {{sync[0].name}}, {{statemachine[sync[1]].name}}, R'(rwpattern_st({{sync[0].name}}, ST'{{transowner[sync[1]]._tx_position}}{{model|mcrl2_model_vars(True)}}), W'(rwpattern_st({{sync[0].name}}, ST'{{transowner[sync[1]]._tx_position}}{{model|mcrl2_model_vars(True)}})))) . {{model.name}}({{o.name}}'{{sm.name}}_state={{tr.target.name}}, {{sync[0].name}}'{{statemachine[sync[1]].name}}_state={{transowner[sync[1]].target.name}}{{sync[1]|sync_statementstatechanges(sync[0],tr.statements[0],o)}}){% if not loop.last %} +{% endif %}{% endfor %} +
+{% if syncing_statements[o][tr.statements[0]]|length == 0 %}  {% if tr.statements[0] is hasdynamicaddressing(sm) %}(has_rwpattern_st({{o.name}}, ST'{{tr._tx_position}}, true{{model|mcrl2_model_vars(True)}})){% else %}{{ (tr.statements[0]|mcrl2_accesspattern(o,True) != "A'([],[])")|string|mcrl2value }}{% endif %} -> rw({{o.name}}, {{sm.name}}, ST'{{tr._tx_position}}, rwpattern_structure_st({{o.name}}, ST'{{tr._tx_position}}, true{{model|mcrl2_model_vars(True)}})) . {{model.name}}({{o.name}}'{{sm.name}}_state={{tr.target.name}}{{tr.statements[0]|statementstatechanges(o)}}) +
+  {% if tr.statements[0] is hasdynamicaddressing(sm) %}  (!has_rwpattern_st({{o.name}}, ST'{{tr._tx_position}}, true{{model|mcrl2_model_vars(True)}})){% else %}  {{ (tr.statements[0]|mcrl2_accesspattern(o,True) == "A'([],[])")|string|mcrl2value }}{% endif %} -> tau . {{model.name}}({{o.name}}'{{sm.name}}_state={{tr.target.name}}{{tr.statements[0]|statementstatechanges(o)}})
+){% if tr.statements[0]|hascondition(o) %}<> (has_rwpattern_st({{o.name}}, ST'{{tr._tx_position}}, false{{model|mcrl2_model_vars(True)}})) -> rw({{o.name}}, {{sm.name}}, ST'{{tr._tx_position}}, rwpattern_structure_st({{o.name}}, ST'{{tr._tx_position}}, false{{model|mcrl2_model_vars(True)}})) . {{model.name}}()){% endif %}{%else %}{% for sync in syncing_statements[o][tr.statements[0]] %}    ({{sync[0].name}}'{{statemachine[sync[1]].name}}_state == {{transowner[sync[1]].source.name}}){% if sync[1]|hascondition(sync[0]) %}) -> (({{sync[1]|sync_statement_condition(sync[0], tr.statements[0], o)}}{% endif %}) -> (rw({{o.name}}, {{sm.name}}, ST'{{tr._tx_position}}, R'(rwpattern_structure_st({{o.name}}, ST'{{tr._tx_position}}{{model|mcrl2_model_vars(True)}})), W'(rwpattern_structure_st({{o.name}}, ST'{{tr._tx_position}}, true{{model|mcrl2_model_vars(True)}})), {{sync[0].name}}, {{statemachine[sync[1]].name}}, R'(rwpattern_structure_st({{sync[0].name}}, ST'{{transowner[sync[1]]._tx_position}}{{model|mcrl2_model_vars(True)}}), W'(rwpattern_structure_st({{sync[0].name}}, ST'{{transowner[sync[1]]._tx_position}}{{model|mcrl2_model_vars(True)}})))) . {{model.name}}({{o.name}}'{{sm.name}}_state={{tr.target.name}}, {{sync[0].name}}'{{statemachine[sync[1]].name}}_state={{transowner[sync[1]].target.name}}{{sync[1]|sync_statementstatechanges(sync[0],tr.statements[0],o)}}){% if not loop.last %} +{% endif %}{% endfor %} +
 
   ){% if sync[1]|hascondition(sync[0]) %}...){% endif %}{% endif %}{% if not (oloop.last and smloop.last and trloop.last and loop.last) %} +{% endif %}
 
