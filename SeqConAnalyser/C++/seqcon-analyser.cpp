@@ -596,9 +596,9 @@ bool reorder(int ai, int instr_id, map<int, Instruction>& instructions, MM mmode
 	bool moved_into = false;
 	auto instr = (instructions.find(instr_id));
 	set<int> reordered;
-	if (ai == 37) {
-		cout << "reordering " << ai << endl;
-	}
+	// if (ai == 37) {
+	// 	cout << "reordering " << ai << endl;
+	// }
 	if ((!from_outside_instr && PR.contains_rev(ai)) || (from_outside_instr && !(instr->second.top_accs.empty()))) {
 		set<int> set1, set2;
 		set<int>& open = set1;
@@ -780,15 +780,15 @@ int get_next_edge(StackItem& s, int initial_ai, int& initial_loc_count, set<int>
 	}
 	// Consider a CMP-edge
 	if (s.edge_type == CMPEDGE) {
-		cout << "considering CMP" << endl;
+		// cout << "considering CMP" << endl;
 		vector<ThreadAccessRange>& out = CMPt.get(s.aid);
 		for (int i = s.t_index; i < out.size(); i++) {
-			cout << "thread: " << out[i].tid << endl;
+			// cout << "thread: " << out[i].tid << endl;
 			if (!set_contains(visited_threads, out[i].tid) || out[i].tid == initial_tid) {
-				cout << "not visited" << endl;
+				// cout << "not visited" << endl;
 				for (int j = (i == s.t_index ? s.edge_index+1 : out[i].accesses_begin); j < out[i].accesses_end; j++) {
 					selected = CMP.get_element(s.aid, j);
-					cout << "considering " << selected << endl;
+					// cout << "considering " << selected << endl;
 					if (selected >= initial_ai) {
 						// cout << "CMP: checking " << selected << endl;
 						Access& a = accesses.get(s.aid);
@@ -860,7 +860,6 @@ int main (int argc, char *argv[]) {
 		}
 		else if (strcmp(argv[i], "-s") == 0) {
 			static_analysis = true;
-			cout << "Analysis of statically derived information is performed!" << endl;
 		}
 		else if (strcmp(argv[i], "-h") == 0) {
 			cout << "Usage: seqcon-analyser [-wsa] model" << endl;
@@ -886,6 +885,14 @@ int main (int argc, char *argv[]) {
 		cout << "ARM";
 	}
 	cout << endl;
+
+	// Set static analysis to true in case a .instructions file is given
+	if (modelname.find(".instructions") != string::npos) {
+		static_analysis = true;
+	}
+	if (static_analysis) {
+		cout << "Analysis of statically derived information is performed!" << endl;
+	}
 
 	// PR relation
 	BiRelation PR;
@@ -986,7 +993,7 @@ int main (int argc, char *argv[]) {
 				// Check if instruction is already stored. If not, create it
 				if (iid == -1) {
 					iid = instruction_ids.insert(label);
-					cout << iid << ": " << label << endl;
+					// cout << iid << ": " << label << endl;
 					if (label.compare("tau") != 0) {
 						//cout << label << endl;
 						// Break label further down
@@ -1097,7 +1104,7 @@ int main (int argc, char *argv[]) {
 								acc.tid = tid;
 								// cout << tid << endl;
 								int aid = accesses.insert(acc);
-								cout << "read " << aid << " : " << read << ": " << label << endl;
+								// cout << "read " << aid << " : " << read << ": " << label << endl;
 								instr.accesses.insert(aid);
 								reads_stored = true;
 
@@ -1214,7 +1221,7 @@ int main (int argc, char *argv[]) {
 								acc.tid = tid;
 								// cout << tid << endl;
 								int aid = accesses.insert(acc);
-								cout << "write " << aid << " : " << write << ": " << label << endl;
+								// cout << "write " << aid << " : " << write << ": " << label << endl;
 								instr.accesses.insert(aid);
 								vector_insert(curr_accesses_bottom, aid);
 
@@ -1707,8 +1714,8 @@ int main (int argc, char *argv[]) {
 						if (unsafe_PRpath_exists_bi_to_ai) {
 							PRplus_unsafe.insert(bi, ai);
 						}
-						cout << "PR path: " << ai << " -> " << bi << ": " << unsafe_PRpath_exists_ai_to_bi << endl;
-						cout << "PR path: " << bi << " -> " << ai << ": " << unsafe_PRpath_exists_bi_to_ai << endl;
+						// cout << "PR path: " << ai << " -> " << bi << ": " << unsafe_PRpath_exists_ai_to_bi << endl;
+						// cout << "PR path: " << bi << " -> " << ai << ": " << unsafe_PRpath_exists_bi_to_ai << endl;
 					}
 				}
 			}
@@ -1809,23 +1816,23 @@ int main (int argc, char *argv[]) {
 				visited_threads.clear();
 				visited_threads.insert(sa.tid);
 				while (!point_stack.empty() && unsafe_elements_counter > 0) {
-					point_stack.print();
-					cout << "initial_PR_explored=" << initial_ai_PR_explored << ", unsafe_explored=" << unsafe_explored << ", PR_explored=" << PR_explored << ", initial_loc_count=" << initial_loc_count << endl;
-					cout << "visited locations:" << endl;
-					for (int i : visited_locs) {
-						cout << i << endl;
-					}
-					cout << "visited threads:" << endl;
-					for (int i : visited_threads) {
-						cout << i << endl;
-					}
+					// point_stack.print();
+					// cout << "initial_PR_explored=" << initial_ai_PR_explored << ", unsafe_explored=" << unsafe_explored << ", PR_explored=" << PR_explored << ", initial_loc_count=" << initial_loc_count << endl;
+					// cout << "visited locations:" << endl;
+					// for (int i : visited_locs) {
+					// 	cout << i << endl;
+					// }
+					// cout << "visited threads:" << endl;
+					// for (int i : visited_threads) {
+					// 	cout << i << endl;
+					// }
 					StackItem& v_st = point_stack.peek();
 					int w = get_next_edge(v_st, s, initial_loc_count, visited_locs, visited_threads, initial_ai_PR_explored,
 								unsafe_explored, PR_explored, check_atomicity, RFE, PR_reachable, PRplus_unsafe, CMPt, CMP);
-					cout << "returned: " << w << endl;
-					if (w > -1) {
-						cout << mark[w] << endl;
-					}
+					// cout << "returned: " << w << endl;
+					// if (w > -1) {
+					// 	cout << mark[w] << endl;
+					// }
 					if (w == -1) {
 						// Backtrack
 						// if (v_st.cycle_found) {
@@ -1945,7 +1952,7 @@ int main (int argc, char *argv[]) {
 						// Consider the other direction
 						mark_next_PR = false;
 						is_directed_cycle = true;
-						point_stack.print();
+						// point_stack.print();
 						for (vector<StackItem>::reverse_iterator st = point_stack.rbegin(); st != point_stack.rend(); ++st) {
 							vector<StackItem>::reverse_iterator st_next;
 							if (st+1 != point_stack.rend()) {
@@ -1954,14 +1961,14 @@ int main (int argc, char *argv[]) {
 							else {
 								st_next = point_stack.rbegin();
 							}
-							cout << "from " << st_next->aid << " to " << st->aid << endl;
+							// cout << "from " << st_next->aid << " to " << st->aid << endl;
 							// If there is actually no PR-path from st->aid to st_next->aid, stop interpreting in this direction of the cycle, unless
 							// both accesses stem from the same instruction and we are reasoning about atomicity
 							if (st_next->edge_type == PREDGE) {
 								if (!PRplus.are_related(st->aid, st_next->aid) && !(check_atomicity && PRplus_intra_instr.are_related(st_next->aid, st->aid))) {
-									cout << "Not a directed cycle!" << endl;
-									cout << st_next->aid << endl;
-									cout << st->aid << endl;
+									// cout << "Not a directed cycle!" << endl;
+									// cout << st_next->aid << endl;
+									// cout << st->aid << endl;
 									is_directed_cycle = false;
 									break;
 								}
@@ -2017,7 +2024,7 @@ int main (int argc, char *argv[]) {
 								}
 							}
 						}
-						cout << "Cycle!" << endl;
+						//cout << "Cycle!" << endl;
 						v_st.cycle_found = true;
 					}
 					// else if (!mark[w]) {
@@ -2069,28 +2076,28 @@ int main (int argc, char *argv[]) {
 				// }
 			}
 		}
-		cout << "Marked for fencing:" << endl;
-		for (auto p : PR_paths_requiring_fences) {
-			cout << p.first << " -PR-> " << p.second << endl;
-			cout << p.first << " is part of static instruction " << accesses.get(p.first).ipos << endl;
-			cout << p.second << " is part of static instruction " << accesses.get(p.second).ipos << endl;
-			cout << p.first << " is part of dynamic instructions ";
-			for (int i : accesses.get(p.first).instr) {
-				Instruction& instr = instructions.find(i)->second;
-				if (instr.accesses.find(p.first) != instr.accesses.end()) {
-					cout << " " << i;
-				}
-			}
-			cout << endl;
-			cout << p.second << " is part of dynamic instructions ";
-			for (int i : accesses.get(p.second).instr) {
-				Instruction& instr = instructions.find(i)->second;
-				if (instr.accesses.find(p.second) != instr.accesses.end()) {
-					cout << " " << i;
-				}
-			}
-			cout << endl;
-		}
+		// cout << "Marked for fencing:" << endl;
+		// for (auto p : PR_paths_requiring_fences) {
+		// 	cout << p.first << " -PR-> " << p.second << endl;
+		// 	cout << p.first << " is part of static instruction " << accesses.get(p.first).ipos << endl;
+		// 	cout << p.second << " is part of static instruction " << accesses.get(p.second).ipos << endl;
+		// 	cout << p.first << " is part of dynamic instructions ";
+		// 	for (int i : accesses.get(p.first).instr) {
+		// 		Instruction& instr = instructions.find(i)->second;
+		// 		if (instr.accesses.find(p.first) != instr.accesses.end()) {
+		// 			cout << " " << i;
+		// 		}
+		// 	}
+		// 	cout << endl;
+		// 	cout << p.second << " is part of dynamic instructions ";
+		// 	for (int i : accesses.get(p.second).instr) {
+		// 		Instruction& instr = instructions.find(i)->second;
+		// 		if (instr.accesses.find(p.second) != instr.accesses.end()) {
+		// 			cout << " " << i;
+		// 		}
+		// 	}
+		// 	cout << endl;
+		// }
 
 		// Postprocess the marked PR-pairs, to identify how many fences should be placed, of which kind, and how many
 		StaticStack<StackItem_fencing> processing_stack(instructions.size());
@@ -2234,14 +2241,6 @@ int main (int argc, char *argv[]) {
 				}
 			}
 		}
-		cout << "fence candidates:" << endl;
-		for (auto p : fence_candidates) {
-			cout << p.first << ": ";
-			for (pair<int, bool> c : p.second) {
-				cout << " (" << c.first << ", " << c.second << ")";
-			}
-			cout << endl;
-		}
 		
 		// Place the fences
 		vector<int> instr_counts(instructions.size(), 0);
@@ -2249,6 +2248,7 @@ int main (int argc, char *argv[]) {
 			for (pair<int, bool> c : it.second) {
 				if (c.second) {
 					instr_counts[c.first]++;
+					// cout << "incrementing counter for " << c.first << endl;
 				}
 			}
 		}
@@ -2258,11 +2258,13 @@ int main (int argc, char *argv[]) {
 		// Atomicity checking only: lock the instructions marked for locking
 		if (check_atomicity) {
 			for (int i : locked_instructions) {
-				cout << "locking " << i << endl;
+				//cout << "locking " << i << endl;
 				for (auto sit = fence_candidates.begin(); sit != fence_candidates.end();) {
 					if (set_contains(sit->second, (pair<int, bool>(i, true))) || set_contains(sit->second, (pair<int, bool>(i, false)))) {
 						for (pair<int, bool> c : sit->second) {
-							instr_counts[c.first]--;
+							if (c.second) {
+								instr_counts[c.first]--;
+							}
 						}
 						sit = fence_candidates.erase(sit);
 					}
@@ -2311,11 +2313,16 @@ int main (int argc, char *argv[]) {
 		}
 		while (!fence_candidates.empty()) {
 			for (int i : new_fences) {
-				cout << "fencing " << i << endl;
+				// cout << "fencing " << i << endl;
 				for (auto sit = fence_candidates.begin(); sit != fence_candidates.end();) {
 					if (set_contains(sit->second, (pair<int, bool>(i, true)))) {
 						for (pair<int, bool> c : sit->second) {
-							instr_counts[c.first]--;
+							if (c.second) {
+								// cout << "decrementing counter of " << c.first << endl;
+								// cout << instr_counts[c.first] << endl;
+								instr_counts[c.first]--;
+								// cout << instr_counts[c.first] << endl;
+							}
 						}
 						sit = fence_candidates.erase(sit);
 					}
@@ -2324,19 +2331,20 @@ int main (int argc, char *argv[]) {
 					}
 				}
 			}
-			cout << "fence candidates:" << endl;
-			for (auto p : fence_candidates) {
-				cout << p.first << ": ";
-				for (pair<int, bool> c : p.second) {
-					cout << " (" << c.first << ", " << c.second << ")";
-				}
-				cout << endl;
-			}
+			// cout << "fence candidates:" << endl;
+			// for (auto p : fence_candidates) {
+			// 	cout << p.first << ": ";
+			// 	for (pair<int, bool> c : p.second) {
+			// 		cout << " (" << c.first << ", " << c.second << ")";
+			// 	}
+			// 	cout << endl;
+			// }
 			new_fences.clear();
 			// Find the maximum count in instr_counts
 			int max = 0;
 			int maxpos = 0;
 			for (int i = 0; i < instr_counts.size(); i++) {
+				// cout << instr_counts[i] << endl;
 				if (instr_counts[i] > max) {
 					max = instr_counts[i];
 					maxpos = i;
@@ -2344,6 +2352,7 @@ int main (int argc, char *argv[]) {
 			}
 			// If the highest count is larger than 0, mark the instruction for fencing, and repeat
 			if (max > 0) {
+				// cout << "here" << endl;
 				new_fences.insert(maxpos);
 				// ARM only: if there exists a marked PR-path starting from p.first that is safe, add an A_cumulative fence
 				if (weakmemmodel == ARM) {
@@ -2375,7 +2384,6 @@ int main (int argc, char *argv[]) {
 				else {
 					fenced_instructions.insert(maxpos);
 				}
-				instr_counts[maxpos] = 0;
 			}
 		}
 
@@ -2408,12 +2416,12 @@ int main (int argc, char *argv[]) {
 			}
 		}
 
-		cout << "PR:" << endl;
-		for (auto i : PR) {
-			for (auto j : i.second) {
-				cout << "(" << i.first << ", " << j << ")" << endl;
-			}
-		}
+		// cout << "PR:" << endl;
+		// for (auto i : PR) {
+		// 	for (auto j : i.second) {
+		// 		cout << "(" << i.first << ", " << j << ")" << endl;
+		// 	}
+		// }
 		// cout << "The PPRs: " << endl;
 		// for (int i = 0; i < instructions.size(); i++) {
 		// 	cout << "For instruction " << i << ":" << endl;
@@ -2423,24 +2431,24 @@ int main (int argc, char *argv[]) {
 		// 		}
 		// 	}
 		// }
-		cout << "PRplus:" << endl;
-		for (auto i : PRplus) {
-			for (auto j : i.second) {
-				cout << "(" << i.first << ", " << j << ")" << endl;
-			}
-		}
-		cout << "PRplus_intra_instr:" << endl;
-		for (auto i : PRplus_intra_instr) {
-			for (auto j : i.second) {
-				cout << "(" << i.first << ", " << j << ")" << endl;
-			}
-		}
-		cout << "PRplus_unsafe:" << endl;
-		for (auto i : PRplus_unsafe) {
-			for (auto j : i.second) {
-				cout << "(" << i.first << ", " << j << ")" << endl;
-			}
-		}
+		// cout << "PRplus:" << endl;
+		// for (auto i : PRplus) {
+		// 	for (auto j : i.second) {
+		// 		cout << "(" << i.first << ", " << j << ")" << endl;
+		// 	}
+		// }
+		// cout << "PRplus_intra_instr:" << endl;
+		// for (auto i : PRplus_intra_instr) {
+		// 	for (auto j : i.second) {
+		// 		cout << "(" << i.first << ", " << j << ")" << endl;
+		// 	}
+		// }
+		// cout << "PRplus_unsafe:" << endl;
+		// for (auto i : PRplus_unsafe) {
+		// 	for (auto j : i.second) {
+		// 		cout << "(" << i.first << ", " << j << ")" << endl;
+		// 	}
+		// }
 		// cout << "DP:" << endl;
 		// for (auto i : DP) {
 		// 	for (auto j : i.second) {
@@ -2459,13 +2467,13 @@ int main (int argc, char *argv[]) {
 		// 		cout << "(" << i.first << ", " << j << ")" << endl;
 		// 	}
 		// }
-		cout << "CMP:" << endl;
-		for (int i = 0; i < CMP.size(); i++) {
-			vector<int>& S = CMP.get(i);
-			for (auto j : S) {
-				cout << "(" << i << ", " << j << ")" << endl;
-			}
-		}
+		// cout << "CMP:" << endl;
+		// for (int i = 0; i < CMP.size(); i++) {
+		// 	vector<int>& S = CMP.get(i);
+		// 	for (auto j : S) {
+		// 		cout << "(" << i << ", " << j << ")" << endl;
+		// 	}
+		// }
 		// cout << "CMPt:" << endl;
 		// for (int i = 0; i < CMPt.size(); i++) {
 		// 	vector<ThreadAccessRange>& S = CMPt.get(i);
@@ -2475,7 +2483,7 @@ int main (int argc, char *argv[]) {
 		// }	
 	}
 	else {
-		cout << "LTS file does not exist!" << endl;
+		cout << "File does not exist!" << endl;
 		exit(-1);
 	}
 }

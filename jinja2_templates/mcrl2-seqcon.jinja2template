@@ -195,18 +195,20 @@ eqn rwpattern_structure_st(o',st_,b'{{model|mcrl2_model_vars(True)}}) = [A'([],[
 {% endfor %}
 
 map remove_invalid_accesses_from_list': List(AccessPattern') -> List(AccessPattern');
-var L': List(AccessPattern');
+var ap': AccessPattern';
+    L': List(AccessPattern');
 eqn remove_invalid_accesses_from_list'([]) = [];
-(L' != []) -> remove_invalid_accesses_from_list'(L') = [remove_invalid_accesses'(head(L'))] ++ remove_invalid_accesses_from_list'(tail(L'));
+    remove_invalid_accesses_from_list'(ap'|>L') = remove_invalid_accesses'(ap') |> remove_invalid_accesses_from_list'(L');
 
 map remove_invalid_accesses': AccessPattern' -> AccessPattern';
 var a': AccessPattern';
 eqn remove_invalid_accesses'(a') = A'(remove_invalid_accesses'1(R'(a')), remove_invalid_accesses'1(W'(a')));
 
 map remove_invalid_accesses'1: List(Access') -> List(Access');
-var L': List(Access');
+var a': Access';
+    L': List(Access');
 eqn remove_invalid_accesses'1([]) = [];
-(L' != []) -> remove_invalid_accesses'1(L') = remove_invalid_accesses'2(head(L')) ++ remove_invalid_accesses'1(tail(L'));
+    remove_invalid_accesses'1(a'|>L') = remove_invalid_accesses'2(a') ++ remove_invalid_accesses'1(L');
 
 map remove_invalid_accesses'2: Access' -> List(Access');
 var v': Var';
@@ -221,9 +223,10 @@ var v': Var';
 (remove_invalid_accessvars_from_list'(L') != L' || remove_invalid_accessvar'(v') == []) -> remove_invalid_accesses'2(lcdp'(v', L')) = [];
 
 map remove_invalid_accessvars_from_list': List(Var') -> List(Var');
-var L': List(Var');
+var v': Var';
+    L': List(Var');
 eqn remove_invalid_accessvars_from_list'([]) = [];
-(L' != []) -> remove_invalid_accessvars_from_list'(L') = remove_invalid_accessvar'(head(L')) ++ remove_invalid_accessvars_from_list'(tail(L'));
+    remove_invalid_accessvars_from_list'(v'|>L') = remove_invalid_accessvar'(v') ++ remove_invalid_accessvars_from_list'(L');
 
 map remove_invalid_accessvar': Var' -> List(Var');
 var v': Var';
