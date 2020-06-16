@@ -117,6 +117,13 @@ def hasdynamicaddressing(s, sm):
 			result = hasdynamicaddressing(p, sm)
 			if result:
 				return True
+	elif s.__class__.__name__ == "Assignment":
+		result = hasdynamicaddressing(s.left, sm)
+		if result:
+			return True
+		result = hasdynamicaddressing(s.right, sm)
+		if result:
+			return True
 	elif s.__class__.__name__ == "VariableRef":
 		if s.index != None:
 			if expression_usedvars(s.index, sm, sm.parent, sm.parent) != []:
