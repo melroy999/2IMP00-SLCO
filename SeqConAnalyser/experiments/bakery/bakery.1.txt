@@ -31,7 +31,7 @@ do
 			do
 			:: true ->
 				if
-				:: j < 2 && loadval(choosing[j],0) ->
+				:: j < 2 && load(choosing[j],0) ->
 					tmp = loadval(number[j]);
 					tmp2 = loadval(number[0]);
 					if
@@ -79,7 +79,7 @@ do
 			do
 			:: true ->
 				if
-				:: j < 2 && loadval(choosing[j],0) ->
+				:: j < 2 && load(choosing[j],0) ->
 					tmp = loadval(number[j]);
 					tmp2 = loadval(number[1]);
 					if
