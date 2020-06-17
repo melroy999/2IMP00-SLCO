@@ -5,105 +5,213 @@ int turn = 0; // integer variable to hold the ID of the thread whose turn is it
 //int x; // variable to test mutual exclusion
 
 void* thr1(void * arg) {
+	int ftmp, ftmp2, ftmp3, ftmp4;
+	// S0
   flag1 = 1;
-  while (flag2 >= 1 || flag3 >= 1 || flag4 >= 1 || flag5 >= 1 || flag6 >= 1) {
-    if (turn != 0) {
-      flag1 = 0;
-      while (turn != 0) {};
-      flag1 = 1;
-    }
-  }
-  // begin: critical section
-  //x = 0;
-  //assert(x<=0);
-  // end: critical section
-  turn = 1;
-  flag1 = 0;
+  // S1
+  while(1) {
+		ftmp = flag3;
+		ftmp2 = flag4;
+		ftmp3 = flag5;
+		ftmp4 = flag6;
+		if (flag2 == 1 || ftmp == 1 || ftmp2 == 1 || ftmp3 == 1 || ftmp4 == 1) {
+			// S2
+			if (turn == 0) {
+				continue;
+				// -> S1
+			}
+			else {
+				flag1 = 0;
+				// S3
+				while (turn != 0) {};
+				flag1 = 1;
+				continue;
+				// -> S1
+			}
+		}
+		else {
+			turn = 1;
+			// SimpleState
+			flag1 = 0;
+			break;
+			// -> STOP
+		}
+	}
 }
 
 void* thr2(void * arg) {
+	int ftmp, ftmp2, ftmp3, ftmp4;
+	// S0
   flag2 = 1;
-  while (flag1 >= 1 || flag3 >= 1 || flag4 >= 1 || flag5 >= 1 || flag6 >= 1) {
-    if (turn != 1) {
-      flag2 = 0;
-      while (turn != 1) {};
-      flag2 = 1;
-    }
-  }
-  // begin: critical section
-  //x = 1;
-  //assert(x>=1);
-  // end: critical section
-  turn = 2;
-  flag2 = 0;
+  // S1
+  while(1) {
+		ftmp = flag3;
+		ftmp2 = flag4;
+		ftmp3 = flag5;
+		ftmp4 = flag6;
+		if (flag1 == 1 || ftmp == 1 || ftmp2 == 1 || ftmp3 == 1 || ftmp4 == 1) {
+			// S2
+			if (turn == 1) {
+				continue;
+				// -> S1
+			}
+			else {
+				flag2 = 0;
+				// S3
+				while (turn != 1) {};
+				flag2 = 1;
+				continue;
+				// -> S1
+			}
+		}
+		else {
+			turn = 2;
+			// SimpleState
+			flag2 = 0;
+			break;
+			// -> STOP
+		}
+	}
 }
 
 void* thr3(void * arg) {
+	int ftmp, ftmp2, ftmp3, ftmp4;
+	// S0
   flag3 = 1;
-  while (flag1 >= 1 || flag2 >= 1 || flag4 >= 1 || flag5 >= 1 || flag6 >= 1) {
-    if (turn != 2) {
-      flag3 = 0;
-      while (turn != 2) {};
-      flag3 = 1;
-    }
-  }
-  // begin: critical section
-  //x = 1;
-  //assert(x>=1);
-  // end: critical section
-  turn = 3;
-  flag3 = 0;
+  // S1
+  while(1) {
+		ftmp = flag2;
+		ftmp2 = flag4;
+		ftmp3 = flag5;
+		ftmp4 = flag6;
+		if (flag1 == 1 || ftmp == 1 || ftmp2 == 1 || ftmp3 == 1 || ftmp4 == 1) {
+			// S2
+			if (turn == 2) {
+				continue;
+				// -> S1
+			}
+			else {
+				flag3 = 0;
+				// S3
+				while (turn != 2) {};
+				flag3 = 1;
+				continue;
+				// -> S1
+			}
+		}
+		else {
+			turn = 3;
+			// SimpleState
+			flag3 = 0;
+			break;
+			// -> STOP
+		}
+	}
 }
 
 void* thr4(void * arg) {
+	int ftmp, ftmp2, ftmp3, ftmp4;
+	// S0
   flag4 = 1;
-  while (flag1 >= 1 || flag2 >= 1 || flag3 >= 1 || flag5 >= 1 || flag6 >= 1) {
-    if (turn != 3) {
-      flag4 = 0;
-      while (turn != 3) {};
-      flag4 = 1;
-    }
-  }
-  // begin: critical section
-  //x = 1;
-  //assert(x>=1);
-  // end: critical section
-  turn = 4;
-  flag4 = 0;
+  // S1
+  while(1) {
+		ftmp = flag2;
+		ftmp2 = flag3;
+		ftmp3 = flag5;
+		ftmp4 = flag6;
+		if (flag1 == 1 || ftmp == 1 || ftmp2 == 1 || ftmp3 == 1 || ftmp4 == 1) {
+			// S2
+			if (turn == 3) {
+				continue;
+				// -> S1
+			}
+			else {
+				flag4 = 0;
+				// S3
+				while (turn != 3) {};
+				flag4 = 1;
+				continue;
+				// -> S1
+			}
+		}
+		else {
+			turn = 4;
+			// SimpleState
+			flag4 = 0;
+			break;
+			// -> STOP
+		}
+	}
 }
 
 void* thr5(void * arg) {
+	int ftmp, ftmp2, ftmp3, ftmp4;
+	// S0
   flag5 = 1;
-  while (flag1 >= 1 || flag2 >= 1 || flag3 >= 1 || flag4 >= 1 || flag6 >= 1) {
-    if (turn != 4) {
-      flag5 = 0;
-      while (turn != 4) {};
-      flag5 = 1;
-    }
-  }
-  // begin: critical section
-  //x = 1;
-  //assert(x>=1);
-  // end: critical section
-  turn = 5;
-  flag5 = 0;
+  // S1
+  while(1) {
+		ftmp = flag2;
+		ftmp2 = flag3;
+		ftmp3 = flag4;
+		ftmp4 = flag6;
+		if (flag1 == 1 || ftmp == 1 || ftmp2 == 1 || ftmp3 == 1 || ftmp4 == 1) {
+			// S2
+			if (turn == 4) {
+				continue;
+				// -> S1
+			}
+			else {
+				flag5 = 0;
+				// S3
+				while (turn != 4) {};
+				flag5 = 1;
+				continue;
+				// -> S1
+			}
+		}
+		else {
+			turn = 5;
+			// SimpleState
+			flag5 = 0;
+			break;
+			// -> STOP
+		}
+	}
 }
 
 void* thr6(void * arg) {
+	int ftmp, ftmp2, ftmp3, ftmp4;
+	// S0
   flag6 = 1;
-  while (flag1 >= 1 || flag2 >= 1 || flag3 >= 1 || flag4 >= 1 || flag5 >= 1) {
-    if (turn != 5) {
-      flag6 = 0;
-      while (turn != 5) {};
-      flag6 = 1;
-    }
-  }
-  // begin: critical section
-  //x = 1;
-  //assert(x>=1);
-  // end: critical section
-  turn = 0;
-  flag6 = 0;
+  // S1
+  while(1) {
+		ftmp = flag2;
+		ftmp2 = flag3;
+		ftmp3 = flag4;
+		ftmp4 = flag5;
+		if (flag1 == 1 || ftmp == 1 || ftmp2 == 1 || ftmp3 == 1 || ftmp4 == 1) {
+			// S2
+			if (turn == 5) {
+				continue;
+				// -> S1
+			}
+			else {
+				flag6 = 0;
+				// S3
+				while (turn != 5) {};
+				flag6 = 1;
+				continue;
+				// -> S1
+			}
+		}
+		else {
+			turn = 0;
+			// SimpleState
+			flag6 = 0;
+			break;
+			// -> STOP
+		}
+	}
 }
 
 int main()
