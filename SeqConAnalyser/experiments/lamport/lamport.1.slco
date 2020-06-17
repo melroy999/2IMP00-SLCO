@@ -10,8 +10,8 @@ model dve_lamport_05 {
     state machines
     thr1 {
       
-      initial SL0 states S0 S1 S2 S3 STOP SimpleState0 SimpleState1 SimpleState2 SimpleState3 SimpleState4
-
+      initial SL0 states S0 S1 S2 S3 STOP SimpleState0 SimpleState1 SimpleState2
+      
       transitions
       SL0 -> SimpleState0 {
         b1 := true
@@ -21,27 +21,27 @@ model dve_lamport_05 {
         y != 0
       }
       
-      S0 -> SimpleState2 {
-        y = 0
-      }
-      
-      S1 -> SimpleState3 {
-        x != 1
+      1: S0 -> S1 {
+        y := 1
       }
       
       S1 -> S3 {
         x = 1
       }
       
+      1: S1 -> S2 {
+        b1 := false
+      }
+      
       S2 -> SL0 {
         y != 1
       }
       
-      S2 -> S3 {
-        y = 1
+      1: S2 -> SimpleState2 {
+        y := 0
       }
       
-      S3 -> SimpleState4 {
+      S3 -> SimpleState2 {
         y := 0
       }
       
@@ -53,25 +53,17 @@ model dve_lamport_05 {
         b1 := false
       }
       
-      SimpleState2 -> S1 {
-        y := 1
-      }
-      
-      SimpleState3 -> S2 {
-        b1 := false
-      }
-      
-      SimpleState4 -> STOP {
+      SimpleState2 -> STOP {
         b1 := false
       }
     }
     
     thr2 {
       
-      initial SL1 states S0 S1 S2 S3 STOP SimpleState0 SimpleState1 SimpleState2 SimpleState3 SimpleState4
-
+      initial SL0 states S0 S1 S2 S3 STOP SimpleState0 SimpleState1 SimpleState2
+      
       transitions
-      SL1 -> SimpleState0 {
+      SL0 -> SimpleState0 {
         b2 := true
       }
       
@@ -79,27 +71,27 @@ model dve_lamport_05 {
         y != 0
       }
       
-      S0 -> SimpleState2 {
-        y = 0
-      }
-      
-      S1 -> SimpleState3 {
-        x != 2
+      1: S0 -> S1 {
+        y := 2
       }
       
       S1 -> S3 {
         x = 2
       }
       
-      S2 -> SL1 {
+      1: S1 -> S2 {
+        b2 := false
+      }
+      
+      S2 -> SL0 {
         y != 2
       }
       
-      S2 -> S3 {
-        y = 2
+      1: S2 -> SimpleState2 {
+        y := 0
       }
       
-      S3 -> SimpleState4 {
+      S3 -> SimpleState2 {
         y := 0
       }
       
@@ -107,19 +99,11 @@ model dve_lamport_05 {
         x := 2
       }
       
-      SimpleState1 -> SL1 {
+      SimpleState1 -> SL0 {
         b2 := false
       }
       
-      SimpleState2 -> S1 {
-        y := 2
-      }
-      
-      SimpleState3 -> S2 {
-        b2 := false
-      }
-      
-      SimpleState4 -> STOP {
+      SimpleState2 -> STOP {
         b2 := false
       }
     }
