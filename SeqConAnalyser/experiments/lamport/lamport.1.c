@@ -37,7 +37,7 @@ void* thr1(void * arg) {
 				else {
 					y = 0;
 					// SimpleState2
-					goto SimpleState2
+					goto SimpleState2;
 				}
 			}
 		}
@@ -79,7 +79,7 @@ void* thr2(void * arg) {
 				else {
 					y = 0;
 					// SimpleState2
-					goto SimpleState2
+					goto SimpleState2;
 				}
 			}
 		}
