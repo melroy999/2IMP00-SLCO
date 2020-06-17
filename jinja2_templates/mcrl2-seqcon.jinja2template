@@ -171,8 +171,8 @@ eqn has_rwpattern_st(o',st_,b'{{model|mcrl2_model_vars(True)}}) = false;
 {% for o in model.objects %}
 {% for stm in o.type.statemachines %}
 {% for tr in stm.transitions %}
-    has_rwpattern_st({{o.name}}, ST'{{tr._tx_position}}, true{{model|mcrl2_model_vars(True)}}) = {% if tr.statements[0] is hasdynamicaddressing(stm) %}remove_invalid_accesses'({{tr.statements[0]|mcrl2_accesspattern(o,True)}}) == A'([],[]){% else %}{{ (tr.statements[0]|mcrl2_accesspattern(o,True) != "A'([],[])")|string|mcrl2value }}{% endif %};
-    has_rwpattern_st({{o.name}}, ST'{{tr._tx_position}}, false{{model|mcrl2_model_vars(True)}}) = {% if tr.statements[0] is hasdynamicaddressing(stm) %}remove_invalid_accesses'({{tr.statements[0]|mcrl2_accesspattern(o,False)}}) == A'([],[]){% else %}{{ (tr.statements[0]|mcrl2_accesspattern(o,False) != "A'([],[])")|string|mcrl2value }}{% endif %};
+    has_rwpattern_st({{o.name}}, ST'{{tr._tx_position}}, true{{model|mcrl2_model_vars(True)}}) = {% if tr.statements[0] is hasdynamicaddressing(stm) %}remove_invalid_accesses'({{tr.statements[0]|mcrl2_accesspattern(o,True)}}) != A'([],[]){% else %}{{ (tr.statements[0]|mcrl2_accesspattern(o,True) != "A'([],[])")|string|mcrl2value }}{% endif %};
+    has_rwpattern_st({{o.name}}, ST'{{tr._tx_position}}, false{{model|mcrl2_model_vars(True)}}) = {% if tr.statements[0] is hasdynamicaddressing(stm) %}remove_invalid_accesses'({{tr.statements[0]|mcrl2_accesspattern(o,False)}}) != A'([],[]){% else %}{{ (tr.statements[0]|mcrl2_accesspattern(o,False) != "A'([],[])")|string|mcrl2value }}{% endif %};
 {% endfor %}
 {% endfor %}
 {% endfor %}
