@@ -1,0 +1,245 @@
+model dve_lamport_05 {
+
+  classes
+  GlobalClass {
+    variables
+      Byte x y
+      Boolean b1 b2 b3 b4
+    
+
+    state machines
+    thr1 {
+      
+      initial SL0 states S0 S1 S2 S3 STOP SimpleState0 SimpleState1 SimpleState2 SimpleState3 SimpleState4
+
+      transitions
+      SL0 -> SimpleState0 {
+        b1 := true
+      }
+      
+      S0 -> SimpleState1 {
+        y != 0
+      }
+      
+      S0 -> SimpleState2 {
+        y = 0
+      }
+      
+      S1 -> SimpleState3 {
+        x != 1
+      }
+      
+      S1 -> S3 {
+        x = 1
+      }
+      
+      S2 -> SL0 {
+        y != 1
+      }
+      
+      S2 -> S3 {
+        y = 1
+      }
+      
+      S3 -> SimpleState4 {
+        y := 0
+      }
+      
+      SimpleState0 -> S0 {
+        x := 1
+      }
+      
+      SimpleState1 -> SL0 {
+        b1 := false
+      }
+      
+      SimpleState2 -> S1 {
+        y := 1
+      }
+      
+      SimpleState3 -> S2 {
+        b1 := false
+      }
+      
+      SimpleState4 -> STOP {
+        b1 := false
+      }
+    }
+    
+    thr2 {
+      
+      initial SL1 states S0 S1 S2 S3 STOP SimpleState0 SimpleState1 SimpleState2 SimpleState3 SimpleState4
+
+      transitions
+      SL1 -> SimpleState0 {
+        b2 := true
+      }
+      
+      S0 -> SimpleState1 {
+        y != 0
+      }
+      
+      S0 -> SimpleState2 {
+        y = 0
+      }
+      
+      S1 -> SimpleState3 {
+        x != 2
+      }
+      
+      S1 -> S3 {
+        x = 2
+      }
+      
+      S2 -> SL1 {
+        y != 2
+      }
+      
+      S2 -> S3 {
+        y = 2
+      }
+      
+      S3 -> SimpleState4 {
+        y := 0
+      }
+      
+      SimpleState0 -> S0 {
+        x := 2
+      }
+      
+      SimpleState1 -> SL1 {
+        b2 := false
+      }
+      
+      SimpleState2 -> S1 {
+        y := 2
+      }
+      
+      SimpleState3 -> S2 {
+        b2 := false
+      }
+      
+      SimpleState4 -> STOP {
+        b2 := false
+      }
+    }
+ 
+    thr3 {
+      
+      initial SL2 states S0 S1 S2 S3 STOP SimpleState0 SimpleState1 SimpleState2 SimpleState3 SimpleState4
+
+      transitions
+      SL2 -> SimpleState0 {
+        b3 := true
+      }
+      
+      S0 -> SimpleState1 {
+        y != 0
+      }
+      
+      S0 -> SimpleState2 {
+        y = 0
+      }
+      
+      S1 -> SimpleState3 {
+        x != 3
+      }
+      
+      S1 -> S3 {
+        x = 3
+      }
+      
+      S2 -> SL2 {
+        y != 3
+      }
+      
+      S2 -> S3 {
+        y = 3
+      }
+      
+      S3 -> SimpleState4 {
+        y := 0
+      }
+      
+      SimpleState0 -> S0 {
+        x := 3
+      }
+      
+      SimpleState1 -> SL2 {
+        b3 := false
+      }
+      
+      SimpleState2 -> S1 {
+        y := 3
+      }
+      
+      SimpleState3 -> S2 {
+        b3 := false
+      }
+      
+      SimpleState4 -> STOP {
+        b3 := false
+      }
+    }
+ 
+    thr4 {
+      
+      initial SL3 states S0 S1 S2 S3 STOP SimpleState0 SimpleState1 SimpleState2 SimpleState3 SimpleState4
+
+      transitions
+      SL3 -> SimpleState0 {
+        b4 := true
+      }
+      
+      S0 -> SimpleState1 {
+        y != 0
+      }
+      
+      S0 -> SimpleState2 {
+        y = 0
+      }
+      
+      S1 -> SimpleState3 {
+        x != 4
+      }
+      
+      S1 -> S3 {
+        x = 4
+      }
+      
+      S2 -> SL3 {
+        y != 4
+      }
+      
+      S2 -> S3 {
+        y = 4
+      }
+      
+      S3 -> SimpleState4 {
+        y := 0
+      }
+      
+      SimpleState0 -> S0 {
+        x := 4
+      }
+      
+      SimpleState1 -> SL3 {
+        b4 := false
+      }
+      
+      SimpleState2 -> S1 {
+        y := 4
+      }
+      
+      SimpleState3 -> S2 {
+        b4 := false
+      }
+      
+      SimpleState4 -> STOP {
+        b4 := false
+      }
+    }
+  }
+  objects globalObject: GlobalClass()
+
+}

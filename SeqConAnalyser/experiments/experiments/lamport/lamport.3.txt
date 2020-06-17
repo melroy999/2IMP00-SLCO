@@ -1,0 +1,170 @@
+int x;
+int y;
+int b1;
+int b2;
+int b3;
+int b4;
+int end1 = 0;
+int end2 = 0;
+int end3 = 0;
+int end4 = 0;
+
+proctype p1 {	
+do
+:: load(end1,0) ->
+		do
+		:: true ->
+				store(b1,1);
+				store(x,1);
+				if
+				:: load(y,1) || load(y,2) || load(y,3) || load(y,4) ->
+					store(b1,0);
+					fi
+					:: load(y,0) -> break;
+					fi;
+				:: load(y,0) -> skip;
+				fi;
+				store(y,1);
+				if
+				:: load(x,0) || load(x,2) || load(x,3) || load(x,4) ->
+					store(b1,0);
+					fi
+					:: load(b2,0) && load(b3,0) && load(b4,0) -> skip;
+					fi;
+					if
+					:: load(y,0) || load(y,2) || load(y,3) || load(y,4) ->
+						fi
+						:: load(y,0) -> break;
+						fi;
+					:: load(y,1) -> skip;
+					fi;
+				:: load(x,1) -> skip;
+				fi;
+				store(y,0);
+				store(b1,0);
+				store(end1,1);
+				break;
+		od;
+:: load(end1,1) -> break;
+od;
+}
+
+proctype p2 {	
+do
+:: load(end2,0) ->
+		do
+		:: true ->
+				store(b2,1);
+				store(x,2);
+				if
+				:: load(y,1) || load(y,2) || load(y,3) || load(y,4) ->
+					store(b2,0);
+					fi
+					:: load(y,0) -> break;
+					fi;
+				:: load(y,0) -> skip;
+				fi;
+				store(y,2);
+				if
+				:: load(x,0) || load(x,1) || load(x,3) || load(x,4) ->
+					store(b2,0);
+					fi
+					:: load(b1,0) && load(b3,0) && load(b4,0) -> skip;
+					fi;
+					if
+					:: load(y,0) || load(y,1) || load(y,3) || load(y,4) ->
+						fi
+						:: load(y,0) -> break;
+						fi;
+					:: load(y,2) -> skip;
+					fi;
+				:: load(x,2) -> skip;
+				fi;
+				store(y,0);
+				store(b2,0);
+				store(end2,1);
+				break;
+		od;
+:: load(end2,1) -> break;
+od;
+}
+
+proctype p3 {	
+do
+:: load(end3,0) ->
+		do
+		:: true ->
+				store(b3,1);
+				store(x,3);
+				if
+				:: load(y,1) || load(y,2) || load(y,3) || load(y,4) ->
+					store(b3,0);
+					fi
+					:: load(y,0) -> break;
+					fi;
+				:: load(y,0) -> skip;
+				fi;
+				store(y,3);
+				if
+				:: load(x,0) || load(x,1) || load(x,2) || load(x,4) ->
+					store(b3,0);
+					fi
+					:: load(b1,0) && load(b2,0) && load(b4,0) -> skip;
+					fi;
+					if
+					:: load(y,0) || load(y,1) || load(y,2) || load(y,4) ->
+						fi
+						:: load(y,0) -> break;
+						fi;
+					:: load(y,3) -> skip;
+					fi;
+				:: load(x,3) -> skip;
+				fi;
+				store(y,0);
+				store(b3,0);
+				store(end3,1);
+				break;
+		od;
+:: load(end3,1) -> break;
+od;
+}
+
+proctype p4 {	
+do
+:: load(end4,0) ->
+		do
+		:: true ->
+				store(b4,1);
+				store(x,4);
+				if
+				:: load(y,1) || load(y,2) || load(y,3) || load(y,4) ->
+					store(b4,0);
+					fi
+					:: load(y,0) -> break;
+					fi;
+				:: load(y,0) -> skip;
+				fi;
+				store(y,4);
+				if
+				:: load(x,0) || load(x,1) || load(x,2) || load(x,3) ->
+					store(b4,0);
+					fi
+					:: load(b1,0) && load(b2,0) && load(b3,0) -> skip;
+					fi;
+					if
+					:: load(y,0) || load(y,1) || load(y,2) || load(y,3) ->
+						fi
+						:: load(y,0) -> break;
+						fi;
+					:: load(y,4) -> skip;
+					fi;
+				:: load(x,4) -> skip;
+				fi;
+				store(y,0);
+				store(b4,0);
+				store(end4,1);
+				break;
+		od;
+:: load(end4,1) -> break;
+od;
+}

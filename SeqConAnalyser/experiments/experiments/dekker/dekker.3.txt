@@ -1,0 +1,223 @@
+int want1;
+int want2;
+int want3;
+int want4;
+int turn;
+
+proctype p1 {	
+do
+:: true ->
+		store(want1, 1);
+		if
+		:: load(want2,1) ->
+			if
+			:: load(turn,1) ->
+				store(want1, 0);
+				
+				if
+				:: load(turn,0) -> skip;
+				fi;
+				
+				store(want1, 1);
+				skip;
+			:: else -> skip;
+			fi;
+		:: load(want3,1) ->
+			if
+			:: load(turn,1) ->
+				store(want1, 0);
+				
+				if
+				:: load(turn,0) -> skip;
+				fi;
+				
+				store(want1, 1);
+				skip;
+			:: else -> skip;
+			fi;
+		:: load(want4,1) ->
+			if
+			:: load(turn,1) ->
+				store(want1, 0);
+				
+				if
+				:: load(turn,0) -> skip;
+				fi;
+				
+				store(want1, 1);
+				skip;
+			:: else -> skip;
+			fi;
+			skip;			
+		:: else -> skip;
+		fi;
+		
+		store(turn, 1);
+		store(want1, 0);
+od;
+}
+
+proctype p2 {
+do
+:: true ->
+		store(want2, 1);
+		if
+		:: load(want1,1) ->			
+			if
+			:: load(turn,0) || load(turn,2) || load(turn,3) ->
+				store(want2, 0);
+				
+				if
+				:: load(turn,1) -> skip;
+				fi;
+				
+				store(want2, 1);
+				skip;
+			:: load(turn,1) -> skip;
+			fi;
+			skip;
+		:: load(want3,1) ->			
+			if
+			:: load(turn,0) || load(turn,2) || load(turn,3) ->
+				store(want2, 0);
+				
+				if
+				:: load(turn,1) -> skip;
+				fi;
+				
+				store(want2, 1);
+				skip;
+			:: load(turn,1) -> skip;
+			fi;
+			skip;
+		:: load(want4,1) ->			
+			if
+			:: load(turn,0) || load(turn,2) || load(turn,3) ->
+				store(want2, 0);
+				
+				if
+				:: load(turn,1) -> skip;
+				fi;
+				
+				store(want2, 1);
+				skip;
+			:: load(turn,1) -> skip;
+			fi;
+			skip;
+		:: else -> skip;
+		fi;
+		
+		store(turn, 2);
+		store(want2, 0);
+od;
+}
+
+proctype p3 {
+do
+:: true ->
+		store(want3, 1);
+		if
+		:: load(want1,1) ->			
+			if
+			:: load(turn,0) || load(turn,1) || load(turn,3) ->
+				store(want3, 0);
+				
+				if
+				:: load(turn,2) -> skip;
+				fi;
+				
+				store(want3, 1);
+				skip;
+			:: load(turn,2) -> skip;
+			fi;
+			skip;
+		:: load(want2,1) ->			
+			if
+			:: load(turn,0) || load(turn,1) || load(turn,3) ->
+				store(want3, 0);
+				
+				if
+				:: load(turn,2) -> skip;
+				fi;
+				
+				store(want3, 1);
+				skip;
+			:: load(turn,2) -> skip;
+			fi;
+			skip;
+		:: load(want4,1) ->			
+			if
+			:: load(turn,0) || load(turn,1) || load(turn,3) ->
+				store(want3, 0);
+				
+				if
+				:: load(turn,2) -> skip;
+				fi;
+				
+				store(want3, 1);
+				skip;
+			:: load(turn,2) -> skip;
+			fi;
+			skip;
+		:: else -> skip;
+		fi;
+		
+		store(turn, 3);
+		store(want3, 0);
+od;
+}
+
+proctype p4 {
+do
+:: true ->
+		store(want4, 1);
+		if
+		:: load(want1,1) ->			
+			if
+			:: load(turn,0) || load(turn,1) || load(turn,2) ->
+				store(want4, 0);
+				
+				if
+				:: load(turn,3) -> skip;
+				fi;
+				
+				store(want4, 1);
+				skip;
+			:: load(turn,3) -> skip;
+			fi;
+			skip;
+		:: load(want2,1) ->			
+			if
+			:: load(turn,0) || load(turn,1) || load(turn,2) ->
+				store(want4, 0);
+				
+				if
+				:: load(turn,3) -> skip;
+				fi;
+				
+				store(want4, 1);
+				skip;
+			:: load(turn,3) -> skip;
+			fi;
+			skip;
+		:: load(want3,1) ->			
+			if
+			:: load(turn,0) || load(turn,1) || load(turn,2) ->
+				store(want4, 0);
+				
+				if
+				:: load(turn,3) -> skip;
+				fi;
+				
+				store(want4, 1);
+				skip;
+			:: load(turn,3) -> skip;
+			fi;
+			skip;
+		:: else -> skip;
+		fi;
+		
+		store(turn, 0);
+		store(want4, 0);
+od;
+}

@@ -1,0 +1,86 @@
+int x;
+int y;
+int b1;
+int b2;
+int end1 = 0;
+int end2 = 0;
+
+proctype p1 {	
+do
+:: load(end1,0) ->
+		do
+		:: true ->
+				store(b1,1);
+				store(x,1);
+				if
+				:: load(y,1) || load(y,2) ->
+					store(b1,0);
+					fi
+					:: load(y,0) -> break;
+					fi;
+				:: load(y,0) -> skip;
+				fi;
+				store(y,1);
+				if
+				:: load(x,0) || load(x,2) ->
+					store(b1,0);
+					fi
+					:: load(b2,0) -> skip;
+					fi;
+					if
+					:: load(y,0) || load(y,2) ->
+						fi
+						:: load(y,0) -> break;
+						fi;
+					:: load(y,1) -> skip;
+					fi;
+				:: load(x,1) -> skip;
+				fi;
+				store(y,0);
+				store(b1,0);
+				store(end1,1);
+				break;
+		od;
+:: load(end1,1) -> break;
+od;
+}
+
+proctype p2 {	
+do
+:: load(end2,0) ->
+		do
+		:: true ->
+				store(b2,1);
+				store(x,2);
+				if
+				:: load(y,1) || load(y,2) ->
+					store(b2,0);
+					fi
+					:: load(y,0) -> break;
+					fi;
+				:: load(y,0) -> skip;
+				fi;
+				store(y,2);
+				if
+				:: load(x,0) || load(x,1) ->
+					store(b2,0);
+					fi
+					:: load(b1,0) -> skip;
+					fi;
+					if
+					:: load(y,0) || load(y,1) ->
+						fi
+						:: load(y,0) -> break;
+						fi;
+					:: load(y,2) -> skip;
+					fi;
+				:: load(x,2) -> skip;
+				fi;
+				store(y,0);
+				store(b2,0);
+				store(end2,1);
+				break;
+		od;
+:: load(end2,1) -> break;
+od;
+}

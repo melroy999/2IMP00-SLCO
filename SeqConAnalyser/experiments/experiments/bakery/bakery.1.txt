@@ -1,0 +1,57 @@
+bool c0 = false;
+bool c1 = false;
+int n0 = 0;
+int n1 = 0;
+
+proctype P0 {
+int r;
+do
+:: true ->	
+	store(c0,true);
+	if
+	:: load(n1,0) -> store(n0,1); r = 1;
+	:: load(n1,1) -> store(n0,2); r = 2;
+	fi;
+	
+	store(c0,false);
+	
+	if
+	:: load(c1,false) -> skip;
+	fi;
+	
+	if
+	:: load(n1,0) -> skip;
+	:: r == 0 -> skip;
+	:: r == 1 && (load(n1,1) || load(n1,2)) -> skip;
+	:: r == 2 && load(n1,2) -> skip;
+	fi;
+	
+	store(n0,0);
+od;
+}
+
+proctype P1 {
+int r;
+do
+:: true ->
+	store(c1,true);
+	if
+	:: load(n0,0) -> store(n1,1); r = 1;
+	:: load(n0,1) -> store(n1,2); r = 2;
+	fi;
+	
+	store(c1,false);
+	
+	if
+	:: load(c0,false) -> skip;
+	fi;
+	
+	if
+	:: load(n0,0) -> skip;
+	:: r == 0 && (load(n0,1) || load(n0,2)) -> skip;
+	:: r == 1 && load(n0,2) -> skip;
+	fi;
+	
+	store(n1,0);
+od;
+}
