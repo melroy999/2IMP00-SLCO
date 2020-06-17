@@ -52,7 +52,7 @@ do
 						skip;
 					fi;
 				:: j == 2 ->
-					number[0] = 0;
+					store(number[0], 0);
 					break;
 				fi;
 			od;
