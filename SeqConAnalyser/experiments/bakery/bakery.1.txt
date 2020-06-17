@@ -2,7 +2,10 @@ int choosing[2] = {0,0};
 int number[2] = {0,0};
 
 proctype P0 {
-int j, max, tmp, tmp2;
+int j;
+int max;
+int tmp;
+int tmp2;
 do
 :: true ->	
 	store(choosing[0],1);
