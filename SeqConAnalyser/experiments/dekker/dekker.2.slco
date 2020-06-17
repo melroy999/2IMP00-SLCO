@@ -10,7 +10,7 @@ model dve_dekker {
     state machines
     thr1 {
       
-      initial S0 states S1 S2 S3 S4 STOP SimpleState0 SimpleState1 SimpleState2
+      initial S0 states S1 S2 S3 STOP SimpleState
 
       transitions
       S0 -> S1 {
@@ -21,46 +21,34 @@ model dve_dekker {
         f2 or f3
       }
       
-      S1 -> S4 {
-        not (f2 or f3)
-      }
-      
-      S2 -> SimpleState0 {
-        not (turn = 0)
+      1: S1 -> SimpleState {
+        turn := 1
       }
       
       S2 -> S1 {
         turn = 0
       }
       
+      1: S2 -> S3 {
+        f1 := false
+      }
+      
       S3 -> S3 {
         not (turn = 0)
       }
       
-      S3 -> SimpleState1 {
-        turn = 0
+      1: S3 -> S1 {
+				f1 := true
       }
       
-      S4 -> SimpleState2 {
-        turn := 1
-      }
-      
-      SimpleState0 -> S3 {
-        f1 := false
-      }
-      
-      SimpleState1 -> S1 {
-        f1 := true
-      }
-      
-      SimpleState2 -> STOP {
+      SimpleState -> STOP {
         f1 := false
       }
     }
     
-    thr2 {
+		thr2 {
       
-      initial S0 states S1 S2 S3 S4 STOP SimpleState0 SimpleState1 SimpleState2
+      initial S0 states S1 S2 S3 STOP SimpleState
 
       transitions
       S0 -> S1 {
@@ -71,46 +59,34 @@ model dve_dekker {
         f1 or f3
       }
       
-      S1 -> S4 {
-        not (f1 or f3)
-      }
-      
-      S2 -> SimpleState0 {
-        not (turn = 1)
+      1: S1 -> SimpleState {
+        turn := 2
       }
       
       S2 -> S1 {
         turn = 1
       }
       
+      1: S2 -> S3 {
+        f2 := false
+      }
+      
       S3 -> S3 {
         not (turn = 1)
       }
       
-      S3 -> SimpleState1 {
-        turn = 1
+      1: S3 -> S1 {
+				f2 := true
       }
       
-      S4 -> SimpleState2 {
-        turn := 2
-      }
-      
-      SimpleState0 -> S3 {
-        f2 := false
-      }
-      
-      SimpleState1 -> S1 {
-        f2 := true
-      }
-      
-      SimpleState2 -> STOP {
+      SimpleState -> STOP {
         f2 := false
       }
     }
 
     thr3 {
       
-      initial S0 states S1 S2 S3 S4 STOP SimpleState0 SimpleState1 SimpleState2
+      initial S0 states S1 S2 S3 STOP SimpleState
 
       transitions
       S0 -> S1 {
@@ -121,39 +97,27 @@ model dve_dekker {
         f1 or f2
       }
       
-      S1 -> S4 {
-        not (f1 or f2)
-      }
-      
-      S2 -> SimpleState0 {
-        not (turn = 2)
+      1: S1 -> SimpleState {
+        turn := 0
       }
       
       S2 -> S1 {
         turn = 2
       }
       
+      1: S2 -> S3 {
+        f3 := false
+      }
+      
       S3 -> S3 {
         not (turn = 2)
       }
       
-      S3 -> SimpleState1 {
-        turn = 2
+      1: S3 -> S1 {
+				f3 := true
       }
       
-      S4 -> SimpleState2 {
-        turn := 0
-      }
-      
-      SimpleState0 -> S3 {
-        f3 := false
-      }
-      
-      SimpleState1 -> S1 {
-        f3 := true
-      }
-      
-      SimpleState2 -> STOP {
+      SimpleState -> STOP {
         f3 := false
       }
     }
