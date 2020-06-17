@@ -39,11 +39,10 @@ void* P0(void * arg) {
                     // wait
                     tmp = number[j];
                     tmp2 = number[0];
-                    if (tmp == 0 || (tmp > tmp2) || (tmp == tmp2 && 0 <= j)) {
-                        j = j+1;
-                        continue;
-                        // -> forloop
-                    }
+                    while (!(tmp == 0 || (tmp > tmp2) || (tmp == tmp2 && 0 <= j))) {};
+										j = j+1;
+										continue;
+										// -> forloop
                 }
                 else if (j == 4) {
                     // CS
@@ -95,11 +94,10 @@ void* P1(void * arg) {
                     // wait
                     tmp = number[j];
                     tmp2 = number[1];
-                    if (tmp == 0 || (tmp > tmp2) || (tmp == tmp2 && 0 <= j)) {
-                        j = j+1;
-                        continue;
-                        // -> forloop
-                    }
+                    while (!(tmp == 0 || (tmp > tmp2) || (tmp == tmp2 && 1 <= j))) {};
+										j = j+1;
+										continue;
+										// -> forloop
                 }
                 else if (j == 4) {
                     // CS
@@ -151,11 +149,10 @@ void* P2(void * arg) {
                     // wait
                     tmp = number[j];
                     tmp2 = number[2];
-                    if (tmp == 0 || (tmp > tmp2) || (tmp == tmp2 && 0 <= j)) {
-                        j = j+1;
-                        continue;
-                        // -> forloop
-                    }
+                    while (!(tmp == 0 || (tmp > tmp2) || (tmp == tmp2 && 2 <= j))) {};
+										j = j+1;
+										continue;
+										// -> forloop
                 }
                 else if (j == 4) {
                     // CS
@@ -207,11 +204,10 @@ void* P3(void * arg) {
                     // wait
                     tmp = number[j];
                     tmp2 = number[3];
-                    if (tmp == 0 || (tmp > tmp2) || (tmp == tmp2 && 0 <= j)) {
-                        j = j+1;
-                        continue;
-                        // -> forloop
-                    }
+                    while (!(tmp == 0 || (tmp > tmp2) || (tmp == tmp2 && 3 <= j))) {};
+										j = j+1;
+										continue;
+										// -> forloop
                 }
                 else if (j == 4) {
                     // CS
