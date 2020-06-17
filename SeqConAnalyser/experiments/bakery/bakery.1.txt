@@ -1,4 +1,4 @@
-int choosing[2] = {0,0};
+int choosing[3] = {0,0,0};
 int number[3] = {0,0,0};
 
 proctype P0 {
