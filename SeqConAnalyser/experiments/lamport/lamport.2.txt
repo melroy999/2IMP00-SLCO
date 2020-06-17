@@ -7,7 +7,8 @@ int end1 = 0;
 int end2 = 0;
 int end3 = 0;
 
-proctype p1 {	
+proctype p1 {
+int tmp;
 do
 :: load(end1,0) ->
 		do
@@ -26,8 +27,9 @@ do
 				if
 				:: load(x,0) || load(x,2) || load(x,3) ->
 					store(b1,0);
+					tmp = loadval(b2);
 					if
-					:: load(b2,0) && load(b3,0) -> skip;
+					:: tmp == 0 && load(b3,0) -> skip;
 					fi;
 					if
 					:: load(y,0) || load(y,2) || load(y,3) ->
@@ -47,7 +49,8 @@ do
 od;
 }
 
-proctype p2 {	
+proctype p2 {
+int tmp;
 do
 :: load(end2,0) ->
 		do
@@ -66,8 +69,9 @@ do
 				if
 				:: load(x,0) || load(x,1) || load(x,3) ->
 					store(b2,0);
+					tmp = loadval(b1);
 					if
-					:: load(b1,0) && load(b3,0) -> skip;
+					:: tmp == 0 && load(b3,0) -> skip;
 					fi;
 					if
 					:: load(y,0) || load(y,1) || load(y,3) ->
@@ -87,7 +91,8 @@ do
 od;
 }
 
-proctype p3 {	
+proctype p3 {
+int tmp;
 do
 :: load(end3,0) ->
 		do
@@ -106,8 +111,9 @@ do
 				if
 				:: load(x,0) || load(x,1) || load(x,2) ->
 					store(b3,0);
+					tmp = loadval(b1);
 					if
-					:: load(b1,0) && load(b2,0) -> skip;
+					:: tmp == 0 && load(b2,0) -> skip;
 					fi;
 					if
 					:: load(y,0) || load(y,1) || load(y,2) ->
