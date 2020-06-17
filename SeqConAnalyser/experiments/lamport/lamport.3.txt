@@ -9,7 +9,9 @@ int end2 = 0;
 int end3 = 0;
 int end4 = 0;
 
-proctype p1 {	
+proctype p1 {
+int tmp;
+int tmp2;
 do
 :: load(end1,0) ->
 		do
@@ -19,7 +21,7 @@ do
 				if
 				:: load(y,1) || load(y,2) || load(y,3) || load(y,4) ->
 					store(b1,0);
-					fi
+					if
 					:: load(y,0) -> break;
 					fi;
 				:: load(y,0) -> skip;
@@ -28,12 +30,14 @@ do
 				if
 				:: load(x,0) || load(x,2) || load(x,3) || load(x,4) ->
 					store(b1,0);
-					fi
-					:: load(b2,0) && load(b3,0) && load(b4,0) -> skip;
+					tmp = loadval(b2);
+					tmp2 = loadval(b3);
+					if
+					:: tmp == 0 && tmp2 == 0 && load(b4,0) -> skip;
 					fi;
 					if
 					:: load(y,0) || load(y,2) || load(y,3) || load(y,4) ->
-						fi
+						if
 						:: load(y,0) -> break;
 						fi;
 					:: load(y,1) -> skip;
@@ -49,7 +53,9 @@ do
 od;
 }
 
-proctype p2 {	
+proctype p2 {
+int tmp;
+int tmp2;
 do
 :: load(end2,0) ->
 		do
@@ -59,7 +65,7 @@ do
 				if
 				:: load(y,1) || load(y,2) || load(y,3) || load(y,4) ->
 					store(b2,0);
-					fi
+					if
 					:: load(y,0) -> break;
 					fi;
 				:: load(y,0) -> skip;
@@ -68,12 +74,14 @@ do
 				if
 				:: load(x,0) || load(x,1) || load(x,3) || load(x,4) ->
 					store(b2,0);
-					fi
-					:: load(b1,0) && load(b3,0) && load(b4,0) -> skip;
+					tmp = loadval(b1);
+					tmp2 = loadval(b3);
+					if
+					:: tmp == 0 && tmp2 == 0 && load(b4,0) -> skip;
 					fi;
 					if
 					:: load(y,0) || load(y,1) || load(y,3) || load(y,4) ->
-						fi
+						if
 						:: load(y,0) -> break;
 						fi;
 					:: load(y,2) -> skip;
@@ -89,7 +97,9 @@ do
 od;
 }
 
-proctype p3 {	
+proctype p3 {
+int tmp;
+int tmp2;
 do
 :: load(end3,0) ->
 		do
@@ -99,7 +109,7 @@ do
 				if
 				:: load(y,1) || load(y,2) || load(y,3) || load(y,4) ->
 					store(b3,0);
-					fi
+					if
 					:: load(y,0) -> break;
 					fi;
 				:: load(y,0) -> skip;
@@ -108,12 +118,14 @@ do
 				if
 				:: load(x,0) || load(x,1) || load(x,2) || load(x,4) ->
 					store(b3,0);
-					fi
-					:: load(b1,0) && load(b2,0) && load(b4,0) -> skip;
+					tmp = loadval(b1);
+					tmp2 = loadval(b2);
+					if
+					:: tmp == 0 && tmp2 == 0 && load(b4,0) -> skip;
 					fi;
 					if
 					:: load(y,0) || load(y,1) || load(y,2) || load(y,4) ->
-						fi
+						if
 						:: load(y,0) -> break;
 						fi;
 					:: load(y,3) -> skip;
@@ -129,7 +141,9 @@ do
 od;
 }
 
-proctype p4 {	
+proctype p4 {
+int tmp;
+int tmp2;
 do
 :: load(end4,0) ->
 		do
@@ -139,7 +153,7 @@ do
 				if
 				:: load(y,1) || load(y,2) || load(y,3) || load(y,4) ->
 					store(b4,0);
-					fi
+					if
 					:: load(y,0) -> break;
 					fi;
 				:: load(y,0) -> skip;
@@ -148,12 +162,14 @@ do
 				if
 				:: load(x,0) || load(x,1) || load(x,2) || load(x,3) ->
 					store(b4,0);
-					fi
-					:: load(b1,0) && load(b2,0) && load(b3,0) -> skip;
+					tmp = loadval(b1);
+					tmp2 = loadval(b2);
+					if
+					:: tmp == 0 && tmp2 == 0 && load(b3,0) -> skip;
 					fi;
 					if
 					:: load(y,0) || load(y,1) || load(y,2) || load(y,3) ->
-						fi
+						if
 						:: load(y,0) -> break;
 						fi;
 					:: load(y,4) -> skip;
