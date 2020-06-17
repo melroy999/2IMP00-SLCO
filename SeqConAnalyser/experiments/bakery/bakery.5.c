@@ -55,7 +55,8 @@ void* P0(void * arg) {
             break;
             // -> NCS
         }
-    }
+      }
+		}
 }
 
 void* P1(void * arg) {
@@ -110,7 +111,8 @@ void* P1(void * arg) {
             break;
             // -> NCS
         }
-    }
+      }
+		}
 }
 
 void* P2(void * arg) {
@@ -165,7 +167,8 @@ void* P2(void * arg) {
             break;
             // -> NCS
         }
-    }
+      }
+	 }
 }
 
 void* P3(void * arg) {
@@ -220,7 +223,8 @@ void* P3(void * arg) {
             break;
             // -> NCS
         }
-    }
+     }
+	}
 }
 
 int main()

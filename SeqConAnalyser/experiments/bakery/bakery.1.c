@@ -55,7 +55,8 @@ void* P0(void * arg) {
             break;
             // -> NCS
         }
-    }
+		  }
+	 }
 }
 
 void* P1(void * arg) {
@@ -110,7 +111,8 @@ void* P1(void * arg) {
             break;
             // -> NCS
         }
-    }
+      }
+		}
 }
 
 int main()
