@@ -17,7 +17,7 @@ do
 				if
 				:: load(y,1) || load(y,2) || load(y,3) ->
 					store(b1,0);
-					fi
+					if
 					:: load(y,0) -> break;
 					fi;
 				:: load(y,0) -> skip;
@@ -26,12 +26,12 @@ do
 				if
 				:: load(x,0) || load(x,2) || load(x,3) ->
 					store(b1,0);
-					fi
+					if
 					:: load(b2,0) && load(b3,0) -> skip;
 					fi;
 					if
 					:: load(y,0) || load(y,2) || load(y,3) ->
-						fi
+						if
 						:: load(y,0) -> break;
 						fi;
 					:: load(y,1) -> skip;
@@ -57,7 +57,7 @@ do
 				if
 				:: load(y,1) || load(y,2) || load(y,3) ->
 					store(b2,0);
-					fi
+					if
 					:: load(y,0) -> break;
 					fi;
 				:: load(y,0) -> skip;
@@ -66,12 +66,12 @@ do
 				if
 				:: load(x,0) || load(x,1) || load(x,3) ->
 					store(b2,0);
-					fi
+					if
 					:: load(b1,0) && load(b3,0) -> skip;
 					fi;
 					if
 					:: load(y,0) || load(y,1) || load(y,3) ->
-						fi
+						if
 						:: load(y,0) -> break;
 						fi;
 					:: load(y,2) -> skip;
@@ -97,7 +97,7 @@ do
 				if
 				:: load(y,1) || load(y,2) || load(y,3) ->
 					store(b3,0);
-					fi
+					if
 					:: load(y,0) -> break;
 					fi;
 				:: load(y,0) -> skip;
@@ -106,12 +106,12 @@ do
 				if
 				:: load(x,0) || load(x,1) || load(x,2) ->
 					store(b3,0);
-					fi
+					if
 					:: load(b1,0) && load(b2,0) -> skip;
 					fi;
 					if
 					:: load(y,0) || load(y,1) || load(y,2) ->
-						fi
+						if
 						:: load(y,0) -> break;
 						fi;
 					:: load(y,3) -> skip;
