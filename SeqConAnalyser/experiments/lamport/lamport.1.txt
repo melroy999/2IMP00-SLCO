@@ -15,7 +15,7 @@ do
 				if
 				:: load(y,1) || load(y,2) ->
 					store(b1,0);
-					fi
+					if
 					:: load(y,0) -> break;
 					fi;
 				:: load(y,0) -> skip;
@@ -24,7 +24,7 @@ do
 				if
 				:: load(x,0) || load(x,2) ->
 					store(b1,0);
-					fi
+					if
 					:: load(b2,0) -> skip;
 					fi;
 					if
@@ -55,7 +55,7 @@ do
 				if
 				:: load(y,1) || load(y,2) ->
 					store(b2,0);
-					fi
+					if
 					:: load(y,0) -> break;
 					fi;
 				:: load(y,0) -> skip;
@@ -64,7 +64,7 @@ do
 				if
 				:: load(x,0) || load(x,1) ->
 					store(b2,0);
-					fi
+					if
 					:: load(b1,0) -> skip;
 					fi;
 					if
