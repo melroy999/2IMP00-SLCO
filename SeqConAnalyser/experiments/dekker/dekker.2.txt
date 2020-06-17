@@ -4,11 +4,13 @@ int want3;
 int turn;
 
 proctype p1 {	
+int tmp;
 do
 :: true ->
 		store(want1, 1);
+		tmp = loadval(want2);
 		do
-		:: load(want2,1) || load(want3,1) ->
+		:: tmp == 1 || load(want3,1) ->
 			if
 			:: load(turn,1) || load(turn,2) ->
 				store(want1, 0);
@@ -21,20 +23,23 @@ do
 			:: load(turn,0) -> skip;
 			fi;
 			
-		:: load(want2,0) && load(want3,0) -> break;
+		:: tmp == 0 && load(want3,0) -> break;
 		od;
 		
 		store(turn, 1);
 		store(want1, 0);
+		break;
 od;
 }
 
 proctype p2 {
+int tmp;
 do
 :: true ->
 		store(want2, 1);
+		tmp = loadval(want1);
 		do
-		:: load(want1,1) || load(want3,1) ->			
+		:: tmp == 1 || load(want3,1) ->			
 			if
 			:: load(turn,0) || load(turn,2) ->
 				store(want2, 0);
@@ -47,7 +52,7 @@ do
 			:: load(turn,1) -> skip;
 			fi;
 			
-		:: load(want1,0) && load(want3,0) -> break;
+		:: tmp == 0 && load(want3,0) -> break;
 		od;
 		
 		store(turn, 2);
@@ -56,11 +61,13 @@ od;
 }
 
 proctype p3 {
+int tmp;
 do
 :: true ->
 		store(want3, 1);
+		tmp = loadval(want1);
 		do
-		:: load(want1,1) || load(want2,1) ->			
+		:: tmp == 1 || load(want2,1) ->			
 			if
 			:: load(turn,0) || load(turn,1) ->
 				store(want3, 0);
@@ -73,7 +80,7 @@ do
 			:: load(turn,2) -> skip;
 			fi;
 			
-		:: load(want1,0) && load(want2,0) -> break;
+		:: tmp == 0 && load(want2,0) -> break;
 		od;
 		
 		store(turn, 0);
