@@ -9,7 +9,7 @@ model dve_peterson_1 {
     state machines
     thr1 {
       
-      initial NCS states CS wait STOP SimpleState0
+      initial NCS states wait STOP SimpleState0
 
       transitions
       NCS -> SimpleState0 {
@@ -20,12 +20,8 @@ model dve_peterson_1 {
         (flag2 and turn=1) or (flag3 and turn=2) or (flag4 and turn=3) or (flag5 and turn=4) or (flag6 and turn=5)
       }
       
-      wait -> CS {
-        not ((flag2 and turn=1) or (flag3 and turn=2) or (flag4 and turn=3) or (flag5 and turn=4) or (flag6 and turn=5))
-      }
-      
-      CS -> STOP {
-        flag1 := false
+      1: wait -> STOP {
+				flag1 := false
       }
       
       SimpleState0 -> wait {
@@ -35,7 +31,7 @@ model dve_peterson_1 {
     
     thr2 {
       
-      initial NCS states CS wait STOP SimpleState0
+      initial NCS states wait STOP SimpleState0
 
       transitions
       NCS -> SimpleState0 {
@@ -46,14 +42,10 @@ model dve_peterson_1 {
         (flag1 and turn=0) or (flag3 and turn=2) or (flag4 and turn=3) or (flag5 and turn=4) or (flag6 and turn=5)
       }
       
-      wait -> CS {
-        not ((flag1 and turn=0) or (flag3 and turn=2) or (flag4 and turn=3) or (flag5 and turn=4) or (flag6 and turn=5))
+      1: wait -> STOP {
+				flag2 := false
       }
-      
-      CS -> STOP {
-        flag2 := false
-      }
-      
+            
       SimpleState0 -> wait {
         turn := 2
       }
@@ -61,7 +53,7 @@ model dve_peterson_1 {
 
     thr3 {
       
-      initial NCS states CS wait STOP SimpleState0
+      initial NCS states wait STOP SimpleState0
 
       transitions
       NCS -> SimpleState0 {
@@ -72,14 +64,10 @@ model dve_peterson_1 {
         (flag1 and turn=0) or (flag2 and turn=1) or (flag4 and turn=3) or (flag5 and turn=4) or (flag6 and turn=5)
       }
       
-      wait -> CS {
-        not ((flag1 and turn=0) or (flag2 and turn=1) or (flag4 and turn=3) or (flag5 and turn=4) or (flag6 and turn=5))
+      1: wait -> STOP {
+				flag3 := false
       }
-      
-      CS -> STOP {
-        flag3 := false
-      }
-      
+
       SimpleState0 -> wait {
         turn := 3
       }
@@ -87,7 +75,7 @@ model dve_peterson_1 {
 
     thr4 {
       
-      initial NCS states CS wait STOP SimpleState0
+      initial NCS states wait STOP SimpleState0
 
       transitions
       NCS -> SimpleState0 {
@@ -98,12 +86,8 @@ model dve_peterson_1 {
         (flag1 and turn=0) or (flag2 and turn=1) or (flag3 and turn=2) or (flag5 and turn=4) or (flag6 and turn=5)
       }
       
-      wait -> CS {
-        not ((flag1 and turn=0) or (flag2 and turn=1) or (flag3 and turn=2) or (flag5 and turn=4) or (flag6 and turn=5))
-      }
-      
-      CS -> STOP {
-        flag4 := false
+      1: wait -> STOP {
+				flag4 := false
       }
       
       SimpleState0 -> wait {
@@ -113,7 +97,7 @@ model dve_peterson_1 {
 
     thr5 {
       
-      initial NCS states CS wait STOP SimpleState0
+      initial NCS states wait STOP SimpleState0
 
       transitions
       NCS -> SimpleState0 {
@@ -124,12 +108,8 @@ model dve_peterson_1 {
         (flag1 and turn=0) or (flag2 and turn=1) or (flag3 and turn=2) or (flag4 and turn=3) or (flag6 and turn=5)
       }
       
-      wait -> CS {
-        not ((flag1 and turn=0) or (flag2 and turn=1) or (flag3 and turn=2) or (flag4 and turn=3) or (flag6 and turn=5))
-      }
-      
-      CS -> STOP {
-        flag5 := false
+      1: wait -> STOP {
+				flag5 := false
       }
       
       SimpleState0 -> wait {
@@ -139,7 +119,7 @@ model dve_peterson_1 {
 
     thr6 {
       
-      initial NCS states CS wait STOP SimpleState0
+      initial NCS states wait STOP SimpleState0
 
       transitions
       NCS -> SimpleState0 {
@@ -150,12 +130,8 @@ model dve_peterson_1 {
         (flag1 and turn=0) or (flag2 and turn=1) or (flag3 and turn=2) or (flag4 and turn=3) or (flag5 and turn=4)
       }
       
-      wait -> CS {
-        not ((flag1 and turn=0) or (flag2 and turn=1) or (flag3 and turn=2) or (flag4 and turn=3) or (flag5 and turn=4))
-      }
-      
-      CS -> STOP {
-        flag6 := false
+      1: wait -> STOP {
+				flag6 := false
       }
       
       SimpleState0 -> wait {

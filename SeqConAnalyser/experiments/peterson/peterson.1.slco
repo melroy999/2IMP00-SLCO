@@ -9,7 +9,7 @@ model dve_peterson_1 {
     state machines
     thr1 {
       
-      initial NCS states CS wait STOP SimpleState0
+      initial NCS states wait STOP SimpleState0
 
       transitions
       NCS -> SimpleState0 {
@@ -20,12 +20,8 @@ model dve_peterson_1 {
         flag2 and turn
       }
       
-      wait -> CS {
-        not flag2 or not turn
-      }
-      
-      CS -> STOP {
-        flag1 := false
+      1: wait -> STOP {
+				flag1 := false
       }
       
       SimpleState0 -> wait {
@@ -35,7 +31,7 @@ model dve_peterson_1 {
     
     thr2 {
       
-      initial NCS states CS wait STOP SimpleState0
+      initial NCS states wait STOP SimpleState0
 
       transitions
       NCS -> SimpleState0 {
@@ -46,11 +42,7 @@ model dve_peterson_1 {
         flag1 and not turn
       }
       
-      wait -> CS {
-        not flag1 or turn
-      }
-      
-      CS -> STOP {
+      1: wait -> STOP {
         flag2 := false
       }
       

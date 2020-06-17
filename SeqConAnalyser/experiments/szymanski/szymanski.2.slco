@@ -9,7 +9,7 @@ model dve_lamport_05 {
     state machines
     thr1 {
       
-      initial S0 states S1 S2 SimpleState0 SimpleState1 SimpleState2
+      initial S0 states S1 SimpleState0 SimpleState1 SimpleState2
 
       transitions
       S0 -> SimpleState0 {
@@ -23,16 +23,12 @@ model dve_lamport_05 {
       S1 -> SimpleState1 {
         flag1 := 3
       }
-
-      SimpleState1 -> S2 {
-        flag2 = 1 or flag3 = 1
-      }
       
       SimpleState1 -> S3 {
         not(flag2 = 1 or flag3 = 1)
       }
 
-      S2 -> SimpleState2 {
+      1: SimpleState1 -> SimpleState2 {
         flag1 := 2
       }
 
@@ -59,7 +55,7 @@ model dve_lamport_05 {
 
     thr2 {
       
-      initial S0 states S1 S2 SimpleState0 SimpleState1 SimpleState2
+      initial S0 states S1 SimpleState0 SimpleState1 SimpleState2
 
       transitions
       S0 -> SimpleState0 {
@@ -73,16 +69,12 @@ model dve_lamport_05 {
       S1 -> SimpleState1 {
         flag2 := 3
       }
-
-      SimpleState1 -> S2 {
-        flag1 = 1 or flag3 = 1
-      }
       
       SimpleState1 -> S3 {
         not(flag1 = 1 or flag3 = 1)
       }
 
-      S2 -> SimpleState2 {
+      1: SimpleState1 -> SimpleState2 {
         flag2 := 2
       }
 
@@ -109,7 +101,7 @@ model dve_lamport_05 {
 
     thr3 {
       
-      initial S0 states S1 S2 SimpleState0 SimpleState1 SimpleState2
+      initial S0 states S1 SimpleState0 SimpleState1 SimpleState2
 
       transitions
       S0 -> SimpleState0 {
@@ -123,16 +115,12 @@ model dve_lamport_05 {
       S1 -> SimpleState1 {
         flag3 := 3
       }
-
-      SimpleState1 -> S2 {
-        flag1 = 1 or flag2 = 1
-      }
       
       SimpleState1 -> S3 {
         not(flag1 = 1 or flag2 = 1)
       }
 
-      S2 -> SimpleState2 {
+      1: SimpleState1 -> SimpleState2 {
         flag3 := 2
       }
 

@@ -9,7 +9,7 @@ model dve_lamport_05 {
     state machines
     thr1 {
       
-      initial S0 states S1 S2 S3 S4 S5 S6 SimpleState0 SimpleState1 SimpleState2
+      initial S0 states S1 S3 S4 S5 S6 SimpleState0 SimpleState1 SimpleState2
 
       transitions
       S0 -> SimpleState0 {
@@ -23,16 +23,12 @@ model dve_lamport_05 {
       S1 -> SimpleState1 {
         flag1 := 3
       }
-
-      SimpleState1 -> S2 {
-        flag2 = 1 or flag3 = 1 or flag4 = 1 or flag5 = 1 or flag6 = 1
-      }
       
       SimpleState1 -> S3 {
         not(flag2 = 1 or flag3 = 1 or flag4 = 1 or flag5 = 1 or flag6 = 1)
       }
 
-      S2 -> SimpleState2 {
+      1: SimpleState1 -> SimpleState2 {
         flag1 := 2
       }
 
@@ -59,7 +55,7 @@ model dve_lamport_05 {
 
     thr2 {
       
-      initial S0 states S1 S2 S3 S4 S5 S6 SimpleState0 SimpleState1 SimpleState2
+      initial S0 states S1 S3 S4 S5 S6 SimpleState0 SimpleState1 SimpleState2
 
       transitions
       S0 -> SimpleState0 {
@@ -73,16 +69,12 @@ model dve_lamport_05 {
       S1 -> SimpleState1 {
         flag2 := 3
       }
-
-      SimpleState1 -> S2 {
-        flag1 = 1 or flag3 = 1 or flag4 = 1 or flag5 = 1 or flag6 = 1
-      }
       
       SimpleState1 -> S3 {
         not(flag1 = 1 or flag3 = 1 or flag4 = 1 or flag5 = 1 or flag6 = 1)
       }
 
-      S2 -> SimpleState2 {
+      1: SimpleState1 -> SimpleState2 {
         flag2 := 2
       }
 
@@ -109,7 +101,7 @@ model dve_lamport_05 {
 
     thr3 {
       
-      initial S0 states S1 S2 S3 S4 S5 S6 SimpleState0 SimpleState1 SimpleState2
+      initial S0 states S1 S3 S4 S5 S6 SimpleState0 SimpleState1 SimpleState2
 
       transitions
       S0 -> SimpleState0 {
@@ -123,16 +115,12 @@ model dve_lamport_05 {
       S1 -> SimpleState1 {
         flag3 := 3
       }
-
-      SimpleState1 -> S2 {
-        flag1 = 1 or flag2 = 1 or flag4 = 1 or flag5 = 1 or flag6 = 1
-      }
       
       SimpleState1 -> S3 {
         not(flag1 = 1 or flag2 = 1 or flag4 = 1 or flag5 = 1 or flag6 = 1)
       }
 
-      S2 -> SimpleState2 {
+      1: SimpleState1 -> SimpleState2 {
         flag3 := 2
       }
 
@@ -159,7 +147,7 @@ model dve_lamport_05 {
 
     thr4 {
       
-      initial S0 states S1 S2 S3 S4 S5 S6 SimpleState0 SimpleState1 SimpleState2
+      initial S0 states S1 S3 S4 S5 S6 SimpleState0 SimpleState1 SimpleState2
 
       transitions
       S0 -> SimpleState0 {
@@ -173,16 +161,12 @@ model dve_lamport_05 {
       S1 -> SimpleState1 {
         flag4 := 3
       }
-
-      SimpleState1 -> S2 {
-        flag1 = 1 or flag2 = 1 or flag3 = 1 or flag5 = 1 or flag6 = 1
-      }
       
       SimpleState1 -> S3 {
         not(flag1 = 1 or flag2 = 1 or flag3 = 1 or flag5 = 1 or flag6 = 1)
       }
 
-      S2 -> SimpleState2 {
+      1: SimpleState2 -> SimpleState2 {
         flag4 := 2
       }
 
@@ -209,7 +193,7 @@ model dve_lamport_05 {
  
    thr5 {
       
-      initial S0 states S1 S2 S3 S4 S5 S6 SimpleState0 SimpleState1 SimpleState2
+      initial S0 states S1 S3 S4 S5 S6 SimpleState0 SimpleState1 SimpleState2
 
       transitions
       S0 -> SimpleState0 {
@@ -223,16 +207,12 @@ model dve_lamport_05 {
       S1 -> SimpleState1 {
         flag5 := 3
       }
-
-      SimpleState1 -> S2 {
-        flag1 = 1 or flag2 = 1 or flag3 = 1 or flag4 = 1 or flag6 = 1
-      }
       
       SimpleState1 -> S3 {
         not(flag1 = 1 or flag2 = 1 or flag3 = 1 or flag4 = 1 or flag6 = 1)
       }
 
-      S2 -> SimpleState2 {
+      1: SimpleState2 -> SimpleState2 {
         flag5 := 2
       }
 
@@ -259,7 +239,7 @@ model dve_lamport_05 {
 
    thr6 {
       
-      initial S0 states S1 S2 S3 S4 S5 S6 SimpleState0 SimpleState1 SimpleState2
+      initial S0 states S1 S3 S4 S5 S6 SimpleState0 SimpleState1 SimpleState2
 
       transitions
       S0 -> SimpleState0 {
@@ -273,16 +253,12 @@ model dve_lamport_05 {
       S1 -> SimpleState1 {
         flag6 := 3
       }
-
-      SimpleState1 -> S2 {
-        flag1 = 1 or flag2 = 1 or flag3 = 1 or flag4 = 1 or flag5 = 1
-      }
       
       SimpleState1 -> S3 {
         not(flag1 = 1 or flag2 = 1 or flag3 = 1 or flag4 = 1 or flag5 = 1)
       }
 
-      S2 -> SimpleState2 {
+      1: SimpleState2 -> SimpleState2 {
         flag6 := 2
       }
 
