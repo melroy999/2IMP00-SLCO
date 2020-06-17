@@ -29,7 +29,7 @@ do
 					fi;
 					if
 					:: load(y,0) || load(y,2) ->
-						fi
+						if
 						:: load(y,0) -> break;
 						fi;
 					:: load(y,1) -> skip;
@@ -69,7 +69,7 @@ do
 					fi;
 					if
 					:: load(y,0) || load(y,1) ->
-						fi
+						if
 						:: load(y,0) -> break;
 						fi;
 					:: load(y,2) -> skip;
