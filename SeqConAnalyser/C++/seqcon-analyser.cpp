@@ -5,7 +5,7 @@
 //  Created by Anton Wijs on 11/05/2020.
 //
 
-#include <string>
+#include <cstring>
 #include <iostream>
 #include <fstream>
 #include <map>
