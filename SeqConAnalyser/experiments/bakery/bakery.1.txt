@@ -31,12 +31,17 @@ do
 			do
 			:: true ->
 				if
-				:: j < 2 && load(choosing[j],0) ->
-					tmp = loadval(number[j]);
-					tmp2 = loadval(number[0]);
+				:: j < 2 ->
+					tmp = loadval(choosing[j]);
 					if
-					:: (tmp == 0 || (tmp > tmp2) || (tmp == tmp2 && 0 <= j)) ->
-						j = j+1;
+					:: tmp == 0 ->
+						tmp = loadval(number[j]);
+						tmp2 = loadval(number[0]);
+						if
+						:: (tmp == 0 || (tmp > tmp2) || (tmp == tmp2 && 0 <= j)) ->
+							j = j+1;
+						fi;
+					:: tmp != 0 -> skip;
 					fi;
 				:: j == 2 ->
 					store(number[0],0);
@@ -79,12 +84,17 @@ do
 			do
 			:: true ->
 				if
-				:: j < 2 && load(choosing[j],0) ->
-					tmp = loadval(number[j]);
-					tmp2 = loadval(number[1]);
+				:: j < 2 ->
+					tmp = loadval(choosing[j]);
 					if
-					:: (tmp == 0 || (tmp > tmp2) || (tmp == tmp2 && 1 <= j)) ->
-						j = j+1;
+					:: tmp == 0 ->
+						tmp = loadval(number[j]);
+						tmp2 = loadval(number[1]);
+						if
+						:: (tmp == 0 || (tmp > tmp2) || (tmp == tmp2 && 1 <= j)) ->
+							j = j+1;
+						fi;
+					:: tmp != 0 -> skip;
 					fi;
 				:: j == 2 ->
 					store(number[1],0);
