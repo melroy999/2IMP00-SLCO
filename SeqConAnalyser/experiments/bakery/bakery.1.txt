@@ -1,57 +1,106 @@
-bool c0 = false;
-bool c1 = false;
-int n0 = 0;
-int n1 = 0;
+int choosing[2] = {0,0};
+int number[2] = {0,0};
 
 proctype P0 {
-int r;
+int j, max, tmp, tmp2;
 do
 :: true ->	
-	store(c0,true);
-	if
-	:: load(n1,0) -> store(n0,1); r = 1;
-	:: load(n1,1) -> store(n0,2); r = 2;
-	fi;
-	
-	store(c0,false);
-	
-	if
-	:: load(c1,false) -> skip;
-	fi;
-	
-	if
-	:: load(n1,0) -> skip;
-	:: r == 0 -> skip;
-	:: r == 1 && (load(n1,1) || load(n1,2)) -> skip;
-	:: r == 2 && load(n1,2) -> skip;
-	fi;
-	
-	store(n0,0);
+	store(choosing[0],1);
+	store(j,0);
+	store(max,0);
+	do
+	:: true ->
+		if
+		:: j < 2 ->
+			tmp = loadval(number[j]);
+			tmp2 = loadval(max);
+			if
+			:: tmp > tmp2 ->
+				tmp = loadval(number[j]);
+				store(max,tmp);
+				j = j+1;
+			:: tmp <= tmp2 ->
+				j = j+1;
+			fi;
+		:: j == 2 ->
+			tmp = loadval(max);
+			if
+			:: tmp < 9 ->
+				tmp = loadval(max);
+				store(number[0],tmp);
+				j = 0;
+				store(choosing[0],0);
+				do
+				:: true ->
+					if
+					:: j < 2 && loadval(choosing[j],0) ->
+						tmp = loadval(number[j]);
+						tmp2 = loadval(number[0]);
+						if
+						:: (tmp == 0 || (tmp > tmp2) || (tmp == tmp2 && 0 <= j)) ->
+							j = j+1;
+						fi;
+					:: j == 2 ->
+						store(number[0],0);
+						break;
+					fi;
+				od;
+				break;
+			:: tmp >= 9 -> skip;
+			fi;
+		fi;
+	od;
 od;
 }
 
 proctype P1 {
-int r;
+int j, max, tmp, tmp2;
 do
-:: true ->
-	store(c1,true);
-	if
-	:: load(n0,0) -> store(n1,1); r = 1;
-	:: load(n0,1) -> store(n1,2); r = 2;
-	fi;
-	
-	store(c1,false);
-	
-	if
-	:: load(c0,false) -> skip;
-	fi;
-	
-	if
-	:: load(n0,0) -> skip;
-	:: r == 0 && (load(n0,1) || load(n0,2)) -> skip;
-	:: r == 1 && load(n0,2) -> skip;
-	fi;
-	
-	store(n1,0);
+:: true ->	
+	store(choosing[1],1);
+	store(j,0);
+	store(max,0);
+	do
+	:: true ->
+		if
+		:: j < 2 ->
+			tmp = loadval(number[j]);
+			tmp2 = loadval(max);
+			if
+			:: tmp > tmp2 ->
+				tmp = loadval(number[j]);
+				store(max,tmp);
+				j = j+1;
+			:: tmp <= tmp2 ->
+				j = j+1;
+			fi;
+		:: j == 2 ->
+			tmp = loadval(max);
+			if
+			:: tmp < 9 ->
+				tmp = loadval(max);
+				store(number[1],tmp);
+				j = 0;
+				store(choosing[1],0);
+				do
+				:: true ->
+					if
+					:: j < 2 && loadval(choosing[j],0) ->
+						tmp = loadval(number[j]);
+						tmp2 = loadval(number[1]);
+						if
+						:: (tmp == 0 || (tmp > tmp2) || (tmp == tmp2 && 0 <= j)) ->
+							j = j+1;
+						fi;
+					:: j == 2 ->
+						store(number[1],0);
+						break;
+					fi;
+				od;
+				break;
+			:: tmp >= 9 -> skip;
+			fi;
+		fi;
+	od;
 od;
 }
