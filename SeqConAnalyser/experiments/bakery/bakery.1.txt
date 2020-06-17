@@ -1,5 +1,5 @@
 int choosing[2] = {0,0};
-int number[2] = {0,0};
+int number[3] = {0,0,0};
 
 proctype P0 {
 int j;
