@@ -83,7 +83,7 @@ do
 					tmp = loadval(number[j]);
 					tmp2 = loadval(number[1]);
 					if
-					:: (tmp == 0 || (tmp > tmp2) || (tmp == tmp2 && 0 <= j)) ->
+					:: (tmp == 0 || (tmp > tmp2) || (tmp == tmp2 && 1 <= j)) ->
 						j = j+1;
 					fi;
 				:: j == 2 ->
