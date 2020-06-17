@@ -9,7 +9,7 @@ int tmp2;
 do
 :: true ->	
 	store(choosing[0],1);
-	store(j,0);
+	j = 0;
 	max = 0;
 	do
 	:: true ->
@@ -57,7 +57,7 @@ int tmp2;
 do
 :: true ->	
 	store(choosing[1],1);
-	store(j,0);
+	j = 0;
 	max = 0;
 	do
 	:: true ->
