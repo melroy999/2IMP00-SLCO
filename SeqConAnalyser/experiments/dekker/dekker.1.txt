@@ -25,6 +25,7 @@ do
 		
 		store(turn, 1);
 		store(want1, 0);
+		break;
 od;
 }
 
@@ -52,5 +53,6 @@ do
 		
 		store(turn, 0);
 		store(want2, 0);
+		break;
 od;
 }
