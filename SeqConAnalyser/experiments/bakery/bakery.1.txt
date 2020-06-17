@@ -6,59 +6,59 @@ int j;
 int max;
 int tmp;
 int tmp2;
-P0_NCS:		store(choosing[0],1);
+P0NCS:		store(choosing[0],1);
 		j = 0;
 		max = 0;
-		goto P0_CHOOSE;
-P0_CHOOSE:		if
+		goto P0CHOOSE;
+P0CHOOSE:		if
 		:: j < 2 ->
-			goto P0_CHOOSE2;
+			goto P0CHOOSE2;
 		:: j == 2 && max < 9 ->
 			store(number[0], max+1);
 			j = 0;
 			store(choosing[0], 0);
-			goto P0_FORLOOP;
+			goto P0FORLOOP;
 		fi;
-P0_CHOOSE2:	tmp = loadval(number[j]);
+P0CHOOSE2:	tmp = loadval(number[j]);
 		if
 		:: tmp > max ->
 			tmp = loadval(number[j]);
 			max = tmp;
 			j = j + 1;
-			goto P0_CHOOSE;
+			goto P0CHOOSE;
 		:: tmp <= max ->
 			j = j + 1;
-			goto P0_CHOOSE;
+			goto P0CHOOSE;
 		fi;
-P0_FORLOOP:	do
+P0FORLOOP:	do
 		:: true ->
 			if
 			:: j < 2 ->
 				tmp = loadval(choosing[j]);
 				if
 				:: tmp == 0 ->
-					goto P0_WAIT;
+					goto P0WAIT;
 				:: tmp != 0 ->
 					skip;
 				fi;
 			:: j == 2 ->
-				goto P0_CS;
+				goto P0CS;
 			fi;
 		od;
-P0_WAIT:	do
+P0WAIT:	do
 		:: true ->
 			tmp = loadval(number[j]);
 			tmp2 = loadval(number[0]);
 			if
 			:: tmp == 0 || (tmp > tmp2) || (tmp == tmp2 && 0 <= j) ->
 				j = j + 1;
-				goto P0_FORLOOP;
+				goto P0FORLOOP;
 			:: !(tmp == 0 || (tmp > tmp2) || (tmp == tmp2 && 0 <= j)) ->
 				skip;
 			fi;
 		od;
-P0_CS:		number[0] = 0;
-		goto P0_NCS;
+P0CS:		number[0] = 0;
+		goto P0NCS;
 }
 
 proctype P1 {
@@ -66,57 +66,57 @@ int j;
 int max;
 int tmp;
 int tmp2;
-P1_NCS:		store(choosing[1],1);
+P1NCS:		store(choosing[1],1);
 		j = 0;
 		max = 0;
-		goto P1_CHOOSE;
-P1_CHOOSE:		if
+		goto P1CHOOSE;
+P1CHOOSE:		if
 		:: j < 2 ->
-			goto P1_CHOOSE2;
+			goto P1CHOOSE2;
 		:: j == 2 && max < 9 ->
 			store(number[1], max+1);
 			j = 0;
 			store(choosing[1], 0);
-			goto P1_FORLOOP;
+			goto P1FORLOOP;
 		fi;
-P1_CHOOSE2:	tmp = loadval(number[j]);
+P1CHOOSE2:	tmp = loadval(number[j]);
 		if
 		:: tmp > max ->
 			tmp = loadval(number[j]);
 			max = tmp;
 			j = j + 1;
-			goto P1_CHOOSE;
+			goto P1CHOOSE;
 		:: tmp <= max ->
 			j = j + 1;
-			goto P1_CHOOSE;
+			goto P1CHOOSE;
 		fi;
-P1_FORLOOP:	do
+P1FORLOOP:	do
 		:: true ->
 			if
 			:: j < 2 ->
 				tmp = loadval(choosing[j]);
 				if
 				:: tmp == 0 ->
-					goto P1_WAIT;
+					goto P1WAIT;
 				:: tmp != 0 ->
 					skip;
 				fi;
 			:: j == 2 ->
-				goto P1_CS;
+				goto P1CS;
 			fi;
 		od;
-P1_WAIT:	do
+P1WAIT:	do
 		:: true ->
 			tmp = loadval(number[j]);
 			tmp2 = loadval(number[1]);
 			if
 			:: tmp == 0 || (tmp > tmp2) || (tmp == tmp2 && 1 <= j) ->
 				j = j + 1;
-				goto P1_FORLOOP;
+				goto P1FORLOOP;
 			:: !(tmp == 0 || (tmp > tmp2) || (tmp == tmp2 && 1 <= j)) ->
 				skip;
 			fi;
 		od;
-P1_CS:		number[1] = 0;
-		goto P1_NCS;
+P1CS:		number[1] = 0;
+		goto P1NCS;
 }
