@@ -21,6 +21,7 @@ do
 				tmp = loadval(number[j]);
 				max = tmp;
 				j = j+1;
+				skip;
 			:: tmp <= max ->
 				j = j+1;
 			fi;
@@ -74,6 +75,7 @@ do
 				tmp = loadval(number[j]);
 				max = tmp;
 				j = j+1;
+				skip;
 			:: tmp <= max ->
 				j = j+1;
 			fi;
