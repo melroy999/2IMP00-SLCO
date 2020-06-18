@@ -215,7 +215,7 @@ var v': Var';
     L': List(Var');
     n': Int;
 {% for v in sorted_variables %}
-{% if v is hasindex %}(n' >= 0 && n' < {{v[2]}}) -> {% else %}{% if loop.first %}eqn {% else %}    {% endif %}{% endif %}remove_invalid_accesses'2(lc'({{mcrl2varprefix}}{{v[1]}}{{'(n\')' if v is hasindex}})) = {% if v is hasindex %}[lc'({{mcrl2varprefix}}{{v[1]}}(n'))]{% else %}[lc'({{mcrl2varprefix}}{{v[1]}})]{% endif %};
+{% if loop.first %}eqn {% else %}    {% endif %}{% if v is hasindex %}(n' >= 0 && n' < {{v[2]}}) -> {% endif %}remove_invalid_accesses'2(lc'({{mcrl2varprefix}}{{v[1]}}{{'(n\')' if v is hasindex}})) = {% if v is hasindex %}[lc'({{mcrl2varprefix}}{{v[1]}}(n'))]{% else %}[lc'({{mcrl2varprefix}}{{v[1]}})]{% endif %};
 {% if v is hasindex %}(n' < 0 || n' >= {{v[2]}}) -> remove_invalid_accesses'2(lc'({{mcrl2varprefix}}{{v[1]}}(n'))) = [];
 {% endif %}
 {% endfor %}
@@ -232,7 +232,7 @@ map remove_invalid_accessvar': Var' -> List(Var');
 var v': Var';
     n': Int;
 {% for v in sorted_variables %}
-{% if v is hasindex %}(n' >= 0 && n' < {{v[2]}}) -> {% else %}{% if loop.first %}eqn {% else %}    {% endif %}{% endif %}remove_invalid_accessvar'({{mcrl2varprefix}}{{v[1]}}{{'(n\')' if v is hasindex}}) = {% if v is hasindex %}[{{mcrl2varprefix}}{{v[1]}}(n')]{% else %}[{{mcrl2varprefix}}{{v[1]}}]{% endif %};
+{% if loop.first %}eqn {% else %}    {% endif %}{% if v is hasindex %}(n' >= 0 && n' < {{v[2]}}) -> {% endif %}remove_invalid_accessvar'({{mcrl2varprefix}}{{v[1]}}{{'(n\')' if v is hasindex}}) = {% if v is hasindex %}[{{mcrl2varprefix}}{{v[1]}}(n')]{% else %}[{{mcrl2varprefix}}{{v[1]}}]{% endif %};
 {% if v is hasindex %}(n' < 0 || n' >= {{v[2]}}) -> remove_invalid_accessvar'({{mcrl2varprefix}}{{v[1]}}(n')) = [];
 {% endif %}
 {% endfor %}

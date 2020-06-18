@@ -951,6 +951,7 @@ int main (int argc, char *argv[]) {
 	// Reading the input LTS
 	string line;
 	ifstream inputfile (modelname);
+
 	if (inputfile.is_open()) {
 		size_t sep1, sep2;
 		int nr_of_states, nr_of_trans;
@@ -983,6 +984,8 @@ int main (int argc, char *argv[]) {
 		int src, tgt;
 		int iid;
 		vector<pair<int, int>> succs_to_process_for_PR;
+		// Set of closed states
+		set<int> closed;
 		while (getline(inputfile, line)) {
 			if (static_analysis && line.substr(0,3) == "ST'") {
 				// We are analysing statically derived information, and are about to construct the PR-relation at instruction level
@@ -1413,12 +1416,13 @@ int main (int argc, char *argv[]) {
 					prev_src = src;
 					last_trans = false;
 				}
-				if (tgt < src) {
+				if (set_contains(closed, tgt)) {
 					vector_insert(succs_to_process_for_PR, (pair<int, int>(iid, tgt)));
 				}
 				else {
 					vector_insert(lts_states[tgt].predecessors, (pair<int, int>(iid, src)));
 				}
+				closed.insert(prev_src);
 				current_trans_index++;
 			}
 		}
@@ -1628,7 +1632,7 @@ int main (int argc, char *argv[]) {
 		// Compute the RF relation for thread-local variables. This is integrated into DP.
 		if (weakmemmodel == ARM) {
 			set<int> open;
-			set<int> closed;
+			closed.clear();
 			for (auto i : PR) {
 				Access& a = accesses.get(i.first);
 				if (a.local && a.type == WRITE) {
