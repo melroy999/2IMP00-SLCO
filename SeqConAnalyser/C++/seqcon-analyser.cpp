@@ -1322,93 +1322,95 @@ int main (int argc, char *argv[]) {
 				if (last_trans) {
 					// Compare outgoing transitions with those of the states in the todo list.
 					// First sort the vector of outgoing instruction ids
-					State& s = lts_states[prev_src];
-					sort(s.outgoing_instr.begin(), s.outgoing_instr.end());
-					for (pair<int, int> p : succs_to_process_for_PR) {
-						int i = 0;
-						int j = 0;
-						State&t = lts_states[p.second];
-						while (i < t.outgoing_instr.size()) {
-							int t_instr_id = t.outgoing_instr[i];
-							if (j < s.outgoing_instr.size()) {
-								int s_instr_id = s.outgoing_instr[j];
-								if (s_instr_id < t_instr_id) {
-									j++;
-								}
-								else if (s_instr_id == t_instr_id) {
-									// if (t_instr_id == p.first) {
-									// 	// p.first is PR after itself
-									// 	// add t_instr_id to PR
-									// 	// PR-relate top elements of instr with bottom elements of tgt_instr
-									// 	update_PR_PRinstr(p.first, t_instr_id, PR, PRinstr, instructions);
-									// }
-									i++;
-									j++;
+					if (prev_src != -1) {
+						State& s = lts_states[prev_src];
+						sort(s.outgoing_instr.begin(), s.outgoing_instr.end());
+						for (pair<int, int> p : succs_to_process_for_PR) {
+							int i = 0;
+							int j = 0;
+							State&t = lts_states[p.second];
+							while (i < t.outgoing_instr.size()) {
+								int t_instr_id = t.outgoing_instr[i];
+								if (j < s.outgoing_instr.size()) {
+									int s_instr_id = s.outgoing_instr[j];
+									if (s_instr_id < t_instr_id) {
+										j++;
+									}
+									else if (s_instr_id == t_instr_id) {
+										// if (t_instr_id == p.first) {
+										// 	// p.first is PR after itself
+										// 	// add t_instr_id to PR
+										// 	// PR-relate top elements of instr with bottom elements of tgt_instr
+										// 	update_PR_PRinstr(p.first, t_instr_id, PR, PRinstr, instructions);
+										// }
+										i++;
+										j++;
+									}
+									else {
+										// t_instr_id < s_instr_id
+										// add t_instr_id to PR if p.first and t_instr_id stem from the same thread
+										update_PR_PRinstr(p.first, t_instr_id, PR, PRinstr, instructions);
+										i++;
+									}
 								}
 								else {
-									// t_instr_id < s_instr_id
-									// add t_instr_id to PR if p.first and t_instr_id stem from the same thread
+									// add t_instr_id to PR
 									update_PR_PRinstr(p.first, t_instr_id, PR, PRinstr, instructions);
 									i++;
 								}
 							}
-							else {
-								// add t_instr_id to PR
-								update_PR_PRinstr(p.first, t_instr_id, PR, PRinstr, instructions);
-								i++;
-							}
 						}
-					}
-					succs_to_process_for_PR.clear();
-					// Process the predecessors in a similar way as the items on the todo list
-					for (pair<int, int> p : s.predecessors) {
-						int i = 0;
-						int j = 0;
-						State&t = lts_states[p.second];
-						while (i < s.outgoing_instr.size()) {
-							int s_instr_id = s.outgoing_instr[i];
-							if (j < t.outgoing_instr.size()) {
-								int t_instr_id = t.outgoing_instr[j];
-								if (t_instr_id < s_instr_id) {
-									j++;
-								}
-								else if (t_instr_id == s_instr_id) {
-									// if (s_instr_id == p.first) {
-									// 	// p.first is PR after itself
-									// 	// add s_instr_id to PR
-									// 	// PR-relate top elements of instr with bottom elements of tgt_instr
-									// 	update_PR_PRinstr(p.first, s_instr_id, PR, PRinstr, instructions);
-									// }
-									i++;
-									j++;
+						succs_to_process_for_PR.clear();
+						// Process the predecessors in a similar way as the items on the todo list
+						for (pair<int, int> p : s.predecessors) {
+							int i = 0;
+							int j = 0;
+							State&t = lts_states[p.second];
+							while (i < s.outgoing_instr.size()) {
+								int s_instr_id = s.outgoing_instr[i];
+								if (j < t.outgoing_instr.size()) {
+									int t_instr_id = t.outgoing_instr[j];
+									if (t_instr_id < s_instr_id) {
+										j++;
+									}
+									else if (t_instr_id == s_instr_id) {
+										// if (s_instr_id == p.first) {
+										// 	// p.first is PR after itself
+										// 	// add s_instr_id to PR
+										// 	// PR-relate top elements of instr with bottom elements of tgt_instr
+										// 	update_PR_PRinstr(p.first, s_instr_id, PR, PRinstr, instructions);
+										// }
+										i++;
+										j++;
+									}
+									else {
+										// s_instr_id < t_instr_id
+										// add s_instr_id to PR if p.first and s_instr_id stem from the same thread
+										update_PR_PRinstr(p.first, s_instr_id, PR, PRinstr, instructions);
+										i++;
+									}
 								}
 								else {
-									// s_instr_id < t_instr_id
-									// add s_instr_id to PR if p.first and s_instr_id stem from the same thread
+									// add s_instr_id to PR
 									update_PR_PRinstr(p.first, s_instr_id, PR, PRinstr, instructions);
 									i++;
 								}
 							}
-							else {
-								// add s_instr_id to PR
-								update_PR_PRinstr(p.first, s_instr_id, PR, PRinstr, instructions);
-								i++;
-							}
 						}
-					}
-					// Update CONC relation
-					for (int i = 0; i < s.outgoing_instr.size(); i++) {
-						int i_id = s.outgoing_instr[i];
-						Instruction& i_instr = instructions.find(i_id)->second;
-						for (int j = i+1; j < s.outgoing_instr.size(); j++) {
-							int j_id = s.outgoing_instr[j];
-							Instruction& j_instr = instructions.find(j_id)->second;
-							if (i_instr.tid != j_instr.tid) {
-								if (i_id < j_id) {
-									CONC.insert(i_id, j_id);
-								}
-								else {
-									CONC.insert(j_id, i_id);
+						// Update CONC relation
+						for (int i = 0; i < s.outgoing_instr.size(); i++) {
+							int i_id = s.outgoing_instr[i];
+							Instruction& i_instr = instructions.find(i_id)->second;
+							for (int j = i+1; j < s.outgoing_instr.size(); j++) {
+								int j_id = s.outgoing_instr[j];
+								Instruction& j_instr = instructions.find(j_id)->second;
+								if (i_instr.tid != j_instr.tid) {
+									if (i_id < j_id) {
+										CONC.insert(i_id, j_id);
+									}
+									else {
+										CONC.insert(j_id, i_id);
+									}
 								}
 							}
 						}
