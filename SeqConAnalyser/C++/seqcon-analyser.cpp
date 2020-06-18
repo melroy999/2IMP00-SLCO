@@ -994,7 +994,7 @@ int main (int argc, char *argv[]) {
 				// Check if instruction is already stored. If not, create it
 				if (iid == -1) {
 					iid = instruction_ids.insert(label);
-					// cout << iid << ": " << label << endl;
+					cout << iid << ": " << label << endl;
 					if (label.compare("tau") != 0) {
 						//cout << label << endl;
 						// Break label further down
@@ -1105,7 +1105,7 @@ int main (int argc, char *argv[]) {
 								acc.tid = tid;
 								// cout << tid << endl;
 								int aid = accesses.insert(acc);
-								// cout << "read " << aid << " : " << read << ": " << label << endl;
+								cout << "read " << aid << " : " << read << ": " << label << endl;
 								instr.accesses.insert(aid);
 								reads_stored = true;
 
@@ -1222,7 +1222,7 @@ int main (int argc, char *argv[]) {
 								acc.tid = tid;
 								// cout << tid << endl;
 								int aid = accesses.insert(acc);
-								// cout << "write " << aid << " : " << write << ": " << label << endl;
+								cout << "write " << aid << " : " << write << ": " << label << endl;
 								instr.accesses.insert(aid);
 								vector_insert(curr_accesses_bottom, aid);
 
