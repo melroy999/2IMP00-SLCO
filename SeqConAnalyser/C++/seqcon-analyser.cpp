@@ -693,7 +693,7 @@ bool reorder(int ai, int instr_id, map<int, Instruction>& instructions, MM mmode
 			next.clear();
 		}
 	}
-	else if (from_outside_instr) {
+	if (from_outside_instr) {
 		if (!set_contains(instr->second.accesses, ai)) {
 			moved_into = true;
 			instr->second.accesses.insert(ai);
@@ -1657,13 +1657,11 @@ int main (int argc, char *argv[]) {
 		for (int w = 0; w < instructions.size(); w++) {
 			Instruction& instr = instructions.find(w)->second;
 			for (int k : instr.accesses) {
-				if (PPR[w].contains(k)) {
-					for (int i : instr.accesses) {
-						if (PPR[w].are_related(i, k)) {
-							for (int j : instr.accesses) {
-								if (PPR[w].are_related(k, j)) {
-									PPR[w].insert(i, j);
-								}
+				for (int i : instr.accesses) {
+					if (PPR[w].are_related(i, k)) {
+						for (int j : instr.accesses) {
+							if (PPR[w].are_related(k, j)) {
+								PPR[w].insert(i, j);
 							}
 						}
 					}
@@ -2554,15 +2552,21 @@ int main (int argc, char *argv[]) {
 		// 		cout << "(" << i.first << ", " << j << ")" << endl;
 		// 	}
 		// }
-		// cout << "The PPRs: " << endl;
-		// for (int i = 0; i < instructions.size(); i++) {
-		// 	cout << "For instruction " << i << ":" << endl;
-		// 	for (auto i : PPR[i]) {
-		// 		for (auto j : i.second) {
-		// 			cout << "(" << i.first << ", " << j << ")" << endl;
-		// 		}
-		// 	}
-		// }
+		cout << "The PPRs: " << endl;
+		for (int i = 0; i < instructions.size(); i++) {
+			cout << "For instruction " << i << ":" << endl;
+			cout << "Accesses of the instruction: ";
+			Instruction& instr = instructions.find(i)->second;
+			for (int n : instr.accesses) {
+				cout << n << " ";
+			}
+			cout << endl;
+			for (auto j : PPR[i]) {
+				for (auto k : j.second) {
+					cout << "(" << j.first << ", " << k << ")" << endl;
+				}
+			}
+		}
 		// cout << "PRplus:" << endl;
 		// for (auto i : PRplus) {
 		// 	for (auto j : i.second) {
