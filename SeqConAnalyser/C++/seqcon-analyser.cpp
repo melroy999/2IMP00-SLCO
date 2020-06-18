@@ -2882,13 +2882,13 @@ int main (int argc, char *argv[]) {
 		// 		cout << "(" << i.first << ", " << j << ")" << endl;
 		// 	}
 		// }
-		cout << "CMP:" << endl;
-		for (int i = 0; i < CMP.size(); i++) {
-			vector<int>& S = CMP.get(i);
-			for (auto j : S) {
-				cout << "(" << i << ", " << j << ")" << endl;
-			}
-		}
+		// cout << "CMP:" << endl;
+		// for (int i = 0; i < CMP.size(); i++) {
+		// 	vector<int>& S = CMP.get(i);
+		// 	for (auto j : S) {
+		// 		cout << "(" << i << ", " << j << ")" << endl;
+		// 	}
+		// }
 		// cout << "CMPt:" << endl;
 		// for (int i = 0; i < CMPt.size(); i++) {
 		// 	vector<ThreadAccessRange>& S = CMPt.get(i);
