@@ -1395,11 +1395,18 @@ int main (int argc, char *argv[]) {
 					}
 					// Update CONC relation
 					for (int i = 0; i < s.outgoing_instr.size(); i++) {
-						Instruction& s_instr = instructions.find(i)->second;
+						int i_id = s.outgoing_instr[i];
+						Instruction& i_instr = instructions.find(i_id)->second;
 						for (int j = i+1; j < s.outgoing_instr.size(); j++) {
-							Instruction& t_instr = instructions.find(j)->second;
-							if (s_instr.tid != t_instr.tid) {
-								CONC.insert(i, j);
+							int j_id = s.outgoing_instr[j];
+							Instruction& j_instr = instructions.find(j_id)->second;
+							if (i_instr.tid != j_instr.tid) {
+								if (i_id <= j_id) {
+									CONC.insert(i_id, j_id);
+								}
+								else {
+									CONC.insert(j_id, i_id);
+								}
 							}
 						}
 					}
@@ -1827,37 +1834,27 @@ int main (int argc, char *argv[]) {
 		chrono::steady_clock::time_point end = chrono::steady_clock::now();
 
 		if (!static_analysis) {
-			set<pair<int, int>> pairset;
-			// Compute CMP, using the reordering information in the instructions
-			for (auto s : lts_states) {
-				// Compare outgoing instructions of different threads
-				for (int i = s.outgoing_begin; i < s.outgoing_end; i++) {
-					auto instr_i = (*(lts_transitions[i].instruction)).second;
-					int tid_i = instr_i.tid;
-					for (int j = i; j < s.outgoing_end; j++) {
-						auto instr_j = (*(lts_transitions[j].instruction)).second;
-						int tid_j = instr_j.tid;
-						if (tid_i != tid_j) {
-							for (int ai : instr_i.accesses) {
-								for (int bi : instr_j.accesses) {
-									Access& a = accesses.get(ai);
-									Access& b = accesses.get(bi);
-									if (a.location == b.location && (a.type == WRITE || b.type == WRITE)) {
-										if (pairset.find(pair<int, int>(ai, bi)) == pairset.end() && pairset.find(pair<int, int>(bi, ai)) == pairset.end()) {
-											pairset.insert(pair<int, int>(ai, bi));
-										}
-									}
-								}
+			// Compute CMP, using the reordering information in the instructions and the CONC relation
+			for (auto i_it : CONC) {
+				int i = i_it.first;
+				auto instr_i = instructions.find(i)->second;
+				int tid_i = instr_i.tid;
+				// Compare CONC-related instructions (of different threads)
+				for (int j : i_it.second) {
+					auto instr_j = instructions.find(j)->second;
+					int tid_j = instr_j.tid;
+					for (int ai : instr_i.accesses) {
+						Access& a = accesses.get(ai);
+						for (int bi : instr_j.accesses) {
+							Access& b = accesses.get(bi);
+							if (a.location == b.location && (a.type == WRITE || b.type == WRITE)) {
+								CMP.insert(ai, bi);
+								CMP.insert(bi, ai);
 							}
 						}
 					}
 				}
 			}
-			for (pair<int, int> p : pairset) {
-				CMP.insert(p.first, p.second);
-				CMP.insert(p.second, p.first);
-			}
-			pairset.clear();
 		}
 		else {
 			// When working with statically derived information, CMP consists of all pairs of accesses of different threads that conflict
