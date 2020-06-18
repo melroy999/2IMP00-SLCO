@@ -693,24 +693,29 @@ bool reorder(int ai, int instr_id, map<int, Instruction>& instructions, MM mmode
 			next.clear();
 		}
 	}
-	if (from_outside_instr) {
+	else if (from_outside_instr) {
 		if (!set_contains(instr->second.accesses, ai)) {
 			moved_into = true;
 			instr->second.accesses.insert(ai);
 		}
 	}
-	// If ai ends up not having PPR-predecessors, it is a new bottom access
-	if (!PPR[instr_id].contains_rev(ai) && (from_outside_instr || PR.contains_rev(ai))) {
-		instr->second.bottom_accs.insert(ai);
+	else {
+		moved_into = true;
 	}
-	// If ai ends up not having PPR-successors, it is a new top access
-	if (!PPR[instr_id].contains(ai) && (from_outside_instr || PR.contains(ai))) {
-		instr->second.top_accs.insert(ai);
-		// PPR-predecessors are not top accesses
-		if (PPR[instr_id].contains_rev(ai)) {
-			auto it = PPR[instr_id].get_rev(ai);
-			for (int bi : it->second) {
-				instr->second.top_accs.erase(bi);
+	if (moved_into) {
+		// If ai ends up not having PPR-predecessors, it is a new bottom access
+		if (!PPR[instr_id].contains_rev(ai) && (from_outside_instr || PR.contains_rev(ai))) {
+			instr->second.bottom_accs.insert(ai);
+		}
+		// If ai ends up not having PPR-successors, it is a new top access
+		if (!PPR[instr_id].contains(ai) && (from_outside_instr || PR.contains(ai))) {
+			instr->second.top_accs.insert(ai);
+			// PPR-predecessors are not top accesses
+			if (PPR[instr_id].contains_rev(ai)) {
+				auto it = PPR[instr_id].get_rev(ai);
+				for (int bi : it->second) {
+					instr->second.top_accs.erase(bi);
+				}
 			}
 		}
 	}
