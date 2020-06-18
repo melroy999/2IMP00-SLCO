@@ -1401,7 +1401,7 @@ int main (int argc, char *argv[]) {
 							int j_id = s.outgoing_instr[j];
 							Instruction& j_instr = instructions.find(j_id)->second;
 							if (i_instr.tid != j_instr.tid) {
-								if (i_id <= j_id) {
+								if (i_id < j_id) {
 									CONC.insert(i_id, j_id);
 								}
 								else {
@@ -1501,6 +1501,23 @@ int main (int argc, char *argv[]) {
 					}
 				}
 			}
+			// Update CONC relation
+			for (int i = 0; i < s.outgoing_instr.size(); i++) {
+				int i_id = s.outgoing_instr[i];
+				Instruction& i_instr = instructions.find(i_id)->second;
+				for (int j = i+1; j < s.outgoing_instr.size(); j++) {
+					int j_id = s.outgoing_instr[j];
+					Instruction& j_instr = instructions.find(j_id)->second;
+					if (i_instr.tid != j_instr.tid) {
+						if (i_id <= j_id) {
+							CONC.insert(i_id, j_id);
+						}
+						else {
+							CONC.insert(j_id, i_id);
+						}
+					}
+				}
+			}
 		}
 		// for (auto i : PR) {
 		// 	for (auto j : i.second) {
@@ -1508,6 +1525,8 @@ int main (int argc, char *argv[]) {
 		// 	}
 		// }
 		inputfile.close();
+
+		chrono::steady_clock::time_point begin = chrono::steady_clock::now();
 
 		int cnt = 0;
 		for (auto it : PR) {
@@ -1733,9 +1752,6 @@ int main (int argc, char *argv[]) {
 			}
 		}
 
-		chrono::steady_clock::time_point begin = chrono::steady_clock::now();
-
-
 		// cout << "The PPRs: " << endl;
 		// for (int i = 0; i < instructions.size(); i++) {
 		// 	cout << "For instruction " << i << ":" << endl;
@@ -1831,10 +1847,9 @@ int main (int argc, char *argv[]) {
 		// end indices in the list of accesses CMP-conflicting with a)
 		VectorRelation<ThreadAccessRange> CMPt(accesses.size());
 
-		chrono::steady_clock::time_point end = chrono::steady_clock::now();
-
 		if (!static_analysis) {
 			// Compute CMP, using the reordering information in the instructions and the CONC relation
+			set<pair<int, int>> pairset;
 			for (auto i_it : CONC) {
 				int i = i_it.first;
 				auto instr_i = instructions.find(i)->second;
@@ -1848,13 +1863,22 @@ int main (int argc, char *argv[]) {
 						for (int bi : instr_j.accesses) {
 							Access& b = accesses.get(bi);
 							if (a.location == b.location && (a.type == WRITE || b.type == WRITE)) {
-								CMP.insert(ai, bi);
-								CMP.insert(bi, ai);
+								if (ai < bi) {
+									pairset.insert(pair<int, int>(ai, bi));
+								}
+								else {
+									pairset.insert(pair<int, int>(bi, ai));									
+								}
 							}
 						}
 					}
 				}
 			}
+			for (pair<int, int> p : pairset) {
+				CMP.insert(p.first, p.second);
+				CMP.insert(p.second, p.first);
+			}
+			pairset.clear();
 		}
 		else {
 			// When working with statically derived information, CMP consists of all pairs of accesses of different threads that conflict
@@ -1876,7 +1900,7 @@ int main (int argc, char *argv[]) {
 		for (int i = 0; i < CMP.size(); i++) {
 			count += CMP.get(i).size();
 		}
-		cout << "Number of CMP-edges in AEG: " << count << endl;
+		cout << "Number of CMP-edges in AEG: " << count/2 << endl;
 
 		// Sort the CMP vectors stored by the CMP relation by thread ID
 		for (int ai = 0; ai < accesses.size(); ai++) {
@@ -2767,6 +2791,8 @@ int main (int argc, char *argv[]) {
 			}
 		}
 
+		chrono::steady_clock::time_point end = chrono::steady_clock::now();
+
 		cout << "Number of directed cycles found: " << cycle_count << endl;
 		if (check_atomicity) {
 			cout << "Locks placed on " << locked_instructions.size() << " instructions!" << endl;
@@ -2856,13 +2882,13 @@ int main (int argc, char *argv[]) {
 		// 		cout << "(" << i.first << ", " << j << ")" << endl;
 		// 	}
 		// }
-		// cout << "CMP:" << endl;
-		// for (int i = 0; i < CMP.size(); i++) {
-		// 	vector<int>& S = CMP.get(i);
-		// 	for (auto j : S) {
-		// 		cout << "(" << i << ", " << j << ")" << endl;
-		// 	}
-		// }
+		cout << "CMP:" << endl;
+		for (int i = 0; i < CMP.size(); i++) {
+			vector<int>& S = CMP.get(i);
+			for (auto j : S) {
+				cout << "(" << i << ", " << j << ")" << endl;
+			}
+		}
 		// cout << "CMPt:" << endl;
 		// for (int i = 0; i < CMPt.size(); i++) {
 		// 	vector<ThreadAccessRange>& S = CMPt.get(i);
