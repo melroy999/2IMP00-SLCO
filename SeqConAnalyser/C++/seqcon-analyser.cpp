@@ -371,6 +371,8 @@ struct Instruction {
 struct State {
 	int outgoing_begin = -1; // Start of list of outgoing transitions
 	int outgoing_end = -1; // End of list of outgoing transitions
+	vector<int> outgoing_instr; // (Sorted!) vector of instruction ids outgoing from the state
+	vector<pair<int, int>> predecessors; // Vector of predecessor states (needed to construct PR-relation)
 };
 
 // Struct to store LTS transition
@@ -835,11 +837,22 @@ int get_next_edge(StackItem& s, int initial_ai, int& initial_loc_count, set<int>
 	return result;
 }
 
+// Function to update PR and PRinstr relations for two given instruction ids
+void update_PR_PRinstr(int i, int j, BiRelation& PR, BiRelation& PRinstr, map<int, Instruction> instructions) {
+	Instruction& s_instr = instructions.find(i)->second;
+	Instruction& t_instr = instructions.find(j)->second;
+	for (auto ta : s_instr.top_accs) {
+		PR.insert(ta, t_instr.bottom_accs);
+	}
+	PRinstr.insert(i, j);
+}
+
 int main (int argc, char *argv[]) {
 	string modelname = "";
 	MM weakmemmodel = TSO;
 	bool check_atomicity = false;
 	bool static_analysis = false;
+	bool verbose = false;
 
 	if (argc < 2) {
 		cout << "Model name missing!" << endl;
@@ -871,6 +884,9 @@ int main (int argc, char *argv[]) {
 		else if (strcmp(argv[i], "-s") == 0) {
 			static_analysis = true;
 		}
+		else if (strcmp(argv[i], "-v") == 0) {
+			verbose = true;
+		}
 		else if (strcmp(argv[i], "-h") == 0) {
 			cout << "Usage: seqcon-analyser [-wsa] model" << endl;
 			cout << "" << endl;
@@ -879,6 +895,7 @@ int main (int argc, char *argv[]) {
 			cout << " -s                                  apply only static analysis (ignore state space) (default: no)" << endl;
 			cout << "                                       -> this option requires a .instructions file listing the instructions of the SLCO model" << endl;
 			cout << " -a                                  apply atomicity checking in combination with SC checking (default: no)" << endl;
+			cout << " -v                                  verbose mode;" << endl;
 		}
 		else {
 			modelname = string(argv[i]);
@@ -919,6 +936,8 @@ int main (int argc, char *argv[]) {
 	Relation CTRL;
 	// Unsafe CMP relation, corresponding for ARM with RFE (external read from)
 	Relation RFE;
+	// Concurrency relation between instructions (dynamic IDs), constructed while reading the LTS, for efficient construction of CMP later on
+	Relation CONC;
 	
 	// Various IndexedMaps to keep track of information extracted from the LTS
 	IndexedMap<string> instruction_positions; // Maps short instruction position strings to integer IDs
@@ -939,6 +958,7 @@ int main (int argc, char *argv[]) {
 		vector<Transition> lts_transitions;
 		int current_state_index, current_trans_index, prev_src;
 		bool first_trans;
+		bool last_trans = false;
 		if (!static_analysis) {
 			// Header: extract number of states
 			getline(inputfile, line);
@@ -962,6 +982,7 @@ int main (int argc, char *argv[]) {
 		string label;
 		int src, tgt;
 		int iid;
+		vector<pair<int, int>> succs_to_process_for_PR;
 		while (getline(inputfile, line)) {
 			if (static_analysis && line.substr(0,3) == "ST'") {
 				// We are analysing statically derived information, and are about to construct the PR-relation at instruction level
@@ -982,8 +1003,8 @@ int main (int argc, char *argv[]) {
 							lts_states[prev_src].outgoing_end = current_trans_index;
 						}
 						first_trans = true;
-						prev_src = src;
 						current_state_index++;
+						last_trans = true;
 					}
 					else {
 						first_trans = false;
@@ -1003,7 +1024,9 @@ int main (int argc, char *argv[]) {
 				// Check if instruction is already stored. If not, create it
 				if (iid == -1) {
 					iid = instruction_ids.insert(label);
-					// cout << iid << ": " << label << endl;
+					if (verbose) {
+						cout << iid << ": " << label << endl;
+					}
 					if (label.compare("tau") != 0) {
 						//cout << label << endl;
 						// Break label further down
@@ -1114,7 +1137,9 @@ int main (int argc, char *argv[]) {
 								acc.tid = tid;
 								// cout << tid << endl;
 								int aid = accesses.insert(acc);
-								// cout << "read " << aid << " : " << read << ": " << label << endl;
+								if (verbose) {
+									cout << "read " << aid << " : " << read << ": " << label << endl;
+								}
 								instr.accesses.insert(aid);
 								reads_stored = true;
 
@@ -1231,7 +1256,9 @@ int main (int argc, char *argv[]) {
 								acc.tid = tid;
 								// cout << tid << endl;
 								int aid = accesses.insert(acc);
-								// cout << "write " << aid << " : " << write << ": " << label << endl;
+								if (verbose) {
+									cout << "write " << aid << " : " << write << ": " << label << endl;
+								}
 								instr.accesses.insert(aid);
 								vector_insert(curr_accesses_bottom, aid);
 
@@ -1286,12 +1313,187 @@ int main (int argc, char *argv[]) {
 				if (first_trans) {
 					lts_states[current_state_index].outgoing_begin = current_trans_index;
 				}
+				vector_insert(lts_states[current_state_index].outgoing_instr, iid);
+
+				// Update PR
+				if (last_trans) {
+					// Compare outgoing transitions with those of the states in the todo list.
+					// First sort the vector of outgoing instruction ids
+					State& s = lts_states[prev_src];
+					sort(s.outgoing_instr.begin(), s.outgoing_instr.end());
+					for (pair<int, int> p : succs_to_process_for_PR) {
+						int i = 0;
+						int j = 0;
+						State&t = lts_states[p.second];
+						while (i < t.outgoing_instr.size()) {
+							int t_instr_id = t.outgoing_instr[i];
+							if (j < s.outgoing_instr.size()) {
+								int s_instr_id = s.outgoing_instr[j];
+								if (s_instr_id < t_instr_id) {
+									j++;
+								}
+								else if (s_instr_id == t_instr_id) {
+									// if (t_instr_id == p.first) {
+									// 	// p.first is PR after itself
+									// 	// add t_instr_id to PR
+									// 	// PR-relate top elements of instr with bottom elements of tgt_instr
+									// 	update_PR_PRinstr(p.first, t_instr_id, PR, PRinstr, instructions);
+									// }
+									i++;
+									j++;
+								}
+								else {
+									// t_instr_id < s_instr_id
+									// add t_instr_id to PR if p.first and t_instr_id stem from the same thread
+									update_PR_PRinstr(p.first, t_instr_id, PR, PRinstr, instructions);
+									i++;
+								}
+							}
+							else {
+								// add t_instr_id to PR
+								update_PR_PRinstr(p.first, t_instr_id, PR, PRinstr, instructions);
+								i++;
+							}
+						}
+					}
+					succs_to_process_for_PR.clear();
+					// Process the predecessors in a similar way as the items on the todo list
+					for (pair<int, int> p : s.predecessors) {
+						int i = 0;
+						int j = 0;
+						State&t = lts_states[p.second];
+						while (i < s.outgoing_instr.size()) {
+							int s_instr_id = s.outgoing_instr[i];
+							if (j < t.outgoing_instr.size()) {
+								int t_instr_id = t.outgoing_instr[j];
+								if (t_instr_id < s_instr_id) {
+									j++;
+								}
+								else if (t_instr_id == s_instr_id) {
+									// if (s_instr_id == p.first) {
+									// 	// p.first is PR after itself
+									// 	// add s_instr_id to PR
+									// 	// PR-relate top elements of instr with bottom elements of tgt_instr
+									// 	update_PR_PRinstr(p.first, s_instr_id, PR, PRinstr, instructions);
+									// }
+									i++;
+									j++;
+								}
+								else {
+									// s_instr_id < t_instr_id
+									// add s_instr_id to PR if p.first and s_instr_id stem from the same thread
+									update_PR_PRinstr(p.first, s_instr_id, PR, PRinstr, instructions);
+									i++;
+								}
+							}
+							else {
+								// add s_instr_id to PR
+								update_PR_PRinstr(p.first, s_instr_id, PR, PRinstr, instructions);
+								i++;
+							}
+						}
+					}
+					// Update CONC relation
+					for (int i = 0; i < s.outgoing_instr.size(); i++) {
+						Instruction& s_instr = instructions.find(i)->second;
+						for (int j = i+1; j < s.outgoing_instr.size(); j++) {
+							Instruction& t_instr = instructions.find(j)->second;
+							if (s_instr.tid != t_instr.tid) {
+								CONC.insert(i, j);
+							}
+						}
+					}
+					prev_src = src;
+					last_trans = false;
+				}
+				if (tgt < src) {
+					vector_insert(succs_to_process_for_PR, (pair<int, int>(iid, tgt)));
+				}
+				else {
+					vector_insert(lts_states[tgt].predecessors, (pair<int, int>(iid, src)));
+				}
 				current_trans_index++;
 			}
 		}
 		if (!static_analysis) {
 			// Store outgoing transitions end for final state
 			lts_states[current_state_index].outgoing_end = current_trans_index;
+			// Compare outgoing transitions with those of the states in the todo list.
+			// First sort the vector of outgoing instruction ids
+			State& s = lts_states[src];
+			sort(s.outgoing_instr.begin(), s.outgoing_instr.end());
+			for (pair<int, int> p : succs_to_process_for_PR) {
+				int i = 0;
+				int j = 0;
+				State&t = lts_states[p.second];
+				while (i < t.outgoing_instr.size()) {
+					int t_instr_id = t.outgoing_instr[i];
+					if (j < s.outgoing_instr.size()) {
+						int s_instr_id = s.outgoing_instr[j];
+						if (s_instr_id < t_instr_id) {
+							j++;
+						}
+						else if (s_instr_id == t_instr_id) {
+							// if (t_instr_id == p.first) {
+							// 	// p.first is PR after itself
+							// 	// add t_instr_id to PR
+							// 	// PR-relate top elements of instr with bottom elements of tgt_instr
+							// 	update_PR_PRinstr(p.first, t_instr_id, PR, PRinstr, instructions);
+							// }
+							i++;
+							j++;
+						}
+						else {
+							// t_instr_id < s_instr_id
+							// add t_instr_id to PR if p.first and t_instr_id stem from the same thread
+							update_PR_PRinstr(p.first, t_instr_id, PR, PRinstr, instructions);
+							i++;
+						}
+					}
+					else {
+						// add t_instr_id to PR
+						update_PR_PRinstr(p.first, t_instr_id, PR, PRinstr, instructions);
+						i++;
+					}
+				}
+			}
+			succs_to_process_for_PR.clear();
+			// Process the predecessors in a similar way as the items on the todo list
+			for (pair<int, int> p : s.predecessors) {
+				int i = 0;
+				int j = 0;
+				State&t = lts_states[p.second];
+				while (i < s.outgoing_instr.size()) {
+					int s_instr_id = s.outgoing_instr[i];
+					if (j < t.outgoing_instr.size()) {
+						int t_instr_id = t.outgoing_instr[j];
+						if (t_instr_id < s_instr_id) {
+							j++;
+						}
+						else if (t_instr_id == s_instr_id) {
+							// if (s_instr_id == p.first) {
+							// 	// p.first is PR after itself
+							// 	// add s_instr_id to PR
+							// 	// PR-relate top elements of instr with bottom elements of tgt_instr
+							// 	update_PR_PRinstr(p.first, s_instr_id, PR, PRinstr, instructions);
+							// }
+							i++;
+							j++;
+						}
+						else {
+							// s_instr_id < t_instr_id
+							// add s_instr_id to PR if p.first and s_instr_id stem from the same thread
+							update_PR_PRinstr(p.first, s_instr_id, PR, PRinstr, instructions);
+							i++;
+						}
+					}
+					else {
+						// add s_instr_id to PR
+						update_PR_PRinstr(p.first, s_instr_id, PR, PRinstr, instructions);
+						i++;
+					}
+				}
+			}
 		}
 		// for (auto i : PR) {
 		// 	for (auto j : i.second) {
@@ -1300,7 +1502,10 @@ int main (int argc, char *argv[]) {
 		// }
 		inputfile.close();
 
-		chrono::steady_clock::time_point begin = chrono::steady_clock::now();
+		int cnt = 0;
+		for (auto it : PR) {
+			cnt += it.second.size();
+		}
 
 		// Construct the accesses of thread datastructure
 		accesses_of_thread.resize(thread_ids.size());
@@ -1334,43 +1539,44 @@ int main (int argc, char *argv[]) {
 		// Initially, this is empty.
 		vector<BiRelation> PPR(instructions.size());
 
-		if (!static_analysis) {
-			// Set of (instruction position, thread id) pairs of outgoing transitions of a state
-			set<pair<int, int>> out;
-			// Compute inter-instruction PR and PRinstr
-			for (auto s : lts_states) {
-				out.clear();
-				// Collect info on outgoing transitions
-				for (int i = s.outgoing_begin; i < s.outgoing_end; i++) {
-					auto instr = (*(lts_transitions[i].instruction)).second;
-					out.insert(pair<int, int>(instr.pos, instr.tid));
-				}
-				// Check successors
-				for (int i = s.outgoing_begin; i < s.outgoing_end; i++) {
-					int tgt = lts_transitions[i].target;
-					auto instr = (*(lts_transitions[i].instruction)).second;
-					int instr_id = (*(lts_transitions[i].instruction)).first;
-					int pos = instr.pos;
-					int tid = instr.tid;
-					for (int j = lts_states[tgt].outgoing_begin; j < lts_states[tgt].outgoing_end; j++) {
-						int tgt_instr_id = (*(lts_transitions[j].instruction)).first;
-						auto tgt_instr = (*(lts_transitions[j].instruction)).second;
-						int tgt_pos = tgt_instr.pos;
-						int tgt_tid = tgt_instr.tid;
-						if (tgt_tid == tid) {
-							if (out.find(pair<int, int>(tgt_pos, tgt_tid)) == out.end()) {
-								// PR-relate top elements of instr with bottom elements of tgt_instr
-								for (auto ta : instr.top_accs) {
-									PR.insert(ta, tgt_instr.bottom_accs);
-									PRinstr.insert(instr_id, tgt_instr_id);
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-		else {
+		// // if (!static_analysis) {
+		// // 	// Set of (instruction position, thread id) pairs of outgoing transitions of a state
+		// // 	set<pair<int, int>> out;
+		// // 	// Compute inter-instruction PR and PRinstr
+		// // 	for (auto s : lts_states) {
+		// // 		out.clear();
+		// // 		// Collect info on outgoing transitions
+		// // 		for (int i = s.outgoing_begin; i < s.outgoing_end; i++) {
+		// // 			auto instr = (*(lts_transitions[i].instruction)).second;
+		// // 			out.insert(pair<int, int>(instr.pos, instr.tid));
+		// // 		}
+		// // 		// Check successors
+		// // 		for (int i = s.outgoing_begin; i < s.outgoing_end; i++) {
+		// // 			int tgt = lts_transitions[i].target;
+		// // 			auto instr = (*(lts_transitions[i].instruction)).second;
+		// // 			int instr_id = (*(lts_transitions[i].instruction)).first;
+		// // 			int pos = instr.pos;
+		// // 			int tid = instr.tid;
+		// // 			for (int j = lts_states[tgt].outgoing_begin; j < lts_states[tgt].outgoing_end; j++) {
+		// // 				int tgt_instr_id = (*(lts_transitions[j].instruction)).first;
+		// // 				auto tgt_instr = (*(lts_transitions[j].instruction)).second;
+		// // 				int tgt_pos = tgt_instr.pos;
+		// // 				int tgt_tid = tgt_instr.tid;
+		// // 				if (tgt_tid == tid) {
+		// // 					if (out.find(pair<int, int>(tgt_pos, tgt_tid)) == out.end()) {
+		// // 						PR-relate top elements of instr with bottom elements of tgt_instr
+		// // 						for (auto ta : instr.top_accs) {
+		// // 							PR.insert(ta, tgt_instr.bottom_accs);
+		// // 							PRinstr.insert(instr_id, tgt_instr_id);
+		// // 						}
+		// // 					}
+		// // 				}
+		// // 			}
+		// // 		}
+		// // 	}
+		// // }
+		// else {
+		if (static_analysis) {
 			// We are working with statically derived information. Compute inter-instruction PR based on already read PRinstr
 			for (int i = 0; i < instructions.size(); i++) {
 				if (PRinstr.contains(i)) {
@@ -1385,6 +1591,13 @@ int main (int argc, char *argv[]) {
 				}
 			}
 		}
+
+		cout << "Number of accesses: " << accesses.size() << endl;
+		int count = 0;
+		for (auto it : PR) {
+			count += it.second.size();
+		}
+		cout << "Number of PR-edges in AEG: " << count << endl;
 
 		// Compute the RF relation for thread-local variables. This is integrated into DP.
 		if (weakmemmodel == ARM) {
@@ -1513,6 +1726,9 @@ int main (int argc, char *argv[]) {
 			}
 		}
 
+		chrono::steady_clock::time_point begin = chrono::steady_clock::now();
+
+
 		// cout << "The PPRs: " << endl;
 		// for (int i = 0; i < instructions.size(); i++) {
 		// 	cout << "For instruction " << i << ":" << endl;
@@ -1608,6 +1824,8 @@ int main (int argc, char *argv[]) {
 		// end indices in the list of accesses CMP-conflicting with a)
 		VectorRelation<ThreadAccessRange> CMPt(accesses.size());
 
+		chrono::steady_clock::time_point end = chrono::steady_clock::now();
+
 		if (!static_analysis) {
 			set<pair<int, int>> pairset;
 			// Compute CMP, using the reordering information in the instructions
@@ -1656,6 +1874,12 @@ int main (int argc, char *argv[]) {
 				}
 			}
 		}
+
+		count = 0;
+		for (int i = 0; i < CMP.size(); i++) {
+			count += CMP.get(i).size();
+		}
+		cout << "Number of CMP-edges in AEG: " << count << endl;
 
 		// Sort the CMP vectors stored by the CMP relation by thread ID
 		for (int ai = 0; ai < accesses.size(); ai++) {
@@ -1798,13 +2022,11 @@ int main (int argc, char *argv[]) {
 							}
 						}
 						// Record relation
-						if (relate_ai_bi) {
+						if (relate_ai_bi || relate_bi_ai) {
 							vector_insert(PR_reachable[ai], (pair<int, bool>(bi, unsafe_PRpath_exists_ai_to_bi || unsafe_PRpath_exists_bi_to_ai)));
 							if (unsafe_PRpath_exists_ai_to_bi) {
 								PRplus_unsafe.insert(ai, bi);
 							}
-						}
-						if (relate_bi_ai) {
 							vector_insert(PR_reachable[bi], (pair<int, bool>(ai, unsafe_PRpath_exists_ai_to_bi || unsafe_PRpath_exists_bi_to_ai)));
 							if (unsafe_PRpath_exists_bi_to_ai) {
 								PRplus_unsafe.insert(bi, ai);
@@ -1818,6 +2040,16 @@ int main (int argc, char *argv[]) {
 			// Sort the final vector based on PR-unsafe reachability (unsafe has priority over safe)
 			sort(PR_reachable[ai].begin(), PR_reachable[ai].end(), compare_access_bool_pairs);
 		}
+
+		if (verbose) {
+			cout << "PRplus_unsafe:" << endl;
+			for (auto i : PRplus_unsafe) {
+				for (auto j : i.second) {
+					cout << "(" << i.first << ", " << j << ")" << endl;
+				}
+			}
+		}
+
 
 		// Store a set of pairs of accesses that are unsafely related via CMP (ARM only)
 		// This is the RFE (external read from) relation
@@ -1892,17 +2124,6 @@ int main (int argc, char *argv[]) {
 			// 	unsafe_elements_counter += it->second.size();
 			// }
 		}
-		cout << "Number of accesses: " << accesses.size() << endl;
-		int count = 0;
-		for (auto it : PR) {
-			count += it.second.size();
-		}
-		cout << "Number of PR-edges in AEG: " << count << endl;
-		count = 0;
-		for (int i = 0; i < CMP.size(); i++) {
-			count += CMP.get(i).size();
-		}
-		cout << "Number of CMP-edges in AEG: " << count << endl;
 		cout << "Number of unsafe elements in AEG: " << unsafe_elements_counter << endl;
 
 		// Cycle counter
@@ -1926,16 +2147,18 @@ int main (int argc, char *argv[]) {
 				visited_threads.clear();
 				visited_threads.insert(sa.tid);
 				while (!point_stack.empty() && unsafe_elements_counter > 0) {
-					// point_stack.print();
-					// cout << "initial_PR_explored=" << initial_ai_PR_explored << ", unsafe_explored=" << unsafe_explored << ", PR_explored=" << PR_explored << ", initial_loc_count=" << initial_loc_count << endl;
-					// cout << "visited locations:" << endl;
-					// for (int i : visited_locs) {
-					// 	cout << i << endl;
-					// }
-					// cout << "visited threads:" << endl;
-					// for (int i : visited_threads) {
-					// 	cout << i << endl;
-					// }
+					if (verbose) {
+						point_stack.print();
+						cout << "initial_PR_explored=" << initial_ai_PR_explored << ", unsafe_explored=" << unsafe_explored << ", PR_explored=" << PR_explored << ", initial_loc_count=" << initial_loc_count << endl;
+						cout << "visited locations:" << endl;
+						for (int i : visited_locs) {
+							cout << i << endl;
+						}
+						cout << "visited threads:" << endl;
+						for (int i : visited_threads) {
+							cout << i << endl;
+						}
+					}
 					StackItem& v_st = point_stack.peek();
 					int w = get_next_edge(v_st, s, initial_loc_count, visited_locs, visited_threads, initial_ai_PR_explored,
 								unsafe_explored, PR_explored, check_atomicity, RFE, PR_reachable, PRplus_unsafe, CMPt, CMP);
@@ -1992,6 +2215,7 @@ int main (int argc, char *argv[]) {
 						// Process cycle on point stack. Determine in both directions whether the undirected cycle actually represents a directed cycle.
 						bool mark_next_PR = false;
 						bool is_directed_cycle = true;
+						bool unsafe_element_occurred = false;
 						for (vector<StackItem>::iterator st = point_stack.begin(); st != point_stack.end(); ++st) {
 							vector<StackItem>::iterator st_next;
 							if (st+1 != point_stack.end()) {
@@ -2007,22 +2231,34 @@ int main (int argc, char *argv[]) {
 									is_directed_cycle = false;
 									break;
 								}
-
+								// Is the PR-path unsafe in the specific direction?
+								if (PRplus_unsafe.are_related(st->aid, st_next->aid)) {
+									unsafe_element_occurred = true;
+								}
+							}
+							else if (weakmemmodel == ARM) {
+								Access& a = accesses.get(st->aid);
+								Access& b = accesses.get(st_next->aid);
+								if (RFE.are_related(st->aid, st_next->aid) && a.type == WRITE && b.type == READ) {
+									unsafe_element_occurred = true;
+								}
 							}
 						}
-						if (is_directed_cycle) {
+						if (is_directed_cycle && unsafe_element_occurred) {
 							cycle_count++;
-							// cout << "Directed cycle ->!" << endl;
-							// point_stack.print();
-							// cout << "initial_PR_explored=" << initial_ai_PR_explored << ", unsafe_explored=" << unsafe_explored << ", PR_explored=" << PR_explored << ", initial_loc_count=" << initial_loc_count << endl;
-							// cout << "visited locations:" << endl;
-							// for (int i : visited_locs) {
-							// 	cout << i << endl;
-							// }
-							// cout << "visited threads:" << endl;
-							// for (int i : visited_threads) {
-							// 	cout << i << endl;
-							// }
+							if (verbose) {
+								cout << "Directed cycle ->!" << endl;
+								point_stack.print();
+								cout << "initial_PR_explored=" << initial_ai_PR_explored << ", unsafe_explored=" << unsafe_explored << ", PR_explored=" << PR_explored << ", initial_loc_count=" << initial_loc_count << endl;
+								cout << "visited locations:" << endl;
+								for (int i : visited_locs) {
+									cout << i << endl;
+								}
+								cout << "visited threads:" << endl;
+								for (int i : visited_threads) {
+									cout << i << endl;
+								}
+							}
 							// Scan the stack again, and mark the involved unsafe edges for fencing.
 							for (vector<StackItem>::iterator st = point_stack.begin(); st != point_stack.end(); ++st) {
 								vector<StackItem>::iterator st_next;
@@ -2074,6 +2310,7 @@ int main (int argc, char *argv[]) {
 						// Consider the other direction
 						mark_next_PR = false;
 						is_directed_cycle = true;
+						unsafe_element_occurred = false;
 						// point_stack.print();
 						for (vector<StackItem>::reverse_iterator st = point_stack.rbegin(); st != point_stack.rend(); ++st) {
 							vector<StackItem>::reverse_iterator st_next;
@@ -2094,22 +2331,34 @@ int main (int argc, char *argv[]) {
 									is_directed_cycle = false;
 									break;
 								}
-
+								// Is the PR-path unsafe in the specific direction?
+								if (PRplus_unsafe.are_related(st->aid, st_next->aid)) {
+									unsafe_element_occurred = true;
+								}
+							}
+							else if (weakmemmodel == ARM) {
+								Access& a = accesses.get(st->aid);
+								Access& b = accesses.get(st_next->aid);
+								if (RFE.are_related(st->aid, st_next->aid) && a.type == WRITE && b.type == READ) {
+									unsafe_element_occurred = true;
+								}
 							}
 						}
-						if (is_directed_cycle) {
+						if (is_directed_cycle && unsafe_element_occurred) {
 							cycle_count++;
-							// cout << "Directed cycle <-!" << endl;
-							// point_stack.print();
-							// cout << "initial_PR_explored=" << initial_ai_PR_explored << ", unsafe_explored=" << unsafe_explored << ", PR_explored=" << PR_explored << ", initial_loc_count=" << initial_loc_count << endl;
-							// cout << "visited locations:" << endl;
-							// for (int i : visited_locs) {
-							// 	cout << i << endl;
-							// }
-							// cout << "visited threads:" << endl;
-							// for (int i : visited_threads) {
-							// 	cout << i << endl;
-							// }
+							if (verbose) {
+								cout << "Directed cycle <-!" << endl;
+								point_stack.print();
+								cout << "initial_PR_explored=" << initial_ai_PR_explored << ", unsafe_explored=" << unsafe_explored << ", PR_explored=" << PR_explored << ", initial_loc_count=" << initial_loc_count << endl;
+								cout << "visited locations:" << endl;
+								for (int i : visited_locs) {
+									cout << i << endl;
+								}
+								cout << "visited threads:" << endl;
+								for (int i : visited_threads) {
+									cout << i << endl;
+								}
+							}
 							// Scan the stack again, and mark the involved unsafe edges for fencing.
 							for (vector<StackItem>::reverse_iterator st = point_stack.rbegin(); st != point_stack.rend(); ++st) {
 								vector<StackItem>::reverse_iterator st_next;
@@ -2550,8 +2799,6 @@ int main (int argc, char *argv[]) {
 				cout << endl;
 			}
 		}
-
-		chrono::steady_clock::time_point end = chrono::steady_clock::now();
 
 		cout << "Analysis time = " << chrono::duration_cast<chrono::microseconds>(end - begin).count() << "[µs]" << endl;
 
