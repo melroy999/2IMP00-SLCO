@@ -1919,16 +1919,16 @@ int main (int argc, char *argv[]) {
 				visited_threads.clear();
 				visited_threads.insert(sa.tid);
 				while (!point_stack.empty() && unsafe_elements_counter > 0) {
-					point_stack.print();
-					cout << "initial_PR_explored=" << initial_ai_PR_explored << ", unsafe_explored=" << unsafe_explored << ", PR_explored=" << PR_explored << ", initial_loc_count=" << initial_loc_count << endl;
-					cout << "visited locations:" << endl;
-					for (int i : visited_locs) {
-						cout << i << endl;
-					}
-					cout << "visited threads:" << endl;
-					for (int i : visited_threads) {
-						cout << i << endl;
-					}
+					// point_stack.print();
+					// cout << "initial_PR_explored=" << initial_ai_PR_explored << ", unsafe_explored=" << unsafe_explored << ", PR_explored=" << PR_explored << ", initial_loc_count=" << initial_loc_count << endl;
+					// cout << "visited locations:" << endl;
+					// for (int i : visited_locs) {
+					// 	cout << i << endl;
+					// }
+					// cout << "visited threads:" << endl;
+					// for (int i : visited_threads) {
+					// 	cout << i << endl;
+					// }
 					StackItem& v_st = point_stack.peek();
 					int w = get_next_edge(v_st, s, initial_loc_count, visited_locs, visited_threads, initial_ai_PR_explored,
 								unsafe_explored, PR_explored, check_atomicity, RFE, PR_reachable, PRplus_unsafe, CMPt, CMP);
@@ -2006,6 +2006,16 @@ int main (int argc, char *argv[]) {
 						if (is_directed_cycle) {
 							cycle_count++;
 							cout << "Directed cycle ->!" << endl;
+							point_stack.print();
+							cout << "initial_PR_explored=" << initial_ai_PR_explored << ", unsafe_explored=" << unsafe_explored << ", PR_explored=" << PR_explored << ", initial_loc_count=" << initial_loc_count << endl;
+							cout << "visited locations:" << endl;
+							for (int i : visited_locs) {
+								cout << i << endl;
+							}
+							cout << "visited threads:" << endl;
+							for (int i : visited_threads) {
+								cout << i << endl;
+							}
 							// Scan the stack again, and mark the involved unsafe edges for fencing.
 							for (vector<StackItem>::iterator st = point_stack.begin(); st != point_stack.end(); ++st) {
 								vector<StackItem>::iterator st_next;
@@ -2083,6 +2093,16 @@ int main (int argc, char *argv[]) {
 						if (is_directed_cycle) {
 							cycle_count++;
 							cout << "Directed cycle <-!" << endl;
+							point_stack.print();
+							cout << "initial_PR_explored=" << initial_ai_PR_explored << ", unsafe_explored=" << unsafe_explored << ", PR_explored=" << PR_explored << ", initial_loc_count=" << initial_loc_count << endl;
+							cout << "visited locations:" << endl;
+							for (int i : visited_locs) {
+								cout << i << endl;
+							}
+							cout << "visited threads:" << endl;
+							for (int i : visited_threads) {
+								cout << i << endl;
+							}
 							// Scan the stack again, and mark the involved unsafe edges for fencing.
 							for (vector<StackItem>::reverse_iterator st = point_stack.rbegin(); st != point_stack.rend(); ++st) {
 								vector<StackItem>::reverse_iterator st_next;
