@@ -1676,7 +1676,7 @@ int main (int argc, char *argv[]) {
 		// The bools are actually only used for the initial sorting of the vectors, not during cycle detection. For this, unsafety of PRpaths is derived
 		// from the (updated during the procedure) relation PRplus_unsafe.
 		vector<vector<pair<int, bool>>> PR_reachable(accesses.size());
-		// A Relation PRplus_unsafe to keep track of the unsafe PR-paths that still require analysis in cycle detection. Also made global for sorting comparison function
+		// A Relation PRplus_unsafe to keep track of the unsafe PR-paths that still require analysis in cycle detection.
 		Relation PRplus_unsafe;
 
 		for (int ai = 0; ai < accesses.size(); ai++) {
@@ -1685,49 +1685,123 @@ int main (int argc, char *argv[]) {
 				if (bi > ai) {
 					bool unsafe_PRpath_exists_ai_to_bi = false;
 					bool unsafe_PRpath_exists_bi_to_ai = false;
-					// If ai and bi are related via PRplus, record their connection in PR_reachable
+					bool relate_ai_bi = false;
+					bool relate_bi_ai = false;
+					// If ai and bi are related via PRplus, record their connection in PR_reachable, but only if they are relevant for cycles
 					if (PRplus.are_related(ai, bi) || PRplus.are_related(bi, ai)) {
 						Access& b = accesses.get(bi);
 						// In the case of atomicity checking, the presence of a PR-path between ai and bi inside a single instruction is sufficient for the presence of an unsafe PR-path
-						if (a.ipos == b.ipos && check_atomicity && PRplus_intra_instr.are_related(bi, ai)) {
-							unsafe_PRpath_exists_ai_to_bi = true;
-						}
-						else {
-							// Is there an instruction in which both accesses occur (one has been reordered into the instruction of the other)
-							for (int a_instr : a.instr) {
-								Instruction& instr = instructions.find(a_instr)->second;
-								if (set_contains(instr.accesses, bi)) {
-									if (!PPR[a_instr].are_related(ai, bi)) {
-										unsafe_PRpath_exists_ai_to_bi = true;
-										break;
+						if (a.ipos == b.ipos) {
+							if (PRplus_intra_instr.are_related(bi, ai)) {
+								if (check_atomicity) {
+									unsafe_PRpath_exists_ai_to_bi = true;
+									relate_ai_bi = true;
+								}
+								// Moving in the PR-direction inside instructions is only needed if a and b address different locations
+								if (a.location != b.location) {
+									relate_bi_ai = true;
+									for (int b_instr : b.instr) {
+										Instruction& instr = instructions.find(b_instr)->second;
+										if (set_contains(instr.accesses, ai)) {
+											if (!PPR[b_instr].are_related(bi, ai)) {
+												unsafe_PRpath_exists_bi_to_ai = true;
+												break;
+											}
+										}
+									}
+									if (!check_atomicity) {
+										if (PRplus.are_related(ai, bi)) {
+											relate_ai_bi = true;
+											for (int a_instr : a.instr) {
+												Instruction& instr = instructions.find(a_instr)->second;
+												if (set_contains(instr.accesses, bi)) {
+													if (!PPR[a_instr].are_related(ai, bi)) {
+														unsafe_PRpath_exists_ai_to_bi = true;
+														break;
+													}
+												}
+											}
+										}
+									}
+								}
+							}
+							else if (PRplus_intra_instr.are_related(ai, bi)) {
+								if (check_atomicity) {
+									unsafe_PRpath_exists_bi_to_ai = true;
+									relate_bi_ai = true;
+								}
+								// Moving in the PR-direction inside instructions is only needed if a and b address different locations
+								if (a.location != b.location) {
+									relate_ai_bi = true;
+									for (int a_instr : a.instr) {
+										Instruction& instr = instructions.find(a_instr)->second;
+										if (set_contains(instr.accesses, bi)) {
+											if (!PPR[a_instr].are_related(ai, bi)) {
+												unsafe_PRpath_exists_ai_to_bi = true;
+												break;
+											}
+										}
+									}
+									if (!check_atomicity) {
+										if (PRplus.are_related(bi, ai)) {
+											relate_bi_ai = true;
+											for (int b_instr : b.instr) {
+												Instruction& instr = instructions.find(b_instr)->second;
+												if (set_contains(instr.accesses, ai)) {
+													if (!PPR[b_instr].are_related(bi, ai)) {
+														unsafe_PRpath_exists_bi_to_ai = true;
+														break;
+													}
+												}
+											}
+										}
 									}
 								}
 							}
 						}
-						// Now repeat for the other direction
-						if (a.ipos == b.ipos && check_atomicity && PRplus_intra_instr.are_related(ai, bi)) {
-							unsafe_PRpath_exists_bi_to_ai = true;
-						}
 						else {
-							// Is there an instruction in which both accesses occur (one has been reordered into the instruction of the other)
-							for (int b_instr : b.instr) {
-								Instruction& instr = instructions.find(b_instr)->second;
-								if (set_contains(instr.accesses, ai)) {
-									if (!PPR[b_instr].are_related(bi, ai)) {
-										unsafe_PRpath_exists_bi_to_ai = true;
-										break;
+							// We only need to consider a and b addressing different locations
+							if (a.location != b.location) {
+								if (PRplus.are_related(ai, bi)) {
+									relate_ai_bi = true;
+									// Is there an instruction in which both accesses occur (b has been reordered into the instruction of a)
+									for (int a_instr : a.instr) {
+										Instruction& instr = instructions.find(a_instr)->second;
+										if (set_contains(instr.accesses, bi)) {
+											if (!PPR[a_instr].are_related(ai, bi)) {
+												unsafe_PRpath_exists_ai_to_bi = true;
+												break;
+											}
+										}
+									}
+								}
+								if (PRplus.are_related(bi, ai)) {
+									relate_bi_ai = true;
+									// Is there an instruction in which both accesses occur (a has been reordered into the instruction of b)
+									for (int b_instr : b.instr) {
+										Instruction& instr = instructions.find(b_instr)->second;
+										if (set_contains(instr.accesses, ai)) {
+											if (!PPR[b_instr].are_related(bi, ai)) {
+												unsafe_PRpath_exists_bi_to_ai = true;
+												break;
+											}
+										}
 									}
 								}
 							}
 						}
 						// Record relation
-						vector_insert(PR_reachable[ai], (pair<int, bool>(bi, unsafe_PRpath_exists_ai_to_bi || unsafe_PRpath_exists_bi_to_ai)));
-						if (unsafe_PRpath_exists_ai_to_bi) {
-							PRplus_unsafe.insert(ai, bi);
+						if (relate_ai_bi) {
+							vector_insert(PR_reachable[ai], (pair<int, bool>(bi, unsafe_PRpath_exists_ai_to_bi || unsafe_PRpath_exists_bi_to_ai)));
+							if (unsafe_PRpath_exists_ai_to_bi) {
+								PRplus_unsafe.insert(ai, bi);
+							}
 						}
-						vector_insert(PR_reachable[bi], (pair<int, bool>(ai, unsafe_PRpath_exists_ai_to_bi || unsafe_PRpath_exists_bi_to_ai)));
-						if (unsafe_PRpath_exists_bi_to_ai) {
-							PRplus_unsafe.insert(bi, ai);
+						if (relate_bi_ai) {
+							vector_insert(PR_reachable[bi], (pair<int, bool>(ai, unsafe_PRpath_exists_ai_to_bi || unsafe_PRpath_exists_bi_to_ai)));
+							if (unsafe_PRpath_exists_bi_to_ai) {
+								PRplus_unsafe.insert(bi, ai);
+							}
 						}
 						// cout << "PR path: " << ai << " -> " << bi << ": " << unsafe_PRpath_exists_ai_to_bi << endl;
 						// cout << "PR path: " << bi << " -> " << ai << ": " << unsafe_PRpath_exists_bi_to_ai << endl;
@@ -1812,6 +1886,9 @@ int main (int argc, char *argv[]) {
 			// }
 		}
 		cout << "Number of unsafe elements: " << unsafe_elements_counter << endl;
+
+		// Cycle counter
+		int cycle_count = 0;
 
 		for (int s = 0; s < accesses.size() && unsafe_elements_counter > 0; s++) {
 			if (!accesses.get(s).local) {
@@ -1916,6 +1993,7 @@ int main (int argc, char *argv[]) {
 							}
 						}
 						if (is_directed_cycle) {
+							cycle_count++;
 							// Scan the stack again, and mark the involved unsafe edges for fencing.
 							for (vector<StackItem>::iterator st = point_stack.begin(); st != point_stack.end(); ++st) {
 								vector<StackItem>::iterator st_next;
@@ -1991,6 +2069,7 @@ int main (int argc, char *argv[]) {
 							}
 						}
 						if (is_directed_cycle) {
+							cycle_count++;
 							// Scan the stack again, and mark the involved unsafe edges for fencing.
 							for (vector<StackItem>::reverse_iterator st = point_stack.rbegin(); st != point_stack.rend(); ++st) {
 								vector<StackItem>::reverse_iterator st_next;
@@ -2402,6 +2481,7 @@ int main (int argc, char *argv[]) {
 			}
 		}
 
+		cout << "Number of directed cycles found: " << cycle_count << endl;
 		if (check_atomicity) {
 			cout << "Locks placed on " << locked_instructions.size() << " instructions!" << endl;
 			if (locked_instructions.size() > 0) {
