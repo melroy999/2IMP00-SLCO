@@ -630,6 +630,7 @@ bool reorder(int ai, int instr_id, map<int, Instruction>& instructions, MM mmode
 					for (int ci : it->second) {
 						if (!set_contains(reordered, ci)) {
 							check = false;
+							break;
 						}
 					}
 				}
@@ -684,6 +685,9 @@ bool reorder(int ai, int instr_id, map<int, Instruction>& instructions, MM mmode
 				}
 				else {
 					// ai and bi cannot be reordered
+					if (moved_into) {
+						PPR[instr_id].insert(bi, ai);
+					}
 				}
 			}
 			// Swap the sets
@@ -999,7 +1003,7 @@ int main (int argc, char *argv[]) {
 				// Check if instruction is already stored. If not, create it
 				if (iid == -1) {
 					iid = instruction_ids.insert(label);
-					cout << iid << ": " << label << endl;
+					// cout << iid << ": " << label << endl;
 					if (label.compare("tau") != 0) {
 						//cout << label << endl;
 						// Break label further down
@@ -1110,7 +1114,7 @@ int main (int argc, char *argv[]) {
 								acc.tid = tid;
 								// cout << tid << endl;
 								int aid = accesses.insert(acc);
-								cout << "read " << aid << " : " << read << ": " << label << endl;
+								// cout << "read " << aid << " : " << read << ": " << label << endl;
 								instr.accesses.insert(aid);
 								reads_stored = true;
 
@@ -1227,7 +1231,7 @@ int main (int argc, char *argv[]) {
 								acc.tid = tid;
 								// cout << tid << endl;
 								int aid = accesses.insert(acc);
-								cout << "write " << aid << " : " << write << ": " << label << endl;
+								// cout << "write " << aid << " : " << write << ": " << label << endl;
 								instr.accesses.insert(aid);
 								vector_insert(curr_accesses_bottom, aid);
 
@@ -2008,17 +2012,17 @@ int main (int argc, char *argv[]) {
 						}
 						if (is_directed_cycle) {
 							cycle_count++;
-							cout << "Directed cycle ->!" << endl;
-							point_stack.print();
-							cout << "initial_PR_explored=" << initial_ai_PR_explored << ", unsafe_explored=" << unsafe_explored << ", PR_explored=" << PR_explored << ", initial_loc_count=" << initial_loc_count << endl;
-							cout << "visited locations:" << endl;
-							for (int i : visited_locs) {
-								cout << i << endl;
-							}
-							cout << "visited threads:" << endl;
-							for (int i : visited_threads) {
-								cout << i << endl;
-							}
+							// cout << "Directed cycle ->!" << endl;
+							// point_stack.print();
+							// cout << "initial_PR_explored=" << initial_ai_PR_explored << ", unsafe_explored=" << unsafe_explored << ", PR_explored=" << PR_explored << ", initial_loc_count=" << initial_loc_count << endl;
+							// cout << "visited locations:" << endl;
+							// for (int i : visited_locs) {
+							// 	cout << i << endl;
+							// }
+							// cout << "visited threads:" << endl;
+							// for (int i : visited_threads) {
+							// 	cout << i << endl;
+							// }
 							// Scan the stack again, and mark the involved unsafe edges for fencing.
 							for (vector<StackItem>::iterator st = point_stack.begin(); st != point_stack.end(); ++st) {
 								vector<StackItem>::iterator st_next;
@@ -2095,17 +2099,17 @@ int main (int argc, char *argv[]) {
 						}
 						if (is_directed_cycle) {
 							cycle_count++;
-							cout << "Directed cycle <-!" << endl;
-							point_stack.print();
-							cout << "initial_PR_explored=" << initial_ai_PR_explored << ", unsafe_explored=" << unsafe_explored << ", PR_explored=" << PR_explored << ", initial_loc_count=" << initial_loc_count << endl;
-							cout << "visited locations:" << endl;
-							for (int i : visited_locs) {
-								cout << i << endl;
-							}
-							cout << "visited threads:" << endl;
-							for (int i : visited_threads) {
-								cout << i << endl;
-							}
+							// cout << "Directed cycle <-!" << endl;
+							// point_stack.print();
+							// cout << "initial_PR_explored=" << initial_ai_PR_explored << ", unsafe_explored=" << unsafe_explored << ", PR_explored=" << PR_explored << ", initial_loc_count=" << initial_loc_count << endl;
+							// cout << "visited locations:" << endl;
+							// for (int i : visited_locs) {
+							// 	cout << i << endl;
+							// }
+							// cout << "visited threads:" << endl;
+							// for (int i : visited_threads) {
+							// 	cout << i << endl;
+							// }
 							// Scan the stack again, and mark the involved unsafe edges for fencing.
 							for (vector<StackItem>::reverse_iterator st = point_stack.rbegin(); st != point_stack.rend(); ++st) {
 								vector<StackItem>::reverse_iterator st_next;
@@ -2557,21 +2561,21 @@ int main (int argc, char *argv[]) {
 		// 		cout << "(" << i.first << ", " << j << ")" << endl;
 		// 	}
 		// }
-		cout << "The PPRs: " << endl;
-		for (int i = 0; i < instructions.size(); i++) {
-			cout << "For instruction " << i << ":" << endl;
-			cout << "Accesses of the instruction: ";
-			Instruction& instr = instructions.find(i)->second;
-			for (int n : instr.accesses) {
-				cout << n << " ";
-			}
-			cout << endl;
-			for (auto j : PPR[i]) {
-				for (auto k : j.second) {
-					cout << "(" << j.first << ", " << k << ")" << endl;
-				}
-			}
-		}
+		// cout << "The PPRs: " << endl;
+		// for (int i = 0; i < instructions.size(); i++) {
+		// 	cout << "For instruction " << i << ":" << endl;
+		// 	cout << "Accesses of the instruction: ";
+		// 	Instruction& instr = instructions.find(i)->second;
+		// 	for (int n : instr.accesses) {
+		// 		cout << n << " ";
+		// 	}
+		// 	cout << endl;
+		// 	for (auto j : PPR[i]) {
+		// 		for (auto k : j.second) {
+		// 			cout << "(" << j.first << ", " << k << ")" << endl;
+		// 		}
+		// 	}
+		// }
 		// cout << "PRplus:" << endl;
 		// for (auto i : PRplus) {
 		// 	for (auto j : i.second) {

@@ -479,7 +479,7 @@ def expression_usedvars_scan(s,stm,c):
 				if s.ref.index != None:
 					output |= expression_usedvars_scan(s.ref.index,stm,c)
 		if s.body != None:
-			output |= expression_varset(s.body,stm,c,primmap,owner)
+			output |= expression_usedvars_scan(s.body,stm,c)
 	return output
 
 def expression_varset(s,stm,c,primmap,owner,ignore_indices):
