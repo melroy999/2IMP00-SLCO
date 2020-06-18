@@ -1885,7 +1885,18 @@ int main (int argc, char *argv[]) {
 			// 	unsafe_elements_counter += it->second.size();
 			// }
 		}
-		cout << "Number of unsafe elements: " << unsafe_elements_counter << endl;
+		cout << "Number of accesses: " << accesses.size() << endl;
+		int count = 0;
+		for (auto it : PR) {
+			count += it.second.size();
+		}
+		cout << "Number of PR-edges in AEG: " << count << endl;
+		count = 0;
+		for (int i = 0; i < CMP.size(); i++) {
+			count += CMP.get(i).size();
+		}
+		cout << "Number of CMP-edges in AEG: " << count << endl;
+		cout << "Number of unsafe elements in AEG: " << unsafe_elements_counter << endl;
 
 		// Cycle counter
 		int cycle_count = 0;
