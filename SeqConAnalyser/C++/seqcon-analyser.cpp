@@ -369,16 +369,8 @@ struct Instruction {
 
 // Struct to store an LTS state
 struct State {
-	int outgoing_begin = -1; // Start of list of outgoing transitions
-	int outgoing_end = -1; // End of list of outgoing transitions
 	vector<int> outgoing_instr; // (Sorted!) vector of instruction ids outgoing from the state
 	vector<pair<int, int>> predecessors; // Vector of predecessor states (needed to construct PR-relation)
-};
-
-// Struct to store LTS transition
-struct Transition {
-	int target; // Target state
-	map<int, Instruction>::iterator instruction; // Instruction associated with the transition
 };
 
 // Struct to store CMP lookup info (for an access, thread pair)
@@ -956,7 +948,6 @@ int main (int argc, char *argv[]) {
 		size_t sep1, sep2;
 		int nr_of_states, nr_of_trans;
 		vector<State> lts_states;
-		vector<Transition> lts_transitions;
 		int current_state_index, current_trans_index, prev_src;
 		bool first_trans;
 		bool last_trans = false;
@@ -969,11 +960,8 @@ int main (int argc, char *argv[]) {
 			lts_states.resize(nr_of_states);
 			sep2 = line.find_first_of(",");
 			nr_of_trans = stoi(line.substr(sep2+1, sep1-(sep2+1)));
-			// Create vector for transitions
-			lts_transitions.resize(nr_of_trans);
 
 			current_state_index = -1;
-			current_trans_index = 0;
 			prev_src = -1;
 		}
 		// Instruction instance to be used to create new instructions
@@ -998,13 +986,10 @@ int main (int argc, char *argv[]) {
 			}
 			else {
 				if (!static_analysis) {
-					// Extract info from transition label, and store the transition
+					// Extract info from transition label
 					sep1 = line.find_first_of(",");
 					src = stoi(line.substr(1,sep1-1));
 					if (src != prev_src) {
-						if (prev_src != -1) {
-							lts_states[prev_src].outgoing_end = current_trans_index;
-						}
 						first_trans = true;
 						current_state_index++;
 						last_trans = true;
@@ -1309,13 +1294,7 @@ int main (int argc, char *argv[]) {
 			if (!static_analysis) {
 				// Get the instruction
 				auto it = instructions.find(iid);
-				// Store the transition
-				lts_transitions[current_trans_index].target = tgt;
-				lts_transitions[current_trans_index].instruction = it;
-				// Store the source state info
-				if (first_trans) {
-					lts_states[current_state_index].outgoing_begin = current_trans_index;
-				}
+				// Store the source state info: outgoing instruction
 				vector_insert(lts_states[current_state_index].outgoing_instr, iid);
 
 				// Update PR
@@ -1429,9 +1408,8 @@ int main (int argc, char *argv[]) {
 			}
 		}
 		if (!static_analysis) {
-			// Store outgoing transitions end for final state
-			lts_states[current_state_index].outgoing_end = current_trans_index;
-			// Compare outgoing transitions with those of the states in the todo list.
+			// Store info for final state
+			// Compare outgoing instructions with those of the states in the todo list.
 			// First sort the vector of outgoing instruction ids
 			State& s = lts_states[src];
 			sort(s.outgoing_instr.begin(), s.outgoing_instr.end());
