@@ -2434,8 +2434,8 @@ int main (int argc, char *argv[]) {
 						//cout << "Cycle!" << endl;
 						v_st.cycle_found = true;
 					}
-					// else if (!mark[w]) {
-					else {
+					else if (!mark[w]) {
+					// else {
 						Access& va = accesses.get(v_st.aid);
 						Access& wa = accesses.get(w);
 						if (v_st.edge_type == PREDGE) {
