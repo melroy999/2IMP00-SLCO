@@ -2131,6 +2131,8 @@ int main (int argc, char *argv[]) {
 		}
 		cout << "Number of unsafe elements in AEG: " << unsafe_elements_counter << endl;
 
+		chrono::steady_clock::time_point cycle_begin = chrono::steady_clock::now();
+
 		// Cycle counter
 		int cycle_count = 0;
 
@@ -2487,6 +2489,8 @@ int main (int argc, char *argv[]) {
 		// 	cout << endl;
 		// }
 
+		chrono::steady_clock::time_point cycle_end = chrono::steady_clock::now();
+
 		// Postprocess the marked PR-pairs, to identify how many fences should be placed, of which kind, and how many
 		StaticStack<StackItem_fencing> processing_stack(instructions.size());
 		// Map to store for each instruction after which a fence must be placed the set of instructions where such a fence can be placed
@@ -2807,7 +2811,8 @@ int main (int argc, char *argv[]) {
 			}
 		}
 
-		cout << "Analysis time = " << chrono::duration_cast<chrono::microseconds>(end - begin).count() << "[µs]" << endl;
+		cout << "Cycle detection time = " << chrono::duration_cast<chrono::microseconds>(cycle_end - cycle_begin).count() << "[µs]" << endl;
+		cout << "Total analysis time = " << chrono::duration_cast<chrono::microseconds>(end - begin).count() << "[µs]" << endl;
 
 		// cout << "PR:" << endl;
 		// for (auto i : PR) {
