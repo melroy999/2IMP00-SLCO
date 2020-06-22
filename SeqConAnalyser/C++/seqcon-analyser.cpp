@@ -529,17 +529,15 @@ bool compare_access_indices(int i, int j) {
 	return accesses.get(i).tid < accesses.get(j).tid;
 }
 
-// Comparison function for sorting (access ID, bool) pairs
+// Comparison function for sorting (access ID, bool) pairs. First give priority on access ID (descending order), and then on Boolean flag (true > false)
 bool compare_access_bool_pairs(pair<int, bool> p1, pair<int, bool> p2) {
-	if (p1.second && !p2.second) {
+	if (p1.first > p2.first) {
 		return true;
 	}
-	else if (!p1.second && p2.second) {
+	if (p2.first > p1.first) {
 		return false;
 	}
-	else {
-		return p1.first < p2.first;
-	}
+	else return p1.second;
 }
 
 // Function to check whether two accesses can be reordered
@@ -752,7 +750,12 @@ int get_next_edge(StackItem& s, int initial_ai, int& initial_loc_count, vector<b
 			for (int i = s.edge_index+1; i < PRedges[s.aid].size(); i++) {
 				pair<int, bool> p = PRedges[s.aid][i];
 				selected = p.first;
-				if (selected >= initial_ai) {
+				if (selected < initial_ai) {
+					// Jump to CMP-edges. (Based on the fact that reachable accesses are sorted by ID)
+					break;
+				}
+				else {
+				// if (selected >= initial_ai) {
 					Access& b = accesses.get(selected);
 					bool edge_is_unsafe = PRplus_unsafe.are_related(s.aid, selected) || PRplus_unsafe.are_related(selected, s.aid);
 					// Either we are considering a thread other than the first one, or we have only selected one thread so far (a cycle cannot be closed yet),
