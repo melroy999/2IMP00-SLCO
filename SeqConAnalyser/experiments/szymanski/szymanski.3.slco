@@ -1,4 +1,4 @@
-model dve_lamport_05 {
+model dve_szymanski_03 {
 
   classes
   GlobalClass {
@@ -9,7 +9,7 @@ model dve_lamport_05 {
     state machines
     thr1 {
       
-      initial S0 states S1 SimpleState0 SimpleState1 SimpleState2
+      initial S0 states S1 S3 S4 S5 S6 SimpleState0 SimpleState1 SimpleState2
 
       transitions
       S0 -> SimpleState0 {
@@ -55,7 +55,7 @@ model dve_lamport_05 {
 
     thr2 {
       
-      initial S0 states S1 SimpleState0 SimpleState1 SimpleState2
+      initial S0 states S1 S3 S4 S5 S6 SimpleState0 SimpleState1 SimpleState2
 
       transitions
       S0 -> SimpleState0 {
@@ -101,7 +101,7 @@ model dve_lamport_05 {
 
     thr3 {
       
-      initial S0 states S1 SimpleState0 SimpleState1 SimpleState2
+      initial S0 states S1 S3 S4 S5 S6 SimpleState0 SimpleState1 SimpleState2
 
       transitions
       S0 -> SimpleState0 {
@@ -147,7 +147,7 @@ model dve_lamport_05 {
 
     thr4 {
       
-      initial S0 states S1 SimpleState0 SimpleState1 SimpleState2
+      initial S0 states S1 S3 S4 S5 S6 SimpleState0 SimpleState1 SimpleState2
 
       transitions
       S0 -> SimpleState0 {

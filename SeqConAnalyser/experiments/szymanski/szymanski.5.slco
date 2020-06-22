@@ -1,4 +1,4 @@
-model dve_lamport_05 {
+model dve_szymanski_05 {
 
   classes
   GlobalClass {
