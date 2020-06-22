@@ -2144,8 +2144,8 @@ int main (int argc, char *argv[]) {
 				//print(st_tmp.loc_count);
 				point_stack.push(st_tmp);
 				//print(point_stack.peek().loc_count);				
-				// mark[s] = true;
-				// marked_stack.push(s);
+				mark[s] = true;
+				marked_stack.push(s);
 				initial_ai_PR_explored = false;
 				unsafe_explored = 0;
 				PR_explored = 0;
@@ -2180,14 +2180,14 @@ int main (int argc, char *argv[]) {
 					// }
 					if (w == -1) {
 						// Backtrack
-						// if (v_st.cycle_found) {
-						// 	while (marked_stack.peek() != v_st.aid) {
-						// 		mark[marked_stack.peek()] = false;
-						// 		marked_stack.pop();
-						// 	}
-						// 	mark[v_st.aid] = false;
-						// 	marked_stack.pop();
-						// }
+						if (v_st.cycle_found) {
+							while (marked_stack.peek() != v_st.aid) {
+								mark[marked_stack.peek()] = false;
+								marked_stack.pop();
+							}
+							mark[v_st.aid] = false;
+							marked_stack.pop();
+						}
 						g = v_st.cycle_found;
 						point_stack.pop();
 						// Update info relevant for critical cycle conditions
@@ -2476,15 +2476,15 @@ int main (int argc, char *argv[]) {
 							st_tmp.init(w, loc_count);
 						}
 						point_stack.push(st_tmp);
-						// mark[w] = true;
-						// marked_stack.push(w);
+						mark[w] = true;
+						marked_stack.push(w);
 						continue;
 					}
 				}
-				// while (!marked_stack.empty()) {
-				// 	mark[marked_stack.peek()] = false;
-				// 	marked_stack.pop();
-				// }
+				while (!marked_stack.empty()) {
+					mark[marked_stack.peek()] = false;
+					marked_stack.pop();
+				}
 				visited_locs[sa.location] = false;
 				visited_threads[sa.tid] = false;
 			}
