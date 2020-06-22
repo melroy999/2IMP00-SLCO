@@ -2102,7 +2102,7 @@ int main (int argc, char *argv[]) {
 
 		// Perform critical cycle detection, based on Tarjan's algorithm for enumerating the elementary circuits in a graph
 		vector<bool> mark(accesses.size(), false);
-//		StaticStack<int> marked_stack(accesses.size());
+		StaticStack<int> marked_stack(accesses.size());
 		StaticStack<StackItem> point_stack(accesses.size());
 
 		StackItem st_tmp;
@@ -2143,9 +2143,9 @@ int main (int argc, char *argv[]) {
 				st_tmp.init(s, 1);
 				//print(st_tmp.loc_count);
 				point_stack.push(st_tmp);
-				//print(point_stack.peek().loc_count);				
-				// mark[s] = true;
-				// marked_stack.push(s);
+				//print(point_stack.peek().loc_count);
+				mark[s] = true;
+				marked_stack.push(s);
 				initial_ai_PR_explored = false;
 				unsafe_explored = 0;
 				PR_explored = 0;
@@ -2181,12 +2181,14 @@ int main (int argc, char *argv[]) {
 					if (w == -1) {
 						// Backtrack
 						if (v_st.cycle_found) {
-							// while (marked_stack.peek() != v_st.aid) {
-							// 	mark[marked_stack.peek()] = false;
-							// 	marked_stack.pop();
-							// }
-							// mark[v_st.aid] = false;
-							// marked_stack.pop();
+							while (!marked_stack.empty() && marked_stack.peek() != v_st.aid) {
+								mark[marked_stack.peek()] = false;
+								marked_stack.pop();
+							}
+							if (!marked_stack.empty()) {
+								mark[v_st.aid] = false;
+								marked_stack.pop();
+							}
 						}
 						g = v_st.cycle_found;
 						point_stack.pop();
@@ -2476,15 +2478,15 @@ int main (int argc, char *argv[]) {
 							st_tmp.init(w, loc_count);
 						}
 						point_stack.push(st_tmp);
-						// mark[w] = true;
-						// marked_stack.push(w);
+						mark[w] = true;
+						marked_stack.push(w);
 						continue;
 					}
 				}
-				// while (!marked_stack.empty()) {
-				// 	mark[marked_stack.peek()] = false;
-				// 	marked_stack.pop();
-				// }
+				while (!marked_stack.empty()) {
+					mark[marked_stack.peek()] = false;
+					marked_stack.pop();
+				}
 				visited_locs[sa.location] = false;
 				visited_threads[sa.tid] = false;
 			}
