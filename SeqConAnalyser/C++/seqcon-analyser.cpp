@@ -2486,6 +2486,8 @@ int main (int argc, char *argv[]) {
 				// 	marked_stack.pop();
 				// }
 			}
+			visited_locs[sa.location] = false;
+			visited_threads[sa.tid] = false;
 		}
 		// cout << "Marked for fencing:" << endl;
 		// for (auto p : PR_paths_requiring_fences) {
