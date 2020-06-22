@@ -76,7 +76,7 @@ void* thr4(void * arg) {
 int main()
 {
   __CPROVER_ASYNC_1: thr1(0);
-  thr2(0);
-  thr3(0);
+  __CPROVER_ASYNC_2: thr2(0);
+  __CPROVER_ASYNC_3: thr3(0);
   thr4(0);
 }

@@ -226,5 +226,7 @@ void* P3(void * arg) {
 int main()
 {
   __CPROVER_ASYNC_1: P0(0);
-  P1(0); P2(0); P3(0);
+  __CPROVER_ASYNC_2: P1(0);
+  __CPROVER_ASYNC_3: P2(0);
+  P3(0);
 }

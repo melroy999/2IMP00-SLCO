@@ -131,6 +131,6 @@ void* thr3(void * arg) {
 int main()
 {
   __CPROVER_ASYNC_1: thr1(0);
-  thr2(0);
+  __CPROVER_ASYNC_2: thr2(0);
   thr3(0);
 }
