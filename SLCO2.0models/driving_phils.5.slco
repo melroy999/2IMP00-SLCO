@@ -96,33 +96,33 @@ classes
 				variables
 					Integer i := 0
 				initial action
-				states  end mutex
+				states  end1 mutex
 				transitions
-					from action to end {
+					from action to end1 {
 						[phase = 1 and res0[0] <> -1; resources[res0[0]] := 0;resources[res0[0]+1] := 0;res0[0] := res1[0];res1[0] := -1;fire := fire + 1]
 					}
 
-					from action to end {
+					from action to end1 {
 						[phase = 1 and res1[0] = -1 and acquiring[0] = -1; acquiring[0] := 0;fire := fire + 1;request[0*2+0] := entryRound]
 					}
 
-					from action to end {
+					from action to end1 {
 						[phase = 1 and res1[0] = -1 and acquiring[0] = -1; acquiring[0] := 1;fire := fire + 1;request[0*2+1] := entryRound]
 					}
 
-					from action to end {
+					from action to end1 {
 						[phase = 1; fire := fire + 1]
 					}
 
-					from end to action {
+					from end1 to action {
 						[phase = 2 and acquiring[0] = -1; fire := fire+1]
 					}
 
-					from end to action {
+					from end1 to action {
 						[phase = 2 and acquiring[0] <> -1 and res0[0] = -1; res0[0] := acquiring[0];acquiring[0] := -1;fire := fire + 1]
 					}
 
-					from end to action {
+					from end1 to action {
 						[phase = 2 and acquiring[0] <> -1 and res0[0] <> -1; res1[0] := acquiring[0];acquiring[0] := -1;fire := fire + 1]
 					}
 
@@ -132,25 +132,25 @@ classes
 				variables
 					Integer i := 0
 				initial action
-				states  end mutex
+				states  end1 mutex
 				transitions
-					from action to end {
+					from action to end1 {
 						[phase = 1 and res0[1] <> -1; resources[res0[1]] := 0;resources[res0[1]+1] := 0;res0[1] := res1[1];res1[1] := -1;fire := fire + 1]
 					}
 
-					from action to end {
+					from action to end1 {
 						[phase = 1 and res1[1] = -1 and acquiring[1] = -1; acquiring[1] := 0;fire := fire + 1;request[1*2+0] := entryRound]
 					}
 
-					from action to end {
+					from action to end1 {
 						[phase = 1 and res1[1] = -1 and acquiring[1] = -1; acquiring[1] := 1;fire := fire + 1;request[1*2+1] := entryRound]
 					}
 
-					from action to end {
+					from action to end1 {
 						[phase = 1; fire := fire + 1]
 					}
 
-					from end to action {
+					from end1 to action {
 						[phase = 2 and acquiring[1] = -1; fire := fire+1]
 					}
 
@@ -158,7 +158,7 @@ classes
 						[phase = 2 and acquiring[1] <> -1 and res0[1] = -1; res0[1] := acquiring[1];acquiring[1] := -1;fire := fire + 1]
 					}
 
-					from end to action {
+					from end1 to action {
 						[phase = 2 and acquiring[1] <> -1 and res0[1] <> -1; res1[1] := acquiring[1];acquiring[1] := -1;fire := fire + 1]
 					}
 
@@ -168,33 +168,33 @@ classes
 				variables
 					Integer i := 0
 				initial action
-				states  end mutex
+				states  end1 mutex
 				transitions
-					from action to end {
+					from action to end1 {
 						[phase = 1 and res0[2] <> -1; resources[res0[2]] := 0;resources[res0[2]+1] := 0;res0[2] := res1[2];res1[2] := -1;fire := fire + 1]
 					}
 
-					from action to end {
+					from action to end1 {
 						[phase = 1 and res1[2] = -1 and acquiring[2] = -1; acquiring[2] := 0;fire := fire + 1;request[2*2+0] := entryRound]
 					}
 
-					from action to end {
+					from action to end1 {
 						[phase = 1 and res1[2] = -1 and acquiring[2] = -1; acquiring[2] := 1;fire := fire + 1;request[2*2+1] := entryRound]
 					}
 
-					from action to end {
+					from action to end1 {
 						[phase = 1; fire := fire + 1]
 					}
 
-					from end to action {
+					from end1 to action {
 						[phase = 2 and acquiring[2] = -1; fire := fire+1]
 					}
 
-					from end to action {
+					from end1 to action {
 						[phase = 2 and acquiring[2] <> -1 and res0[2] = -1; res0[2] := acquiring[2];acquiring[2] := -1;fire := fire + 1]
 					}
 
-					from end to action {
+					from end1 to action {
 						[phase = 2 and acquiring[2] <> -1 and res0[2] <> -1; res1[2] := acquiring[2];acquiring[2] := -1;fire := fire + 1]
 					}
 
