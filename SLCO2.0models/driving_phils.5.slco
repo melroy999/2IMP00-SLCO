@@ -154,7 +154,7 @@ classes
 						[phase = 2 and acquiring[1] = -1; fire := fire+1]
 					}
 
-					from end to action {
+					from end1 to action {
 						[phase = 2 and acquiring[1] <> -1 and res0[1] = -1; res0[1] := acquiring[1];acquiring[1] := -1;fire := fire + 1]
 					}
 
