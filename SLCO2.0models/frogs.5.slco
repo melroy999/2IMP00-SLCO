@@ -2,7 +2,7 @@ model dve_frogs_5 {
 classes
 	GlobalClass {
 		variables
-			Byte[30] a := [1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,2,2,2,2,2,2,2,2,2,2,2,2,2,2]
+			Byte[29] a := [1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,2,2,2,2,2,2,2,2,2,2,2,2,2,2]
 			Byte x := 2
 			Byte y := 2
 		state machines
