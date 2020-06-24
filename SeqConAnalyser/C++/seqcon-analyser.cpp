@@ -1513,6 +1513,12 @@ int main (int argc, char *argv[]) {
 		// }
 		inputfile.close();
 
+		if (!static_analysis) {
+			cout << "Finished reading LTS!" << endl;
+			cout << "Number of states in LTS: " << nr_of_states << endl;
+			cout << "Number of transitions in LTS: " << nr_of_trans << endl;
+		}
+
 		chrono::steady_clock::time_point begin = chrono::steady_clock::now();
 
 		int cnt = 0;
