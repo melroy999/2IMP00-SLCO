@@ -17,10 +17,6 @@ classes
 						v>0
 					}
 
-					from mov to open {
-						t=p
-					}
-
 					from mov to mov {
 						[t<p; p := p-1]
 					}
@@ -29,7 +25,7 @@ classes
 						[t>p; p := p+1]
 					}
 
-					from open to idle {
+					1: from mov to idle {
 						[req[p] := 0;v := 0]
 					}
 
@@ -109,12 +105,12 @@ classes
 						[t<0 or t=13; ldir := 1-ldir]
 					}
 
-					from work to done {
-						t>=0 and t<13 and req[t]=1
+					1: from work to done {
+						req[t]=1
 					}
 
-					from work to work {
-						[t>=0 and t<13 and req[t]=0; t := t+(2*ldir)-1]
+					2: from work to work {
+						[t := t+(2*ldir)-1]
 					}
 
 					from done to wait {

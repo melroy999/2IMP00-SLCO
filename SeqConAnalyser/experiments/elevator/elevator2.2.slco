@@ -17,10 +17,6 @@ classes
 						v>0
 					}
 
-					from mov to open {
-						t=p
-					}
-
 					from mov to mov {
 						[t<p; p := p-1]
 					}
@@ -29,7 +25,7 @@ classes
 						[t>p; p := p+1]
 					}
 
-					from open to idle {
+					1: from mov to idle {
 						[req[p] := 0;v := 0]
 					}
 
