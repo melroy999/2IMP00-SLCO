@@ -2,7 +2,7 @@ model dve_mcs_1 {
 classes
 	GlobalClass {
 		variables
-			Byte[5] next := [255,255,255]
+			Byte[5] next := [255,255,255,255,255]
 			Byte[5] locked
 			Byte tail := 255
 		state machines
