@@ -21,11 +21,11 @@ classes
 						[t<p; p := p-1]
 					}
 
-					from mov to mov {
+					1: from mov to mov {
 						[t>p; p := p+1]
 					}
 
-					1: from mov to idle {
+					2: from mov to idle {
 						[req[p] := 0;v := 0]
 					}
 
@@ -65,11 +65,11 @@ classes
 						[v=0; t := t+(2*ldir)-1]
 					}
 
-					from work to wait {
+					1: from work to wait {
 						[t<0 or t=4; ldir := 1-ldir]
 					}
 
-					1: from work to done {
+					2: from work to done {
 						req[t]=1
 					}
 

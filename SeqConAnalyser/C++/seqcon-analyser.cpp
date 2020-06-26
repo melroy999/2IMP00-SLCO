@@ -795,6 +795,8 @@ int get_next_edge(StackItem& s, int initial_ai, int& initial_loc_count, vector<b
 			// cout << "thread: " << out[i].tid << endl;
 			if (!visited_threads[out[i].tid] || out[i].tid == initial_tid) {
 				// cout << "not visited" << endl;
+				// cout << s.t_index << endl;
+				// cout << s.edge_index << endl;
 				for (int j = (i == s.t_index ? s.edge_index+1 : out[i].accesses_begin); j < out[i].accesses_end; j++) {
 					selected = CMP.get_element(s.aid, j);
 					// cout << "considering " << selected << endl;
@@ -807,19 +809,24 @@ int get_next_edge(StackItem& s, int initial_ai, int& initial_loc_count, vector<b
 						// start explore a PR-path of that thread), or we can select the initial access, by which we close a cycle.
 						// In that case, the cycle should be critical, i.e., a PR-path must have been explored, and either an unsafe element must have been explored,
 						// or the selected CMP-edge is unsafe.
+						// cout << "here1" << endl;
 						if (out[i].tid != initial_tid || (selected != initial_ai && !initial_ai_PR_explored) ||
 								(selected == initial_ai && PR_explored > 0 && (unsafe_explored > 0 || RFE.are_related(s.aid, j) || RFE.are_related(j, s.aid)))) {
 							// If we are not doing atomicity checking, single-location cycles are not interesting. If we are checking atomicity, we must select the initial access.
+						// cout << "here2" << endl;
 							if (a.location == a_initial.location && initial_ai_PR_explored && s.loc_count == 3 && (selected != initial_ai || !atomicity_check)) {
 								continue;
 							}
+						// cout << "here3" << endl;
 							// If we are revisiting the initial location, we must keep selecting accesses to that location.
 							if (a.location == a_initial.location && number_of_locs_visited > 1 && b.location != a_initial.location) {
 								continue;
 							}
+						// cout << "here4" << endl;
 							// Select a valid location
 							if ((s.loc_count < 3 && a.location == b.location) || (initial_loc_count < 3 && b.location == a_initial.location) ||
 									selected == initial_ai || !visited_locs[b.location]) {
+						// cout << "here5" << endl;
 								s.edge_index = j;
 								s.t_index = i;
 								result = selected;
@@ -1169,6 +1176,8 @@ int main (int argc, char *argv[]) {
 											DP.insert(aid, depaid);
 										}
 										PR.insert(depaid, aid);
+										// This is an intra-instruction PR-connection. Store it as well in PRplus_instra_instr
+										PRplus_intra_instr.insert(depaid, aid);
 
 										sep3 = sep4+2;
 										if (reads[sep4] == ']') {
@@ -1195,6 +1204,8 @@ int main (int argc, char *argv[]) {
 								if (!prev_accesses.empty()) {
 									for (auto a : prev_accesses) {
 										PR.insert(a, curr_accesses_bottom);
+										// This is an intra-instruction PR-connection. Store it as well in PRplus_instra_instr
+										PRplus_intra_instr.insert(a, curr_accesses_bottom);
 									}
 								}
 								// Store PR-smallest accesses
@@ -1266,6 +1277,8 @@ int main (int argc, char *argv[]) {
 								if (!prev_accesses.empty()) {
 									for (auto a : prev_accesses) {
 										PR.insert(a, curr_accesses_bottom);
+										// This is an intra-instruction PR-connection. Store it as well in PRplus_instra_instr
+										PRplus_intra_instr.insert(a, curr_accesses_bottom);
 									}
 									// Writes depend on directly preceding reads
 									if (reads_stored and weakmemmodel == ARM) {
@@ -1542,8 +1555,7 @@ int main (int argc, char *argv[]) {
 			}
 		}
 
-		// If we check for atomicity, compute PRplus_intra_instr
-		PRplus_intra_instr.copy(PR);
+		// Compute transitive closure of PRplus_intra_instr using Floyd-Warshall
 		for (auto i : instructions) {
 			for (int ai : i.second.accesses) {
 				for (int bi : i.second.accesses) {
@@ -2115,8 +2127,8 @@ int main (int argc, char *argv[]) {
 		if (point_stack_max_size < stacksize) {
 			stacksize = point_stack_max_size;
 		}
-		vector<bool> mark(accesses.size(), false);
-		StaticStack<int> marked_stack(accesses.size());
+		// vector<bool> mark(accesses.size(), false);
+		// StaticStack<int> marked_stack(accesses.size());
 		StaticStack<StackItem> point_stack(stacksize+1);
 
 		StackItem st_tmp;
@@ -2159,8 +2171,8 @@ int main (int argc, char *argv[]) {
 				//print(st_tmp.loc_count);
 				point_stack.push(st_tmp);
 				//print(point_stack.peek().loc_count);
-				mark[s] = true;
-				marked_stack.push(s);
+				// mark[s] = true;
+				// marked_stack.push(s);
 				initial_ai_PR_explored = false;
 				unsafe_explored = 0;
 				PR_explored = 0;
@@ -2202,16 +2214,16 @@ int main (int argc, char *argv[]) {
 					// }
 					if (w == -1) {
 						// Backtrack
-						if (v_st.cycle_found) {
-							while (!marked_stack.empty() && marked_stack.peek() != v_st.aid) {
-								mark[marked_stack.peek()] = false;
-								marked_stack.pop();
-							}
-							if (!marked_stack.empty()) {
-								mark[v_st.aid] = false;
-								marked_stack.pop();
-							}
-						}
+						// if (v_st.cycle_found) {
+						// 	while (!marked_stack.empty() && marked_stack.peek() != v_st.aid) {
+						// 		mark[marked_stack.peek()] = false;
+						// 		marked_stack.pop();
+						// 	}
+						// 	if (!marked_stack.empty()) {
+						// 		mark[v_st.aid] = false;
+						// 		marked_stack.pop();
+						// 	}
+						// }
 						g = v_st.cycle_found;
 						point_stack.pop();
 						// Update info relevant for critical cycle conditions
@@ -2454,8 +2466,8 @@ int main (int argc, char *argv[]) {
 						//cout << "Cycle!" << endl;
 						v_st.cycle_found = true;
 					}
-					else if (!mark[w]) {
-					// else {
+					// else if (!mark[w]) {
+					else {
 						Access& va = accesses.get(v_st.aid);
 						Access& wa = accesses.get(w);
 						if (v_st.edge_type == PREDGE) {
@@ -2498,15 +2510,15 @@ int main (int argc, char *argv[]) {
 							st_tmp.init(w, loc_count);
 						}
 						point_stack.push(st_tmp);
-						mark[w] = true;
-						marked_stack.push(w);
+						// mark[w] = true;
+						// marked_stack.push(w);
 						continue;
 					}
 				}
-				while (!marked_stack.empty()) {
-					mark[marked_stack.peek()] = false;
-					marked_stack.pop();
-				}
+				// while (!marked_stack.empty()) {
+				// 	mark[marked_stack.peek()] = false;
+				// 	marked_stack.pop();
+				// }
 				visited_locs[sa.location] = false;
 				visited_threads[sa.tid] = false;
 			}
