@@ -21,11 +21,11 @@ classes
 						[t<p; p := p-1]
 					}
 
-					from mov to mov {
+					1: from mov to mov {
 						[t>p; p := p+1]
 					}
 
-					1: from mov to idle {
+					2: from mov to idle {
 						[req[p] := 0;v := 0]
 					}
 

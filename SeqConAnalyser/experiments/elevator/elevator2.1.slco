@@ -65,11 +65,11 @@ classes
 						[v=0; t := t+(2*ldir)-1]
 					}
 
-					1: from work to wait {
+					from work to wait {
 						[t<0 or t=4; ldir := 1-ldir]
 					}
 
-					2: from work to done {
+					1: from work to done {
 						req[t]=1
 					}
 
