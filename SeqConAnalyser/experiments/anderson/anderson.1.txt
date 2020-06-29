@@ -18,6 +18,7 @@ do
 			tmp = myplace / 2;
 			myplace = myplace - (tmp*2);
 		fi;
+		load(Slot[myplace], 1);
 od;
 }
 
