@@ -14,7 +14,8 @@ do
 			tmp = loadval(next);
 			store(next,tmp-2);
 		:: myplace != 2-1 ->
-			myplace = myplace mod 2;
+			tmp = myplace / 2;
+			myplace = myplace - tmp;
 		fi;
 		Slot[myplace] == 1;
 		store(Slot[(myplace+2-1)mod 2], 0);
