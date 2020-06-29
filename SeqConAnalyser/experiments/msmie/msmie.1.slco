@@ -357,14 +357,6 @@ classes
 						[b[0] = 3; b[0] := changeto]
 					}
 
-					from change to r1 {
-						[b[0] = 3; b[0] := changeto]
-					}
-
-					from change to r1 {
-						[b[0] = 3; b[0] := changeto]
-					}
-
 					from r1 to idle {
 						[sem := 1]
 					}
