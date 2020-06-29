@@ -59,6 +59,6 @@ do
 		tmp = myplace+1;
 		tmp1 = tmp / 2;
 		tmp = tmp - (tmp1*2);
-		store(tmp], 1);
+		store(Slot[tmp], 1);
 od;
 }
