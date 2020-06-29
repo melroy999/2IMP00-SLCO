@@ -18,7 +18,7 @@ void* P0(void * arg) {
 				myplace = myplace % 2;
 			}
 			// p2
-			Slot[myplace] = 1;
+			while (Slot[myplace] == 1) {};
 			// p3
 			Slot[(myplace+2-1)%2] = 0;
 			// CS
@@ -41,7 +41,7 @@ void* P1(void * arg) {
 				myplace = myplace % 2;
 			}
 			// p2
-			Slot[myplace] = 1;
+			while (Slot[myplace] == 1) {};
 			// p3
 			Slot[(myplace+2-1)%2] = 0;
 			// CS
