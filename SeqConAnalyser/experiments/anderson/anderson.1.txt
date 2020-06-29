@@ -35,6 +35,7 @@ od;
 proctype p1 {
 int myplace;
 int tmp;
+int tmp1;
 	
 do
 :: true ->
@@ -45,10 +46,19 @@ do
 			tmp = loadval(next);
 			store(next,tmp-2);
 		:: myplace != 2-1 ->
-			myplace = myplace % 2;
+			tmp = myplace / 2;
+			myplace = myplace - (tmp*2);
 		fi;
-		Slot[myplace] == 1;
-		store(Slot[(myplace+2-1)%2], 0);
-		store(Slot[(myplace+1)%2], 1);
+		if
+		:: load(Slot[myplace],1) -> skip;
+		fi;
+		tmp = myplace+2-1;
+		tmp1 = tmp / 2;
+		tmp = tmp - (tmp1*2);
+		store(tmp], 0);
+		tmp = myplace+1;
+		tmp1 = tmp / 2;
+		tmp = tmp - (tmp1*2);
+		store(tmp], 1);
 od;
 }
