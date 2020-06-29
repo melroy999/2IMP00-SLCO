@@ -18,7 +18,9 @@ do
 			tmp = myplace / 2;
 			myplace = myplace - (tmp*2);
 		fi;
-		load(Slot[myplace],1);
+		if
+		:: load(Slot[myplace],1) -> skip;
+		fi;
 od;
 }
 
