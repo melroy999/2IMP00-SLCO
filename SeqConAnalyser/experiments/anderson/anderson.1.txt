@@ -16,7 +16,6 @@ do
 			store(next,tmp-2);
 		:: myplace != 2-1 ->
 			tmp = myplace / 2;
-			myplace = myplace - (tmp*2);
 		fi;
 		load(Slot[myplace], 1);
 		tmp = myplace+2-1;
