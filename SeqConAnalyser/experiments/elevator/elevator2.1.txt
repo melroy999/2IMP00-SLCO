@@ -51,22 +51,5 @@ do
 	fi;
 	tmp = loadval(t);
 	store(t,tmp+(2*ldir)-1);
-	do
-	:: true ->
-		tmp = loadval(t);
-		if
-		:: tmp < 0 || tmp == 4 ->
-			ldir = 1-ldir;
-			break;
-		:: tmp >= 0 && tmp < 4 ->
-			if
-			:: load(req[tmp],1) ->
-				store(v,1);
-				break;
-			:: load(req[tmp],0) ->
-				store(t,tmp+(2*ldir)-1);
-			fi;
-		fi;
-	od;
 od;	
 }
