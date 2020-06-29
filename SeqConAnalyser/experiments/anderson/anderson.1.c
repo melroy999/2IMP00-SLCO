@@ -15,14 +15,14 @@ void* P0(void * arg) {
 				next = next-2;
 			}
 			else {
-				myplace = myplace % 2;
+				myplace = myplace mod 2;
 			}
 			// p2
 			while (Slot[myplace] != 1) {};
 			// p3
-			Slot[(myplace+2-1)%2] = 0;
+			Slot[(myplace+2-1) mod 2] = 0;
 			// CS
-			Slot[(myplace+1)%2] = 1;
+			Slot[(myplace+1) mod 2] = 1;
 	 }
 }
 
