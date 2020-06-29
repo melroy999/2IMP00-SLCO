@@ -29,7 +29,7 @@ do
 od;
 }
 
-proctype environment(void * arg) {
+proctype environment {
 do
 :: true ->
 	if
@@ -41,7 +41,7 @@ do
 od;
 }
 
-proctype controller(void * arg) {
+proctype controller {
 int ldir = 0;
 int tmp;
 do
