@@ -40,3 +40,14 @@ do
 	fi;
 od;
 }
+
+proctype controller {
+int ldir = 0;
+int tmp;
+do
+:: true ->
+	if
+	:: v == 0 -> skip;
+	fi;
+od;	
+}
