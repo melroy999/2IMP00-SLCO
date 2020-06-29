@@ -19,14 +19,6 @@ do
 			myplace = myplace - (tmp*2);
 		fi;
 		load(Slot[myplace],1);
-		tmp = myplace+2-1;
-		tmp1 = tmp / 2;
-		tmp = tmp - (tmp1*2);
-		store(Slot[tmp], 0);
-		tmp = myplace+1;
-		tmp1 = tmp / 2;
-		tmp = tmp - (tmp1*2);
-		store(Slot[tmp], 1);
 od;
 }
 
