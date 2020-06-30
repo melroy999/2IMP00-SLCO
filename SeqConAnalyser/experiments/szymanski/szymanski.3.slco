@@ -33,7 +33,7 @@ model dve_szymanski_03 {
       }
 
       SimpleState2 -> S3 {
-        flag2 = 4 or flag3 = 4 of flag4 = 4
+        flag2 = 4 or flag3 = 4 or flag4 = 4
       }
 
       S3 -> S4 {
