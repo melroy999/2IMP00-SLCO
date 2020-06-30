@@ -2660,11 +2660,11 @@ int main (int argc, char *argv[]) {
 									break;
 								}
 							}
-							else {
-								// We reached one of the instructions in instr2_ids. Add instr1_id as an essential instruction to reach it
-								//cout << "goal instruction found, adding " << ipos << endl;
-								st_top.essential_instr.insert(ipos);
-							}
+							// else {
+							// 	// We reached one of the instructions in instr2_ids. Add instr1_id as an essential instruction to reach it
+							// 	//cout << "goal instruction found, adding " << ipos << endl;
+							// 	st_top.essential_instr.insert(ipos);
+							// }
 						}
 						if (!progress) {
 							// cout << "closing " << st_top.instruction << ": " << endl;
@@ -2673,6 +2673,7 @@ int main (int argc, char *argv[]) {
 							// 	cout << i << " ";
 							// }
 							// cout << endl;
+							st_top.essential_instr.insert(ipos);
 							closed_instr.insert(pair<int, set<int>>(st_top.instruction, st_top.essential_instr));
 							processing_stack.pop();
 							marked_instr[st_top.instruction] = false;
