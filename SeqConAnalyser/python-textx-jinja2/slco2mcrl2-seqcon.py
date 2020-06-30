@@ -259,7 +259,7 @@ def mcrl2type(s):
 
 def mcrl2value(s):
 	"""Maps values from SLCO to mCRL2 values"""
-	if s == "True" or s == "False":
+	if s == "True" or s == "False" or s == True or s == False:
 		return str(s).lower()
 	else:
 		return s

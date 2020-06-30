@@ -1,7 +1,7 @@
 model TestA {
   classes
   P {
-    variables Integer[2] v := [2,2] Boolean b0 b1
+    variables Integer[2] v := [2,2] Boolean b0 := false b1 := false
     state machines
     SM0 {
       variables Integer x := 0
