@@ -2715,6 +2715,16 @@ int main (int argc, char *argv[]) {
 			}
 		}
 		
+		if (verbose) {
+			cout << "fence candidates:" << endl;
+			for (auto p : fence_candidates) {
+				cout << p.first << ": ";
+				for (pair<int, bool> c : p.second) {
+					cout << " (" << c.first << ", " << c.second << ")";
+				}
+				cout << endl;
+			}
+		}
 		// Atomicity checking only: lock the instructions marked for locking
 		if (check_atomicity) {
 			for (int i : locked_instructions) {
@@ -2770,14 +2780,16 @@ int main (int argc, char *argv[]) {
 					fenced_instructions.insert(i);
 				}
 			}
-			// cout << "fence candidates:" << endl;
-			// for (auto p : fence_candidates) {
-			// 	cout << p.first << ": ";
-			// 	for (pair<int, bool> c : p.second) {
-			// 		cout << " (" << c.first << ", " << c.second << ")";
-			// 	}
-			// 	cout << endl;
-			// }
+			if (verbose) {
+				cout << "fence candidates:" << endl;
+				for (auto p : fence_candidates) {
+					cout << p.first << ": ";
+					for (pair<int, bool> c : p.second) {
+						cout << " (" << c.first << ", " << c.second << ")";
+					}
+					cout << endl;
+				}
+			}
 			new_fences.clear();
 			// Find the maximum count in instr_counts
 			int max = 0;
