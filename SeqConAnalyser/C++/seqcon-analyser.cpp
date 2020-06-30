@@ -2572,6 +2572,7 @@ int main (int argc, char *argv[]) {
 			int pfirst = p.first.first;
 			int psecond = p.first.second;
 			bool Acum_needed = p.second;
+			// cout << "PR_path under consideration: " << pfirst << " " << psecond << " " << Acum_needed << endl;
 			vector<int>& instr1_ids = accesses.get(pfirst).instr;
 			instr2_ids.clear();
 			instr2_ids.insert(accesses.get(psecond).instr.begin(), accesses.get(psecond).instr.end());
@@ -2591,6 +2592,11 @@ int main (int argc, char *argv[]) {
 				vector<int>& instr1_ids = accesses.get(pfirst).instr;
 				instr2_ids.clear();
 				instr2_ids.insert(accesses.get(psecond).instr.begin(), accesses.get(psecond).instr.end());
+				// cout << "instr2_ids: ";
+				// for (int i : instr2_ids) {
+				// 	cout << " " << i;
+				// }
+				// cout << endl;
 				set<pair<int, bool>> candidateset;
 				for (int instr1_id : instr1_ids) {
 					// Put instr1_id on the processing stack, and search for a path leading to an instruction in instr2_ids
@@ -2607,7 +2613,8 @@ int main (int argc, char *argv[]) {
 					while (!processing_stack.empty()) {
 						StackItem_fencing& st_top = processing_stack.peek();
 						// cout << "checking for " << st_top.instruction << endl;
-						int ipos = instructions.find(st_top.instruction)->second.pos;
+						//int ipos = instructions.find(st_top.instruction)->second.pos;
+						int ipos = st_top.instruction;
 						progress = false;
 						while (!st_top.next.empty()) {
 							int next_instr_id = st_top.next.back();
@@ -2641,6 +2648,7 @@ int main (int argc, char *argv[]) {
 								}
 								else if (!marked_instr[next_instr_id]) {
 									st_f.instruction = next_instr_id;
+									// cout << "continuing with " << next_instr_id << endl;
 									st_f.next.clear();
 									if (PRinstr.contains(next_instr_id)) {
 										st_f.next.insert(st_f.next.end(), PRinstr.get(next_instr_id)->second.begin(), PRinstr.get(next_instr_id)->second.end());
@@ -2659,8 +2667,12 @@ int main (int argc, char *argv[]) {
 							}
 						}
 						if (!progress) {
-							//cout << "closing " << st_top.instruction << endl;
-							st_top.essential_instr.insert(ipos);
+							// cout << "closing " << st_top.instruction << ": " << endl;
+							// st_top.essential_instr.insert(ipos);
+							// for (int i : st_top.essential_instr) {
+							// 	cout << i << " ";
+							// }
+							// cout << endl;
 							closed_instr.insert(pair<int, set<int>>(st_top.instruction, st_top.essential_instr));
 							processing_stack.pop();
 							marked_instr[st_top.instruction] = false;
@@ -2689,7 +2701,7 @@ int main (int argc, char *argv[]) {
 						candidateset.insert(pair<int, bool>(c, true));
 					}
 					// Add the goal instruction
-					candidateset.insert(pair<int, bool>(accesses.get(p.second).ipos, false));
+					candidateset.insert(pair<int, bool>(accesses.get(psecond).ipos, false));
 					auto it = fence_candidates.find(instr1_id);
 					if (it == fence_candidates.end()) {
 						fence_candidates.insert(pair<int, set<pair<int, bool>>>(instr1_id, candidateset));

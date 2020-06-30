@@ -12,7 +12,7 @@ model TestA {
         b0 := true
       }
       S1 -> S2 {
-	b1
+        b1
       }
       S2 -> S3 {
         b0 := false
@@ -34,16 +34,16 @@ model TestA {
         b1 := true
       }
       S1 -> S2 {
-	b0
+	      b0
       }
       S2 -> S3 {
-	b1 := false
+	      b1 := false
       }
       S3 -> S4 {
-         [v[x] := v[x] - 1]
+        [v[x] := v[x] - 1]
       }
       S4 -> S0 {
-	v[x] > 0
+	      v[x] > 0
       }
     }
   }
