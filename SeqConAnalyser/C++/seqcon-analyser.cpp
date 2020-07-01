@@ -2550,8 +2550,9 @@ int main (int argc, char *argv[]) {
 
 		// Postprocess the marked PR-pairs, to identify how many fences should be placed, of which kind, and how many
 		StaticStack<StackItem_fencing> processing_stack(instructions.size());
-		// Map to store for each instruction after which a fence must be placed the set of instructions where such a fence can be placed
-		map<int, set<pair<int, bool>>> fence_candidates;
+		// set to store for each instruction after which a fence must be placed the set of instructions where such a fence can be placed
+		typedef set<pair<int, bool>> candidateset_t;
+		set<pair<int, candidateset_t>> fence_candidates;
 
 		map<int, set<int>> closed_instr;
 		vector<bool> marked_instr(instructions.size(), false);
@@ -2703,13 +2704,14 @@ int main (int argc, char *argv[]) {
 					}
 					// Add the goal instruction
 					candidateset.insert(pair<int, bool>(accesses.get(psecond).ipos, false));
-					auto it = fence_candidates.find(instr1_id);
-					if (it == fence_candidates.end()) {
-						fence_candidates.insert(pair<int, set<pair<int, bool>>>(instr1_id, candidateset));
-					}
-					else {
-						it->second.insert(candidateset.begin(), candidateset.end());
-					}
+					//auto it = fence_candidates.find(instr1_id);
+					//if (it == fence_candidates.end()) {
+					//fence_candidates.insert(pair<int, set<pair<int, bool>>>(instr1_id, candidateset));
+					fence_candidates.insert(pair<int, candidateset_t>(instr1_id, candidateset));
+					//}
+					//else {
+					//	it->second.insert(candidateset.begin(), candidateset.end());
+					//}
 					if (Acum_needed) {
 						Acum_needed_instructions.insert(instr1_id);
 					}
