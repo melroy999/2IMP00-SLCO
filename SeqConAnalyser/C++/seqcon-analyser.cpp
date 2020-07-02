@@ -453,6 +453,19 @@ struct StackItem_fencing {
 	set<int> essential_instr;
 };
 
+// Struct to store a fence candidate, when placing fences
+struct fence_candidate_t {
+	int start; // first instruction in the path to be fenced
+	bool Acum_needed; // is an A_cumulative fence required?
+	set<pair<int, bool>> instr; // set of instructions in the path
+};
+
+// < operator for fence candidates, to be able to store them in a set
+bool operator<(const fence_candidate_t& a1, const fence_candidate_t& a2) {
+     return (a1.start < a2.start || (a1.start==a2.start && a1.Acum_needed < a2.Acum_needed)
+     	|| (a1.start == a2.start && a1.Acum_needed == a2.Acum_needed && a1.instr < a2.instr));
+}
+
 void copy(StackItem_fencing& n, StackItem_fencing m) {
 	n.instruction = m.instruction;
 	n.next = m.next;
@@ -2551,13 +2564,10 @@ int main (int argc, char *argv[]) {
 		// Postprocess the marked PR-pairs, to identify how many fences should be placed, of which kind, and how many
 		StaticStack<StackItem_fencing> processing_stack(instructions.size());
 		// set to store for each instruction after which a fence must be placed the set of instructions where such a fence can be placed
-		typedef set<pair<int, bool>> candidateset_t;
-		set<pair<int, candidateset_t>> fence_candidates;
+		set<fence_candidate_t> fence_candidates;
 
 		map<int, set<int>> closed_instr;
 		vector<bool> marked_instr(instructions.size(), false);
-		// Set of instructions that require an Acum fence (ARM only)
-		set<int> Acum_needed_instructions;
 		// Set of instructions that have fences placed inside/after them
 		set<int> fenced_instructions;
 		// Set of instructions that have A_cumulative fences placed inside/after them (see Don't Sit, only relevant for ARM)
@@ -2569,6 +2579,8 @@ int main (int argc, char *argv[]) {
 
 		StackItem_fencing st_f;
 		set<int> instr2_ids;
+		set<pair<int, bool>> candidateset;
+		fence_candidate_t fcand;
 		for (pair<pair<int, int>, bool> p : PR_paths_requiring_fences) {
 			int pfirst = p.first.first;
 			int psecond = p.first.second;
@@ -2582,10 +2594,13 @@ int main (int argc, char *argv[]) {
 					locked_instructions.insert(accesses.get(pfirst).ipos);
 				}
 				else {
-					new_fences.insert(accesses.get(pfirst).ipos);
-					if (Acum_needed) {
-						Acum_needed_instructions.insert(accesses.get(pfirst).ipos);
-					}
+					candidateset.clear();
+					// Add the goal instruction
+					candidateset.insert(pair<int, bool>(accesses.get(psecond).ipos, true));
+					fcand.start = accesses.get(pfirst).ipos;
+					fcand.Acum_needed = Acum_needed;
+					fcand.instr = candidateset;
+					fence_candidates.insert(fcand);
 				}
 				// cout << "adding fence to instruction " << accesses.get(p.first).ipos << endl;
 			}
@@ -2598,7 +2613,6 @@ int main (int argc, char *argv[]) {
 				// 	cout << " " << i;
 				// }
 				// cout << endl;
-				set<pair<int, bool>> candidateset;
 				for (int instr1_id : instr1_ids) {
 					// Put instr1_id on the processing stack, and search for a path leading to an instruction in instr2_ids
 					closed_instr.clear();
@@ -2707,34 +2721,34 @@ int main (int argc, char *argv[]) {
 					//auto it = fence_candidates.find(instr1_id);
 					//if (it == fence_candidates.end()) {
 					//fence_candidates.insert(pair<int, set<pair<int, bool>>>(instr1_id, candidateset));
-					fence_candidates.insert(pair<int, candidateset_t>(instr1_id, candidateset));
+					fcand.start = instr1_id;
+					fcand.Acum_needed = Acum_needed;
+					fcand.instr = candidateset;
+					fence_candidates.insert(fcand);
 					//}
 					//else {
 					//	it->second.insert(candidateset.begin(), candidateset.end());
 					//}
-					if (Acum_needed) {
-						Acum_needed_instructions.insert(instr1_id);
-					}
 				}
 			}
 		}
 		
 		// Place the fences
 		vector<int> instr_counts(instructions.size(), 0);
-		for (auto it : fence_candidates) {
-			for (pair<int, bool> c : it.second) {
-				if (c.second) {
+		for (fence_candidate_t can : fence_candidates) {
+			for (pair<int, bool> c : can.instr) {
+				// if (c.second) {
 					instr_counts[c.first]++;
 					// cout << "incrementing counter for " << c.first << endl;
-				}
+				// }
 			}
 		}
 		
 		if (verbose) {
 			cout << "fence candidates:" << endl;
-			for (auto p : fence_candidates) {
-				cout << p.first << ": ";
-				for (pair<int, bool> c : p.second) {
+			for (fence_candidate_t can : fence_candidates) {
+				cout << can.start << ": ";
+				for (pair<int, bool> c : can.instr) {
 					cout << " (" << c.first << ", " << c.second << ")";
 				}
 				cout << endl;
@@ -2745,11 +2759,11 @@ int main (int argc, char *argv[]) {
 			for (int i : locked_instructions) {
 				//cout << "locking " << i << endl;
 				for (auto sit = fence_candidates.begin(); sit != fence_candidates.end();) {
-					if (set_contains(sit->second, (pair<int, bool>(i, true))) || set_contains(sit->second, (pair<int, bool>(i, false)))) {
-						for (pair<int, bool> c : sit->second) {
-							if (c.second) {
+					if (set_contains(sit->instr, (pair<int, bool>(i, true))) || set_contains(sit->instr, (pair<int, bool>(i, false)))) {
+						for (pair<int, bool> c : sit->instr) {
+							// if (c.second) {
 								instr_counts[c.first]--;
-							}
+							// }
 						}
 						sit = fence_candidates.erase(sit);
 					}
@@ -2760,9 +2774,9 @@ int main (int argc, char *argv[]) {
 			}
 		}
 		// Select instructions that are single candidates for at least one fencing requirement
-		for (auto it : fence_candidates) {
-			if (it.second.size() == 1) {
-				new_fences.insert((it.second.begin())->first);
+		for (fence_candidate_t can : fence_candidates) {
+			if (can.instr.size() == 1) {
+				new_fences.insert((can.instr.begin())->first);
 			}
 		}
 		while (!fence_candidates.empty()) {
@@ -2770,16 +2784,16 @@ int main (int argc, char *argv[]) {
 				bool needs_Acum_fence = false;
 				// cout << "fencing " << i << endl;
 				for (auto sit = fence_candidates.begin(); sit != fence_candidates.end();) {
-					if (set_contains(sit->second, (pair<int, bool>(i, true)))) {
-						for (pair<int, bool> c : sit->second) {
-							if (c.second) {
+					if (set_contains(sit->instr, (pair<int, bool>(i, true))) || set_contains(sit->instr, (pair<int, bool>(i, false)))) {
+						for (pair<int, bool> c : sit->instr) {
+							//if (c.second) {
 								// cout << "decrementing counter of " << c.first << endl;
 								// cout << instr_counts[c.first] << endl;
 								instr_counts[c.first]--;
 								// cout << instr_counts[c.first] << endl;
-							}
+							//}
 						}
-						if (set_contains(Acum_needed_instructions, sit->first)) {
+						if (sit->Acum_needed) {
 							needs_Acum_fence = true;
 						}
 						sit = fence_candidates.erase(sit);
@@ -2797,9 +2811,9 @@ int main (int argc, char *argv[]) {
 			}
 			if (verbose) {
 				cout << "fence candidates:" << endl;
-				for (auto p : fence_candidates) {
-					cout << p.first << ": ";
-					for (pair<int, bool> c : p.second) {
+				for (fence_candidate_t can : fence_candidates) {
+					cout << can.start << ": ";
+					for (pair<int, bool> c : can.instr) {
 						cout << " (" << c.first << ", " << c.second << ")";
 					}
 					cout << endl;
