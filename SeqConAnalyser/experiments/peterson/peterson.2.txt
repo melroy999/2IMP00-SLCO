@@ -1,7 +1,7 @@
 int want1 = 0;
 int want2 = 0;
 int want3 = 0;
-int turn = 1;
+int turn = 0;
 
 proctype p1 {
 int tmp;
@@ -15,7 +15,8 @@ do
 			tmp = loadval(want2);
 			tmp2 = loadval(want3);
 			if
-			:: load(turn,0) || ((tmp == 0 || load(turn,2) && (tmp2 == 0 || load(turn,1)))) -> break;
+			:: (tmp == 0 || load(turn,0) || load(turn,2)) &&
+				(tmp2 == 0 || load(turn,0) || load(turn,1)) -> break;
 			:: (tmp == 1 && load(turn,1)) || (tmp2 == 1 && load(turn,2)) -> skip;
 			fi;
 		od;
@@ -36,7 +37,8 @@ do
 			tmp = loadval(want1);
 			tmp2 = loadval(want3);
 			if
-			:: load(turn,1) || ((tmp == 0 || load(turn,2) && (tmp2 == 0 || load(turn,0)))) -> break;
+			:: (tmp == 0 || load(turn,1) || load(turn,2)) &&
+				(tmp2 == 0 || load(turn,0) || load(turn,1)) -> break;
 			:: (tmp == 1 && load(turn,0)) || (tmp2 == 1 && load(turn,2)) -> skip;
 			fi;
 		od;
@@ -57,7 +59,8 @@ do
 			tmp = loadval(want1);
 			tmp2 = loadval(want2);
 			if
-			:: load(turn,2) || ((tmp == 0 || load(turn,1) && (tmp2 == 0 || load(turn,0)))) -> break;
+			:: (tmp == 0 || load(turn,1) || load(turn,2)) &&
+				(tmp2 == 0 || load(turn,0) || load(turn,2)) -> break;
 			:: (tmp == 1 && load(turn,0)) || (tmp2 == 1 && load(turn,1)) -> skip;
 			fi;
 		od;
