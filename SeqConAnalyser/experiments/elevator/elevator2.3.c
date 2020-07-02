@@ -76,6 +76,7 @@ void* environment(void * arg) {
 
 void* controller(void * arg) {
 	int ldir = 0;
+	int tmp;
 
 	// wait
 	while (1) {

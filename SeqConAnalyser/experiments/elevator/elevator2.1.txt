@@ -20,15 +20,12 @@ do
 			store(p,tmp1-1);
 		:: tmp > tmp1 ->
 			store(p,tmp1+1);
-		:: tmp == tmp1 ->
-			if
-			:: tmp1 >= 0 && tmp1 < 4 ->
-				store(req[tmp1],0);
-			:: tmp1 < 0 || tmp1 >= 4 ->
-				skip;
-			fi;
+		:: tmp == tmp1 && tmp1 >= 0 && tmp1 < 4 ->
+			store(req[tmp1],0);
 			store(v,0);
 			break;
+		:: tmp == tmp1 && (tmp1 < 0 || tmp1 >= 4) ->
+			skip;
 		fi;
 	od;
 od;
