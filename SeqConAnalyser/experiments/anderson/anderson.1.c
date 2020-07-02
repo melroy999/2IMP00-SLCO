@@ -5,6 +5,7 @@ int next = 0;
 
 void* P0(void * arg) {
     int myplace;
+    int tmp;
 
     // NCS
     while (1) {
@@ -20,14 +21,17 @@ void* P0(void * arg) {
 			// p2
 			while (Slot[myplace] != 1) {};
 			// p3
-			Slot[(myplace+2-1)%2] = 0;
+			tmp = (myplace+2-1)%2;
+			Slot[tmp] = 0;
 			// CS
-			Slot[(myplace+1)%2] = 1;
+			tmp = (myplace+1)%2;
+			Slot[tmp] = 1;
 	 }
 }
 
 void* P1(void * arg) {
     int myplace;
+    int tmp;
 
     // NCS
     while (1) {
@@ -43,9 +47,11 @@ void* P1(void * arg) {
 			// p2
 			while (Slot[myplace] != 1) {};
 			// p3
-			Slot[(myplace+2-1)%2] = 0;
+			tmp = (myplace+2-1)%2;
+			Slot[tmp] = 0;
 			// CS
-			Slot[(myplace+1)%2] = 1;
+			tmp = (myplace+1)%2;
+			Slot[tmp] = 1;
 	 }
 }
 
