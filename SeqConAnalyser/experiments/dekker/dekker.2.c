@@ -20,7 +20,7 @@ void* thr1(void * arg) {
 			else {
 				flag1 = 0;
 				// S3
-				while (turn != 0) {};
+				__CPROVER_assume (turn == 0);
 				flag1 = 1;
 				continue;
 				// -> S1
@@ -52,7 +52,7 @@ void* thr2(void * arg) {
 			else {
 				flag2 = 0;
 				// S3
-				while (turn != 1) {};
+				__CPROVER_assume (turn == 1);
 				flag2 = 1;
 				continue;
 				// -> S1
@@ -84,7 +84,7 @@ void* thr3(void * arg) {
 			else {
 				flag3 = 0;
 				// S3
-				while (turn != 2) {};
+				__CPROVER_assume (turn == 2);
 				flag3 = 1;
 				continue;
 				// -> S1

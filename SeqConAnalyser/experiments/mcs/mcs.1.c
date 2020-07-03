@@ -23,7 +23,7 @@ void* P0(void * arg) {
 			// p5
 			next[pred] = 0;
 			// p6
-			while (locked[0] != 0) {};
+			__CPROVER_assume (locked[0] == 0);
 			// -> CS
 		}
 		// CS
@@ -34,7 +34,7 @@ void* P0(void * arg) {
 				// -> NCS
 			}
 			else {
-				while (next[0] == 255) {};
+				__CPROVER_assume (next[0] != 255);
 				// p13
 				tmp = next[0];
 				locked[tmp] = 0;
@@ -68,7 +68,7 @@ void* P1(void * arg) {
 			// p5
 			next[pred] = 1;
 			// p6
-			while (locked[1] != 0) {};
+			__CPROVER_assume (locked[1] == 0);
 			// -> CS
 		}
 		// CS
@@ -79,7 +79,7 @@ void* P1(void * arg) {
 				// -> NCS
 			}
 			else {
-				while (next[1] == 255) {};
+				__CPROVER_assume (next[1] != 255);
 				// p13
 				tmp = next[1];
 				locked[tmp] = 0;
@@ -113,7 +113,7 @@ void* P2(void * arg) {
 			// p5
 			next[pred] = 2;
 			// p6
-			while (locked[2] != 0) {};
+			__CPROVER_assume (locked[2] == 0);
 			// -> CS
 		}
 		// CS
@@ -124,7 +124,7 @@ void* P2(void * arg) {
 				// -> NCS
 			}
 			else {
-				while (next[2] == 255) {};
+				__CPROVER_assume (next[2] != 255);
 				// p13
 				tmp = next[2];
 				locked[tmp] = 0;

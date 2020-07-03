@@ -11,7 +11,7 @@ void* P0(void * arg) {
 	while (1) {
 		turn[curr] = 0;
 		// p2
-		while (b[curr] != 0) {};
+		__CPROVER_assume (b[curr] == 0);
 		// p3
 		b[curr] = 1;
 		// p4
@@ -49,7 +49,7 @@ void* P1(void * arg) {
 	while (1) {
 		turn[curr] = 1;
 		// p2
-		while (b[curr] != 0) {};
+		__CPROVER_assume (b[curr] == 0);
 		// p3
 		b[curr] = 1;
 		// p4
@@ -87,7 +87,7 @@ void* P2(void * arg) {
 	while (1) {
 		turn[curr] = 2;
 		// p2
-		while (b[curr] != 0) {};
+		__CPROVER_assume (b[curr] == 0);
 		// p3
 		b[curr] = 1;
 		// p4
@@ -125,7 +125,7 @@ void* P3(void * arg) {
 	while (1) {
 		turn[curr] = 3;
 		// p2
-		while (b[curr] != 0) {};
+		__CPROVER_assume (b[curr] == 0);
 		// p3
 		b[curr] = 1;
 		// p4
@@ -163,7 +163,7 @@ void* P4(void * arg) {
 	while (1) {
 		turn[curr] = 4;
 		// p2
-		while (b[curr] != 0) {};
+		__CPROVER_assume (b[curr] == 0);
 		// p3
 		b[curr] = 1;
 		// p4

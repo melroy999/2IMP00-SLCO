@@ -8,7 +8,7 @@ int changeto;
 void* slave1(void * arg) {
 	// idle
 	while (1) {
-		while (sem != 1) {};
+		__CPROVER_assume (sem == 1);
 		sem = 0;
 		// q0
 		if (b[0] == 1) {
@@ -65,7 +65,7 @@ void* slave1(void * arg) {
 void* slave2(void * arg) {
 	// idle
 	while (1) {
-		while (sem != 1) {};
+		__CPROVER_assume (sem == 1);
 		sem = 0;
 		// q0
 		if (b[0] == 1) {
@@ -122,7 +122,7 @@ void* slave2(void * arg) {
 void* slave3(void * arg) {
 	// idle
 	while (1) {
-		while (sem != 1) {};
+		__CPROVER_assume (sem == 1);
 		sem = 0;
 		// q0
 		if (b[0] == 1) {
@@ -179,7 +179,7 @@ void* slave3(void * arg) {
 void* slave4(void * arg) {
 	// idle
 	while (1) {
-		while (sem != 1) {};
+		__CPROVER_assume (sem == 1);
 		sem = 0;
 		// q0
 		if (b[0] == 1) {
@@ -236,7 +236,7 @@ void* slave4(void * arg) {
 void* slave5(void * arg) {
 	// idle
 	while (1) {
-		while (sem != 1) {};
+		__CPROVER_assume (sem == 1);
 		sem = 0;
 		// q0
 		if (b[0] == 1) {
@@ -293,7 +293,7 @@ void* slave5(void * arg) {
 void* slave6(void * arg) {
 	// idle
 	while (1) {
-		while (sem != 1) {};
+		__CPROVER_assume (sem == 1);
 		sem = 0;
 		// q0
 		if (b[0] == 1) {
@@ -350,7 +350,7 @@ void* slave6(void * arg) {
 void* slave7(void * arg) {
 	// idle
 	while (1) {
-		while (sem != 1) {};
+		__CPROVER_assume (sem == 1);
 		sem = 0;
 		// q0
 		if (b[0] == 1) {
@@ -409,7 +409,7 @@ void* master1(void * arg) {
 	
 	// idle
 	while (1) {
-		while (sem != 1) {};
+		__CPROVER_assume (sem == 1);
 		sem = 0;
 		// q0
 		tmp = b[0];
@@ -442,7 +442,7 @@ void* master1(void * arg) {
 		readers = readers+1;
 		sem = 1;
 		// reading
-		while (sem != 1) {};
+		__CPROVER_assume (sem == 1);
 		sem = 0;
 		readers = readers-1;
 		// r0
@@ -457,7 +457,7 @@ void* master1(void * arg) {
 				// -> change
 			}
 			// change
-			while (b[0] != 3) {};
+			__CPROVER_assume (b[0] == 3);
 			b[0] = changeto;
 			// -> r1
 		}
@@ -471,7 +471,7 @@ void* master2(void * arg) {
 	
 	// idle
 	while (1) {
-		while (sem != 1) {};
+		__CPROVER_assume (sem == 1);
 		sem = 0;
 		// q0
 		tmp = b[0];
@@ -504,7 +504,7 @@ void* master2(void * arg) {
 		readers = readers+1;
 		sem = 1;
 		// reading
-		while (sem != 1) {};
+		__CPROVER_assume (sem == 1);
 		sem = 0;
 		readers = readers-1;
 		// r0
@@ -519,7 +519,7 @@ void* master2(void * arg) {
 				// -> change
 			}
 			// change
-			while (b[0] != 3) {};
+			__CPROVER_assume (b[0] == 3);
 			b[0] = changeto;
 			// -> r1
 		}
@@ -533,7 +533,7 @@ void* master3(void * arg) {
 	
 	// idle
 	while (1) {
-		while (sem != 1) {};
+		__CPROVER_assume (sem == 1);
 		sem = 0;
 		// q0
 		tmp = b[0];
@@ -566,7 +566,7 @@ void* master3(void * arg) {
 		readers = readers+1;
 		sem = 1;
 		// reading
-		while (sem != 1) {};
+		__CPROVER_assume (sem == 1);
 		sem = 0;
 		readers = readers-1;
 		// r0
@@ -581,7 +581,7 @@ void* master3(void * arg) {
 				// -> change
 			}
 			// change
-			while (b[0] != 3) {};
+			__CPROVER_assume (b[0] == 3);
 			b[0] = changeto;
 			// -> r1
 		}
@@ -595,7 +595,7 @@ void* master4(void * arg) {
 	
 	// idle
 	while (1) {
-		while (sem != 1) {};
+		__CPROVER_assume (sem == 1);
 		sem = 0;
 		// q0
 		tmp = b[0];
@@ -628,7 +628,7 @@ void* master4(void * arg) {
 		readers = readers+1;
 		sem = 1;
 		// reading
-		while (sem != 1) {};
+		__CPROVER_assume (sem == 1);
 		sem = 0;
 		readers = readers-1;
 		// r0
@@ -643,7 +643,7 @@ void* master4(void * arg) {
 				// -> change
 			}
 			// change
-			while (b[0] != 3) {};
+			__CPROVER_assume (b[0] == 3);
 			b[0] = changeto;
 			// -> r1
 		}
@@ -657,7 +657,7 @@ void* master5(void * arg) {
 	
 	// idle
 	while (1) {
-		while (sem != 1) {};
+		__CPROVER_assume (sem == 1);
 		sem = 0;
 		// q0
 		tmp = b[0];
@@ -690,7 +690,7 @@ void* master5(void * arg) {
 		readers = readers+1;
 		sem = 1;
 		// reading
-		while (sem != 1) {};
+		__CPROVER_assume (sem == 1);
 		sem = 0;
 		readers = readers-1;
 		// r0
@@ -705,7 +705,7 @@ void* master5(void * arg) {
 				// -> change
 			}
 			// change
-			while (b[0] != 3) {};
+			__CPROVER_assume (b[0] == 3);
 			b[0] = changeto;
 			// -> r1
 		}
@@ -719,7 +719,7 @@ void* master6(void * arg) {
 	
 	// idle
 	while (1) {
-		while (sem != 1) {};
+		__CPROVER_assume (sem == 1);
 		sem = 0;
 		// q0
 		tmp = b[0];
@@ -752,7 +752,7 @@ void* master6(void * arg) {
 		readers = readers+1;
 		sem = 1;
 		// reading
-		while (sem != 1) {};
+		__CPROVER_assume (sem == 1);
 		sem = 0;
 		readers = readers-1;
 		// r0
@@ -767,7 +767,7 @@ void* master6(void * arg) {
 				// -> change
 			}
 			// change
-			while (b[0] != 3) {};
+			__CPROVER_assume (b[0] == 3);
 			b[0] = changeto;
 			// -> r1
 		}
