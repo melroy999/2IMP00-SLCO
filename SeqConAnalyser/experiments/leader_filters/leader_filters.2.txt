@@ -1,0 +1,81 @@
+int turn[5];
+int b[5];
+int c[5];
+
+proctype p1 {	
+int curr = 0;
+do
+:: true ->
+		store(turn[curr], 0);
+		store(b[curr], 1);
+		if
+		:: load(turn[curr], 0) ->
+			if
+			:: curr == 0 ->
+				curr = curr + 1;
+			:: curr != 0 ->
+				if
+				:: c[curr-1] == 0 -> break;
+				:: c[curr-1] != 0 ->
+					curr = curr + 1;
+				fi;
+			fi;
+		:: load(turn[curr], 1) || load(turn[curr], 2) ->
+			c[curr] = 1;
+			b[curr] = 0;
+			break;
+		fi;		
+od;
+}
+
+proctype p2 {	
+int curr = 0;
+do
+:: true ->
+		store(turn[curr], 1);
+		store(b[curr], 1);
+		if
+		:: load(turn[curr], 1) ->
+			if
+			:: curr == 0 ->
+				curr = curr + 1;
+			:: curr != 0 ->
+				if
+				:: c[curr-1] == 0 -> break;
+				:: c[curr-1] != 0 ->
+					curr = curr + 1;
+				fi;
+			fi;
+		:: load(turn[curr], 0) || load(turn[curr], 2) ->
+			c[curr] = 1;
+			b[curr] = 0;
+			break;
+		fi;		
+od;
+}
+
+proctype p3 {	
+int curr = 0;
+do
+:: true ->
+		store(turn[curr], 2);
+		store(b[curr], 1);
+		if
+		:: load(turn[curr], 2) ->
+			if
+			:: curr == 0 ->
+				curr = curr + 1;
+			:: curr != 0 ->
+				if
+				:: c[curr-1] == 0 -> break;
+				:: c[curr-1] != 0 ->
+					curr = curr + 1;
+				fi;
+			fi;
+		:: load(turn[curr], 0) || load(turn[curr], 1) ->
+			c[curr] = 1;
+			b[curr] = 0;
+			break;
+		fi;		
+od;
+}
