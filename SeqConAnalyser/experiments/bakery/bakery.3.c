@@ -39,7 +39,7 @@ void* P0(void * arg) {
                     // wait
                     tmp = number[j];
                     tmp2 = number[0];
-                    while (!(tmp == 0 || (tmp > tmp2) || (tmp == tmp2 && 0 <= j))) {};
+                    __CPROVER_assume ((tmp == 0 || (tmp > tmp2) || (tmp == tmp2 && 0 <= j)));
                     j = j+1;
                     continue;
                     // -> forloop
@@ -94,7 +94,7 @@ void* P1(void * arg) {
                     // wait
                     tmp = number[j];
                     tmp2 = number[1];
-                    while (!(tmp == 0 || (tmp > tmp2) || (tmp == tmp2 && 1 <= j))) {};
+                    __CPROVER_assume ((tmp == 0 || (tmp > tmp2) || (tmp == tmp2 && 1 <= j)));
                     j = j+1;
                     continue;
                     // -> forloop
@@ -149,7 +149,7 @@ void* P2(void * arg) {
                     // wait
                     tmp = number[j];
                     tmp2 = number[2];
-                    while (!(tmp == 0 || (tmp > tmp2) || (tmp == tmp2 && 2 <= j))) {};
+                    __CPROVER_assume ((tmp == 0 || (tmp > tmp2) || (tmp == tmp2 && 2 <= j)));
                     j = j+1;
                     continue;
                     // -> forloop
