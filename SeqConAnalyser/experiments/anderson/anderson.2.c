@@ -18,7 +18,7 @@ void* P0(void * arg) {
 				myplace = myplace % 3;
 			}
 			// p2
-			__CPROVER_assume (Slot[myplace] != 1);
+			__CPROVER_assume (Slot[myplace] == 1);
 			// p3
 			Slot[myplace] = 0;
 			// CS
@@ -41,7 +41,7 @@ void* P1(void * arg) {
 				myplace = myplace % 3;
 			}
 			// p2
-			__CPROVER_assume (Slot[myplace] != 1);
+			__CPROVER_assume (Slot[myplace] == 1);
 			// p3
 			Slot[myplace] = 0;
 			// CS
@@ -64,7 +64,7 @@ void* P2(void * arg) {
 				myplace = myplace % 3;
 			}
 			// p2
-			__CPROVER_assume (Slot[myplace] != 1);
+			__CPROVER_assume (Slot[myplace] == 1);
 			// p3
 			Slot[myplace] = 0;
 			// CS
