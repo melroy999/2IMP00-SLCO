@@ -1,6 +1,6 @@
-int turn[5];
-int b[5];
-int c[5];
+int turn[5] = {0,0,0,0,0};
+int b[5] = {0,0,0,0,0};
+int c[5] = {0,0,0,0,0};
 
 proctype p1 {	
 int curr = 0;
