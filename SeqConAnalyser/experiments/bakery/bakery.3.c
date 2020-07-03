@@ -39,10 +39,11 @@ void* P0(void * arg) {
                     // wait
                     tmp = number[j];
                     tmp2 = number[0];
-                    __CPROVER_assume ((tmp == 0 || (tmp > tmp2) || (tmp == tmp2 && 0 <= j)));
-                    j = j+1;
-                    continue;
-                    // -> forloop
+                    if (tmp == 0 || (tmp > tmp2) || (tmp == tmp2 && 0 <= j)) {
+                        j = j+1;
+                        continue;
+                        // -> forloop
+                    }
                 }
                 else if (j == 3) {
                     // CS
@@ -94,10 +95,11 @@ void* P1(void * arg) {
                     // wait
                     tmp = number[j];
                     tmp2 = number[1];
-                    __CPROVER_assume ((tmp == 0 || (tmp > tmp2) || (tmp == tmp2 && 1 <= j)));
-                    j = j+1;
-                    continue;
-                    // -> forloop
+                    if (tmp == 0 || (tmp > tmp2) || (tmp == tmp2 && 1 <= j)) {
+                        j = j+1;
+                        continue;
+                        // -> forloop
+                    }
                 }
                 else if (j == 3) {
                     // CS
@@ -149,10 +151,11 @@ void* P2(void * arg) {
                     // wait
                     tmp = number[j];
                     tmp2 = number[2];
-                    __CPROVER_assume ((tmp == 0 || (tmp > tmp2) || (tmp == tmp2 && 2 <= j)));
-                    j = j+1;
-                    continue;
-                    // -> forloop
+                    if (tmp == 0 || (tmp > tmp2) || (tmp == tmp2 && 1 <= j)) {
+                        j = j+1;
+                        continue;
+                        // -> forloop
+                    }
                 }
                 else if (j == 3) {
                     // CS
