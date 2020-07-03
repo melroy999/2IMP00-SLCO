@@ -10,7 +10,7 @@ void* cabin(void * arg) {
 
 	// idle
 	while (1) {
-		while (v<=0) {};
+		__CPROVER_assume (v>0);
 		// mov
 		while (1) {
 			tmp = t;
@@ -53,7 +53,7 @@ void* controller(void * arg) {
 
 	// wait
 	while (1) {
-		while (v != 0) {};
+		__CPROVER_assume (v == 0);
 		t = t+(2*ldir)-1;
 		// work
 		while (1) {
