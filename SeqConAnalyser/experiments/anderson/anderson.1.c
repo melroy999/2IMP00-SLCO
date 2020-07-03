@@ -19,7 +19,7 @@ void* P0(void * arg) {
 				myplace = myplace % 2;
 			}
 			// p2
-			while (Slot[myplace] != 1) {};
+			__CPROVER_assume (Slot[myplace] != 1);
 			// p3
 			tmp = (myplace+2-1)%2;
 			Slot[tmp] = 0;
@@ -45,7 +45,7 @@ void* P1(void * arg) {
 				myplace = myplace % 2;
 			}
 			// p2
-			while (Slot[myplace] != 1) {};
+			__CPROVER_assume (Slot[myplace] != 1);
 			// p3
 			tmp = (myplace+2-1)%2;
 			Slot[tmp] = 0;
