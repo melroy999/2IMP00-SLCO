@@ -18,7 +18,7 @@ void* P0(void * arg) {
 				myplace = myplace % 6;
 			}
 			// p2
-			while (Slot[myplace] != 1) {};
+			__CPROVER_assume (Slot[myplace] == 1);
 			// p3
 			Slot[myplace] = 0;
 			// CS
@@ -41,7 +41,7 @@ void* P1(void * arg) {
 				myplace = myplace % 6;
 			}
 			// p2
-			while (Slot[myplace] != 1) {};
+			__CPROVER_assume (Slot[myplace] == 1);
 			// p3
 			Slot[myplace] = 0;
 			// CS
@@ -64,7 +64,7 @@ void* P2(void * arg) {
 				myplace = myplace % 6;
 			}
 			// p2
-			while (Slot[myplace] != 1) {};
+			__CPROVER_assume (Slot[myplace] == 1);
 			// p3
 			Slot[myplace] = 0;
 			// CS
@@ -87,7 +87,7 @@ void* P3(void * arg) {
 				myplace = myplace % 6;
 			}
 			// p2
-			while (Slot[myplace] != 1) {};
+			__CPROVER_assume (Slot[myplace] == 1);
 			// p3
 			Slot[myplace] = 0;
 			// CS
@@ -110,7 +110,7 @@ void* P4(void * arg) {
 				myplace = myplace % 6;
 			}
 			// p2
-			while (Slot[myplace] != 1) {};
+			__CPROVER_assume (Slot[myplace] == 1);
 			// p3
 			Slot[myplace] = 0;
 			// CS
@@ -133,7 +133,7 @@ void* P5(void * arg) {
 				myplace = myplace % 6;
 			}
 			// p2
-			while (Slot[myplace] != 1) {};
+			__CPROVER_assume (Slot[myplace] == 1);
 			// p3
 			Slot[myplace] = 0;
 			// CS
