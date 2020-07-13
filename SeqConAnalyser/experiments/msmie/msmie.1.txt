@@ -128,6 +128,10 @@ do
 		if
 		:: tmp == 0 ->
 			tmp2 = loadval(b[0]);
+			if
+			:: tmp2 == 1 -> store(changeto,0);
+			:: tmp2 != 1 -> store(changeto,1);
+			fi;
 		:: tmp != 0 ->
 			skip;
 		fi;
