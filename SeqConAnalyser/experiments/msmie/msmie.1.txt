@@ -132,6 +132,18 @@ do
 			:: tmp2 == 1 -> store(changeto,0);
 			:: tmp2 != 1 -> store(changeto,1);
 			fi;
+			do
+			:: true ->
+				tmp2 = loadval(b[0]);
+				if
+				:: tmp2 == 3 ->
+					tmp3 = loadval(changeto);
+					store(b[0],changeto);
+					break;
+				:: tmp2 != 3 ->
+					skip;
+				fi;
+			od;
 		:: tmp != 0 ->
 			skip;
 		fi;
