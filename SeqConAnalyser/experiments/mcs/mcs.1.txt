@@ -5,6 +5,7 @@ int tail = 255;
 proctype p1 {
 int pred = 0;
 int tmp;
+int tmp2;
 do
 :: true ->
 	store(next[0],255);
@@ -19,12 +20,26 @@ do
 		store(locked[0], 0);
 		skip;
 	fi;
+	tmp = loadval(next[0]);
 	if
-	:: load(next[0], 255) ->
+	:: tmp == 255 ->
 		do
 		:: true ->
-			tmp = loadval(tail);
+			tmp = loadval(next[0]);
+			tmp2 = loadval(tail);
+			if
+			:: tmp2 == 0 ->
+				store(tail, 255);
+				break;
+			:: tmp2 != 0 && tmp != 255 ->
+				store(locked[tmp], 0);
+				break;
+			:: tmp2 != 0 && tmp == 255 ->
+				skip;
+			fi;
 		od;
+	:: tmp != 255 ->
+		store(locked[tmp], 0);
 	fi;
 od;
 }
