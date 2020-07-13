@@ -1,0 +1,42 @@
+int next[3] = {255,255,255};
+int locked[3];
+int tail = 255;
+
+proctype p1 {
+int pred = 0;
+int tmp;
+do
+:: true ->
+	store(next[0],255);
+	pred = loadval(tail);
+	store(tail,0);
+	if
+	:: pred == 255 ->
+		skip;
+	:: pred != 255 ->
+		store(locked[0], 1);
+		store(next[pred], 0);
+		store(locked[0], 0);
+		skip;
+	fi;
+	if
+	:: load(next[0], 255) ->
+		do
+		:: true ->
+			tmp = loadval(tail);
+			if
+			:: tmp == 0 ->
+				store(tail, 255);
+				break;
+			:: tmp != 0 && (load(next[0], 0) || load(next[0], 1) || load(next[0], 2)) ->
+				store(locked[next[0]], 0);
+				break;
+			:: tmp != 0 && load(next[0], 255) ->
+				skip;
+			fi;
+		od;
+	:: load(next[0], 0) || load(next[0], 1) || load(next[0], 2) ->
+		store(locked[next[0]], 0);
+	fi;
+od;
+}
