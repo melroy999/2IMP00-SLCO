@@ -101,7 +101,7 @@ do
 	do
 	:: true ->
 		tmp = loadval(b[0]);
-		tmp2 = loadval{b[1]);
+		tmp2 = loadval(b[1]);
 		tmp3 = loadval(b[2]);
 		if
 		:: tmp == 3 || tmp2 == 3 || tmp3 == 3 -> skip;
