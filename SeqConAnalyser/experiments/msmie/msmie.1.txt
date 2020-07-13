@@ -126,6 +126,8 @@ do
 		fi;
 		tmp = loadval(readers);
 		if
+		:: tmp == 0 ->
+			tmp2 = loadval(b[0]);
 		:: tmp != 0 ->
 			skip;
 		fi;
