@@ -124,22 +124,6 @@ do
 			tmp = loadval(readers);
 			store(readers,tmp-1);
 		fi;
-		tmp = loadval(readers);
-		if
-		:: tmp == 0 ->
-			tmp2 = loadval(b[0]);
-			if
-			:: tmp2 == 1 -> store(changeto,0);
-			:: tmp2 != 1 -> store(changeto,1);
-			fi;
-			if
-			:: load(b[0],3) ->
-				tmp2 = loadval(changeto);
-				store(b[0],changeto);
-			fi;
-		:: tmp != 0 ->
-			skip;
-		fi;
 		store(sem,1);
 		break;
 	od;
