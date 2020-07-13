@@ -19,5 +19,21 @@ do
 		store(locked[0], 0);
 		skip;
 	fi;
+	if
+	:: load(next[0], 255) ->
+		do
+		:: true ->
+			tmp = loadval(tail);
+			if
+			:: tmp == 0 ->
+				store(tail, 255);
+				break;
+			:: tmp != 0 && load(next[0], 255) ->
+				skip;
+			fi;
+		od;
+	:: load(next[0], 0) || load(next[0], 1) || load(next[0], 2) ->
+		store(locked[next[0]], 0);
+	fi;
 od;
 }
