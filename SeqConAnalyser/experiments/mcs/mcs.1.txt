@@ -25,8 +25,6 @@ do
 		:: true ->
 			tmp = loadval(tail);
 		od;
-	:: load(next[0], 0) || load(next[0], 1) || load(next[0], 2) ->
-		store(locked[next[0]], 0);
 	fi;
 od;
 }
