@@ -131,7 +131,6 @@ do
 			if
 			:: tmp2 == 1 -> store(changeto,0);
 			:: tmp2 != 1 -> store(changeto,1);
-			::
 			fi;
 			if
 			:: load(b[0],3) ->
@@ -189,7 +188,6 @@ do
 			if
 			:: tmp2 == 1 -> store(changeto,0);
 			:: tmp2 != 1 -> store(changeto,1);
-			::
 			fi;
 			if
 			:: load(b[0],3) ->
@@ -247,7 +245,6 @@ do
 			if
 			:: tmp2 == 1 -> store(changeto,0);
 			:: tmp2 != 1 -> store(changeto,1);
-			::
 			fi;
 			if
 			:: load(b[0],3) ->
