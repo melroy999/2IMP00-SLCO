@@ -24,13 +24,6 @@ do
 		do
 		:: true ->
 			tmp = loadval(tail);
-			if
-			:: tmp == 0 ->
-				store(tail, 255);
-				break;
-			:: tmp != 0 && load(next[0], 255) ->
-				skip;
-			fi;
 		od;
 	:: load(next[0], 0) || load(next[0], 1) || load(next[0], 2) ->
 		store(locked[next[0]], 0);
