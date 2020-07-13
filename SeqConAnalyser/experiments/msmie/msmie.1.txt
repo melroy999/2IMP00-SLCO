@@ -1,7 +1,7 @@
 int b[3] = {0,0,2};
 int readers;
 int sem = 1;
-int changeto;
+int changeto = 0;
 
 proctype slave1 {
 int tmp;
