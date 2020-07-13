@@ -12,10 +12,19 @@ do
 		store(b[curr], 1);
 		if
 		:: load(turn[curr], 0) ->
-			skip;
+			if
+			:: curr == 0 ->
+				curr = curr + 1; skip;
+			:: curr != 0 ->
+				if
+				:: loadval(c[curr-1], 0) -> break;
+				:: loadval(c[curr-1], 1) ->
+					curr = curr + 1; skip;
+				fi;
+			fi;
 		:: load(turn[curr], 1) || load(turn[curr], 2) ->
-			c[curr] = 1;
-			b[curr] = 0;
+			store(c[curr], 1);
+			store(b[curr], 0);
 			break;
 		fi;
 	fi;
