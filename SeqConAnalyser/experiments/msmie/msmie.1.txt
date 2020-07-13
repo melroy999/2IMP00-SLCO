@@ -124,6 +124,11 @@ do
 			tmp = loadval(readers);
 			store(readers,tmp-1);
 		fi;
+		tmp = loadval(readers);
+		if
+		:: tmp != 0 ->
+			skip;
+		fi;
 		store(sem,1);
 		break;
 	od;
