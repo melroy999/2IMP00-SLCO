@@ -10,23 +10,6 @@ do
 	:: curr >= 0 && curr < 5 ->
 		store(turn[curr], 0);
 		store(b[curr], 1);
-		if
-		:: load(turn[curr], 0) ->
-			if
-			:: curr == 0 ->
-				curr = curr + 1; skip;
-			:: curr != 0 ->
-				if
-				:: c[curr-1] == 0 -> break;
-				:: c[curr-1] != 0 ->
-					curr = curr + 1; skip;
-				fi;
-			fi;
-		:: load(turn[curr], 1) || load(turn[curr], 2) ->
-			c[curr] = 1;
-			b[curr] = 0;
-			break;
-		fi;
 	fi;
 od;
 }
