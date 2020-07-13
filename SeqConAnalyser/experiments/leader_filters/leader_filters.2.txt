@@ -14,12 +14,12 @@ do
 		:: load(turn[curr], 0) ->
 			if
 			:: curr == 0 ->
-				curr = curr + 1;
+				curr = curr + 1; skip;
 			:: curr != 0 ->
 				if
 				:: c[curr-1] == 0 -> break;
 				:: c[curr-1] != 0 ->
-					curr = curr + 1;
+					curr = curr + 1; skip;
 				fi;
 			fi;
 		:: load(turn[curr], 1) || load(turn[curr], 2) ->
@@ -43,12 +43,12 @@ do
 		:: load(turn[curr], 1) ->
 			if
 			:: curr == 0 ->
-				curr = curr + 1;
+				curr = curr + 1; skip;
 			:: curr != 0 ->
 				if
 				:: c[curr-1] == 0 -> break;
 				:: c[curr-1] != 0 ->
-					curr = curr + 1;
+					curr = curr + 1; skip;
 				fi;
 			fi;
 		:: load(turn[curr], 0) || load(turn[curr], 2) ->
@@ -72,12 +72,12 @@ do
 		:: load(turn[curr], 2) ->
 			if
 			:: curr == 0 ->
-				curr = curr + 1;
+				curr = curr + 1; skip;
 			:: curr != 0 ->
 				if
 				:: c[curr-1] == 0 -> break;
 				:: c[curr-1] != 0 ->
-					curr = curr + 1;
+					curr = curr + 1; skip;
 				fi;
 			fi;
 		:: load(turn[curr], 0) || load(turn[curr], 1) ->
