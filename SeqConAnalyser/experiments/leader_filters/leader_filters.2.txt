@@ -17,8 +17,8 @@ do
 				curr = curr + 1; skip;
 			:: curr != 0 ->
 				if
-				:: loadval(c[curr-1], 0) -> break;
-				:: loadval(c[curr-1], 1) ->
+				:: load(c[curr-1], 0) -> break;
+				:: load(c[curr-1], 1) ->
 					curr = curr + 1; skip;
 				fi;
 			fi;
