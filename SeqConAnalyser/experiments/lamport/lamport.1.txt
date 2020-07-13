@@ -4,12 +4,12 @@ int b1;
 int b2;
 
 proctype p1 {
-int store = 0;
+int storing = 0;
 do
 :: true ->
 		store(b1,1);
 		store(x,1);
-		store = 0;
+		storing = 0;
 		if
 		:: load(y,1) || load(y,2) ->
 			store(b1,0);
@@ -22,30 +22,30 @@ do
 				if
 				:: load(y,0) || load(y,2) -> skip;
 				:: load(y,1) ->
-					store = 1;
+					storing = 1;
 				fi;
 			:: load(x,1) ->
-				store = 1;
+				storing = 1;
 			fi;
 		fi;
 		if
-		:: store == 1 ->
+		:: storing == 1 ->
 			store(y,0);
 			store(b1,0);
 			break;
-		:: store == 0 ->
+		:: storing == 0 ->
 			skip;
 		fi;
 od;
 }
 
 proctype p2 {
-int store = 0;
+int storing = 0;
 do
 :: true ->
 		store(b2,1);
 		store(x,2);
-		store = 0;
+		storing = 0;
 		if
 		:: load(y,1) || load(y,2) ->
 			store(b2,0);
@@ -58,18 +58,18 @@ do
 				if
 				:: load(y,0) || load(y,1) -> skip;
 				:: load(y,2) ->
-					store = 1;
+					storing = 1;
 				fi;
 			:: load(x,2) ->
-				store = 1;
+				storing = 1;
 			fi;
 		fi;
 		if
-		:: store == 1 ->
+		:: storing == 1 ->
 			store(y,0);
 			store(b2,0);
 			break;
-		:: store == 0 ->
+		:: storing == 0 ->
 			skip;
 		fi;
 od;
