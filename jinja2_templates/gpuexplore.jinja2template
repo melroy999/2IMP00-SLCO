@@ -308,6 +308,7 @@ inline __device__ nodetype get_vectorpart_{{i}}(shared_indextype node_index) {
 }
 {% endfor %}
 
+{% if vectorsize > 62 %}
 // Retrieval functions for vector tree nodes from shared memory, including shared memory node pointers (cache pointers).
 inline __device__ void get_vectortree_node(inttype *node, shared_inttype *d_cachepointers, shared_indextype node_index, vectornode_indextype i) {
 	switch (i) {
@@ -366,28 +367,28 @@ inline __device__ bool cache_pointers_contain_global_address(shared_inttype poin
 }
 
 // Vectornode reset functions.
-inline __device__ void reset_left_in_vectortree_node(inttype *node) {
+inline __device__ void reset_left_in_vectortree_node(nodetype *node) {
 	asm("{\n\t"
-		" bfi.u64 %0, 0, %0, 31, 31;\n\t"
+		" bfi.u64 %0, 0, %0, {{nr_bits_address_internal}}, {{nr_bits_address_internal}};\n\t"
 		"}" : "+l"(*node));
 }
 
 inline __device__ void reset_right_in_vectortree_node(inttype *node) {
 	asm("{\n\t"
-		" bfi.u64 %0, 0, %0, 0, 31;\n\t"
+		" bfi.u64 %0, 0, %0, 0, {{nr_bits_address_internal}};\n\t"
 		"}" : "+l"(*node));
 }
 
 // Vectornode set functions.
 inline __device__ void set_left_in_vectortree_node(inttype *node, indextype address) {
 	asm("{\n\t"
-		" bfi.u64 %0, %1, %0, 31, 31;\n\t"
+		" bfi.u64 %0, %1, %0, {{nr_bits_address_internal}}, {{nr_bits_address_internal}};\n\t"
 		"}" : "+l"(*node) : "r"(address));
 }
 
 inline __device__ void set_right_in_vectortree_node(inttype *node, indextype address) {
 	asm("{\n\t"
-		" bfi.u64 %0, %1, %0, 0, 31;\n\t"
+		" bfi.u64 %0, %1, %0, 0, {{nr_bits_address_internal}};\n\t"
 		"}" : "+l"(*node) : "r"(address));
 }
 
@@ -396,21 +397,22 @@ inline __device__ indextype get_pointer_from_vectortree_node(inttype node, bool 
 	indextype result;
 	asm("{\n\t"
 		" .reg .u64 t1;\n\t"
-		" bfe.u64 t1, %1, %2, 31;\n\t"
+		" bfe.u64 t1, %1, %2, {{nr_bits_address_internal}};\n\t"
 		" cvt.u32.u64 %0, t1;\n\t"
-		"}" : "+r"(result) : "l"(node), "r"((1-(choice ? 1 : 0))*32));
+		"}" : "+r"(result) : "l"(node), "r"((1-(choice ? 1 : 0))*{{nr_bits_address_internal}}));
 	return result;
 }
 
 // Vectornode check for a left or right pointer gap.
-inline __device__ bool vectortree_node_contains_left_gap(inttype node) {
-	return (node & 0x3FFFFFFF80000000 == 0x3FFFFFFF80000000);
+inline __device__ bool vectortree_node_contains_left_gap(nodetype node) {
+	return (node & {{((nr_bits_address_internal|pow2)-1)|bitshift_left(nr_bits_address_internal)|hexa}}) == {{((nr_bits_address_internal|pow2)-1)|bitshift_left(nr_bits_address_internal)|hexa}};
 }
 
-inline __device__ bool vectortree_node_contains_right_gaps(inttype node) {
-	return (node & 0x000000007FFFFFFF == 0x000000007FFFFFFF);
+inline __device__ bool vectortree_node_contains_right_gaps(nodetype node) {
+	return (node & {{((nr_bits_address_internal|pow2)-1)|hexa}}) == {{((nr_bits_address_internal|pow2)-1)|hexa}};
 }
 
+{% endif %}
 // Store a vectortree node in the cache.
 // Return address if successful, HASHTABLE_FULL if cache is full.
 {% if vectorsize < 64 %}

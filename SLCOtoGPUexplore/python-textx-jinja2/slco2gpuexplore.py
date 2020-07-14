@@ -135,15 +135,19 @@ global_memsize = 24
 
 # Bits needed for root element and internal element addressing
 def nr_bits_address_root():
-	global global_memsize
-	if global_memsize == 24:
+	global global_memsize, no_compact_hash_table
+	if no_compact_hash_table:
+		return 31
+	elif global_memsize == 24:
 		return 32
 	elif global_memsize == 48:
 		return 33
 
 def nr_bits_address_internal():
-	global global_memsize
-	if global_memsize == 24:
+	global global_memsize, no_compact_hash_table
+	if no_compact_hash_table:
+		return 31
+	elif global_memsize == 24:
 		return 29
 	elif global_memsize == 48:
 		return 30
@@ -170,6 +174,10 @@ def xor(i, j):
 # Jinja2 filter to perform a one position bit right shift
 def bitshift_one_right(i):
 	return i >> 1
+
+# Jinja2 filter to perform a bit left shift
+def bitshift_left(i, n):
+	return i << n;
 
 # Jinja2 filter to provide the hexadecimal version of a given integer
 def hexa(i):
@@ -3313,6 +3321,7 @@ def translate():
 	jinja_env.filters['pow2'] = pow2
 	jinja_env.filters['xor'] = xor
 	jinja_env.filters['bitshift_one_right'] = bitshift_one_right
+	jinja_env.filters['bitshift_left'] = bitshift_left
 	jinja_env.filters['hexa'] = hexa
 	jinja_env.filters['in_list'] = in_list
 
