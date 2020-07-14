@@ -4,9 +4,14 @@ using namespace cooperative_groups;
 
 // type of vectortree nodes used.
 {% if vectorsize < 32 %}
-#define inttype uint32_t
+#define root_nodetype uint32_t
 {% else %}
-#define inttype uint64_t
+#define nodetype uint64_t
+{% if no_compact_hash_table %}
+#define root_nodetype uint64_t
+{% else %}
+#define root_nodetype uint32_t
+{% endif %}
 {% endif %}
 // type of global memory elements used.
 {% if no_compact_hash_table %}
@@ -20,7 +25,16 @@ using namespace cooperative_groups;
 {% endif %}
 // type of global memory indices used.
 #define indextype uint32_t
-// type of shared memory elements used
+{% if not no_compact_hash_table %}
+{% if nr_bits_address_internal > 32 %}
+#define indextype_internal uint64_t
+{% else %}
+#define indextype_internal uint32_t
+{% endif %}
+{% else %}
+#define indextype_internal indextype
+{% endif %}
+// type of shared memory elements used.
 {% if vectorsize > 31 and vectorsize < 64 %}
 #define shared_inttype uint64_t
 {% else %}
@@ -98,13 +112,11 @@ static const int NR_OF_BLOCKS = 3120;
 #define EMPTYVECT16				0xFFFF
 #define CACHE_POINTERS_NEW_LEAF	0x40000000
 
-// Constant for hashing.
-static const inttype P = 979946131;
 // Retry constant to determine number of retries for element insertion.
 #define RETRYFREQ 7
 #define NR_HASH_FUNCTIONS 8
 {% if not no_compact_hash_table %}
-#define NR_HASH_FUNCTIONS_ROOT 16
+#define NR_HASH_FUNCTIONS_ROOT 32
 {% endif %}
 // Number of retries in local cache.
 #define CACHERETRYFREQ 20
@@ -136,16 +148,16 @@ const size_t Mb = 1<<20;
 #define WORKSCANRESULT			(shared[3])
 #define SCAN					(shared[4])
 
-// Definitions for open tile element access.
 {% if gpuexplore2_succdist %}
+// Definitions for open tile element access.
 #define	GROUP_TID				(LANE % {{smnames|length}})
 #define GROUPS_PER_WARP			(WARP_SIZE / {{smnames|length}})
 #define GROUP_ID				(WARP_ID * GROUPS_PER_WARP + LANE / {{smnames|length}})
 #define NR_GROUPS				((BLOCK_SIZE / WARP_SIZE) * GROUPS_PER_WARP)
 
 #define THREADINGROUP			(LANE < GROUPS_PER_WARP * {{smnames|length}})
-{% endif %}
 
+{% endif %}
 // CONSTANTS FOR GLOBAL MEMORY HASH TABLE
 {% if no_compact_hash_table %}
 // Empty hash table element (exploits that a vectornode cannot be marked 'new' without being marked 'root')
@@ -155,7 +167,8 @@ const size_t Mb = 1<<20;
 #define EMPTYVECTNODE_GLOBAL 	0xBFFFFFFFFFFFFFFF
 {% endif %}
 {% else %}
-#define EMPTYVECT_NODE_GLOBAL	0x0
+// Empty root hash table element
+#define EMPTYVECTNODE_GLOBAL	0x0
 {% endif %}
 
 // GPU shared memory array.
@@ -172,47 +185,49 @@ extern __shared__ volatile shared_inttype shared[];
 // *** START FUNCTIONS FOR VECTOR TREE NODES MANIPULATION AND STORAGE TO THE SHARED MEMORY CACHE ***
 
 // Mark state as new or old.
-inline __device__ inttype mark_new(inttype node) {
-{% if vectorsize < 32 %}
+inline __device__ vectornodetype mark_new(root_nodetype node) {
+{% if vectorsize < 32 or not no_compact_hash_table %}
 	return node | 0x80000000;
 {% else %}
 	return node | 0x8000000000000000;
 {% endif %}
 }
 
-inline __device__ inttype mark_old(inttype node) {
-{% if vectorsize < 32 %}
-	return node | 0x7FFFFFFF;
+inline __device__ vectornodetype mark_old(root_nodetype node) {
+{% if vectorsize < 32 or not no_compact_hash_table %}
+	return node & 0x7FFFFFFF;
 {% else %}
-	return node | 0x7FFFFFFFFFFFFFFF;
+	return node & 0x7FFFFFFFFFFFFFFF;
 {% endif %}
 }
 
 // Check whether state is new.
-inline __device__ bool is_new(inttype node) {
-{% if vectorsize < 32 %}
+inline __device__ bool is_new(root_nodetype node) {
+{% if vectorsize < 32 or not no_compact_hash_table %}
 	return (node & 0x80000000) != 0;
 {% else %}
 	return (node & 0x8000000000000000) != 0;
 {% endif %}
 }
 
-// Check whether the highest 32-bits of a node are set as new.
+// Check whether the highest 32-bits of a node in shared memory are set as new.
 inline __device__ bool head_is_new(shared_inttype node) {
 	return (node & 0x80000000) != 0;
 }
 
-// Mark whether node is root.
-inline __device__ inttype mark_root(inttype node) {
+{% if no_compact_hash_table and vectorsize > 31 %}
+// Mark a node as root.
+inline __device__ inttype mark_root(root_nodetype node) {
 	return node | 0x4000000000000000;
 }
 
 // Check whether node is root.
-inline __device__ bool is_root(inttype node) {
+inline __device__ bool is_root(root_nodetype node) {
 	return (node & 0x4000000000000000) != 0;
 }
 
-// Check whether the highest 32-bits of a node are set as root.
+{% endif %}
+// Check whether the highest 32-bits of a node in shared memory are set as root.
 inline __device__ bool head_is_root(shared_inttype node) {
 	return (node & 0x40000000) != 0;
 }
@@ -227,20 +242,22 @@ inline __device__ shared_indextype sv_step(shared_indextype node_index, bool gor
 			" .reg .u32 t1;\n\t"
 			" bfe.u32 t1, %1, 15, 15;\n\t"
 			" cvt.u16.u32 %0, t1;\n\t"
-			"}" : "=r"(index) : "r"(tmp));
+			"}" : "=h"(index) : "r"(tmp));
 	}
 	else {
 		asm("{\n\t"
 			" .reg .u32 t1;\n\t"
 			" bfe.u32 t1, %1, 0, 15;\n\t"
 			" cvt.u16.u32 %0, t1;\n\t"
-			"}" : "=r"(index) : "r"(tmp));
+			"}" : "=h"(index) : "r"(tmp));
 	}
 	return index;
 }
 
+{% endif %}
+{% if vectorsize > 31 %}
 // Get left or right half of a vectornode
-inline __device__ shared_inttype get_left(inttype node) {
+inline __device__ shared_inttype get_left(nodetype node) {
 	shared_inttype result;
 	asm("{\n\t"
 		" .reg .u64 t1;\n\t"
@@ -250,7 +267,7 @@ inline __device__ shared_inttype get_left(inttype node) {
 	return result;
 }
 
-inline __device__ shared_inttype get_right(inttype node) {
+inline __device__ shared_inttype get_right(nodetype node) {
 	shared_inttype result;
 	asm("{\n\t"
 		" cvt.u32.u64 %0, %1;\n\t"
@@ -259,9 +276,8 @@ inline __device__ shared_inttype get_right(inttype node) {
 }
 
 {% endif %}
-
 // Retrieval functions for vector parts from shared memory, ignoring shared memory node pointers (cache pointers).
-inline __device__ inttype get_vectorpart(shared_indextype node_index, vectornode_indextype part_id) {
+inline __device__ nodetype get_vectorpart(shared_indextype node_index, vectornode_indextype part_id) {
 	switch (part_id) {
 	  {% for i in range(0,vectorstructure|length) %}
 	  case {{i}}:
@@ -273,8 +289,8 @@ inline __device__ inttype get_vectorpart(shared_indextype node_index, vectornode
 }
 {% for i in range(0,vectorstructure|length) %}
 
-inline __device__ inttype get_vectorpart_{{i}}(shared_indextype node_index) {
-	{% if vectorsize < 64 %}
+inline __device__ nodetype get_vectorpart_{{i}}(shared_indextype node_index) {
+	{% if vectorsize <= 30 %}
 	return shared[CACHEOFFSET+node_index];
 	{% else %}
 	{% if i|get_vector_tree_to_part_navigation|length > 0 %}
@@ -283,12 +299,11 @@ inline __device__ inttype get_vectorpart_{{i}}(shared_indextype node_index) {
 	{% for b in i|get_vector_tree_to_part_navigation %}
 	index = sv_step(index, {% if b %}true{% else %}false{% endif %});
 	{% endfor %}
-	inttype part;
+	nodetype part;
 	asm("{\n\t"
 		" mov.b64 %0,{ %1, %2 };\n\t"
 		"}" : "=l"(part) : "r"(shared[CACHEOFFSET+{% if i|get_vector_tree_to_part_navigation|length > 0 %}index{% else %}node_index{% endif %}]), "r"(shared[CACHEOFFSET+{% if i|get_vector_tree_to_part_navigation|length > 0 %}index{% else %}node_index{% endif %}+1]));
 	return part;
-
 	{% endif %}
 }
 {% endfor %}
@@ -328,13 +343,13 @@ inline __device__ void get_vectortree_node_{{i}}(inttype *node, shared_inttype *
 inline __device__ void set_left_cache_pointer(shared_inttype *pointers, shared_indextype new_pointer) {
 	asm("{\n\t"
 		" bfi.u32 %0, %1, %0, 15, 15;\n\t"
-		"}" : "+r"(*pointers) : "r"(new_pointer));
+		"}" : "+r"(*pointers) : "h"(new_pointer));
 }
 
 inline __device__ void set_right_cache_pointer(shared_inttype *pointers, shared_indextype new_pointer) {
 	asm("{\n\t"
 		" bfi.u32 %0, %1, %0, 0, 15;\n\t"
-		"}" : "+r"(*pointers) : "r"(new_pointer));
+		"}" : "+r"(*pointers) : "h"(new_pointer));
 }
 
 inline __device__ bool cache_pointers_are_marked_new_leaf(shared_inttype pointers) {
@@ -342,7 +357,8 @@ inline __device__ bool cache_pointers_are_marked_new_leaf(shared_inttype pointer
 }
 
 inline __device__ void set_cache_pointers_to_global_address(shared_inttype *pointers, indextype address) {
-	*pointers = address | 0x8FFFFFFF;
+	// The highest bit in pointers is set to indicate that it now stores a global memory address.
+	*pointers = address | 0x80000000;
 }
 
 inline __device__ bool cache_pointers_contain_global_address(shared_inttype pointers) {
