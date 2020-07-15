@@ -4,13 +4,14 @@ using namespace cooperative_groups;
 
 // type of vectortree nodes used.
 {% if vectorsize < 32 %}
-#define root_nodetype uint32_t
+#define nodetype uint32_t
+#define compressed_nodetype uint32_t
 {% else %}
 #define nodetype uint64_t
 {% if no_compact_hash_table %}
-#define root_nodetype uint64_t
+#define compressed_nodetype uint64_t
 {% else %}
-#define root_nodetype uint32_t
+#define compressed_nodetype uint32_t
 {% endif %}
 {% endif %}
 // type of global memory elements used.
@@ -114,9 +115,10 @@ static const int NR_OF_BLOCKS = 3120;
 
 // Retry constant to determine number of retries for element insertion.
 #define RETRYFREQ 7
+{% if no_compact_hash_table %}
 #define NR_HASH_FUNCTIONS 8
-{% if not no_compact_hash_table %}
-#define NR_HASH_FUNCTIONS_ROOT 32
+{% else %}
+#define NR_HASH_FUNCTIONS 32
 {% endif %}
 // Number of retries in local cache.
 #define CACHERETRYFREQ 20
@@ -185,7 +187,7 @@ extern __shared__ volatile shared_inttype shared[];
 // *** START FUNCTIONS FOR VECTOR TREE NODES MANIPULATION AND STORAGE TO THE SHARED MEMORY CACHE ***
 
 // Mark state as new or old.
-inline __device__ vectornodetype mark_new(root_nodetype node) {
+inline __device__ vectornodetype mark_new(compressed_nodetype node) {
 {% if vectorsize < 32 or not no_compact_hash_table %}
 	return node | 0x80000000;
 {% else %}
@@ -193,7 +195,7 @@ inline __device__ vectornodetype mark_new(root_nodetype node) {
 {% endif %}
 }
 
-inline __device__ vectornodetype mark_old(root_nodetype node) {
+inline __device__ vectornodetype mark_old(compressed_nodetype node) {
 {% if vectorsize < 32 or not no_compact_hash_table %}
 	return node & 0x7FFFFFFF;
 {% else %}
@@ -202,7 +204,7 @@ inline __device__ vectornodetype mark_old(root_nodetype node) {
 }
 
 // Check whether state is new.
-inline __device__ bool is_new(root_nodetype node) {
+inline __device__ bool is_new(compressed_nodetype node) {
 {% if vectorsize < 32 or not no_compact_hash_table %}
 	return (node & 0x80000000) != 0;
 {% else %}
@@ -217,12 +219,12 @@ inline __device__ bool head_is_new(shared_inttype node) {
 
 {% if no_compact_hash_table and vectorsize > 31 %}
 // Mark a node as root.
-inline __device__ inttype mark_root(root_nodetype node) {
+inline __device__ inttype mark_root(compressed_nodetype node) {
 	return node | 0x4000000000000000;
 }
 
 // Check whether node is root.
-inline __device__ bool is_root(root_nodetype node) {
+inline __device__ bool is_root(compressed_nodetype node) {
 	return (node & 0x4000000000000000) != 0;
 }
 
@@ -408,7 +410,7 @@ inline __device__ bool vectortree_node_contains_left_gap(nodetype node) {
 	return (node & {{((nr_bits_address_internal|pow2)-1)|bitshift_left(nr_bits_address_internal)|hexa}}) == {{((nr_bits_address_internal|pow2)-1)|bitshift_left(nr_bits_address_internal)|hexa}};
 }
 
-inline __device__ bool vectortree_node_contains_right_gaps(nodetype node) {
+inline __device__ bool vectortree_node_contains_right_gap(nodetype node) {
 	return (node & {{((nr_bits_address_internal|pow2)-1)|hexa}}) == {{((nr_bits_address_internal|pow2)-1)|hexa}};
 }
 
@@ -418,7 +420,7 @@ inline __device__ bool vectortree_node_contains_right_gaps(nodetype node) {
 {% if vectorsize < 64 %}
 inline __device__ shared_indextype STOREINCACHE(inttype node) {
 {% else %}
-inline __device__ bool STOREINCACHE(inttype node, shared_inttype cache_pointers) {
+inline __device__ bool STOREINCACHE(nodetype node, shared_inttype cache_pointers) {
 {% endif %}
 	uint8_t i = 0;
 	shared_indextype addr;
@@ -474,20 +476,20 @@ inline __device__ bool STOREINCACHE(inttype node, shared_inttype cache_pointers)
 
 {% if not no_compact_hash_table %}
 // Bit left rotation function.
-inline __device__ inttype rot(const inttype x, uint8_t i) {
+inline __device__ nodetype rot(const nodetype x, uint8_t i) {
 	return (x << i) | (x >> (58-i));
 }
 
 // XOR two times bit left rotation function.
-inline __device__ inttype xor_rot2(inttype x, uint8_t a, uint8_t b) {
-	inttype y = x ^ rot(x,a);
+inline __device__ nodetype xor_rot2(nodetype x, uint8_t a, uint8_t b) {
+	nodetype y = x ^ rot(x,a);
 	y = y ^ rot(y,b);
 	return y &= 0x03FFFFFFFFFFFFFFL;
 }
 
 // Inverse function for XOR two times bit left rotation, mod 58.
-inline __device__ inttype xor_rot2_inv(inttype x, uint8_t a, uint8_t b) {
-	inttype y = xor_rot2(x, a, b);
+inline __device__ nodetype xor_rot2_inv(nodetype x, uint8_t a, uint8_t b) {
+	nodetype y = xor_rot2(x, a, b);
 	uint8_t a1 = (8*a) & 0x03FFFFFFFFFFFFFFL;
 	uint8_t b1 = (8*b) & 0x03FFFFFFFFFFFFFFL;
 	y = xor_rot2(y, a1, b1);
@@ -500,16 +502,36 @@ inline __device__ inttype xor_rot2_inv(inttype x, uint8_t a, uint8_t b) {
 	return y;
 }
 
-// Initial bitmixer function.
-inline __device__ inttype HASH_INIT(inttype node) {
-	inttype node1 = xor_rot2(node, 38, 14);
+// Initial bitmixer functions.
+inline __device__ nodetype HASH_INIT(uint8_t id, nodetype node, indextype offset) {
+	if (offset != 0) {
+		return UHASH_INIT(id, node);
+	}
+	else {
+		return RHASH_INIT(id, node);
+	}
+}
+
+inline __device__ nodetype RHASH_INIT(nodetype node) {
+	nodetype node1 = xor_rot2(node, 38, 14);
 	node1 ^= 0xD1B54A32D192ED03L;
 	node1 *= 0xAEF17502108EF2D9L;
 	return node1;
 }
 
+TODO: UHASH_INIT!!
+
 // Hash functions.
-inline __device__ inttype HASH(uint8_t id, inttype node) {
+inline __device__ nodetype HASH(uint8_t id, nodetype node, indextype offset) {
+	if (offset != 0) {
+		return UHASH(id, node);
+	}
+	else {
+		return RHASH(id, node);
+	}
+}
+
+inline __device__ nodetype RHASH(uint8_t id, inttype node) {
 	inttype node1 = node;
 	switch (id) {
 		case 0:
@@ -844,126 +866,75 @@ inline __device__ inttype HASH_INVERSE(uint8_t id, inttype node) {
 	return node1;
 }
 
-// Retrieve ID of used hash function from a compressed vectortree node.
-// Non-root version.
-inline __device__ uint8_t get_hash_id(global_inttype n) {
-	return (uint8_t) (n >> 29);
-}
-
-// Root version.
-inline __device__ uint8_t get_hash_id_root(global_inttype n) {
-	uint8_t hid = (uint8_t) (n >> 27);
+// Retrieve ID of used hash function from a compressed root vectortree node.
+inline __device__ uint8_t get_hash_id_root(compressed_nodetype n) {
+	uint8_t hid = (uint8_t) (n >> {{(2*nr_bits_address_internal)-nr_bits_address_root}});
 	// Remove the 'new' flag.
-	return (hid & 0x0F);
+	return (hid & 0x1F);
 }
 
-// Reconstruct uncompressed vectortree node from the given compressed vectortree node and the address at which it is stored in the global memory hash table.
-// Non-root version.
-inline __device__ inttype get_uncompressed_node(global_inttype n, indextype i) {
-	inttype e = (((inttype) i) << 29);
+// Reconstruct uncompressed root vectortree node from the given compressed root vectortree node and the address at which it is stored in the global memory hash table.
+inline __device__ inttype get_uncompressed_node_root(compressed_nodetype n, indextype i) {
+	nodetype e = (((nodetype) i) << {{(2*nr_bits_address_internal)-nr_bits_address_root}});
 	// Obtain hash function ID.
-	uint8_t hid = (uint8_t) (n >> 29);
-	// Remove three bits for hash function ID.
-	e |= (inttype) (n & 0x1FFFFFFF);
+	uint8_t hid = get_hash_id_root(n);
+	// Remove five bits for hash function ID + one for 'new' flag.
+	e |= (nodetype) (n & 0x03FFFFFF);
 	// Retrieve uncompressed node and return it.
 	return HASH_INVERSE(hid, e);
 }
 
-// Root version.
-inline __device__ inttype get_uncompressed_node_root(global_inttype n, indextype i) {
-	inttype e = (((inttype) i) << 27);
-	// Obtain hash function ID.
-	uint8_t hid = (uint8_t) (n >> 27);
-	hid &= 0x0F;
-	// Remove four bits for hash function ID + one for 'new' flag.
-	e |= (inttype) (n & 0x07FFFFFF);
-	// Retrieve uncompressed node and return it.
-	return HASH_INVERSE(hid, e);
+// Extract a global memory internal hash table index from a given hash.
+inline __device__ indextype get_index(nodetype h) {
+	return (indextype) (h >> {{nr_bits_address_internal}});
 }
 
-// Extract a global memory hash table index from a given hash.
-// Non-root version.
-inline __device__ indextype get_index(inttype h) {
-	return (indextype) (h >> 29);
-}
-
-// Extract a global memory hash table index from a given hash.
-// Root version.
-inline __device__ indextype get_index_root(inttype h) {
-	return (indextype) (h >> 27);
-}
-
-// Construct from a hash and a hash function ID a compressed vectortree node.
-// Non-root version.
-inline __device__ global_inttype get_compressed_node(inttype h, uint8_t hid) {
-	global_inttype e = (global_inttype) hid;
-	e = (e << 29);
-	e |= (global_inttype) (h & 0x000000001FFFFFFF);
-	return e;
-}
-
-// Root version.
-inline __device__ global_inttype get_compressed_node_root(inttype h, uint8_t hid) {
-	global_inttype e = (global_inttype) hid;
-	e = (e << 27);
+// Construct from a hash and a hash function ID a compressed root vectortree node.
+inline __device__ compressed_nodetype get_compressed_node_root(nodetype h, uint8_t hid) {
+	compressed_nodetype e = (compressed_nodetype) hid;
+	e = (e << {{(2*nr_bits_address_internal)-nr_bits_address_root}});
 	// Mark the node as 'new'.
 	e |= 0x80000000;
-	e |= (global_inttype) (h & 0x0000000007FFFFFF);
+	e |= (compressed_inttype) (h & {{((((2*nr_bits_address_internal)-nr_bits_address_root)|pow2)-1)|hexa}});
 	return e;
 }
 
 {% endif %}
-// Construct a compact vectortree node, given the hash of a vectortree node and the ID of the used hash function.
-// Non-root version.
-inline __device__ global_inttype HT_COMPRESS_NODE(inttype node_hash, )
+// TODO: add hash functions for uncompressed hashing of 64 and 32 bit integers!!!
 
 // Retrieve vectortree node at index i of the global memory hash table.
-inline __device __ inttype HT_RETRIEVE(inttype *d_q, indextype i{% if not no_compact_hash_table %}, indextype offset{% endif %}) {
+inline __device __ nodetype HT_RETRIEVE(compressed_nodetype *d_q, indextype i{% if not no_compact_hash_table %}, indextype offset{% endif %}) {
 	{% if no_compact_hash_table %}
-	return d_q[i];
+	return (nodetype) d_q[i];
 	{% else %}
-	uint8_t hid;
-	global_inttype j;
-	inttype e;
-	j = d_q[offset+i];
 	if (offset != 0) {
 		// We are retrieving a non-root node from the internal nodes table.
-		// Extract the hash function ID.
-		hid = get_hash_id(j);
-		// Construct the complete element.
-		e = get_uncompressed_node(j, i);
+		return *(d_q+offset+(2*i));
 	}
 	else {
 		// We are retrieving a root node from the root table.
-		// Extract the hash function ID.
-		hid = get_hash_id_root(j);
+		compressed_nodetype j = d_q[i];
 		// Construct the complete element.
-		e = get_uncompressed_node_root(j, i);
+		return get_uncompressed_node_root(j, i);
 	}
-	// Inverse the element.
-	return HASH_INVERSE(e, hid);
 	{% endif %}
 }
 
 // Find or put a given vectortree node in the global hash table.
-inline ___device_ indextype FINDORPUT_SINGLE(inttype *d_q, inttype node, volatile bool *d_newstate_flags{% if not no_compact_hash_table %}, indextype offset{% endif %}, bool claim_work) {
+inline ___device_ indextype FINDORPUT_SINGLE(compressed_nodetype *d_q, nodetype node, volatile bool *d_newstate_flags{% if not no_compact_hash_table %}, indextype offset{% endif %}, bool claim_work) {
 	{% if not no_compact_hash_table %}
-	inttype e1, e2;
-	global_inttype compressed_node;
+	nodetype e1, e2;
+	compressed_nodetype compressed_node;
 	{% endif %}
 	indextype addr;
-	inttype element;
+	nodetype element;
 	shared_inttype shared_addr;
-	{% if not no_compact_hash_table %}
 	e1 = HASH_INIT(node);
-	for (int i = 0; i < (offset == 0 ? NR_HASH_FUNCTIONS_ROOT : NR_HASH_FUNCTIONS); i++) {
-	{% else %}
-	for (int i = 0; i < NR_HASH_FUNCTIONS, i++) {
-	{% endif %}
+	for (int i = 0; i < NR_HASH_FUNCTIONS; i++) {
 		{% if not no_compact_hash_table %}
 		e2 = HASH(i, e1);
 		if (offset == 0) {
-			addr = get_index_root(e2);
+			addr = get_index(e2);
 			compressed_node = get_compressed_node_root(e2, i);
 		}
 		else {
