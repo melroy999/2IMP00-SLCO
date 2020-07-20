@@ -164,13 +164,15 @@ const size_t Mb = 1<<20;
 {% if no_compact_hash_table %}
 // Empty hash table element (exploits that a vectornode cannot be marked 'new' without being marked 'root')
 {% if vectorsize < 32 %}
-#define EMPTYVECTNODE_GLOBAL 	0xBFFFFFFF
+#define EMPTY_NODE 	0xBFFFFFFF
 {% else %}
-#define EMPTYVECTNODE_GLOBAL 	0xBFFFFFFFFFFFFFFF
+#define EMPTY_NODE 	0xBFFFFFFFFFFFFFFF
 {% endif %}
 {% else %}
 // Empty root hash table element
-#define EMPTYVECTNODE_GLOBAL	0x0
+#define EMPTY_COMPRESSED_NODE	0xFFFFFFFF
+// Empty internal hash table element (exploits that an uncompressed internal vectornode always has its highest bit set to 0)
+#define EMPTY_NODE				0xFFFFFFFFFFFFFFFF
 {% endif %}
 
 // GPU shared memory array.
@@ -277,6 +279,16 @@ inline __device__ shared_inttype get_right(nodetype node) {
 	return result;
 }
 
+// Combine two halfs of a vectornode
+inline __device__ nodetype combine_halfs(shared_inttype n1, shared_inttype n2) {
+	nodetype node = (nodetype) n2;
+	nodetype node2 = (nodetype) n1;
+	asm("{\n\t"
+		" bfi.u64 %0, %1, %0, 32, 32;\n\t
+		"}" : "+l"(node) : "l"(node2));
+	return node;
+}
+
 {% endif %}
 // Retrieval functions for vector parts from shared memory, ignoring shared memory node pointers (cache pointers).
 inline __device__ nodetype get_vectorpart(shared_indextype node_index, vectornode_indextype part_id) {
@@ -370,9 +382,15 @@ inline __device__ bool cache_pointers_contain_global_address(shared_inttype poin
 
 // Vectornode reset functions.
 inline __device__ void reset_left_in_vectortree_node(nodetype *node) {
+{% if no_compact_hash_table %}
 	asm("{\n\t"
 		" bfi.u64 %0, 0, %0, {{nr_bits_address_internal}}, {{nr_bits_address_internal}};\n\t"
 		"}" : "+l"(*node));
+{% else %}
+	asm("{\n\t"
+		" bfi.u64 %0, 0, %0, {{64-1-nr_bits_address_internal}}, {{nr_bits_address_internal}};\n\t"
+		"}" : "+l"(*node));
+{% endif %}
 }
 
 inline __device__ void reset_right_in_vectortree_node(inttype *node) {
@@ -383,9 +401,15 @@ inline __device__ void reset_right_in_vectortree_node(inttype *node) {
 
 // Vectornode set functions.
 inline __device__ void set_left_in_vectortree_node(inttype *node, indextype address) {
+{% if no_compact_hash_table %}
 	asm("{\n\t"
 		" bfi.u64 %0, %1, %0, {{nr_bits_address_internal}}, {{nr_bits_address_internal}};\n\t"
 		"}" : "+l"(*node) : "r"(address));
+{% else %}
+	asm("{\n\t"
+		" bfi.u64 %0, %1, %0, {{64-1-nr_bits_address_internal}}, {{nr_bits_address_internal}};\n\t"
+		"}" : "+l"(*node) : "r"(address));
+{% endif %}
 }
 
 inline __device__ void set_right_in_vectortree_node(inttype *node, indextype address) {
@@ -397,17 +421,29 @@ inline __device__ void set_right_in_vectortree_node(inttype *node, indextype add
 // Vectornode get functions.
 inline __device__ indextype get_pointer_from_vectortree_node(inttype node, bool choice) {
 	indextype result;
+{% if no_compact_hash_table %}
 	asm("{\n\t"
 		" .reg .u64 t1;\n\t"
 		" bfe.u64 t1, %1, %2, {{nr_bits_address_internal}};\n\t"
 		" cvt.u32.u64 %0, t1;\n\t"
 		"}" : "+r"(result) : "l"(node), "r"((1-(choice ? 1 : 0))*{{nr_bits_address_internal}}));
+{% else %}
+	asm("{\n\t"
+		" .reg .u64 t1;\n\t"
+		" bfe.u64 t1, %1, %2, {{nr_bits_address_internal}};\n\t"
+		" cvt.u32.u64 %0, t1;\n\t"
+		"}" : "+r"(result) : "l"(node), "r"((1-(choice ? 1 : 0))*{{64-1-nr_bits_address_internal}}));
+{% endif %}
 	return result;
 }
 
 // Vectornode check for a left or right pointer gap.
 inline __device__ bool vectortree_node_contains_left_gap(nodetype node) {
+{% if no_compact_hash_table %}
 	return (node & {{((nr_bits_address_internal|pow2)-1)|bitshift_left(nr_bits_address_internal)|hexa}}) == {{((nr_bits_address_internal|pow2)-1)|bitshift_left(nr_bits_address_internal)|hexa}};
+{% else %}
+	return (node & {{((nr_bits_address_internal|pow2)-1)|bitshift_left(64-1-nr_bits_address_internal)|hexa}}) == {{((nr_bits_address_internal|pow2)-1)|bitshift_left(64-1-nr_bits_address_internal)|hexa}};
+{% endif %}
 }
 
 inline __device__ bool vectortree_node_contains_right_gap(nodetype node) {
@@ -476,50 +512,48 @@ inline __device__ bool STOREINCACHE(nodetype node, shared_inttype cache_pointers
 
 {% if not no_compact_hash_table %}
 // Bit left rotation function.
-inline __device__ nodetype rot(const nodetype x, uint8_t i) {
-	return (x << i) | (x >> (58-i));
+inline __device__ nodetype rot_{{nr_bits_address_internal*2}}(const nodetype x, uint8_t i) {
+	return (x << i) | (x >> ({{nr_bits_address_internal*2}}-i));
 }
 
 // XOR two times bit left rotation function.
-inline __device__ nodetype xor_rot2(nodetype x, uint8_t a, uint8_t b) {
-	nodetype y = x ^ rot(x,a);
-	y = y ^ rot(y,b);
-	return y &= 0x03FFFFFFFFFFFFFFL;
+inline __device__ nodetype xor_rot2_{{nr_bits_address_internal*2}}(nodetype x, uint8_t a, uint8_t b) {
+	nodetype y = x ^ rot_{{nr_bits_address_internal*2}}(x,a);
+	y = y ^ rot_{{nr_bits_address_internal*2}}(y,b);
+	return y &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
 }
 
 // Inverse function for XOR two times bit left rotation, mod 58.
-inline __device__ nodetype xor_rot2_inv(nodetype x, uint8_t a, uint8_t b) {
-	nodetype y = xor_rot2(x, a, b);
-	uint8_t a1 = (8*a) & 0x03FFFFFFFFFFFFFFL;
-	uint8_t b1 = (8*b) & 0x03FFFFFFFFFFFFFFL;
-	y = xor_rot2(y, a1, b1);
-	a1 = (a1+a1) & 0x03FFFFFFFFFFFFFFL;
-	b1 = (b1+b1) & 0x03FFFFFFFFFFFFFFL;
-	y = xor_rot2(y, a1, b1);
-	a1 = (a1+a1) & 0x03FFFFFFFFFFFFFFL;
-	b1 = (b1+b1) & 0x03FFFFFFFFFFFFFFL;
-	y = xor_rot2(y, a1, b1);
+inline __device__ nodetype xor_rot2_inv_{{nr_bits_address_internal*2}}(nodetype x, uint8_t a, uint8_t b) {
+	nodetype y = xor_rot2_{{nr_bits_address_internal*2}}(x, a, b);
+	uint8_t a1 = (8*a) & {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+	uint8_t b1 = (8*b) & {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+	y = xor_rot2_{{nr_bits_address_internal*2}}(y, a1, b1);
+	a1 = (a1+a1) & {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+	b1 = (b1+b1) & {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+	y = xor_rot2_{{nr_bits_address_internal*2}}(y, a1, b1);
+	a1 = (a1+a1) & {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+	b1 = (b1+b1) & {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+	y = xor_rot2_{{nr_bits_address_internal*2}}(y, a1, b1);
 	return y;
 }
 
 // Initial bitmixer functions.
-inline __device__ nodetype HASH_INIT(uint8_t id, nodetype node, indextype offset) {
+inline __device__ nodetype HASH_INIT(nodetype node, indextype offset) {
 	if (offset != 0) {
-		return UHASH_INIT(id, node);
+		return RHASH_INIT(id, node);
 	}
 	else {
-		return RHASH_INIT(id, node);
+		return UHASH_INIT(id, node);
 	}
 }
 
 inline __device__ nodetype RHASH_INIT(nodetype node) {
-	nodetype node1 = xor_rot2(node, 38, 14);
+	nodetype node1 = xor_rot2_{{nr_bits_address_internal*2}}(node, 38, 14);
 	node1 ^= 0xD1B54A32D192ED03L;
 	node1 *= 0xAEF17502108EF2D9L;
 	return node1;
 }
-
-TODO: UHASH_INIT!!
 
 // Hash functions.
 inline __device__ nodetype HASH(uint8_t id, nodetype node, indextype offset) {
@@ -531,341 +565,1027 @@ inline __device__ nodetype HASH(uint8_t id, nodetype node, indextype offset) {
 	}
 }
 
-inline __device__ nodetype RHASH(uint8_t id, inttype node) {
-	inttype node1 = node;
+inline __device__ nodetype RHASH(uint8_t id, nodetype node) {
+	nodetype node1 = node;
 	switch (id) {
 		case 0:
-			{{12|cuda_xor_lr(3)}}
-			{{37|cuda_xor_lr(3)}}
+			{{12|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			{{37|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			node1 *= 0x346d5269d6a44c1L;
-			node1 &= 0x03ffffffffffffffL;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
 			{{43|cuda_xor_r3(31, 23, 3)}}
 			node1 *= 0x36d3c2b4804a8e1L;
-			node1 &= 0x03ffffffffffffffL;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
 			{{28|cuda_xor_r(3)}}
 			break;
 		case 1:
-			{{10|cuda_xor_lr(3)}}
-			{{35|cuda_xor_lr(3)}}
+			{{10|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			{{35|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			node1 *= 0x3866c0692e5e421L;
-			node1 &= 0x03ffffffffffffffL;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
 			{{40|cuda_xor_r3(34, 19, 3)}}
 			node1 *= 0x39838add4d38e61L;
-			node1 &= 0x03ffffffffffffffL;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
 			{{26|cuda_xor_r(3)}}
 			break;
 		case 2:
-			{{14|cuda_xor_lr(3)}}
-			{{39|cuda_xor_lr(3)}}
+			{{14|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			{{39|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			node1 *= 0x3a5787914312801L;
-			node1 &= 0x03ffffffffffffffL;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
 			{{44|cuda_xor_r3(30, 15, 3)}}
 			node1 *= 0x3afb7bb024c4681L;
-			node1 &= 0x03ffffffffffffffL;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
 			{{30|cuda_xor_r(3)}}
 			break;
 		case 3:
-			{{13|cuda_xor_lr(3)}}
-			{{34|cuda_xor_lr(3)}}
+			{{13|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			{{34|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			node1 *= 0x3b7e13a202e41c1L;
-			node1 &= 0x03ffffffffffffffL;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
 			{{39|cuda_xor_r3(33, 25, 3)}}
 			node1 *= 0x3be88e9173fb7c1L;
-			node1 &= 0x03ffffffffffffffL;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
 			{{28|cuda_xor_r(3)}}
 			break;
 		case 4:
-			{{11|cuda_xor_lr(3)}}
-			{{35|cuda_xor_lr(3)}}
+			{{11|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			{{35|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			node1 *= 0x3c4109af0f01241L;
-			node1 &= 0x03ffffffffffffffL;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
 			{{23|cuda_xor_r3(30, 26, 3)}}
 			node1 *= 0x3c8bbb336719fc1L;
-			node1 &= 0x03ffffffffffffffL;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
 			{{20|cuda_xor_r(3)}}
 			break;
 		case 5:
-			{{15|cuda_xor_lr(3)}}
-			{{33|cuda_xor_lr(3)}}
+			{{15|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			{{33|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			node1 *= 0x3ccba0994f7af81L;
-			node1 &= 0x03ffffffffffffffL;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
 			{{41|cuda_xor_r3(36, 20, 3)}}
 			node1 *= 0x3d02e8d5ad09d61L;
-			node1 &= 0x03ffffffffffffffL;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
 			{{23|cuda_xor_r(3)}}
 			break;
 		case 6:
-			{{34|cuda_xor_lr(3)}}
-			{{12|cuda_xor_lr(3)}}
+			{{34|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			{{12|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			node1 *= 0x3d3335b9a01aac1L;
-			node1 &= 0x03ffffffffffffffL;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
 			{{38|cuda_xor_r3(42, 24, 3)}}
 			node1 *= 0x3d5dc5b2dd89301L;
-			node1 &= 0x03ffffffffffffffL;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
 			{{29|cuda_xor_r(3)}}
 			break;
 		case 7:
-			{{23|cuda_xor_lr(3)}}
-			{{35|cuda_xor_lr(3)}}
+			{{23|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			{{35|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			node1 *= 0x3d839037059b321L;
-			node1 &= 0x03ffffffffffffffL;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
 			{{26|cuda_xor_r3(46, 23, 3)}}
 			node1 *= 0x3da557a7a356621L;
-			node1 &= 0x03ffffffffffffffL;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
 			{{26|cuda_xor_r(3)}}
 			break;
 		case 8:
-			{{31|cuda_xor_lr(3)}}
-			{{34|cuda_xor_lr(3)}}
+			{{31|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			{{34|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			node1 *= 0x3dc3b70f5d13b41L;
-			node1 &= 0x03ffffffffffffffL;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
 			{{29|cuda_xor_r3(40, 20, 3)}}
 			node1 *= 0x3ddf2c9626244a1L;
-			node1 &= 0x03ffffffffffffffL;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
 			{{27|cuda_xor_r(3)}}
 			break;
 		case 9:
-			{{24|cuda_xor_lr(3)}}
-			{{20|cuda_xor_lr(3)}}
+			{{24|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			{{20|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			node1 *= 0x3df81dfdd3d5e01L;
-			node1 &= 0x03ffffffffffffffL;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
 			{{40|cuda_xor_r3(33, 25, 3)}}
 			node1 *= 0x3e0ee0bdbcd6ea1L;
-			node1 &= 0x03ffffffffffffffL;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
 			{{30|cuda_xor_r(3)}}
 			break;
 		case 10:
-			{{10|cuda_xor_lr(3)}}
-			{{19|cuda_xor_lr(3)}}
+			{{10|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			{{19|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			node1 *= 0x3e23ba68e0e7381L;
-			node1 &= 0x03ffffffffffffffL;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
 			{{26|cuda_xor_r3(46, 23, 3)}}
 			node1 *= 0x3e36e66407cf201L;
-			node1 &= 0x03ffffffffffffffL;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
 			{{28|cuda_xor_r(3)}}
 			break;
 		case 11:
-			{{14|cuda_xor_lr(3)}}
-			{{30|cuda_xor_lr(3)}}
+			{{14|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			{{30|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			node1 *= 0x3e48961660141a1L;
-			node1 &= 0x03ffffffffffffffL;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
 			{{43|cuda_xor_r3(12, 26, 3)}}
 			node1 *= 0x3e58f4f3df8a861L;
-			node1 &= 0x03ffffffffffffffL;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
 			{{31|cuda_xor_r(3)}}
 			break;
 		case 12:
-			{{19|cuda_xor_lr(3)}}
-			{{41|cuda_xor_lr(3)}}
+			{{19|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			{{41|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			node1 *= 0x3e68266fecc08a1L;
-			node1 &= 0x03ffffffffffffffL;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
 			{{24|cuda_xor_r3(39, 21, 3)}}
 			node1 *= 0x3e764a9bd2ba4c1L;
-			node1 &= 0x03ffffffffffffffL;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
 			{{25|cuda_xor_r(3)}}
 			break;
 		case 13:
-			{{28|cuda_xor_lr(3)}}
-			{{15|cuda_xor_lr(3)}}
+			{{28|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			{{15|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			node1 *= 0x3e837baf5cdd9e1L;
-			node1 &= 0x03ffffffffffffffL;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
 			{{32|cuda_xor_r3(40, 24, 3)}}
 			node1 *= 0x3e8fd1c4d2d9d01L;
-			node1 &= 0x03ffffffffffffffL;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
 			{{27|cuda_xor_r(3)}}
 			break;
 		case 14:
-			{{43|cuda_xor_lr(3)}}
-			{{32|cuda_xor_lr(3)}}
+			{{43|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			{{32|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			node1 *= 0x3e9b61d7f9527a1L;
-			node1 &= 0x03ffffffffffffffL;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
 			{{31|cuda_xor_r3(46, 28, 3)}}
 			node1 *= 0x3ea63db9f9aa901L;
-			node1 &= 0x03ffffffffffffffL;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
 			{{26|cuda_xor_r(3)}}
 			break;
 		case 15:
-			{{35|cuda_xor_lr(3)}}
-			{{42|cuda_xor_lr(3)}}
+			{{35|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			{{42|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			node1 *= 0x3eb074fc94e0161L;
-			node1 &= 0x03ffffffffffffffL;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
 			{{25|cuda_xor_r3(44, 29, 3)}}
 			node1 *= 0x3eba165b7e383e1L;
-			node1 &= 0x03ffffffffffffffL;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
 			{{28|cuda_xor_r(3)}}
+			break;
+		case 16:
+			{{35|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			{{49|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			node1 *= 0x3ec32dcb8264481L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{20|cuda_xor_r3(29, 44, 3)}}
+			node1 *= 0x3ecbc7575141a21L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{35|cuda_xor_r(3)}}
+			break;
+		case 17:
+			{{45|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			{{29|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			node1 *= 0x3ed3ec3963f4841L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{15|cuda_xor_r3(44, 33, 3)}}
+			node1 *= 0x3edba5bb75d7341L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{41|cuda_xor_r(3)}}
+			break;
+		case 18:
+			{{20|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			{{36|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			node1 *= 0x3ee2fc3e0dbac21L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{21|cuda_xor_r3(41, 13, 3)}}
+			node1 *= 0x3ee9f6ba8914441L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{34|cuda_xor_r(3)}}
+			break;
+		case 19:
+			{{10|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			{{8|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			node1 *= 0x3ef09bb82cdbe21L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{49|cuda_xor_r3(11, 34, 3)}}
+			node1 *= 0x3ef6f14ae3b4501L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{15|cuda_xor_r(3)}}
+			break;
+		case 20:
+			{{29|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			{{50|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			node1 *= 0x3efcfd121b9a201L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{43|cuda_xor_r3(39, 49, 3)}}
+			node1 *= 0x3f02c33f9a541c1L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{24|cuda_xor_r(3)}}
+			break;
+		case 21:
+			{{38|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			{{31|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			node1 *= 0x3f08497eaba1a01L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{50|cuda_xor_r3(34, 48, 3)}}
+			node1 *= 0x3f0d9313139b901L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{44|cuda_xor_r(3)}}
+			break;
+		case 22:
+			{{14|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			{{49|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			node1 *= 0x3f12a43ce6c0301L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{11|cuda_xor_r3(23, 11, 3)}}
+			node1 *= 0x3f178047799bae1L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{8|cuda_xor_r(3)}}
+			break;
+		case 23:
+			{{20|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			{{19|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			node1 *= 0x3f1c2a814d54a41L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{50|cuda_xor_r3(29, 28, 3)}}
+			node1 *= 0x3f20a5bf510f741L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{43|cuda_xor_r(3)}}
+			break;
+		case 24:
+			{{31|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			{{18|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			node1 *= 0x3f24f45c5a49c41L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{39|cuda_xor_r3(14, 32, 3)}}
+			node1 *= 0x3f2919aea827c81L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{20|cuda_xor_r(3)}}
+			break;
+		case 25:
+			{{26|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			{{35|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			node1 *= 0x3f2d1798bf827a1L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{18|cuda_xor_r3(24, 50, 3)}}
+			node1 *= 0x3f30effeb7d35a1L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{25|cuda_xor_r(3)}}
+			break;
+		case 26:
+			{{48|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			{{49|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			node1 *= 0x3f34a542fbc9a21L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{28|cuda_xor_r3(33, 41, 3)}}
+			node1 *= 0x3f3838cfc8b3a01L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{17|cuda_xor_r(3)}}
+			break;
+		case 27:
+			{{26|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			{{20|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			node1 *= 0x3f3bad0a59f2881L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{46|cuda_xor_r3(43, 23, 3)}}
+			node1 *= 0x3f3f02e25afd0c1L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{18|cuda_xor_r(3)}}
+			break;
+		case 28:
+			{{32|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			{{12|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			node1 *= 0x3f423cbf612eea1L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{10|cuda_xor_r3(15, 49, 3)}}
+			node1 *= 0x3f455b15e806c41L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{29|cuda_xor_r(3)}}
+			break;
+		case 29:
+			{{30|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			{{49|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			node1 *= 0x3f485fd255036a1L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{27|cuda_xor_r3(45, 36, 3)}}
+			node1 *= 0x3f4b4b6a79ccae1L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{49|cuda_xor_r(3)}}
+			break;
+		case 30:
+			{{28|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			{{17|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			node1 *= 0x3f4e204983b0bc1L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{12|cuda_xor_r3(39, 34, 3)}}
+			node1 *= 0x3f50de694fe52a1L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{43|cuda_xor_r(3)}}
+			break;
+		case 31:
+			{{47|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			{{10|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			node1 *= 0x3f53873be153f21L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{28|cuda_xor_r3(39, 50, 3)}}
+			node1 *= 0x3f561bb689cd3e1L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{7|cuda_xor_r(3)}}
 			break;
 	}
 	return node1;
 }
 
 // Inverse hash functions.
-inline __device__ inttype HASH_INVERSE(uint8_t id, inttype node) {
-	inttype node1 = node;
+inline __device__ inttype HASH_INVERSE(uint8_t id, nodetype node) {
+	nodetype node1 = node;
 	switch (id) {
 		case 0:
-			{{28|cuda_xor_r_inv(3)}}
+			{{28|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
 			node1 *= 0x3e340cf8be69b21L;
-			node1 &= 0x03ffffffffffffffL;
-			{{43|cuda_xor_r3_inv(31, 23, 3)}}
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{43|cuda_xor_r3_inv(31, 23, nr_bits_address_internal*2, 3)}}
 			node1 *= 0x16e2e65fde04b41L;
-			node1 &= 0x03ffffffffffffffL;
-			{{37|cuda_xor_lr_inv(3)}}
-			{{12|cuda_xor_lr_inv(3)}}
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{37|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			{{12|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 1:
-			{{26|cuda_xor_r_inv(3)}}
+			{{26|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
 			node1 *= 0x27e8bdf6b3595a1L;
-			node1 &= 0x03ffffffffffffffL;
-			{{40|cuda_xor_r3_inv(34, 19, 3)}}
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{40|cuda_xor_r3_inv(34, 19, nr_bits_address_internal*2, 3)}}
 			node1 *= 0x3234705f3029fe1L;
-			node1 &= 0x03ffffffffffffffL;
-			{{35|cuda_xor_lr_inv(3)}}
-			{{10|cuda_xor_lr_inv(3)}}
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};			
+			{{35|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			{{10|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 2:
-			{{30|cuda_xor_r_inv(3)}}
+			{{30|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
 			node1 *= 0x38516503a7df981L;
-			node1 &= 0x03ffffffffffffffL;
-			{{44|cuda_xor_r3_inv(30, 15, 3)}}
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{44|cuda_xor_r3_inv(30, 15, nr_bits_address_internal*2, 3)}}
 			node1 *= 0x3880f7d420ed801L;
-			node1 &= 0x03ffffffffffffffL;
-			{{39|cuda_xor_lr_inv(3)}}
-			{{14|cuda_xor_lr_inv(3)}}
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{39|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			{{14|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 3:
-			{{28|cuda_xor_r_inv(3)}}
+			{{28|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
 			node1 *= 0x3a638f15ba85841L;
-			node1 &= 0x03ffffffffffffffL;
-			{{39|cuda_xor_r3_inv(33, 25, 3)}}
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{39|cuda_xor_r3_inv(33, 25, nr_bits_address_internal*2, 3)}}
 			node1 *= 0x20fabc04158ce41L;
-			node1 &= 0x03ffffffffffffffL;
-			{{34|cuda_xor_lr_inv(3)}}
-			{{13|cuda_xor_lr_inv(3)}}
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{34|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			{{13|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 4:
-			{{20|cuda_xor_r_inv(3)}}
+			{{20|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
 			node1 *= 0x3592d3c27c27041L;
-			node1 &= 0x03ffffffffffffffL;
-			{{23|cuda_xor_r3_inv(30, 26, 3)}}
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{23|cuda_xor_r3_inv(30, 26, nr_bits_address_internal*2, 3)}}
 			node1 *= 0x4f6952eaf8fdc1L;
-			node1 &= 0x03ffffffffffffffL;
-			{{35|cuda_xor_lr_inv(3)}}
-			{{11|cuda_xor_lr_inv(3)}}
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{35|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			{{11|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 5:
-			{{23|cuda_xor_r_inv(3)}}
+			{{23|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
 			node1 *= 0x1a0c447ad94c6a1L;
-			node1 &= 0x03ffffffffffffffL;
-			{{41|cuda_xor_r3_inv(36, 20, 3)}}
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{41|cuda_xor_r3_inv(36, 20, nr_bits_address_internal*2, 3)}}
 			node1 *= 0x2a87df258789081L;
-			node1 &= 0x03ffffffffffffffL;
-			{{33|cuda_xor_lr_inv(3)}}
-			{{15|cuda_xor_lr_inv(3)}}
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{33|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			{{15|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 6:
-			{{29|cuda_xor_r_inv(3)}}
+			{{29|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
 			node1 *= 0xa6775beb906d01L;
-			node1 &= 0x03ffffffffffffffL;
-			{{38|cuda_xor_r3_inv(42, 24, 3)}}
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{38|cuda_xor_r3_inv(42, 24, nr_bits_address_internal*2, 3)}}
 			node1 *= 0x37e24eee615e541L;
-			node1 &= 0x03ffffffffffffffL;
-			{{12|cuda_xor_lr_inv(3)}}
-			{{34|cuda_xor_lr_inv(3)}}
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{12|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			{{34|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 7:
-			{{26|cuda_xor_r_inv(3)}}
+			{{26|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
 			node1 *= 0x33b48646b8f9de1L;
-			node1 &= 0x03ffffffffffffffL;
-			{{26|cuda_xor_r3_inv(46, 23, 3)}}
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{26|cuda_xor_r3_inv(46, 23, nr_bits_address_internal*2, 3)}}
 			node1 *= 0x14eaae5968790e1L;
-			node1 &= 0x03ffffffffffffffL;
-			{{35|cuda_xor_lr_inv(3)}}
-			{{23|cuda_xor_lr_inv(3)}}
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{35|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			{{23|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 8:
-			{{27|cuda_xor_r_inv(3)}}
+			{{27|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
 			node1 *= 0x1fdf88f19a49f61L;
-			node1 &= 0x03ffffffffffffffL;
-			{{29|cuda_xor_r3_inv(40, 20, 3)}}
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{29|cuda_xor_r3_inv(40, 20, nr_bits_address_internal*2, 3)}}
 			node1 *= 0xdbbcfbf69154c1L;
-			node1 &= 0x03ffffffffffffffL;
-			{{34|cuda_xor_lr_inv(3)}}
-			{{31|cuda_xor_lr_inv(3)}}
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{34|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			{{31|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 9:
-			{{30|cuda_xor_r_inv(3)}}
+			{{30|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
 			node1 *= 0x2565bb394a9f561L;
-			node1 &= 0x03ffffffffffffffL;
-			{{40|cuda_xor_r3_inv(33, 25, 3)}}
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{40|cuda_xor_r3_inv(33, 25, nr_bits_address_internal*2, 3)}}
 			node1 *= 0x209a299946a201L;
-			node1 &= 0x03ffffffffffffffL;
-			{{20|cuda_xor_lr_inv(3)}}
-			{{24|cuda_xor_lr_inv(3)}}
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{20|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			{{24|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 10:
-			{{28|cuda_xor_r_inv(3)}}
+			{{28|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
 			node1 *= 0x2749093cc470e01L;
-			node1 &= 0x03ffffffffffffffL;
-			{{26|cuda_xor_r3_inv(46, 23, 3)}}
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{26|cuda_xor_r3_inv(46, 23, nr_bits_address_internal*2, 3)}}
 			node1 *= 0x397388d192dcc81L;
-			node1 &= 0x03ffffffffffffffL;
-			{{19|cuda_xor_lr_inv(3)}}
-			{{10|cuda_xor_lr_inv(3)}}
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{19|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			{{10|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 11:
-			{{31|cuda_xor_r_inv(3)}}
+			{{31|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
 			node1 *= 0x31b72238ae7fba1L;
-			node1 &= 0x03ffffffffffffffL;
-			{{43|cuda_xor_r3_inv(12, 26, 3)}}
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{43|cuda_xor_r3_inv(12, 26, nr_bits_address_internal*2, 3)}}
 			node1 *= 0x17db804c1d6e261L;
-			node1 &= 0x03ffffffffffffffL;
-			{{30|cuda_xor_lr_inv(3)}}
-			{{14|cuda_xor_lr_inv(3)}}
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{30|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			{{14|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 12:
-			{{25|cuda_xor_r_inv(3)}}
+			{{25|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
 			node1 *= 0x17cd12a8d2eeb41L;
-			node1 &= 0x03ffffffffffffffL;
-			{{24|cuda_xor_r3_inv(39, 21, 3)}}
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{24|cuda_xor_r3_inv(39, 21, nr_bits_address_internal*2, 3)}}
 			node1 *= 0xdda8affbefdb61L;
-			node1 &= 0x03ffffffffffffffL;
-			{{41|cuda_xor_lr_inv(3)}}
-			{{19|cuda_xor_lr_inv(3)}}
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{41|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			{{19|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 13:
-			{{27|cuda_xor_r_inv(3)}}
+			{{27|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
 			node1 *= 0x13d6fbb801b6301L;
-			node1 &= 0x03ffffffffffffffL;
-			{{32|cuda_xor_r3_inv(40, 24, 3)}}
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{32|cuda_xor_r3_inv(40, 24, nr_bits_address_internal*2, 3)}}
 			node1 *= 0x34aade611b82a21L;
-			node1 &= 0x03ffffffffffffffL;
-			{{15|cuda_xor_lr_inv(3)}}
-			{{28|cuda_xor_lr_inv(3)}}
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{15|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			{{28|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 14:
-			{{26|cuda_xor_r_inv(3)}}
+			{{26|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
 			node1 *= 0x303124e6af65701L;
-			node1 &= 0x03ffffffffffffffL;
-			{{31|cuda_xor_r3_inv(46, 28, 3)}}
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{31|cuda_xor_r3_inv(46, 28, nr_bits_address_internal*2, 3)}}
 			node1 *= 0x2b47151bd0a7c61L;
-			node1 &= 0x03ffffffffffffffL;
-			{{32|cuda_xor_lr_inv(3)}}
-			{{43|cuda_xor_lr_inv(3)}}
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{32|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			{{43|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 15:
-			{{28|cuda_xor_r_inv(3)}}
+			{{28|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
 			node1 *= 0x1941bdcc12c0021L;
-			node1 &= 0x03ffffffffffffffL;
-			{{25|cuda_xor_r3_inv(44, 29, 3)}}
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{25|cuda_xor_r3_inv(44, 29, nr_bits_address_internal*2, 3)}}
 			node1 *= 0x998456ffaa62a1L;
-			node1 &= 0x03ffffffffffffffL;
-			{{42|cuda_xor_lr_inv(3)}}
-			{{35|cuda_xor_lr_inv(3)}}
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{42|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			{{35|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			break;
+		case 16:
+			{{35|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
+			node1 *= 0x2efb706fdede9e1L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{20|cuda_xor_r3_inv(29, 44, nr_bits_address_internal*2, 3)}}
+			node1 *= 0x3933d59b50dfb81L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{49|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			{{35|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			break;
+		case 17:
+			{{41|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
+			node1 *= 0x21a8aeb5ab11cc1L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{15|cuda_xor_r3_inv(44, 33, nr_bits_address_internal*2, 3)}}
+			node1 *= 0x26923bf4120c7c1L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{29|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			{{45|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			break;
+		case 18:
+			{{34|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
+			node1 *= 0x399c741b25ccbc1L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{21|cuda_xor_r3_inv(41, 13, nr_bits_address_internal*2, 3)}}
+			node1 *= 0x31b1f4e059ed7e1L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{36|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			{{20|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			break;
+		case 19:
+			{{15|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
+			node1 *= 0x1880d14f55dbb01L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{49|cuda_xor_r3_inv(11, 34, nr_bits_address_internal*2, 3)}}
+			node1 *= 0x201dedfc54d45e1L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{8|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			{{10|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			break;
+		case 20:
+			{{24|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
+			node1 *= 0x2afe38ab861ce41L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{43|cuda_xor_r3_inv(39, 49, nr_bits_address_internal*2, 3)}}
+			node1 *= 0xdf792e0ca5e01L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{50|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			{{29|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			break;
+		case 21:
+			{{44|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
+			node1 *= 0x11e22dcd774701L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{50|cuda_xor_r3_inv(34, 48, nr_bits_address_internal*2, 3)}}
+			node1 *= 0x36a0d8d37e9e601L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{31|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			{{38|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			break;
+		case 22:
+			{{8|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
+			node1 *= 0x358ac41663d0921L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{11|cuda_xor_r3_inv(23, 11, nr_bits_address_internal*2, 3)}}
+			node1 *= 0xa7320f9e9cfd01L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{49|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			{{14|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			break;
+		case 23:
+			{{43|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
+			node1 *= 0x18e70c0e0a798c1L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{50|cuda_xor_r3_inv(29, 28, nr_bits_address_internal*2, 3)}}
+			node1 *= 0x1a5d3987f4fc5c1L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{19|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			{{20|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			break;
+		case 24:
+			{{20|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
+			node1 *= 0x114d3af41ee9c381L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{39|cuda_xor_r3_inv(14, 32, nr_bits_address_internal*2, 3)}}
+			node1 *= 0x2c334d4e37573c1L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{18|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			{{31|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			break;
+		case 25:
+			{{25|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
+			node1 *= 0xb5b41ead3ee61L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{18|cuda_xor_r3_inv(24, 50, nr_bits_address_internal*2, 3)}}
+			node1 *= 0x343bd3492677c61L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{35|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			{{26|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			break;
+		case 26:
+			{{17|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
+			node1 *= 0xdd46cce498c601L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{28|cuda_xor_r3_inv(33, 41, nr_bits_address_internal*2, 3)}}
+			node1 *= 0xb43892c16569e1L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{49|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			{{48|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			break;
+		case 27:
+			{{18|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
+			node1 *= 0x3e7f2be0c9cbf41L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{46|cuda_xor_r3_inv(43, 23, nr_bits_address_internal*2, 3)}}
+			node1 *= 0x2a9e04101a91781L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{20|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			{{26|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			break;
+		case 28:
+			{{29|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
+			node1 *= 0x1bf68f79001a3c1L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{10|cuda_xor_r3_inv(15, 49, nr_bits_address_internal*2, 3)}}
+			node1 *= 0x5e966c19447561L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{12|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			{{32|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			break;
+		case 29:
+			{{49|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
+			node1 *= 0x11235df1f15f921L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{27|cuda_xor_r3_inv(45, 36, nr_bits_address_internal*2, 3)}}
+			node1 *= 0x5e845710612d61L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{49|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			{{30|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			break;
+		case 30:
+			{{43|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
+			node1 *= 0x27940ca3c661161L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{12|cuda_xor_r3_inv(39, 34, nr_bits_address_internal*2, 3)}}
+			node1 *= 0xe1cd6bed930441L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{17|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			{{28|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			break;
+		case 31:
+			{{7|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
+			node1 *= 0x2bd62da95deb021L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{28|cuda_xor_r3_inv(39, 50, nr_bits_address_internal*2, 3)}}
+			node1 *= 0xe61a0f027704e1L;
+			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			{{10|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
+			{{47|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 	}
 	return node1;
 }
 
+{% endif %}
+{% if vectorsize > 31 %}
+// Bit left rotation function for 64-bits.
+inline __device__ nodetype rot_64(const nodetype x, uint8_t i) {
+	return (x << i) | (x >> 64-i));
+}
+
+// XOR two times bit left rotation function for 64-bits.
+inline __device__ nodetype xor_rot2_64(nodetype x, uint8_t a, uint8_t b) {
+	nodetype y = x ^ rot_64(x,a);
+	return y ^ rot_64(y,b);
+}
+
+// Inverse function for XOR two times bit left rotation for 64-bits.
+inline __device__ nodetype xor_rot2_inv_64(nodetype x, uint8_t a, uint8_t b) {
+	nodetype y = xor_rot2_64(x, a, b);
+	uint8_t a1 = (8*a);
+	uint8_t b1 = (8*b);
+	y = xor_rot2_64(y, a1, b1);
+	a1 = (a1+a1);
+	b1 = (b1+b1);
+	y = xor_rot2_64(y, a1, b1);
+	a1 = (a1+a1);
+	b1 = (b1+b1);
+	y = xor_rot2_64(y, a1, b1);
+	return y;
+}
+
+// Initial bitmixer function.
+inline __device__ nodetype UHASH_INIT(nodetype node) {
+	nodetype node1 = xor_rot2_64(node, 38, 14);
+	node1 ^= 0xD1B54A32D192ED03L;
+	node1 *= 0xAEF17502108EF2D9L;
+	return node1;
+}
+
+inline __device__ nodetype {% if not no_compact_hash_table %}U{% endif %}HASH(uint8_t id, nodetype node) {
+	inttype node1 = node;
+	switch (id) {
+		case 0:
+			{{12|cuda_xor_lr(64, 3)}}
+			{{37|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
+			node1 *= 0x346d5269d6a44c1L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{43|cuda_xor_r3(31, 23, 3)}}
+			node1 *= 0x36d3c2b4804a8e1L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{28|cuda_xor_r(3)}}
+			break;
+		case 1:
+			{{10|cuda_xor_lr(64, 3)}}
+			{{35|cuda_xor_lr(64, 3)}}
+			node1 *= 0x3866c0692e5e421L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{40|cuda_xor_r3(34, 19, 3)}}
+			node1 *= 0x39838add4d38e61L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{26|cuda_xor_r(3)}}
+			break;
+		case 2:
+			{{14|cuda_xor_lr(64, 3)}}
+			{{39|cuda_xor_lr(64, 3)}}
+			node1 *= 0x3a5787914312801L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{44|cuda_xor_r3(30, 15, 3)}}
+			node1 *= 0x3afb7bb024c4681L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{30|cuda_xor_r(3)}}
+			break;
+		case 3:
+			{{13|cuda_xor_lr(64, 3)}}
+			{{34|cuda_xor_lr(64, 3)}}
+			node1 *= 0x3b7e13a202e41c1L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{39|cuda_xor_r3(33, 25, 3)}}
+			node1 *= 0x3be88e9173fb7c1L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{28|cuda_xor_r(3)}}
+			break;
+		case 4:
+			{{11|cuda_xor_lr(64, 3)}}
+			{{35|cuda_xor_lr(64, 3)}}
+			node1 *= 0x3c4109af0f01241L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{23|cuda_xor_r3(30, 26, 3)}}
+			node1 *= 0x3c8bbb336719fc1L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{20|cuda_xor_r(3)}}
+			break;
+		case 5:
+			{{15|cuda_xor_lr(64, 3)}}
+			{{33|cuda_xor_lr(64, 3)}}
+			node1 *= 0x3ccba0994f7af81L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{41|cuda_xor_r3(36, 20, 3)}}
+			node1 *= 0x3d02e8d5ad09d61L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{23|cuda_xor_r(3)}}
+			break;
+		case 6:
+			{{34|cuda_xor_lr(64, 3)}}
+			{{12|cuda_xor_lr(64, 3)}}
+			node1 *= 0x3d3335b9a01aac1L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{38|cuda_xor_r3(42, 24, 3)}}
+			node1 *= 0x3d5dc5b2dd89301L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{29|cuda_xor_r(3)}}
+			break;
+		case 7:
+			{{23|cuda_xor_lr(64, 3)}}
+			{{35|cuda_xor_lr(64, 3)}}
+			node1 *= 0x3d839037059b321L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{26|cuda_xor_r3(46, 23, 3)}}
+			node1 *= 0x3da557a7a356621L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{26|cuda_xor_r(3)}}
+			break;
+		case 8:
+			{{31|cuda_xor_lr(64, 3)}}
+			{{34|cuda_xor_lr(64, 3)}}
+			node1 *= 0x3dc3b70f5d13b41L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{29|cuda_xor_r3(40, 20, 3)}}
+			node1 *= 0x3ddf2c9626244a1L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{27|cuda_xor_r(3)}}
+			break;
+		case 9:
+			{{24|cuda_xor_lr(64, 3)}}
+			{{20|cuda_xor_lr(64, 3)}}
+			node1 *= 0x3df81dfdd3d5e01L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{40|cuda_xor_r3(33, 25, 3)}}
+			node1 *= 0x3e0ee0bdbcd6ea1L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{30|cuda_xor_r(3)}}
+			break;
+		case 10:
+			{{10|cuda_xor_lr(64, 3)}}
+			{{19|cuda_xor_lr(64, 3)}}
+			node1 *= 0x3e23ba68e0e7381L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{26|cuda_xor_r3(46, 23, 3)}}
+			node1 *= 0x3e36e66407cf201L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{28|cuda_xor_r(3)}}
+			break;
+		case 11:
+			{{14|cuda_xor_lr(64, 3)}}
+			{{30|cuda_xor_lr(64, 3)}}
+			node1 *= 0x3e48961660141a1L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{43|cuda_xor_r3(12, 26, 3)}}
+			node1 *= 0x3e58f4f3df8a861L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{31|cuda_xor_r(3)}}
+			break;
+		case 12:
+			{{19|cuda_xor_lr(64, 3)}}
+			{{41|cuda_xor_lr(64, 3)}}
+			node1 *= 0x3e68266fecc08a1L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{24|cuda_xor_r3(39, 21, 3)}}
+			node1 *= 0x3e764a9bd2ba4c1L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{25|cuda_xor_r(3)}}
+			break;
+		case 13:
+			{{28|cuda_xor_lr(64, 3)}}
+			{{15|cuda_xor_lr(64, 3)}}
+			node1 *= 0x3e837baf5cdd9e1L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{32|cuda_xor_r3(40, 24, 3)}}
+			node1 *= 0x3e8fd1c4d2d9d01L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{27|cuda_xor_r(3)}}
+			break;
+		case 14:
+			{{43|cuda_xor_lr(64, 3)}}
+			{{32|cuda_xor_lr(64, 3)}}
+			node1 *= 0x3e9b61d7f9527a1L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{31|cuda_xor_r3(46, 28, 3)}}
+			node1 *= 0x3ea63db9f9aa901L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{26|cuda_xor_r(3)}}
+			break;
+		case 15:
+			{{35|cuda_xor_lr(64, 3)}}
+			{{42|cuda_xor_lr(64, 3)}}
+			node1 *= 0x3eb074fc94e0161L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{25|cuda_xor_r3(44, 29, 3)}}
+			node1 *= 0x3eba165b7e383e1L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{28|cuda_xor_r(3)}}
+			break;
+		case 16:
+			{{35|cuda_xor_lr(64, 3)}}
+			{{49|cuda_xor_lr(64, 3)}}
+			node1 *= 0x3ec32dcb8264481L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{20|cuda_xor_r3(29, 44, 3)}}
+			node1 *= 0x3ecbc7575141a21L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{35|cuda_xor_r(3)}}
+			break;
+		case 17:
+			{{45|cuda_xor_lr(64, 3)}}
+			{{29|cuda_xor_lr(64, 3)}}
+			node1 *= 0x3ed3ec3963f4841L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{15|cuda_xor_r3(44, 33, 3)}}
+			node1 *= 0x3edba5bb75d7341L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{41|cuda_xor_r(3)}}
+			break;
+		case 18:
+			{{20|cuda_xor_lr(64, 3)}}
+			{{36|cuda_xor_lr(64, 3)}}
+			node1 *= 0x3ee2fc3e0dbac21L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{21|cuda_xor_r3(41, 13, 3)}}
+			node1 *= 0x3ee9f6ba8914441L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{34|cuda_xor_r(3)}}
+			break;
+		case 19:
+			{{10|cuda_xor_lr(64, 3)}}
+			{{8|cuda_xor_lr(64, 3)}}
+			node1 *= 0x3ef09bb82cdbe21L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{49|cuda_xor_r3(11, 34, 3)}}
+			node1 *= 0x3ef6f14ae3b4501L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{15|cuda_xor_r(3)}}
+			break;
+		case 20:
+			{{29|cuda_xor_lr(64, 3)}}
+			{{50|cuda_xor_lr(64, 3)}}
+			node1 *= 0x3efcfd121b9a201L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{43|cuda_xor_r3(39, 49, 3)}}
+			node1 *= 0x3f02c33f9a541c1L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{24|cuda_xor_r(3)}}
+			break;
+		case 21:
+			{{38|cuda_xor_lr(64, 3)}}
+			{{31|cuda_xor_lr(64, 3)}}
+			node1 *= 0x3f08497eaba1a01L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{50|cuda_xor_r3(34, 48, 3)}}
+			node1 *= 0x3f0d9313139b901L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{44|cuda_xor_r(3)}}
+			break;
+		case 22:
+			{{14|cuda_xor_lr(64, 3)}}
+			{{49|cuda_xor_lr(64, 3)}}
+			node1 *= 0x3f12a43ce6c0301L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{11|cuda_xor_r3(23, 11, 3)}}
+			node1 *= 0x3f178047799bae1L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{8|cuda_xor_r(3)}}
+			break;
+		case 23:
+			{{20|cuda_xor_lr(64, 3)}}
+			{{19|cuda_xor_lr(64, 3)}}
+			node1 *= 0x3f1c2a814d54a41L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{50|cuda_xor_r3(29, 28, 3)}}
+			node1 *= 0x3f20a5bf510f741L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{43|cuda_xor_r(3)}}
+			break;
+		case 24:
+			{{31|cuda_xor_lr(64, 3)}}
+			{{18|cuda_xor_lr(64, 3)}}
+			node1 *= 0x3f24f45c5a49c41L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{39|cuda_xor_r3(14, 32, 3)}}
+			node1 *= 0x3f2919aea827c81L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{20|cuda_xor_r(3)}}
+			break;
+		case 25:
+			{{26|cuda_xor_lr(64, 3)}}
+			{{35|cuda_xor_lr(64, 3)}}
+			node1 *= 0x3f2d1798bf827a1L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{18|cuda_xor_r3(24, 50, 3)}}
+			node1 *= 0x3f30effeb7d35a1L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{25|cuda_xor_r(3)}}
+			break;
+		case 26:
+			{{48|cuda_xor_lr(64, 3)}}
+			{{49|cuda_xor_lr(64, 3)}}
+			node1 *= 0x3f34a542fbc9a21L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{28|cuda_xor_r3(33, 41, 3)}}
+			node1 *= 0x3f3838cfc8b3a01L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{17|cuda_xor_r(3)}}
+			break;
+		case 27:
+			{{26|cuda_xor_lr(64, 3)}}
+			{{20|cuda_xor_lr(64, 3)}}
+			node1 *= 0x3f3bad0a59f2881L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{46|cuda_xor_r3(43, 23, 3)}}
+			node1 *= 0x3f3f02e25afd0c1L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{18|cuda_xor_r(3)}}
+			break;
+		case 28:
+			{{32|cuda_xor_lr(64, 3)}}
+			{{12|cuda_xor_lr(64, 3)}}
+			node1 *= 0x3f423cbf612eea1L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{10|cuda_xor_r3(15, 49, 3)}}
+			node1 *= 0x3f455b15e806c41L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{29|cuda_xor_r(3)}}
+			break;
+		case 29:
+			{{30|cuda_xor_lr(64, 3)}}
+			{{49|cuda_xor_lr(64, 3)}}
+			node1 *= 0x3f485fd255036a1L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{27|cuda_xor_r3(45, 36, 3)}}
+			node1 *= 0x3f4b4b6a79ccae1L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{49|cuda_xor_r(3)}}
+			break;
+		case 30:
+			{{28|cuda_xor_lr(64, 3)}}
+			{{17|cuda_xor_lr(64, 3)}}
+			node1 *= 0x3f4e204983b0bc1L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{12|cuda_xor_r3(39, 34, 3)}}
+			node1 *= 0x3f50de694fe52a1L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{43|cuda_xor_r(3)}}
+			break;
+		case 31:
+			{{47|cuda_xor_lr(64, 3)}}
+			{{10|cuda_xor_lr(64, 3)}}
+			node1 *= 0x3f53873be153f21L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{28|cuda_xor_r3(39, 50, 3)}}
+			node1 *= 0x3f561bb689cd3e1L;
+			node1 &= {{((64)|pow2-1)|hexa}};
+			{{7|cuda_xor_r(3)}}
+			break;
+	}
+	return node1;
+}
+
+{% endif %}
+
+{% if not no_compact_hash_table %}
 // Retrieve ID of used hash function from a compressed root vectortree node.
 inline __device__ uint8_t get_hash_id_root(compressed_nodetype n) {
 	uint8_t hid = (uint8_t) (n >> {{(2*nr_bits_address_internal)-nr_bits_address_root}});
@@ -925,6 +1645,7 @@ inline ___device_ indextype FINDORPUT_SINGLE(compressed_nodetype *d_q, nodetype 
 	{% if not no_compact_hash_table %}
 	nodetype e1, e2;
 	compressed_nodetype compressed_node;
+	compressed_nodetype compressed_element;
 	{% endif %}
 	indextype addr;
 	nodetype element;
@@ -933,50 +1654,83 @@ inline ___device_ indextype FINDORPUT_SINGLE(compressed_nodetype *d_q, nodetype 
 	for (int i = 0; i < NR_HASH_FUNCTIONS; i++) {
 		{% if not no_compact_hash_table %}
 		e2 = HASH(i, e1);
+		addr = get_index(e2);
 		if (offset == 0) {
-			addr = get_index(e2);
 			compressed_node = get_compressed_node_root(e2, i);
-		}
-		else {
-			addr = get_index(e2);
-			compressed_node = get_compressed_node(e2, i);
-			// Special case: ensure that no element consisting entirely of zeros is ever written to the non root table (0 represents an empty table slot).
-			// If this is about to happen, continue to the next hash function.
-			if (i == 0) {
-				if ((compressed_node & 0x00000001FFFFFFF) == 0) {
-					continue;
-				}
+			// Special case: if the compressed node coincides with the value for an empty compressed node, continue
+			if (compressed_node == EMPTY_COMPRESSED_NODE) {
+				continue;
 			}
-		}
-		{% else %}
-		addr = HASH(i, node);
-		{% endif %}
-		element = d_q[addr];
-		if (element == EMPTYVECTNODE_GLOBAL) {
-			element = atomicCAS(&(d_q[addr]), EMPTYVECTNODE_GLOBAL, {% if not no_compact_hash_table %}compressed_node{% else %}node{% endif %});
-			if (element == EMPTYVECTNODE_GLOBAL) {
-				// Successfully stored the node.
-				{% if not no_compact_hash_table %}
-				if (offset == 0) {
-				{% else %}
-				if (is_root(node)) {
-				{% endif %}
+			addr = HASH(i, node);
+			compressed_element = d_q[addr];
+			if (compressed_element == EMPTY_COMPRESSED_NODE) {
+				compressed_element = atomicCAS(&(d_q[addr]), EMPTY_COMPRESSED_NODE, compressed_node);
+				if (compressed_element == EMPTY_COMPRESSED_NODE) {
+					// Successfully stored the node.
 					// Try to claim the vector for future work. For this, try to increment the OPENTILECOUNT counter.
-					if (claim_work && (shared_addr = atomicInc((inttype *) &OPENTILECOUNT)) < OPENTILELEN) {
-						// Store pointer to root in the work tile.
-						shared[OPENTILEOFFSET+shared_addr] = (shared_inttype) addr;
+					if (claim_work) {
+						shared_addr = atomicInc(&OPENTILECOUNT);
+						if (shared_addr < OPENTILELEN) {
+							// Store pointer to root in the work tile.
+							shared[OPENTILEOFFSET+shared_addr] = (shared_inttype) addr;
+						}
+						else {
+							// There is work available for some block.
+							d_newstate_flags[(addr / BLOCK_SIZE) % GRID_SIZE] = true;
+						}
 					}
 					else {
 						// There is work available for some block.
 						d_newstate_flags[(addr / BLOCK_SIZE) % GRID_SIZE] = true;
 					}
+					return addr;
 				}
+			}
+			if (compressed_element == compressed_node) {
+				// The node is already stored.
 				return addr;
 			}
 		}
-		if (element == {% if not no_compact_hash_table %}compressed_node{% else %}node{% endif %}) {
-			// The node is already stored.
-			return addr;
+		else {
+		{% else %}
+			addr = HASH(i, node);
+		{% endif %}
+			element = *(d_q+addr);
+			if (element == EMPTY_NODE) {
+				element = atomicCAS(&(d_q[addr]), EMPTY_NODE, node);
+				if (element == EMPTY_NODE) {
+					// Successfully stored the node.
+				{% if no_compact_hash_table and vectorsize > 62 %}
+					if (is_root(node)) {
+				{% endif %}
+					{% if no_compact_hash_table %}
+						// Try to claim the vector for future work. For this, try to increment the OPENTILECOUNT counter.
+						if (claim_work) {
+							shared_addr = atomicInc(&OPENTILECOUNT);
+							if (shared_addr < OPENTILELEN) {
+								// Store pointer to root in the work tile.
+								shared[OPENTILEOFFSET+shared_addr] = (shared_inttype) addr;
+							}
+							else {
+								// There is work available for some block.
+								d_newstate_flags[(addr / BLOCK_SIZE) % GRID_SIZE] = true;
+							}
+						}
+						else {
+							// There is work available for some block.
+							d_newstate_flags[(addr / BLOCK_SIZE) % GRID_SIZE] = true;
+						}
+					{% endif %}
+					{% if no_compact_hash_table and vectorsize > 62 %}
+					}
+					{% endif %}
+					return addr;
+				}
+			}
+			if (element == node) {
+				// The node is already stored.
+				return addr;
+			}
 		}
 	}
 	// Error: hash table considered full.
@@ -984,10 +1738,10 @@ inline ___device_ indextype FINDORPUT_SINGLE(compressed_nodetype *d_q, nodetype 
 }
 
 // Find or put all new vectortree nodes stored in the shared memory cache into the global memory hash table.
-__device__ bool FINDORPUT_MANY(inttype *d_q, volatile bool *d_newstate_flags, indextype non_root_offset) {
-	inttype node;
+__device__ bool FINDORPUT_MANY(compressed_nodetype *d_q, volatile bool *d_newstate_flags, indextype non_root_offset) {
+	nodetype node;
 	indextype addr;
-	{% if vectorsize > 63 %}
+	{% if vectorsize > 62 %}
 	shared_inttype node_pointers;
 	shared_inttype node_pointers_child;
 	bool work_to_do = false;
@@ -996,14 +1750,12 @@ __device__ bool FINDORPUT_MANY(inttype *d_q, volatile bool *d_newstate_flags, in
 		CONTINUE = 0;
 	}
 	__syncthreads();
-	for (shared_indextype i = THREAD_ID{% if vectorsize > 63 %}*3{% endif %}; i < d_shared_q_size; i += BLOCK_SIZE{% if vectorsize > 63 %}*3{% endif %}) {
+	for (shared_indextype i = THREAD_ID{% if vectorsize > 62 %}*3{% endif %}; i < d_shared_q_size; i += BLOCK_SIZE{% if vectorsize > 62 %}*3{% endif %}) {
 		node_pointers = shared[CACHEOFFSET+i+2];
 		// Check if node is ready for storage. Only new leafs are ready at this point. We rely on old and new non-leafs having pointers with the highest
 		// two bits set to zero, empty entries and old leafs having pointers set to zero, and new leafs having pointers set to 0x40000000.
-		if (cache_pointers_are_marked_new_leaf(node)) {
-			asm("{\n\t"
-			" mov.b64 %0,{ %1, %2 };\n\t"
-			"}" : "=l"(node) : "r"(shared[CACHEOFFSET+i+1]), "r"(shared[CACHEOFFSET+i]));
+		if (cache_pointers_are_marked_new_leaf(node_pointers)) {
+			node = combine_halfs(shared[CACHEOFFSET+i], shared[CACHEOFFSET+i+1]);
 			// Store node in hash table.
 			addr = FINDORPUT_SINGLE(d_q, node, d_newstate_flags{% if not no_compact_hash_table %}, d_non_root_offset{% endif %}, true);
 			// Store global memory address in cache.
@@ -1012,9 +1764,7 @@ __device__ bool FINDORPUT_MANY(inttype *d_q, volatile bool *d_newstate_flags, in
 		// Node is not ready yet. Check if it can be updated.
 		else if (node_pointers != 0) {
 			if (head_is_new(shared[CACHEOFFSET+i])) {
-				asm("{\n\t"
-				" mov.b64 %0,{ %1, %2 };\n\t"
-				"}" : "=l"(node) : "r"(shared[CACHEOFFSET+i+1]), "r"(shared[CACHEOFFSET+i]));
+				node = combine_halfs(shared[CACHEOFFSET+i], shared[CACHEOFFSET+i+1]);
 				if (vectortree_node_contains_left_gap(node)) {
 					// Look up left child and check for presence of global memory address.
 					node_pointers_child = sv_step(i, false);
@@ -1070,9 +1820,7 @@ __device__ bool FINDORPUT_MANY(inttype *d_q, volatile bool *d_newstate_flags, in
 					node_pointers = shared[CACHEOFFSET+i+2];
 					// If this is a root node, processing is only required if the pointers do not contain a global address.
 					if (!head_is_root(node_pointers_child) || !cache_pointers_contain_global_address(node_pointers)) {
-						asm("{\n\t"
-						" mov.b64 %0,{ %1, %2 };\n\t"
-						"}" : "=l"(node) : "r"(shared[CACHEOFFSET+i+1]), "r"(shared[CACHEOFFSET+i]));
+						node = combine_halfs(shared[CACHEOFFSET+i], shared[CACHEOFFSET+i+1]);
 						if (vectortree_node_contains_left_gap(node)) {
 							// Look up left child and check for presence of global memory address.
 							node_pointers_child = sv_step(i, false);
@@ -1118,9 +1866,19 @@ __device__ bool FINDORPUT_MANY(inttype *d_q, volatile bool *d_newstate_flags, in
 	}
 	{% else %}
 	for (shared_indextype i = THREAD_ID; i < d_shared_q_size; i += BLOCK_SIZE) {
+		{% if vectorsize > 30 %}
+		node = combine_halfs(shared[CACHEOFFSET+i], shared[CACHEOFFSET+i+1]);
+		{% else %}
 		node = shared[CACHEOFFSET+i];
-		if is_new(node) {
-			addr = FINDORPUT_SINGLE(d_q, node, d_newstate_flags{% if not no_compact_hash_table %}, 0{% endif %}, true);
+		{% endif %}
+		if (is_new(node)) {
+			// Store node in hash table.
+			// Possibly reset new bit.
+			if (!is_root(node)) {
+				node = mark_old(node);
+			}
+			// Store node in hash table.
+			addr = FINDORPUT_SINGLE(d_q, node, d_newstate_flags, true);
 		}
 	}
 	{% endif %}
@@ -1235,12 +1993,12 @@ inline __device__ uint32_t get_part_bitmask_for_states_in_vectorpart(uint8_t pid
 
 // Retrieve a vectortree from the global hash table and store it in the cache. This is performed in a warp-centric way.
 // Address addr points to the root of the requested vectortree. The function returns the address of the root of the vectortree in the cache.
-inline __device__ shared_indextype FETCH(thread_group treegroup, inttype *d_q, indextype addr{% if not no_compact_hash_table %}, d_non_root_index{% endif %}) {
-	inttype node = 0;
-	{% if vectorsize > 63 or (vectorsize > 58 and not no_compact_hash_table) %}
-	inttype leaf_node = 0;
-	inttype node_tmp_1 = 0;
-	inttype node_tmp_2 = 0;
+inline __device__ shared_indextype FETCH(thread_group treegroup, compressed_nodetype *d_q, indextype addr{% if not no_compact_hash_table %}, d_non_root_index{% endif %}) {
+	nodetype node = 0;
+	{% if vectorsize > 62 %}
+	nodetype leaf_node = 0;
+	nodetype node_tmp_1 = 0;
+	nodetype node_tmp_2 = 0;
 	indextype node_addr = 0;
 	shared_inttype cache_pointers = 0;
 	shared_indextype cache_addr = 0;
@@ -1665,27 +2423,22 @@ __device__ shared_indextype get_sorted_opentile_element(uint8_t wid) {
 // Precondition: the given parts indeed contain the requested info.
 {% for s in vectorelem_in_structure_map.keys() %}
 {% set size = vectorelem_in_structure_map[s][0] %}
-inline __device__ void get_{{s|replace("[","_")|replace("]","")|replace("'","_")}}({% if s|is_state %}elem_statetype{% elif size < 32 %}elem_chartype{% else %}elem_inttype{% endif %} *b, inttype part1, inttype part2) {
+inline __device__ void get_{{s|replace("[","_")|replace("]","")|replace("'","_")}}({% if s|is_state %}elem_statetype{% elif size == 1 %}elem_booltype{% elif size < 32 %}elem_chartype{% else %}elem_inttype{% endif %} *b, nodetype part1, nodetype part2) {
+{% if size == 1 %}
+	elem_chartype t2;
+{% endif %}
 	asm("{\n\t"
-{% if size < 32 %}
-		" .reg .u32 t1;\n\t"
+		" .reg .u{% if vectorsize < 31 %}32{% else %}64{% endif %} t1;\n\t"
 {% if vectorelem_in_structure_map[s]|length == 2 %}
-		" bfe.u32 t1, %1, {{vectorelem_in_structure_map[s][1][1]}}, {{vectorelem_in_structure_map[s][1][2]}};\n\t"
+		" bfe.u{% if vectorsize < 31 %}32{% else %}64{% endif %} t1, %1, {{vectorelem_in_structure_map[s][1][1]}}, {{vectorelem_in_structure_map[s][1][2]}};\n\t"
 {% else %}
-		" bfe.u32 t1, %2, {{vectorelem_in_structure_map[s][2][1]}}, {{vectorelem_in_structure_map[s][2][2]}};\n\t"
-		" bfi.b32 t1, %1, t1, {{vectorelem_in_structure_map[s][2][2]}}, {{vectorelem_in_structure_map[s][1][2]}};\n\t"
+		" bfe.u{% if vectorsize < 31 %}32{% else %}64{% endif %} t1, %2, {{vectorelem_in_structure_map[s][2][1]}}, {{vectorelem_in_structure_map[s][2][2]}};\n\t"
+		" bfi.b{% if vectorsize < 31 %}32{% else %}64{% endif %} t1, %1, t1, {{vectorelem_in_structure_map[s][2][2]}}, {{vectorelem_in_structure_map[s][1][2]}};\n\t"
 {% endif %}
-		" cvt.s8.u32 %0, t1;\n\t"
-	    "}" : "=r"(*b) : "l"(part1), "l"(part2));
-{% else %}
-{% if vectorelem_in_structure_map[s]|length == 2 %}
-		" bfe.s32 %0, %1, {{vectorelem_in_structure_map[s][1][1]}}, {{vectorelem_in_structure_map[s][1][2]}};\n\t"
-	    "}" : "=r"(*b) : "l"(part1), "l"(part2));
-{% else %}
-		" bfe.s32 %0, %2, {{vectorelem_in_structure_map[s][2][1]}}, {{vectorelem_in_structure_map[s][2][2]}};\n\t"
-		" bfi.b32 %0, %1, %0, {{vectorelem_in_structure_map[s][2][2]}}, {{vectorelem_in_structure_map[s][1][2]}};\n\t"
-	    "}" : "+r"(*b) : "l"(part1), "l"(part2));
-{% endif %}
+		" cvt.s{% if size < 32 %}8{% else %}32{% endif %}.u{% if vectorsize < 31 %}32{% else %}64{% endif %} %0, t1;\n\t"
+	    "}" : "=r"({% if size == 1%}t2{% else %}*b{% endif %}) : "l"(part1), "l"(part2));
+{% if size == 1 %}
+	*b = (elem_booltype) t2;
 {% endif %}
 }
 
@@ -1693,8 +2446,8 @@ inline __device__ void get_{{s|replace("[","_")|replace("]","")|replace("'","_")
 {% if arraynames|length > 0 %}
 // Data retrieval functions, including the fetching of required vector parts, for array elements with dynamic indexing.
 {% for vname, t, size in arraynames %}
-inline __device__ void get_{{vname|replace("[","_")|replace("]","")|replace("'","_")}}(shared_indextype node_index, {% if t|gettypesize < 32 %}elem_chartype{% else %}elem_inttype{% endif %} *b, array_indextype index) {
-	inttype part1, part2;
+inline __device__ void get_{{vname|replace("[","_")|replace("]","")|replace("'","_")}}(shared_indextype node_index, {% if t|gettypesize == 1 %}elem_booltype{% elif t|gettypesize < 32 %}elem_chartype{% else %}elem_inttype{% endif %} *b, array_indextype index) {
+	nodetype part1, part2;
 	switch (index) {
 		{% for i in range(0, size) %}
 		case {{i}}:
@@ -1717,7 +2470,7 @@ inline __device__ void get_{{vname|replace("[","_")|replace("]","")|replace("'",
 {% endif %}
 // Retrieval of current state of state machine at position i in state vector.
 inline __device__ void get_current_state(statetype *b, shared_indextype node_index, elem_chartype i) {
-	inttype part1, part2;
+	nodetype part1, part2;
 	switch (i) {
 		{% for i in range(0,smnames|length) %}
 		case {{i}}:
@@ -1737,31 +2490,21 @@ inline __device__ void get_current_state(statetype *b, shared_indextype node_ind
 // Precondition: the given part indeed needs to contain the indicated fragment (left or right in case the info is split over two parts) of the updated info.
 {% for s in vectorelem_in_structure_map.keys() %}
 {% set size = vectorelem_in_structure_map[s][0] %}
-inline __device__ void set_left_{{s|replace("[","_")|replace("]","")|replace("'","_")}}(inttype *part, {% if size < 32 %}elem_chartype{% else %}elem_inttype{% endif %} x) {
+inline __device__ void set_left_{{s|replace("[","_")|replace("]","")|replace("'","_")}}(nodetype *part, {% if size == 1 %}elem_booltype{% elif size < 32 %}elem_chartype{% else %}elem_inttype{% endif %} x) {
+	nodetype t1 = (nodetype) x;
 	asm("{\n\t"
-		" .reg .u64 t1;\n\t"
-{% if size < 32 %}
-		" cvt.u64.u8 t1, %1\n\t"
-{% else %}
-		" cvt.u64.u32 t1, %1\n\t"
-{% endif %}
 {% if vectorelem_in_structure_map[s]|length > 2 %}
-		" shr.b64 t1, t1, {{vectorelem_in_structure_map[s][2][2]}};\n\t"
+		" shr.b{% if vectorsize < 31 %}32{% else %}64{% endif %} t1, t1, {{vectorelem_in_structure_map[s][2][2]}};\n\t"
 {% endif %}
-		" bfi.b64 %0, t1, %0, {{vectorelem_in_structure_map[s][1][1]}}, {{vectorelem_in_structure_map[s][1][2]}};\n\t"
+		" bfi.b{% if vectorsize < 31 %}32{% else %}64{% endif %} %0, t1, %0, {{vectorelem_in_structure_map[s][1][1]}}, {{vectorelem_in_structure_map[s][1][2]}};\n\t"
 		"}" : "+l"(*part) : "r"(x);
 }
 
 {% if vectorelem_in_structure_map[s]|length > 2 %}
-inline __device__ void set_right_{{s|replace("[","_")|replace("]","")|replace("'","_")}}(inttype *part, {% if size < 32 %}elem_chartype{% else %}elem_inttype{% endif %} x) {
+inline __device__ void set_right_{{s|replace("[","_")|replace("]","")|replace("'","_")}}(inttype *part, {% if size == 1 %}elem_booltype{% elif size < 32 %}elem_chartype{% else %}elem_inttype{% endif %} x) {
+	nodetype t1 = (nodetype) x;
 	asm("{\n\t"
-		" .reg .u64 t1;\n\t"
-{% if size < 32 %}
-		" cvt.u64.u8 t1, %1\n\t"
-{% else %}
-		" cvt.u64.u32 t1, %1\n\t"
-{% endif %}
-		" bfi.b64 %0, t1, %0, {{vectorelem_in_structure_map[s][2][1]}}, {{vectorelem_in_structure_map[s][2][2]}};\n\t"
+		" bfi.b{% if vectorsize < 31 %}32{% else %}64{% endif %} %0, t1, %0, {{vectorelem_in_structure_map[s][2][1]}}, {{vectorelem_in_structure_map[s][2][2]}};\n\t"
 		"}" : "+l"(*part) : "r"(x);
 }
 
@@ -1794,7 +2537,7 @@ inline __device__ bool is_left_vectorpart_for_array_element_{{dynamic_write_arra
 }
 
 // Data update function for {{dynamic_write_arrays[x][0]}}.
-inline __device__ inttype set_{{dynamic_write_arrays[x][0]|replace("'","_")}}(inttype *part, array_indextype indices, {{x.type|cudatype(True)}} buf, buffer_indextype buf_offset, vectornode_indextype part_id) {
+inline __device__ inttype set_{{dynamic_write_arrays[x][0]|replace("'","_")}}(nodetype *part, array_indextype indices, {{x.type|cudatype(True)}} buf, buffer_indextype buf_offset, vectornode_indextype part_id) {
 	if (part_id >= {{dynamic_write_arrays[x][1]}} && part_id <= {{dynamic_write_arrays[x][2]}}) {
 		for (array_indextype i = 0;; i++) {
 			if (indices[i] == EMPTY_INDEX) {
@@ -1836,7 +2579,7 @@ inline __device__ inttype set_{{dynamic_write_arrays[x][0]|replace("'","_")}}(in
 // Data update function for parameter i of tail element of the buffer of {{c.name}}.
 {% for i in range(0,c.type|length+1) %}
 {% if i > 0 or signalsize[c] > 0 %}
-inline __device__ void set_buffer_tail_element_{{c.name}}_{{i}}(inttype *part, buffer_indextype size, {% if i == 0 %}{% if signalsize[c] <= 8 %}uint8_t{% elif signalsize[c] <= 16 %}uint16_t{% else %}uint32_t{% endif %}{% else %}{{(c.type[i-1])|cudatype(True)}}{% endif %} value, vectornode_indextype part_id) {
+inline __device__ void set_buffer_tail_element_{{c.name}}_{{i}}(nodetype *part, buffer_indextype size, {% if i == 0 %}{% if signalsize[c] <= 8 %}uint8_t{% elif signalsize[c] <= 16 %}uint16_t{% else %}uint32_t{% endif %}{% else %}{{(c.type[i-1])|cudatype(True)}}{% endif %} value, vectornode_indextype part_id) {
 	switch (size) {
 		{% for n in range(0,c.size) %}
 		case {{n}}:

@@ -23,8 +23,6 @@ no_compact_hash_table = False
 
 # the size of a warp
 warpsize = 32
-# number of bits of elements in compact hash tables (excluding bookkeeping bits)
-compact_elem_size = 58
 
 this_folder = dirname(__file__)
 
@@ -196,9 +194,9 @@ def cudatype(s, ignoresize):
 			return 'elem_inttype[]'
 	elif s.base == 'Boolean':
 		if s.size < 1 or ignoresize:
-			return 'elem_chartype'
+			return 'elem_booltype'
 		else:
-			return 'elem_chartype[]'
+			return 'elem_booltype[]'
 	elif s.base == 'Byte':
 		if s.size < 1 or ignoresize:
 			return 'elem_chartype'
@@ -308,10 +306,9 @@ def vectorpart_is_combined_with_nonleaf_node(p):
 		return False
 	size = 30
 	if not no_compact_hash_table:
-		if len(vectorstructure) == 2:
-			return vectorstructure_part_size(vectorstructure[p]) <= nr_bits_address_internal()
-		else:
-			return vectorstructure_part_size(vectorstructure[p]) <= 32
+		return vectorstructure_part_size(vectorstructure[p]) <= (64-1-nr_bits_address_internal())
+	else:
+		return vectorstructure_part_size(vectorstructure[p]) <= 32
 
 def vector_has_nonstate_parts():
 	"""Return whether the vectorstructure contains parts without state machine states"""
@@ -444,13 +441,12 @@ def vectorstructure_to_string(D):
 			vs += ",\n// "
 		else:
 			tfirst = False
-		if nr_of_parts == 1 or (vectorstructure_part_size(t) > 31 and no_compact_hash_table):
-			vs += "[two bits reserved, "
+		if nr_of_parts == 1 or no_compact_hash_table:
+			vs += "[ two bits reserved, "
+		elif nr_of_parts > 1 and vectorstructure_part_size(t) > (64-1-nr_bits_address_internal()):
+			vs += "[ one bit reserved, "
 		else:
-			if nr_of_parts > 1 and vectorstructure_part_size(t) <= 31:
-				vs += "Combined with a non-leaf vector tree node: [ "
-			else:
-				vs += "[ "
+			vs += "Combined with a non-leaf vector tree node: [ "
 		first = True
 		newline_counter = 0
 		for (s,i) in t:
@@ -466,29 +462,27 @@ def vectorstructure_to_string(D):
 		vs += " ]"
 	return vs
 
-def cuda_xor_lr(a, ic):
+def cuda_xor_lr(a, nrbits, ic):
 	"""Produce CUDA code to compute an XOR + left & right bit shift operation on a variable node1."""
-	global compact_elem_size
-
 	result = "node1 ^= (node1 << " + str(a) + ");\n" + indentspace(ic)
-	result += "node1 &= " + str(hex(int(math.pow(2,compact_elem_size))-1)) + "L;\n" + indentspace(ic)
-	result += "node1 ^= (node1 >> " + str(compact_elem_size-a) + ");"
+	if nrbits < 64:
+		result += "node1 &= " + str(hex(int(math.pow(2,nrbits))-1)) + "L;\n" + indentspace(ic)
+	result += "node1 ^= (node1 >> " + str(nrbits-a) + ");"
 	return result
 
-def cuda_xor_lr_inv(a, ic):
+def cuda_xor_lr_inv(a, nrbits, ic):
 	"""Produce CUDA code to compute the inverse of an XOR + left & right bit shift operation on a variable node1."""
-	global compact_elem_size
-
 	result = ""
 	i = a
-	while i < compact_elem_size:
+	while i < nrbits:
 		result += "node1 ^= (node1 << " + str(i) + ");\n" + indentspace(ic)
 		i += i
-	result += "node1 &= " + str(hex(int(math.pow(2,compact_elem_size))-1)) + "L;\n" + indentspace(ic)
-	i = compact_elem_size-a
-	while i < compact_elem_size:
+	if nrbits < 64:
+		result += "node1 &= " + str(hex(int(math.pow(2,nrbits))-1)) + "L;\n" + indentspace(ic)
+	i = nrbits-a
+	while i < nrbits:
 		result += "node1 ^= (node1 >> " + str(i) + ");"
-		if i+i < compact_elem_size:
+		if i+i < nrbits:
 			result += "\n" + indentspace(ic)
 		i += i
 	return result
@@ -500,23 +494,21 @@ def cuda_xor_r3(a, b, c, ic):
 	result += "node1 ^= (node1 >> " + str(c) + ");"
 	return result
 
-def cuda_xor_r3_inv(a, b, c, ic):
+def cuda_xor_r3_inv(a, b, c, nrbits, ic):
 	"""Produce CUDA code to compute the inverse of an XOR + 3 right bit shifts on a variable node1."""
-	global compact_elem_size
-
 	result = ""
 	i = c
-	while i < compact_elem_size:
+	while i < nrbits:
 		result += "node1 ^= (node1 >> " + str(i) + ");\n" + indentspace(ic)
 		i += i
 	i = b
-	while i < compact_elem_size:
+	while i < nrbits:
 		result += "node1 ^= (node1 >> " + str(i) + ");\n" + indentspace(ic)
 		i += i
 	i = a
-	while i < compact_elem_size:
+	while i < nrbits:
 		result += "node1 ^= (node1 >> " + str(i) + ");"
-		if i+i < compact_elem_size:
+		if i+i < nrbits:
 			result += "\n" + indentspace(ic)
 		i += i
 	return result
@@ -526,15 +518,13 @@ def cuda_xor_r(a, ic):
 	result = "node1 ^= (node1 >> " + str(a) + ");"
 	return result
 
-def cuda_xor_r_inv(a, ic):
+def cuda_xor_r_inv(a, nrbits, ic):
 	"""Produce CUDA code to compute the inverse of an XOR + 1 right bit shift on a variable node1."""
-	global compact_elem_size
-
 	result = ""
 	i = a
-	while i < compact_elem_size:
+	while i < nrbits:
 		result += "node1 ^= (node1 >> " + str(i) + ");"
-		if i+i < compact_elem_size:
+		if i+i < nrbits:
 			result += "\n" + indentspace(ic)
 		i += i
 	return result
@@ -831,7 +821,7 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, ind
 					if refs != []:
 						output += "}\n" + indentspace(ic)
 						ic += 1
-						output += "if (part2 != part1 || buf16_" + str(pointer_cnt) + " != EMPTYCACHEPOINTERS) {\n" + indentspace(ic)
+						output += "if (part2 != part1) {\n" + indentspace(ic)
 			elif refs != []:
 				ic += 1
 				output += "if (part2 != part1) {\n" + indentspace(ic)
@@ -842,7 +832,7 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, ind
 				else:
 					output += "part_cachepointers = CACHE_POINTERS_NEW_LEAF;\n" + indentspace(ic)
 				ic -= 1
-				output += "bla = store_in_cache(part2, part_cachepointers, &buf16_" + str(pointer_cnt) + ");\n" + indentspace(ic)
+				output += "buf16_" + str(pointer_cnt) + " = STOREINCACHE(part2, part_cachepointers);\n" + indentspace(ic)
 				output += "}\n"  + indentspace(ic)
 				ic += 1
 				if nav != []:
@@ -887,7 +877,7 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, ind
 				if is_non_leaf(p) or vectorsize < 64:
 					output += "part2 = mark_new(part2);\n" + indentspace(ic)
 			ic -= 1
-			output += "bla = store_in_cache(part2, part_cachepointers, &buf16_" + str(pointer_cnt) + ");\n" + indentspace(ic)
+			output += "buf16_" + str(pointer_cnt) + " = STOREINCACHE(part2, part_cachepointers);\n" + indentspace(ic)
 			output += "}\n"  + indentspace(ic)
 			ic += 1
 			if nav != []:
@@ -1120,7 +1110,7 @@ def cudastatement(s,indent,o,D,sender_o='',sender_sm='',senderparams=[]):
 						for j in range(0,size):
 							output2 += "&idx_" + str(j+idx_offset) + ", "
 						for j in range(0,size):
-							output2 += "&buf" + tpsize + "_" + str(j+offset) + ", "
+							output2 += "&buf" + tpsize + "_" + str(j+offset) + ", (array_indextype) "
 						output2 += indexresult + ", " + getinstruction(senderparams[i+1],sender_o,D) + ");\n" + indentspace
 					else:
 						indexdict = get_constant_indices(s.params[i].var, s.params[i].var.name, s.parent, o)
@@ -1146,6 +1136,7 @@ def cudastatement(s,indent,o,D,sender_o='',sender_sm='',senderparams=[]):
 			output += "target = " + str(state_id[s.parent.target]) + ";\n" + indentspace
 			output += cudastore_new_vector(s,indent,o,D, sender_o=sender_o, sender_sm=sender_sm)
 	elif s.__class__.__name__ == "Expression":
+		output += "target = " + str(state_id[s.parent.target]) + ";\n" + indentspace
 		output += cudastore_new_vector(s,indent,o,D)
 	return output
 
@@ -1281,7 +1272,7 @@ def cudafetchdata(s, indent, o, D, unguarded, resetfetched):
 									for k in range(0,size):
 										output += "&idx_" + str(k+D[s.params[j-1].var][2]) + ", "
 									for k in range(0,size):
-										output += "&buf" + str(gettypesize(s.params[j-1].var.type)) + "_" + str(D[s.params[j-1].var][1]+k) + ", "
+										output += "&buf" + str(gettypesize(s.params[j-1].var.type)) + "_" + str(D[s.params[j-1].var][1]+k) + ", (array_indextype) "
 									output += getinstruction(s.params[j-1].index,o,D) + ", buf" + str(gettypesize(s.params[j-1].var.type)) + "_" + str(D[s.params[j-1].var][1]+size-1) + ");\n" + indentspace
 									output += "}\n" + indentspace
 							first = False
@@ -1302,7 +1293,7 @@ def cudafetchdata(s, indent, o, D, unguarded, resetfetched):
 			for i in range(0,size):
 				output += "&idx_" + str(i+D[v][2]) + ", "
 			for i in range(0,size):
-				output += "&buf" + str(gettypesize(v.type)) + "_" + str(D[v][1]+i) + ", "
+				output += "&buf" + str(gettypesize(v.type)) + "_" + str(D[v][1]+i) + ", (array_indextype) "
 			output += getinstruction(j,o,D) + ", buf" + str(gettypesize(v.type)) + "_" + str(D[v][1]+size-1) + ");\n" + indentspace
 			output += "}\n" + indentspace
 			first = False
@@ -1341,7 +1332,7 @@ def getinstruction(s, o, D):
 				for j in range(0,size):
 					result += "&idx_" + str(j+idx_offset) + ", "
 				for j in range(0,size):
-					result += "&buf" + tpsize + "_" + str(j+offset) + ", "
+					result += "&buf" + tpsize + "_" + str(j+offset) + ", (array_indextype) "
 				result += indexresult + ", " + rightexp + ")"
 			else:
 				indexdict = get_constant_indices(s.left.var, s.left.var.name, t, o)
@@ -2796,7 +2787,7 @@ def preprocess():
 			vectorsize += int(max(1,math.ceil(math.log(dimension, 2))))
 			dataelements.add((ch.name, tuple(typelist), dimension))
 	# if the vectorsize is sufficiently small, compact hash table storage is not needed.
-	if vectorsize < 32:
+	if vectorsize < 63:
 		no_compact_hash_table = True
 	# store maximum number of bits needed to encode an automaton state
 	max_statesize = 0
@@ -2830,7 +2821,7 @@ def preprocess():
 	if vectorsize > 30:
 		intsize = 62
 	if not no_compact_hash_table:
-		intsize += 2
+		intsize += 1
 	vp_id = 0
 	state_nr = 0
 	while stateelements != set([]) or dataelements != set([]):
