@@ -25,15 +25,14 @@ using namespace cooperative_groups;
 #define global_inttype uint32_t
 {% endif %}
 // type of global memory indices used.
-#define indextype uint32_t
-{% if not no_compact_hash_table %}
-{% if nr_bits_address_internal > 32 %}
-#define indextype_internal uint64_t
+{% if vectorsize < 63 %}
+{% if nr_bits_address_root > 32 %}
+#define indextype uint64_t
 {% else %}
-#define indextype_internal uint32_t
+#define indextype uint32_t
 {% endif %}
 {% else %}
-#define indextype_internal indextype
+#define indextype uint32_t
 {% endif %}
 // type of shared memory elements used.
 {% if vectorsize > 31 and vectorsize < 64 %}
@@ -550,8 +549,16 @@ inline __device__ nodetype HASH_INIT(nodetype node, indextype offset) {
 
 inline __device__ nodetype RHASH_INIT(nodetype node) {
 	nodetype node1 = xor_rot2_{{nr_bits_address_internal*2}}(node, 38, 14);
-	node1 ^= 0xD1B54A32D192ED03L;
-	node1 *= 0xAEF17502108EF2D9L;
+	node1 ^= 0x01b54a32d192ed03L;
+	node1 *= 0x02f17502108ef2d9L;
+	return node1;
+}
+
+inline __device__ nodetype RHASH_INIT_INVERSE(nodetype node) {
+	node1 = node;
+	node1 *= 0x4ca582acb86d69L;
+	node1 ^= 0x2106ccfa448e5abL;
+	node1 = xor_rot2_inv_{{nr_bits_address_internal*2}}(node, 38, 14);
 	return node1;
 }
 
@@ -1221,152 +1228,114 @@ inline __device__ inttype HASH_INVERSE(uint8_t id, nodetype node) {
 }
 
 {% endif %}
-{% if vectorsize > 31 %}
 // Bit left rotation function for 64-bits.
-inline __device__ nodetype rot_64(const nodetype x, uint8_t i) {
-	return (x << i) | (x >> 64-i));
+inline __device__ uint64_t rot_64(const uint64_t x, uint8_t i) {
+	return (x << i) | (x >> 64-i);
 }
 
 // XOR two times bit left rotation function for 64-bits.
-inline __device__ nodetype xor_rot2_64(nodetype x, uint8_t a, uint8_t b) {
+inline __device__ uint64_t xor_rot2_64(uint64_t x, uint8_t a, uint8_t b) {
 	nodetype y = x ^ rot_64(x,a);
 	return y ^ rot_64(y,b);
 }
 
-// Inverse function for XOR two times bit left rotation for 64-bits.
-inline __device__ nodetype xor_rot2_inv_64(nodetype x, uint8_t a, uint8_t b) {
-	nodetype y = xor_rot2_64(x, a, b);
-	uint8_t a1 = (8*a);
-	uint8_t b1 = (8*b);
-	y = xor_rot2_64(y, a1, b1);
-	a1 = (a1+a1);
-	b1 = (b1+b1);
-	y = xor_rot2_64(y, a1, b1);
-	a1 = (a1+a1);
-	b1 = (b1+b1);
-	y = xor_rot2_64(y, a1, b1);
-	return y;
-}
-
 // Initial bitmixer function.
-inline __device__ nodetype UHASH_INIT(nodetype node) {
-	nodetype node1 = xor_rot2_64(node, 38, 14);
+inline __device__ uint64_t {% if not no_compact_hash_table %}U{% endif %}HASH_INIT(nodetype node) {
+	uint64_t node1 = xor_rot2_64((uint64_t) node, 38, 14);
 	node1 ^= 0xD1B54A32D192ED03L;
 	node1 *= 0xAEF17502108EF2D9L;
 	return node1;
 }
 
-inline __device__ nodetype {% if not no_compact_hash_table %}U{% endif %}HASH(uint8_t id, nodetype node) {
-	inttype node1 = node;
+inline __device__ indextype {% if not no_compact_hash_table %}U{% endif %}HASH(uint8_t id, uint64_t node) {
+	uint64_t node1 = node;
 	switch (id) {
 		case 0:
 			{{12|cuda_xor_lr(64, 3)}}
-			{{37|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x346d5269d6a44c1L;
-			node1 &= {{((64)|pow2-1)|hexa}};
+			{{37|cuda_xor_lr(64, 3)}}
+			node1 *= 0xd1b549a75a913001L;
 			{{43|cuda_xor_r3(31, 23, 3)}}
-			node1 *= 0x36d3c2b4804a8e1L;
-			node1 &= {{((64)|pow2-1)|hexa}};
+			node1 *= 0xdb4f0ad2012a3801L;
 			{{28|cuda_xor_r(3)}}
 			break;
 		case 1:
 			{{10|cuda_xor_lr(64, 3)}}
 			{{35|cuda_xor_lr(64, 3)}}
-			node1 *= 0x3866c0692e5e421L;
-			node1 &= {{((64)|pow2-1)|hexa}};
+			node1 *= 0xe19b01a4b9790801L;
 			{{40|cuda_xor_r3(34, 19, 3)}}
-			node1 *= 0x39838add4d38e61L;
-			node1 &= {{((64)|pow2-1)|hexa}};
+			node1 *= 0xe60e2b7534e39801L;
 			{{26|cuda_xor_r(3)}}
 			break;
 		case 2:
 			{{14|cuda_xor_lr(64, 3)}}
 			{{39|cuda_xor_lr(64, 3)}}
-			node1 *= 0x3a5787914312801L;
-			node1 &= {{((64)|pow2-1)|hexa}};
+			node1 *= 0xe95e1e450c4a0001L;
 			{{44|cuda_xor_r3(30, 15, 3)}}
-			node1 *= 0x3afb7bb024c4681L;
-			node1 &= {{((64)|pow2-1)|hexa}};
+			node1 *= 0xebedeec09311a001L;
 			{{30|cuda_xor_r(3)}}
 			break;
 		case 3:
 			{{13|cuda_xor_lr(64, 3)}}
 			{{34|cuda_xor_lr(64, 3)}}
-			node1 *= 0x3b7e13a202e41c1L;
-			node1 &= {{((64)|pow2-1)|hexa}};
+			node1 *= 0xedf84e880b907001L;
 			{{39|cuda_xor_r3(33, 25, 3)}}
-			node1 *= 0x3be88e9173fb7c1L;
-			node1 &= {{((64)|pow2-1)|hexa}};
+			node1 *= 0xefa23a45cfedf001L;
 			{{28|cuda_xor_r(3)}}
 			break;
 		case 4:
 			{{11|cuda_xor_lr(64, 3)}}
 			{{35|cuda_xor_lr(64, 3)}}
-			node1 *= 0x3c4109af0f01241L;
-			node1 &= {{((64)|pow2-1)|hexa}};
+			node1 *= 0xf10426bc3c049001L;
 			{{23|cuda_xor_r3(30, 26, 3)}}
-			node1 *= 0x3c8bbb336719fc1L;
-			node1 &= {{((64)|pow2-1)|hexa}};
+			node1 *= 0xf22eeccd9c67f001L;
 			{{20|cuda_xor_r(3)}}
 			break;
 		case 5:
 			{{15|cuda_xor_lr(64, 3)}}
 			{{33|cuda_xor_lr(64, 3)}}
-			node1 *= 0x3ccba0994f7af81L;
-			node1 &= {{((64)|pow2-1)|hexa}};
+			node1 *= 0xf32e82653debe001L;
 			{{41|cuda_xor_r3(36, 20, 3)}}
-			node1 *= 0x3d02e8d5ad09d61L;
-			node1 &= {{((64)|pow2-1)|hexa}};
+			node1 *= 0xf40ba356b4275801L;
 			{{23|cuda_xor_r(3)}}
 			break;
 		case 6:
 			{{34|cuda_xor_lr(64, 3)}}
 			{{12|cuda_xor_lr(64, 3)}}
-			node1 *= 0x3d3335b9a01aac1L;
-			node1 &= {{((64)|pow2-1)|hexa}};
+			node1 *= 0xf4ccd6e6806ab001L;
 			{{38|cuda_xor_r3(42, 24, 3)}}
-			node1 *= 0x3d5dc5b2dd89301L;
-			node1 &= {{((64)|pow2-1)|hexa}};
+			node1 *= 0xf57716cb7624c001L;
 			{{29|cuda_xor_r(3)}}
 			break;
 		case 7:
 			{{23|cuda_xor_lr(64, 3)}}
 			{{35|cuda_xor_lr(64, 3)}}
-			node1 *= 0x3d839037059b321L;
-			node1 &= {{((64)|pow2-1)|hexa}};
+			node1 *= 0xf60e40dc166cc801L;
 			{{26|cuda_xor_r3(46, 23, 3)}}
-			node1 *= 0x3da557a7a356621L;
-			node1 &= {{((64)|pow2-1)|hexa}};
+			node1 *= 0xf6955e9e8d598801L;
 			{{26|cuda_xor_r(3)}}
 			break;
 		case 8:
 			{{31|cuda_xor_lr(64, 3)}}
 			{{34|cuda_xor_lr(64, 3)}}
-			node1 *= 0x3dc3b70f5d13b41L;
-			node1 &= {{((64)|pow2-1)|hexa}};
+			node1 *= 0xf70edc3d744ed001L;
 			{{29|cuda_xor_r3(40, 20, 3)}}
-			node1 *= 0x3ddf2c9626244a1L;
-			node1 &= {{((64)|pow2-1)|hexa}};
+			node1 *= 0xf77cb25898912801L;
 			{{27|cuda_xor_r(3)}}
 			break;
 		case 9:
 			{{24|cuda_xor_lr(64, 3)}}
 			{{20|cuda_xor_lr(64, 3)}}
-			node1 *= 0x3df81dfdd3d5e01L;
-			node1 &= {{((64)|pow2-1)|hexa}};
+			node1 *= 0xf7e077f74f578001L;
 			{{40|cuda_xor_r3(33, 25, 3)}}
-			node1 *= 0x3e0ee0bdbcd6ea1L;
-			node1 &= {{((64)|pow2-1)|hexa}};
+			node1 *= 0xf83b82f6f35ba801L;
 			{{30|cuda_xor_r(3)}}
 			break;
 		case 10:
 			{{10|cuda_xor_lr(64, 3)}}
 			{{19|cuda_xor_lr(64, 3)}}
-			node1 *= 0x3e23ba68e0e7381L;
-			node1 &= {{((64)|pow2-1)|hexa}};
+			node1 *= 0xf88ee9a3839ce001L;
 			{{26|cuda_xor_r3(46, 23, 3)}}
-			node1 *= 0x3e36e66407cf201L;
-			node1 &= {{((64)|pow2-1)|hexa}};
+			node1 *= 0xf8db99901f3c8001L;
 			{{28|cuda_xor_r(3)}}
 			break;
 		case 11:
@@ -1583,8 +1552,6 @@ inline __device__ nodetype {% if not no_compact_hash_table %}U{% endif %}HASH(ui
 	return node1;
 }
 
-{% endif %}
-
 {% if not no_compact_hash_table %}
 // Retrieve ID of used hash function from a compressed root vectortree node.
 inline __device__ uint8_t get_hash_id_root(compressed_nodetype n) {
@@ -1601,7 +1568,8 @@ inline __device__ inttype get_uncompressed_node_root(compressed_nodetype n, inde
 	// Remove five bits for hash function ID + one for 'new' flag.
 	e |= (nodetype) (n & 0x03FFFFFF);
 	// Retrieve uncompressed node and return it.
-	return HASH_INVERSE(hid, e);
+	e = HASH_INVERSE(hid, e);
+	return RHASH_INIT_INVERSE(e);
 }
 
 // Extract a global memory internal hash table index from a given hash.
