@@ -1,0 +1,65 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <string.h>
+#include <cuda.h>
+#include <cuda_runtime_api.h>
+#include <assert.h>
+#include <time.h>
+#include <math.h>
+#include "{{name}}_gpuexplore.cuh"
+
+#define MIN(a,b) \
+   ({ __typeof__ (a) _a = (a); \
+       __typeof__ (b) _b = (b); \
+     _a < _b ? _a : _b; })
+
+#define MAX(a,b) \
+   ({ __typeof__ (a) _a = (a); \
+       __typeof__ (b) _b = (b); \
+     _a > _b ? _a : _b; })
+
+// GPU constants
+__constant__ uint32_t d_kernel_iters;
+
+// test macros
+#define PRINTTHREADID()						{printf("Hello thread %d\n", (blockIdx.x*blockDim.x)+threadIdx.x);}
+#define PRINTTHREAD(j, i)					{printf("%d: Seen by thread %d: %d\n", (j), (blockIdx.x*blockDim.x)+threadIdx.x, (i));}
+
+/**
+ * This macro checks return value of the CUDA runtime call and exits
+ * the application if the call failed.
+ */
+#define CUDA_CHECK_RETURN(value) {											\
+	cudaError_t _m_cudaStat = value;										\
+	if (_m_cudaStat != cudaSuccess) {										\
+		fprintf(stderr, "Error %s at line %d in file %s\n",					\
+				cudaGetErrorString(_m_cudaStat), __LINE__, __FILE__);		\
+		exit(1);															\
+	} }
+
+int vmem = 0;
+
+// Wrapper around cudaMalloc to count allocated memory and check for error while allocating.
+int cudaMallocCount ( void ** ptr,int size) {
+	cudaError_t err = cudaSuccess;
+	vmem += size;
+	err = cudaMalloc(ptr,size);
+	if (err) {
+		printf("Error %s at line %d in file %s\n", cudaGetErrorString(err), __LINE__, __FILE__);
+		exit(1);
+	}
+	fprintf (stdout, "allocated %d\n", size);
+	return size;
+}
+
+/**
+ * CUDA kernel function to initialise the global memory hash table.
+ */
+__global__ void init_hash_table(compressed_nodetype *d_q, uint64_t n_elem) {
+    uint64_t nthreads = GRID_SIZE*BLOCK_SIZE;
+    for(uint64_t i = GLOBAL_THREAD_ID; i < n_elem; i += nthreads) {
+    	d_q[i] = (compressed_nodetype) {% if not no_compact_hash_table %}EMPTY_COMPRESSED_NODE{% else %}EMPTY_NODE{% endif %};
+    }
+}
+
