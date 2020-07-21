@@ -85,6 +85,12 @@ using namespace cooperative_groups;
 
 // GPU constants.
 static const int WARP_SIZE = 32;
+__constant__ uint16_t d_shared_cache_size;
+{% if vectorsize > 62 and no_compact_hash_table %}
+__constant__ uint32_t d_hash_table_size;
+{% elif no_compact_hash_table %}
+__constant__ uint64_t d_hash_table_size;
+{% endif %}
 
 // GPU configuraton.
 static const int KERNEL_ITERS = 1;
@@ -96,6 +102,7 @@ static const int NR_OF_BLOCKS = 3120;
 
 #define BLOCK_ID				blockIdx.x
 #define THREAD_ID 				threadIdx.x
+#define GLOBAL_THREAD_ID		((BLOCK_ID * BLOCK_SIZE) + THREAD_ID)
 #define WARP_ID					(THREAD_ID / WARP_SIZE)
 #define GLOBAL_WARP_ID			(((BLOCK_SIZE / WARP_SIZE) * BLOCK_ID) + WARP_ID)
 #define NR_WARPS_PER_BLOCK		(BLOCK_SIZE / WARP_SIZE)
@@ -501,7 +508,7 @@ inline __device__ shared_indextype CACHE_HASH(nodetype node) {
 	{{43|cuda_xor_r3(31, 23, 1)}}
 	node1 *= 0xdb4f0ad2012a3801L;
 	{{28|cuda_xor_r(1)}}
-	return (indextype) ((node1 & 0x000000000000FFFF) * d_shared_cache_size) >> 16;
+	return (indextype) {% if vectorsize > 62 %}3*{% elif vectorsize > 30 %}2*{% endif %}((node1 & 0x000000000000FFFF) * (d_shared_cache_size{% if vectorsize > 62 %}/3{% elif vectorsize > 30 %}/2{% endif %})) >> 16;
 }
 
 inline __device__ indextype {% if not no_compact_hash_table %}U{% endif %}HASH(uint8_t id, uint64_t node) {
@@ -520,7 +527,7 @@ inline __device__ bool STOREINCACHE(nodetype node, shared_inttype cache_pointers
 	uint8_t i = 0;
 	shared_indextype addr;
 	shared_inttype element;
-	{% if vectorsize > 63 %}
+	{% if vectorsize > 62 %}
 	shared_inttype part1, part2;
 
 	// Split the node in two.
@@ -532,7 +539,7 @@ inline __device__ bool STOREINCACHE(nodetype node, shared_inttype cache_pointers
 		element = atomicCAS((shared_inttype *) &(shared[CACHEOFFSET+addr]), EMPTYVECT32, {% if vectorsize < 64%}node{% else %}part1{% endif %});
 		if (element == EMPTYVECT_32 || element == {% if vectorsize < 64%}node{% else %}part1{% endif %}) {
 			// Successful storage.
-			{% if vectorsize > 63 %}
+			{% if vectorsize > 62 %}
 			element = atomicCAS((shared_inttype *) &(shared[CACHEOFFSET+addr+1]), EMPTYVECT32, part2);
 			if (element == EMPTYVECT32 || element == part2) {
 				// Successful storage.
@@ -1620,7 +1627,7 @@ inline __device__ indextype {% if not no_compact_hash_table %}U{% endif %}HASH(u
 			break;
 	}
 	{% if not no_compact_hash_table %}
-	return node1 & {{(nr_bits_address_internal|pow2-1)|hexa}};
+	return 2*(node1 & {{(nr_bits_address_internal|pow2-1)|hexa}});
 	{% elif nr_bits_address_root <= 32 %}
 	return ((node1 & {{(nr_bits_address_root|pow2-1)|hexa}})*d_hash_table_size) >> {{nr_bits_address_root}};
 	{% else %}
@@ -1707,7 +1714,7 @@ inline __device __ nodetype HT_RETRIEVE(compressed_nodetype *d_q, indextype i{% 
 }
 
 // Find or put a given vectortree node in the global hash table.
-inline ___device_ indextype FINDORPUT_SINGLE(compressed_nodetype *d_q, nodetype node, volatile bool *d_newstate_flags{% if not no_compact_hash_table %}, indextype offset{% endif %}, bool claim_work) {
+inline ___device_ indextype FINDORPUT_SINGLE(compressed_nodetype *d_q, nodetype node, volatile uint8_t *d_newstate_flags{% if not no_compact_hash_table %}, indextype offset{% endif %}, bool claim_work) {
 	{% if not no_compact_hash_table %}
 	nodetype e1, e2;
 	compressed_nodetype compressed_node;
@@ -1747,7 +1754,7 @@ inline ___device_ indextype FINDORPUT_SINGLE(compressed_nodetype *d_q, nodetype 
 					}
 					else {
 						// There is work available for some block.
-						d_newstate_flags[(addr / BLOCK_SIZE) % GRID_SIZE] = true;
+						d_newstate_flags[(addr / BLOCK_SIZE) % GRID_SIZE] = 1;
 					}
 					return addr;
 				}
@@ -1779,12 +1786,12 @@ inline ___device_ indextype FINDORPUT_SINGLE(compressed_nodetype *d_q, nodetype 
 							}
 							else {
 								// There is work available for some block.
-								d_newstate_flags[(addr / BLOCK_SIZE) % GRID_SIZE] = true;
+								d_newstate_flags[(addr / BLOCK_SIZE) % GRID_SIZE] = 1;
 							}
 						}
 						else {
 							// There is work available for some block.
-							d_newstate_flags[(addr / BLOCK_SIZE) % GRID_SIZE] = true;
+							d_newstate_flags[(addr / BLOCK_SIZE) % GRID_SIZE] = 1;
 						}
 					{% endif %}
 					{% if no_compact_hash_table and vectorsize > 62 %}
@@ -1804,7 +1811,7 @@ inline ___device_ indextype FINDORPUT_SINGLE(compressed_nodetype *d_q, nodetype 
 }
 
 // Find or put all new vectortree nodes stored in the shared memory cache into the global memory hash table.
-__device__ bool FINDORPUT_MANY(compressed_nodetype *d_q, volatile bool *d_newstate_flags, indextype non_root_offset) {
+__device__ bool FINDORPUT_MANY(compressed_nodetype *d_q, volatile uint8_t *d_newstate_flags, indextype non_root_offset) {
 	nodetype node;
 	indextype addr;
 	{% if vectorsize > 62 %}
@@ -1948,6 +1955,11 @@ __device__ bool FINDORPUT_MANY(compressed_nodetype *d_q, volatile bool *d_newsta
 		}
 	}
 	{% endif %}
+}
+
+// Kernel to store the initial state in the global memory hash table.
+__device__ void store_initial_state(compressed_nodetype *d_q, volatile uint8_t *d_newstate_flags) {
+	
 }
 
 // Auxiliary functions for the fetching of vectortrees from the global hash table. They encode the distribution of vectortree nodes over the threads
