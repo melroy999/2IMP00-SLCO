@@ -114,11 +114,7 @@ static const int NR_OF_BLOCKS = 3120;
 
 // Retry constant to determine number of retries for element insertion.
 #define RETRYFREQ 7
-{% if no_compact_hash_table %}
-#define NR_HASH_FUNCTIONS 8
-{% else %}
 #define NR_HASH_FUNCTIONS 32
-{% endif %}
 // Number of retries in local cache.
 #define CACHERETRYFREQ 20
 // Constant to indicate that no more work is required.
@@ -184,6 +180,50 @@ extern __shared__ volatile shared_inttype shared[];
 // Bitmask to identify parts of the state vector that contain state machine states.
 #define VECTOR_SMPARTS			{{smart_vectortree_fetching_bitmask["smstates"]}}
 {% endif %}
+
+// *** START BIT OPERATIONS ***
+
+{% if not no_compact_hash_table %}
+// Bit left rotation function for {{nr_bits_address_internal*2}} bits.
+inline __device__ nodetype rot_{{nr_bits_address_internal*2}}(const nodetype x, uint8_t i) {
+	return (x << i) | (x >> ({{nr_bits_address_internal*2}}-i));
+}
+
+// XOR two times bit left rotation function for {{nr_bits_address_internal*2}} bits.
+inline __device__ nodetype xor_rot2_{{nr_bits_address_internal*2}}(nodetype x, uint8_t a, uint8_t b) {
+	nodetype y = x ^ rot_{{nr_bits_address_internal*2}}(x,a);
+	y = y ^ rot_{{nr_bits_address_internal*2}}(y,b);
+	return y &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+}
+
+// Inverse function for XOR two times bit left rotation, mod {{nr_bits_address_internal*2}}.
+inline __device__ nodetype xor_rot2_inv_{{nr_bits_address_internal*2}}(nodetype x, uint8_t a, uint8_t b) {
+	nodetype y = xor_rot2_{{nr_bits_address_internal*2}}(x, a, b);
+	uint8_t a1 = (8*a) & {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+	uint8_t b1 = (8*b) & {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+	y = xor_rot2_{{nr_bits_address_internal*2}}(y, a1, b1);
+	a1 = (a1+a1) & {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+	b1 = (b1+b1) & {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+	y = xor_rot2_{{nr_bits_address_internal*2}}(y, a1, b1);
+	a1 = (a1+a1) & {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+	b1 = (b1+b1) & {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+	y = xor_rot2_{{nr_bits_address_internal*2}}(y, a1, b1);
+	return y;
+}
+
+{% endif %}
+// Bit left rotation function for 64 bits.
+inline __device__ uint64_t rot_64(const uint64_t x, uint8_t i) {
+	return (x << i) | (x >> 64-i);
+}
+
+// XOR two times bit left rotation function for 64 bits.
+inline __device__ uint64_t xor_rot2_64(uint64_t x, uint8_t a, uint8_t b) {
+	nodetype y = x ^ rot_64(x,a);
+	return y ^ rot_64(y,b);
+}
+
+// *** END BIT OPERATIONS ***
 
 // *** START FUNCTIONS FOR VECTOR TREE NODES MANIPULATION AND STORAGE TO THE SHARED MEMORY CACHE ***
 
@@ -450,6 +490,26 @@ inline __device__ bool vectortree_node_contains_right_gap(nodetype node) {
 }
 
 {% endif %}
+// Cache hash function.
+inline __device__ shared_indextype CACHE_HASH(nodetype node) {
+	uint64_t node1 = xor_rot2_64((uint64_t) node, 38, 14);
+	node1 ^= 0xD1B54A32D192ED03L;
+	node1 *= 0xAEF17502108EF2D9L;
+	{{12|cuda_xor_lr(64, 1)}}
+	{{37|cuda_xor_lr(64, 1)}}
+	node1 *= 0xd1b549a75a913001L;
+	{{43|cuda_xor_r3(31, 23, 1)}}
+	node1 *= 0xdb4f0ad2012a3801L;
+	{{28|cuda_xor_r(1)}}
+	return (indextype) ((node1 & 0x000000000000FFFF) * d_shared_cache_size) >> 16;
+}
+
+inline __device__ indextype {% if not no_compact_hash_table %}U{% endif %}HASH(uint8_t id, uint64_t node) {
+	uint64_t node1 = node;
+	switch (id) {
+		case 0:
+}
+
 // Store a vectortree node in the cache.
 // Return address if successful, HASHTABLE_FULL if cache is full.
 {% if vectorsize < 64 %}
@@ -467,8 +527,8 @@ inline __device__ bool STOREINCACHE(nodetype node, shared_inttype cache_pointers
 	part1 = get_left(node);
 	part2 = get_right(node);
 	{% endif %}
+	addr = CACHE_HASH(node);
 	while (i < CACHERETRYFREQ) {
-		addr = 3*(CACHE_HASH({% if vectorsize < 64 %}node{% else %}part1{% endif %}) % (d_shared_q_size - CACHEOFFSET) / 3);
 		element = atomicCAS((shared_inttype *) &(shared[CACHEOFFSET+addr]), EMPTYVECT32, {% if vectorsize < 64%}node{% else %}part1{% endif %});
 		if (element == EMPTYVECT_32 || element == {% if vectorsize < 64%}node{% else %}part1{% endif %}) {
 			// Successful storage.
@@ -482,13 +542,45 @@ inline __device__ bool STOREINCACHE(nodetype node, shared_inttype cache_pointers
 					return addr;
 				}
 				else {
-					// Storage of node after all not successful. Try another hash value.
+					// Storage of node after all not successful. Try another address.
+					{% if vectorsize < 31 %}
+					addr++;
+					if (addr >= d_shared_cache_size) {
+						addr = 0;
+					}
+					{% elif vectorsize < 63 %}
+					addr += 2;
+					if (addr+1 >= d_shared_cache_size) {
+						addr = 0;
+					}
+					{% else %}
+					addr += 3;
+					if (addr+2 >= d_shared_cache_size) {
+						addr = 0;
+					}
+					{% endif %}
 					i++;
 					continue;
 				}
 			}
 			else {
-				// Storage of node after all not successful. Try another hash value.
+				// Storage of node after all not successful. Try another address.
+				{% if vectorsize < 31 %}
+				addr++;
+				if (addr >= d_shared_cache_size) {
+					addr = 0;
+				}
+				{% elif vectorsize < 63 %}
+				addr += 2;
+				if (addr+1 >= d_shared_cache_size) {
+					addr = 0;
+				}
+				{% else %}
+				addr += 3;
+				if (addr+2 >= d_shared_cache_size) {
+					addr = 0;
+				}
+				{% endif %}
 				i++;
 				continue;
 			}
@@ -497,7 +589,23 @@ inline __device__ bool STOREINCACHE(nodetype node, shared_inttype cache_pointers
 			{% endif %}
 		}
 		else {
-			// Storage of node after all not successful. Try another hash value.
+			// Storage of node after all not successful. Try another address.
+			{% if vectorsize < 31 %}
+			addr++;
+			if (addr >= d_shared_cache_size) {
+				addr = 0;
+			}
+			{% elif vectorsize < 63 %}
+			addr += 2;
+			if (addr+1 >= d_shared_cache_size) {
+				addr = 0;
+			}
+			{% else %}
+			addr += 3;
+			if (addr+2 >= d_shared_cache_size) {
+				addr = 0;
+			}
+			{% endif %}
 			i++;		
 		}
 	}
@@ -510,33 +618,6 @@ inline __device__ bool STOREINCACHE(nodetype node, shared_inttype cache_pointers
 // *** START KERNELS FOR VECTOR TREE NODES STORAGE AND RETRIEVAL TO/FROM THE GLOBAL MEMORY HASH TABLE ***
 
 {% if not no_compact_hash_table %}
-// Bit left rotation function.
-inline __device__ nodetype rot_{{nr_bits_address_internal*2}}(const nodetype x, uint8_t i) {
-	return (x << i) | (x >> ({{nr_bits_address_internal*2}}-i));
-}
-
-// XOR two times bit left rotation function.
-inline __device__ nodetype xor_rot2_{{nr_bits_address_internal*2}}(nodetype x, uint8_t a, uint8_t b) {
-	nodetype y = x ^ rot_{{nr_bits_address_internal*2}}(x,a);
-	y = y ^ rot_{{nr_bits_address_internal*2}}(y,b);
-	return y &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-}
-
-// Inverse function for XOR two times bit left rotation, mod 58.
-inline __device__ nodetype xor_rot2_inv_{{nr_bits_address_internal*2}}(nodetype x, uint8_t a, uint8_t b) {
-	nodetype y = xor_rot2_{{nr_bits_address_internal*2}}(x, a, b);
-	uint8_t a1 = (8*a) & {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-	uint8_t b1 = (8*b) & {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-	y = xor_rot2_{{nr_bits_address_internal*2}}(y, a1, b1);
-	a1 = (a1+a1) & {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-	b1 = (b1+b1) & {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-	y = xor_rot2_{{nr_bits_address_internal*2}}(y, a1, b1);
-	a1 = (a1+a1) & {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-	b1 = (b1+b1) & {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-	y = xor_rot2_{{nr_bits_address_internal*2}}(y, a1, b1);
-	return y;
-}
-
 // Initial bitmixer functions.
 inline __device__ nodetype HASH_INIT(nodetype node, indextype offset) {
 	if (offset != 0) {
@@ -565,7 +646,7 @@ inline __device__ nodetype RHASH_INIT_INVERSE(nodetype node) {
 // Hash functions.
 inline __device__ nodetype HASH(uint8_t id, nodetype node, indextype offset) {
 	if (offset != 0) {
-		return UHASH(id, node);
+		return (nodetype) UHASH(id, node);
 	}
 	else {
 		return RHASH(id, node);
@@ -1228,17 +1309,6 @@ inline __device__ inttype HASH_INVERSE(uint8_t id, nodetype node) {
 }
 
 {% endif %}
-// Bit left rotation function for 64-bits.
-inline __device__ uint64_t rot_64(const uint64_t x, uint8_t i) {
-	return (x << i) | (x >> 64-i);
-}
-
-// XOR two times bit left rotation function for 64-bits.
-inline __device__ uint64_t xor_rot2_64(uint64_t x, uint8_t a, uint8_t b) {
-	nodetype y = x ^ rot_64(x,a);
-	return y ^ rot_64(y,b);
-}
-
 // Initial bitmixer function.
 inline __device__ uint64_t {% if not no_compact_hash_table %}U{% endif %}HASH_INIT(nodetype node) {
 	uint64_t node1 = xor_rot2_64((uint64_t) node, 38, 14);
@@ -1549,7 +1619,36 @@ inline __device__ indextype {% if not no_compact_hash_table %}U{% endif %}HASH(u
 			{{7|cuda_xor_r(3)}}
 			break;
 	}
+	{% if not no_compact_hash_table %}
+	return node1 & {{(nr_bits_address_internal|pow2-1)|hexa}};
+	{% elif nr_bits_address_root <= 32 %}
+	return ((node1 & {{(nr_bits_address_root|pow2-1)|hexa}})*d_hash_table_size) >> {{nr_bits_address_root}};
+	{% else %}
+	node1 = node1 & {{(nr_bits_address_root|pow2-1)|hexa}};
+	// We apply long multiplication, to avoid integer overflow. Overflow must be avoided to ensure the result is within the range [0,...,d_hash_table_size).
+	uint32_t s0, s1, s2, s3;
+	uint64_t x = ((uint64_t) get_right(node1)) * ((uint64_t) get_right(d_hash_table_size));
+	s0 = get_left(x);
+	x = ((uint64_t) get_left(node1)) * ((uint64_t) get_right(d_hash_table_size)) + ((uint64_t) get_left(node1));
+	s1 = get_right(x);
+	s2 = get_left(x);
+	x = ((uint64_t) s1) + ((uint64_t) get_right(node1)) * ((uint64_t) get_left(d_hash_table_size));
+	s1 = get_right(x);
+	x = ((uint64_t) s2) + ((uint64_t) get_left(node1)) * ((uint64_t) get_left(d_hash_table_size)) + ((uint64_t) get_left(x));
+	s2 = get_right(x);
+	s3 = get_left(x);
+	// Result.
+	node1 = (uint64_t) s1;
+	node1 = node1 << 32 | s0;
+	// Carry.
+	x = (uint64_t) s3;
+	x = x << 32 | s2;
+	// Right shift to obtain final result.
+	node1 = node1 >> {{nr_bits_address_root}};
+	x = x << {{64-nr_bits_address_root}};
+	node1 |= x;
 	return node1;
+	{% endif %}
 }
 
 {% if not no_compact_hash_table %}
@@ -1588,7 +1687,6 @@ inline __device__ compressed_nodetype get_compressed_node_root(nodetype h, uint8
 }
 
 {% endif %}
-// TODO: add hash functions for uncompressed hashing of 64 and 32 bit integers!!!
 
 // Retrieve vectortree node at index i of the global memory hash table.
 inline __device __ nodetype HT_RETRIEVE(compressed_nodetype *d_q, indextype i{% if not no_compact_hash_table %}, indextype offset{% endif %}) {
