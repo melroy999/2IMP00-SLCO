@@ -628,32 +628,59 @@ def indentspace(i):
 		result += "\t"
 	return result
 
+def variabledefault(s, i):
+	"""Return default value for given variable, possibly with index i"""
+	if s.defvalue != None:
+		return int(s.defvalue)
+	elif s.defvalues != []:
+		# we assume an index i has been given
+		return int(s.defvalues[i])
+	elif s.type.base == 'Integer' or s.type.base == 'Byte':
+		return 0
+	elif s.type.base == 'Boolean':
+		return 1
+
+def update_parts(name, value, vectorparts):
+	"""Update the given vectorparts with the name, value pair"""
+	global model, vectorelem_in_structure_map
+
+	p = vectorelem_in_structure_map[name]
+	if len(p) == 2:
+		value = (value << p[1][1])
+		vectorparts[p[1][0]] |= value
+	else:
+		# lowest bits
+		i = 0
+		f = 0
+		for j in range(0, p[2][2]):
+			f |= (1 << i)
+		lovalue = value | f
+		lovalue = (lovalue << p[2][1])
+		vectorparts[p[2][0]] |= lovalue
+		# highest bits
+		value = (value >> p[2][2])
+		value = (value << p[1][1])
+		vectorparts[p[1][0]] |= value
+
 def cudastore_initial_vector():
 	"""Construct CUDA code to put the initial state in the global hash table"""
-	global vectorstructure, vectorelem_in_structure_map, model, state_id
+	global vectorstructure, model, state_id
 
 	# create the initial vectorparts
 	vectorparts = [0 for i in range(0, len(vectorstructure))]
 	for o in model.objects:
+		for v in o.variables:
+			i = None
+			if v.type.size > 1:
+				i = v.type.size
+			update_parts(scopename(v,i,o), variabledefault(v,i), vectorparts)
 		for sm in o.type.statemachines:
-			p = vectorelem_in_structure_map[o.name + "'" + sm.name]
-			value = state_id[sm.initialstate]
-			if len(p) == 2:
-				value = (value << p[1][1])
-				vectorparts[p[1][0]] |= value
-			else:
-				# lowest bits
-				i = 0
-				f = 0
-				for j in range(0, p[2][2]):
-					f |= (1 << i)
-				lovalue = value | f
-				lovalue = (lovalue << p[2][1])
-				vectorparts[p[2][0]] |= lovalue
-				# highest bits
-				value = (value >> p[2][2])
-				value = (value << p[1][1])
-				vectorparts[p[1][0]] |= value
+			update_parts(o.name + "'" + sm.name, state_id[sm.initialstate], vectorparts)
+			for v in sm.variables:
+				i = None
+				if v.type.size > 1:
+					i = v.type.size
+				update_parts(scopename(v,i,o), variabledefault(v,i), vectorparts)
 
 def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, indent):
 	"""Construct CUDA code to produce and store new vectortree nodes. nodes_done is a list containing node ids that have been processed before. nav is a list of nodes still to be processed.
