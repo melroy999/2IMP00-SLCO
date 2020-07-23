@@ -302,11 +302,10 @@ def vectorpart_is_combined_with_nonleaf_node(p):
 	global vectorstructure, no_compact_hash_table
 	if p < len(vectorstructure)-1:
 		return False
-	size = 30
 	if not no_compact_hash_table:
 		return vectorstructure_part_size(vectorstructure[p]) <= (64-1-nr_bits_address_internal())
 	else:
-		return vectorstructure_part_size(vectorstructure[p]) <= 32
+		return vectorstructure_part_size(vectorstructure[p]) <= 30
 
 def vector_has_nonstate_parts():
 	"""Return whether the vectorstructure contains parts without state machine states"""
@@ -662,25 +661,123 @@ def update_parts(name, value, vectorparts):
 		value = (value << p[1][1])
 		vectorparts[p[1][0]] |= value
 
+def reset_left_pointer(node):
+	"""Reset the left pointer in the given vectortree node."""
+	"""Precondition: the given node has a left pointer."""
+	global no_compact_hash_table
+	if no_compact_hash_table:
+		resetvalue = ((pow2(nr_bits_address_root())-1) << 64-2-nr_bits_address_root())
+	else:
+		resetvalue = ((pow2(nr_bits_address_internal())-1) << 64-1-nr_bits_address_internal())		
+	node |= resetvalue
+	return node
+
+def reset_right_pointer(node):
+	"""Reset the right pointer in the given vectortree node."""
+	"""Precondition: the given node has a right pointer."""
+	global no_compact_hash_table
+	if no_compact_hash_table:
+		resetvalue = pow2(nr_bits_address_root())-1
+	else:
+		resetvalue = pow2(nr_bits_address_internal())-1		
+	node |= resetvalue
+	return node
+
+def set_left_cache_pointer(nodes_cachepointers, value):
+	"""Set the left cache pointer"""
+	hivalue = (value << 15)
+	return (nodes_cachepointers | hivalue)
+
+def set_right_cache_pointer(nodes_cachepointers, value):
+	"""Set the right cache pointer"""
+	lovalue = value
+	return (nodes_cachepointers | lovalue)
+
 def cudastore_initial_vector():
 	"""Construct CUDA code to put the initial state in the global hash table"""
-	global vectorstructure, model, state_id
+	global vectorstructure, model, state_id, vectortree, vectorsize
 
 	# create the initial vectorparts
 	vectorparts = [0 for i in range(0, len(vectorstructure))]
 	for o in model.objects:
-		for v in o.variables:
-			i = None
+		for v in o.type.variables:
+			name = scopename(v,None,o)
 			if v.type.size > 1:
-				i = v.type.size
-			update_parts(scopename(v,i,o), variabledefault(v,i), vectorparts)
+				for i in range(0,v.type.size):
+					iname = name + "[" + str(i) + "]"
+					update_parts(iname, variabledefault(v,i), vectorparts)
+			else:
+				update_parts(name, variabledefault(v,None), vectorparts)
 		for sm in o.type.statemachines:
 			update_parts(o.name + "'" + sm.name, state_id[sm.initialstate], vectorparts)
 			for v in sm.variables:
-				i = None
+				name = scopename(v,None,o)
 				if v.type.size > 1:
-					i = v.type.size
-				update_parts(scopename(v,i,o), variabledefault(v,i), vectorparts)
+					for i in range(0,v.type.size):
+						iname = name + "[" + str(i) + "]"
+						update_parts(iname, variabledefault(v,i), vectorparts)
+				else:
+					update_parts(name, variabledefault(v,None), vectorparts)
+	# next create a list of nodes representing the initial state
+	nrnodes = 2*len(vectorstructure) - 1
+	# compensate for a final vector part integrated into a non-leaf node
+	if vectorpart_is_combined_with_nonleaf_node(len(vectorstructure)-1):
+		nrnodes -= 1
+	nodes = [0 for i in range(0, nrnodes)]
+	nodes_cachepointers = [0 for i in range(0, nrnodes)]
+	# explore the vectortree structure to construct the list of nodes
+	Open = [0]
+	while Open != []:
+		current = Open.pop(0)
+		children = vectortree[current]
+		if is_vectorpart(current):
+			# set p_cpointers to NEW LEAF value (highest two bits set to 01)
+			p_cpointers = 0x40000000
+			part_id = vectorpart_id(current)
+			p = vectorparts[part_id]
+			if vectorpart_is_combined_with_nonleaf_node(part_id):
+				p_cpointers = 0
+				p = reset_left_pointer(p)
+				p_cpointers = set_left_cache_pointer(p_cpointers, children[0])
+			nodes[current] = p
+			nodes_cachepointers[current] = p_cpointers
+		else:
+			p_cpointers = 0
+			p = reset_left_pointer(p)
+			p_cpointers = set_left_cache_pointer(p_cpointers, children[0])
+			if len(children) == 2:
+				p = reset_right_pointer(p)
+				p_cpointers = set_right_cache_pointer(p_cpointers, children[1])
+			nodes[current] = p
+			nodes_cachepointers[current] = p_cpointers
+		Open += children
+	# set all nodes to new, and the root node to root
+	nodes[0] |= 0x4000000000000000
+	for i in range(0, nrnodes):
+		nodes[i] |= 0x8000000000000000
+	# construct code
+	output = "\tif (GLOBAL_THREAD_ID < " + str(nrnodes) + ") {\n"
+	output += "\t\tswitch (GLOBAL_THREAD_ID) {\n"
+	for i in range(0, nrnodes):
+		output += "\t\t\tcase " + str(i) + ":\n"
+		if vectorsize < 31:
+			addr = str(i)
+		elif vectorsize < 63:
+			addr = "(" + str(i) + "*2)"
+		else:
+			addr = "(" + str(i) + "*3)"
+		output += "\t\t\t\tshared[CACHEOFFSET+" + addr + "] = "
+		if vectorsize > 30:
+			output += "get_left(" + hexa(nodes[i]) + ");\n"
+			output += "\t\t\t\tshared[CACHEOFFSET+" + addr + "+1] = get_right(" + hexa(nodes[i]) + ");\n"
+		else:
+			output += hexa(nodes[i]) + ";\n"
+		if vectorsize > 62:
+			output += "\t\t\t\tshared[CACHEOFFSET+" + addr + "+2] = " + hexa(nodes_cachepointers[i]) + ");\n"
+		output += "\t\t\t\tbreak;\n"
+	output += "\t\t}\n"
+	output += "\t}"
+	return output
 
 def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, indent):
 	"""Construct CUDA code to produce and store new vectortree nodes. nodes_done is a list containing node ids that have been processed before. nav is a list of nodes still to be processed.
@@ -3373,7 +3470,7 @@ def translate():
 
 	# load the GPUexplore template
 	template = jinja_env.get_template('gpuexplore.jinja2template')
-	out = template.render(model=model, vectorsize=vectorsize, vectorstructure=vectorstructure, vectorstructure_string=vectorstructure_string, vectortree=vectortree, vectortree_T=vectortree_T, max_statesize=max_statesize, vectorelem_in_structure_map=vectorelem_in_structure_map, state_order=state_order, smnames=smnames, smname_to_object=smname_to_object, state_id=state_id, arraynames=arraynames, max_arrayindexsize=max_arrayindexsize, max_buffer_allocs=max_buffer_allocs, connected_channel=connected_channel, alphabet=alphabet, syncactions=syncactions, actiontargets=actiontargets, syncreccomm=syncreccomm, no_state_constant=no_state_constant, no_prio_constant=no_prio_constant, dynamic_write_arrays=dynamic_write_arrays, signalsize=signalsize, async_channel_vectorpart_buffer_range=async_channel_vectorpart_buffer_range, vectortree_size=vectortree_size, vectortree_depth=vectortree_depth, vectortree_level_ids=vectortree_level_ids, vectortree_level_nr_of_leaves=vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children=vectortree_level_nr_of_nodes_with_two_children, vectortree_leaf_thread=vectortree_leaf_thread, gpuexplore2_succdist=gpuexplore2_succdist, no_regsort=no_regsort, tilesize=tilesize, regsort_nr_el_per_thread=regsort_nr_el_per_thread, nr_warps_per_tile=nr_warps_per_tile, warpsize=warpsize, all_arrayindex_allocs_sizes=all_arrayindex_allocs_sizes, smart_vectortree_fetching_bitmask=smart_vectortree_fetching_bitmask, no_smart_fetching=no_smart_fetching, no_compact_hash_table=no_compact_hash_table, nr_bits_address_root=nr_bits_address_root(), nr_bits_address_internal=nr_bits_address_internal())
+	out = template.render(model=model, vectorsize=vectorsize, vectorstructure=vectorstructure, vectorstructure_string=vectorstructure_string, vectortree=vectortree, vectortree_T=vectortree_T, max_statesize=max_statesize, vectorelem_in_structure_map=vectorelem_in_structure_map, state_order=state_order, smnames=smnames, smname_to_object=smname_to_object, state_id=state_id, arraynames=arraynames, max_arrayindexsize=max_arrayindexsize, max_buffer_allocs=max_buffer_allocs, connected_channel=connected_channel, alphabet=alphabet, syncactions=syncactions, actiontargets=actiontargets, syncreccomm=syncreccomm, no_state_constant=no_state_constant, no_prio_constant=no_prio_constant, dynamic_write_arrays=dynamic_write_arrays, signalsize=signalsize, async_channel_vectorpart_buffer_range=async_channel_vectorpart_buffer_range, vectortree_size=vectortree_size, vectortree_depth=vectortree_depth, vectortree_level_ids=vectortree_level_ids, vectortree_level_nr_of_leaves=vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children=vectortree_level_nr_of_nodes_with_two_children, vectortree_leaf_thread=vectortree_leaf_thread, gpuexplore2_succdist=gpuexplore2_succdist, no_regsort=no_regsort, tilesize=tilesize, regsort_nr_el_per_thread=regsort_nr_el_per_thread, nr_warps_per_tile=nr_warps_per_tile, warpsize=warpsize, all_arrayindex_allocs_sizes=all_arrayindex_allocs_sizes, smart_vectortree_fetching_bitmask=smart_vectortree_fetching_bitmask, no_smart_fetching=no_smart_fetching, no_compact_hash_table=no_compact_hash_table, nr_bits_address_root=nr_bits_address_root(), nr_bits_address_internal=nr_bits_address_internal(), cuda_initial_vector=cudastore_initial_vector())
 	# write new SLCO model
 	outFile.write(out)
 	outFile.close()

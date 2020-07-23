@@ -430,19 +430,25 @@ inline __device__ bool cache_pointers_contain_global_address(shared_inttype poin
 inline __device__ void reset_left_in_vectortree_node(nodetype *node) {
 {% if no_compact_hash_table %}
 	asm("{\n\t"
-		" bfi.u64 %0, 0, %0, {{nr_bits_address_internal}}, {{nr_bits_address_internal}};\n\t"
+		" bfi.u64 %0, {{((nr_bits_address_root|pow2)-1)|bitshift_left(64-2-nr_bits_address_root)|hexa}}, %0, {{64-2-nr_bits_address_root}}, {{nr_bits_address_root}};\n\t"
 		"}" : "+l"(*node));
 {% else %}
 	asm("{\n\t"
-		" bfi.u64 %0, 0, %0, {{64-1-nr_bits_address_internal}}, {{nr_bits_address_internal}};\n\t"
+		" bfi.u64 %0, {{((nr_bits_address_internal|pow2)-1)|bitshift_left(64-1-nr_bits_address_internal)|hexa}}, %0, {{64-1-nr_bits_address_internal}}, {{nr_bits_address_internal}};\n\t"
 		"}" : "+l"(*node));
 {% endif %}
 }
 
 inline __device__ void reset_right_in_vectortree_node(inttype *node) {
+{% if no_compact_hash_table %}
 	asm("{\n\t"
-		" bfi.u64 %0, 0, %0, 0, {{nr_bits_address_internal}};\n\t"
+		" bfi.u64 %0, {{((nr_bits_address_root|pow2)-1)|hexa}}, %0, 0, {{nr_bits_address_root}};\n\t"
 		"}" : "+l"(*node));
+{% else %}
+	asm("{\n\t"
+		" bfi.u64 %0, {{((nr_bits_address_internal|pow2)-1)|hexa}}, %0, 0, {{nr_bits_address_internal}};\n\t"
+		"}" : "+l"(*node));
+{% endif %}
 }
 
 // Vectornode set functions.
@@ -465,14 +471,14 @@ inline __device__ void set_right_in_vectortree_node(inttype *node, indextype add
 }
 
 // Vectornode get functions.
-inline __device__ indextype get_pointer_from_vectortree_node(inttype node, bool choice) {
+inline __device__ indextype get_pointer_from_vectortree_node(nodetype node, bool choice) {
 	indextype result;
 {% if no_compact_hash_table %}
 	asm("{\n\t"
 		" .reg .u64 t1;\n\t"
-		" bfe.u64 t1, %1, %2, {{nr_bits_address_internal}};\n\t"
+		" bfe.u64 t1, %1, %2, {{nr_bits_address_root}};\n\t"
 		" cvt.u32.u64 %0, t1;\n\t"
-		"}" : "+r"(result) : "l"(node), "r"((1-(choice ? 1 : 0))*{{nr_bits_address_internal}}));
+		"}" : "+r"(result) : "l"(node), "r"((1-(choice ? 1 : 0))*{{64-2-nr_bits_address_root}}));
 {% else %}
 	asm("{\n\t"
 		" .reg .u64 t1;\n\t"
@@ -486,14 +492,18 @@ inline __device__ indextype get_pointer_from_vectortree_node(inttype node, bool 
 // Vectornode check for a left or right pointer gap.
 inline __device__ bool vectortree_node_contains_left_gap(nodetype node) {
 {% if no_compact_hash_table %}
-	return (node & {{((nr_bits_address_internal|pow2)-1)|bitshift_left(nr_bits_address_internal)|hexa}}) == {{((nr_bits_address_internal|pow2)-1)|bitshift_left(nr_bits_address_internal)|hexa}};
+	return (node & {{((nr_bits_address_root|pow2)-1)|bitshift_left(64-2-nr_bits_address_root)|hexa}}) == {{((nr_bits_address_root|pow2)-1)|bitshift_left(64-2-nr_bits_address_root)|hexa}};
 {% else %}
 	return (node & {{((nr_bits_address_internal|pow2)-1)|bitshift_left(64-1-nr_bits_address_internal)|hexa}}) == {{((nr_bits_address_internal|pow2)-1)|bitshift_left(64-1-nr_bits_address_internal)|hexa}};
 {% endif %}
 }
 
 inline __device__ bool vectortree_node_contains_right_gap(nodetype node) {
+{% if no_compact_hash_table %}
+	return (node & {{((nr_bits_address_root|pow2)-1)|hexa}}) == {{((nr_bits_address_root|pow2)-1)|hexa}};
+{% else %}
 	return (node & {{((nr_bits_address_internal|pow2)-1)|hexa}}) == {{((nr_bits_address_internal|pow2)-1)|hexa}};
+{% endif %}
 }
 
 {% endif %}
@@ -508,7 +518,7 @@ inline __device__ shared_indextype CACHE_HASH(nodetype node) {
 	{{43|cuda_xor_r3(31, 23, 1)}}
 	node1 *= 0xdb4f0ad2012a3801L;
 	{{28|cuda_xor_r(1)}}
-	return (indextype) {% if vectorsize > 62 %}3*{% elif vectorsize > 30 %}2*{% endif %}((node1 & 0x000000000000FFFF) * (d_shared_cache_size{% if vectorsize > 62 %}/3{% elif vectorsize > 30 %}/2{% endif %})) >> 16;
+	return (indextype) {% if vectorsize > 62 %}3*{% elif vectorsize > 30 %}2*{% endif %}((node1 & 0x000000000000FFFF) * (d_shared_cache_size-CACHEOFFSET{% if vectorsize > 62 %}/3{% elif vectorsize > 30 %}/2{% endif %})) >> 16;
 }
 
 inline __device__ indextype {% if not no_compact_hash_table %}U{% endif %}HASH(uint8_t id, uint64_t node) {
@@ -622,7 +632,7 @@ inline __device__ bool STOREINCACHE(nodetype node, shared_inttype cache_pointers
 
 // *** END FUNCTIONS FOR VECTOR TREE NODES MANIPULATION AND STORAGE TO THE SHARED MEMORY CACHE ***
 
-// *** START KERNELS FOR VECTOR TREE NODES STORAGE AND RETRIEVAL TO/FROM THE GLOBAL MEMORY HASH TABLE ***
+// *** START KERNELS AND FUNCTIONS FOR VECTOR TREE NODES STORAGE AND RETRIEVAL TO/FROM THE GLOBAL MEMORY HASH TABLE ***
 
 {% if not no_compact_hash_table %}
 // Initial bitmixer functions.
@@ -1811,7 +1821,7 @@ inline ___device_ indextype FINDORPUT_SINGLE(compressed_nodetype *d_q, nodetype 
 }
 
 // Find or put all new vectortree nodes stored in the shared memory cache into the global memory hash table.
-__device__ bool FINDORPUT_MANY(compressed_nodetype *d_q, volatile uint8_t *d_newstate_flags, indextype non_root_offset) {
+__device__ bool FINDORPUT_MANY(compressed_nodetype *d_q, volatile uint8_t *d_newstate_flags{% if not no_compact_hash_table %}, indextype non_root_offset{% endif %}) {
 	nodetype node;
 	indextype addr;
 	{% if vectorsize > 62 %}
@@ -1958,8 +1968,9 @@ __device__ bool FINDORPUT_MANY(compressed_nodetype *d_q, volatile uint8_t *d_new
 }
 
 // Kernel to store the initial state in the global memory hash table.
-__device__ void store_initial_state(compressed_nodetype *d_q, volatile uint8_t *d_newstate_flags) {
-	
+__global__ void store_initial_state(compressed_nodetype *d_q, volatile uint8_t *d_newstate_flags{% if not no_compact_hash_table %}, indextype non_root_offset{% endif %}) {
+{{cuda_initial_vector}}
+	FINDORPUT_MANY(d_q, d_newstate_flags{% if not no_compact_hash_table %}, non_root_offset{% endif %});
 }
 
 // Auxiliary functions for the fetching of vectortrees from the global hash table. They encode the distribution of vectortree nodes over the threads
@@ -2289,7 +2300,7 @@ inline __device__ shared_indextype FETCH(thread_group treegroup, compressed_node
 	return cache_addr_child;
 }
 
-// *** END KERNELS FOR VECTOR TREE NODES STORAGE AND RETRIEVAL ***
+// *** END KERNELS AND FUNCTIONS FOR VECTOR TREE NODES STORAGE AND RETRIEVAL TO/FROM THE GLOBAL MEMORY HASH TABLE ***
 
 // *** START FUNCTIONS FOR INTRA-WARP BITONIC MERGESORT (Fast Segmented Sort on GPUs, Hou et al., 2017) ***
 
