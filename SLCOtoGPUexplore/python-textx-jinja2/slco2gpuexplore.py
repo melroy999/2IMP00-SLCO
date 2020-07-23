@@ -299,13 +299,28 @@ def scopename(v,i,o):
 
 def vectorpart_is_combined_with_nonleaf_node(p):
 	"""Return whether or not the given part (number) is combined with a non-leaf node in the vector tree"""
-	global vectorstructure, no_compact_hash_table
+	global vectorstructure, no_compact_hash_table, smnames, vectorsize
 	if p < len(vectorstructure)-1:
 		return False
 	if not no_compact_hash_table:
-		return vectorstructure_part_size(vectorstructure[p]) <= (64-1-nr_bits_address_internal())
+		# the allowed size of the part is influenced by whether or not we try to store it in the root.
+		# we try to insert it in the root if we have either two state parts (parts with state machine states)
+		# and no data parts (parts without state machine states), or we have exactly one data part.
+		nrstateparts = 0
+		nrdataparts = 0
+		for t in vectorstructure:
+			if t[0][0] in smnames:
+				nrstateparts += 1
+			else:
+				nrdataparts += 1
+		if (nrstateparts == 2 and nrdataparts == 0) or (nrdataparts == 1):
+			return vectorstructure_part_size(vectorstructure[p]) <= nr_bits_address_internal()
+		else:
+			return vectorstructure_part_size(vectorstructure[p]) <= (64-1-nr_bits_address_internal())
+	elif vectorsize > 62:
+		return vectorstructure_part_size(vectorstructure[p]) <= 31
 	else:
-		return vectorstructure_part_size(vectorstructure[p]) <= 30
+		return False
 
 def vector_has_nonstate_parts():
 	"""Return whether the vectorstructure contains parts without state machine states"""
@@ -3103,6 +3118,8 @@ def preprocess():
 		statecount += 1
 	if nrnodes > 2:
 		openlist.append(2)
+		# we create an unbalanced tree intentionally: we want state nodes to be in the left subtree, for smart fetching.
+		# unless all nodes are state nodes, the right node from the root should be a data node.
 		if nrstatenodes == nrnodes:
 			statenodes.add(2)
 			statecount += 1
