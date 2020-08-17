@@ -53,6 +53,8 @@ signalnr = {}
 # structure of vector
 vectorstructure = []
 vectorstructure_string = ""
+# dictionary to identify vector elements
+elements_strings = {}
 # vector tree, to navigate from root to leaves
 vectortree = {}
 # transposed vector tree
@@ -2662,6 +2664,11 @@ def difference(L1, L2):
 			L.append(l)
 	return L
 
+# filter to obtain string description of given state vector element
+def vector_element_string_desc(s):
+	global elements_strings
+	return elements_strings[s]
+
 def is_async_channel(name):
 	"""Return whether given name refers to an asynchronous channel in model"""
 	global model
@@ -2841,7 +2848,7 @@ def debug(text):
 
 def preprocess():
 	"""Preprocessing of model"""
-	global model, vectorsize, vectorstructure, vectortree, vectortree_T, vectortree_level_ids, vectortree_leaf_thread, vectorstructure_string, smnames, vectorelem_in_structure_map, max_statesize, state_order, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, connected_channel, signalsize, signalnr, alphabet, syncactions, actiontargets, actions, syncreccomm, no_state_constant, no_prio_constant, dynamic_write_arrays, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth, vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children, tilesize, gpuexplore2_succdist, regsort_nr_el_per_thread, all_arrayindex_allocs_sizes, smart_vectortree_fetching_bitmask, nr_warps_per_tile, no_compact_hash_table
+	global model, vectorsize, vectorstructure, vectortree, vectortree_T, vectortree_level_ids, vectortree_leaf_thread, vectorstructure_string, smnames, vectorelem_in_structure_map, max_statesize, state_order, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, connected_channel, signalsize, signalnr, alphabet, syncactions, actiontargets, actions, syncreccomm, no_state_constant, no_prio_constant, dynamic_write_arrays, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth, vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children, tilesize, gpuexplore2_succdist, regsort_nr_el_per_thread, all_arrayindex_allocs_sizes, smart_vectortree_fetching_bitmask, nr_warps_per_tile, no_compact_hash_table, elements_strings
 
 	# construct set of statemachine names in the system
 	# also construct a map from names to objects
@@ -3479,6 +3486,7 @@ def translate():
 	jinja_env.filters['bitshift_left'] = bitshift_left
 	jinja_env.filters['hexa'] = hexa
 	jinja_env.filters['in_list'] = in_list
+	jinja_env.filters['vector_element_string_desc'] = vector_element_string_desc
 
 	# Register the tests
 	jinja_env.tests['is_async'] = is_async

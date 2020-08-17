@@ -57,9 +57,32 @@ int cudaMallocCount ( void ** ptr,int size) {
  * CUDA kernel function to initialise the global memory hash table.
  */
 __global__ void init_hash_table(compressed_nodetype *d_q, uint64_t n_elem) {
-    uint64_t nthreads = GRID_SIZE*BLOCK_SIZE;
-    for(uint64_t i = GLOBAL_THREAD_ID; i < n_elem; i += nthreads) {
+    for (indextype i = GLOBAL_THREAD_ID; i < n_elem; i += NTHREADS) {
     	d_q[i] = (compressed_nodetype) {% if not no_compact_hash_table %}EMPTY_COMPRESSED_NODE{% else %}EMPTY_NODE{% endif %};
     }
 }
 
+/**
+ * CUDA kernel function to count the number of states in the global memory hash table.
+ */
+__global__ void count_states(compressed_nodetype *d_q, inttype result{% if not no_compact_hash_table %}, indextype non_root_offset{% else %}, indextype q_size{% endif %}) {
+	if (THREAD_ID == 0) {
+		shared[0] = 0;
+	}
+	__syncthreads();
+	shared_inttype localResult = 0;
+	for (indextype i = GLOBAL_THREAD_ID; i < {% if not no_compact_hash_table %}non_root_offset{% else %}q_size{% endif %}; i += NTHREADS) {
+		{% if no_compact_hash_table and vectorsize > 63 %}
+		if (is_root(d_q[i])) {
+		{% else %}
+		if (d_q[i] != {% if not no_compact_hash_table %}EMPTY_COMPRESSED_NODE{% else %}EMPTY_NODE{% endif %}) {
+		{% endif %}
+			localResult++;
+		}
+		atomicAdd(&(shared[0]), localResult);
+		__syncthreads();
+		if (THREAD_ID == 0) {
+			atomicAdd(result, shared[0]);
+		}
+	}
+}

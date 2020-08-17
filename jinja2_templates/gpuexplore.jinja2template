@@ -99,6 +99,7 @@ static const int NR_OF_BLOCKS = 3120;
 // Thread ids and dimensions.
 #define GRID_SIZE 				gridDim.x
 #define BLOCK_SIZE				blockDim.x
+#define NTHREADS				(GRID_SIZE * BLOCK_SIZE)
 
 #define BLOCK_ID				blockIdx.x
 #define THREAD_ID 				threadIdx.x
@@ -326,7 +327,7 @@ inline __device__ shared_inttype get_right(nodetype node) {
 }
 
 // Combine two halfs of a vectornode
-inline __device__ nodetype combine_halfs(shared_inttype n1, shared_inttype n2) {
+inline __node__ __device__ nodetype combine_halfs(shared_inttype n1, shared_inttype n2) {
 	nodetype node = (nodetype) n2;
 	nodetype node2 = (nodetype) n1;
 	asm("{\n\t"
@@ -382,7 +383,7 @@ inline __device__ void get_vectortree_node(inttype *node, shared_inttype *d_cach
 }
 {% for i in range(0,vectortree|length) %}
 
-inline __device__ void get_vectortree_node_{{i}}(inttype *node, shared_inttype *d_cachepointers, shared_indextype node_index) {
+inline __device__ void get_vectortree_node_{{i}}(nodetype *node, shared_inttype *d_cachepointers, shared_indextype node_index) {
 	{% if i|get_vector_tree_to_node_navigation|length > 0 %}
 	shared_indextype index = node_index;
 	{% endif %}
@@ -397,6 +398,37 @@ inline __device__ void get_vectortree_node_{{i}}(inttype *node, shared_inttype *
 		"}" : "=l"(*node) : "r"(shared[CACHEOFFSET+{% if i|get_vector_tree_to_node_navigation|length > 0 %}index{% else %}node_index{% endif %}]), "r"(shared[CACHEOFFSET+{% if i|get_vector_tree_to_node_navigation|length > 0 %}index{% else %}node_index{% endif %}+1]));
 	{% endif %}
 	*d_cachepointers = shared[CACHEOFFSET+{% if i|get_vector_tree_to_node_navigation|length > 0 %}index{% else %}node_index{% endif %}+2];
+}
+{% endfor %}
+
+// Function to traverse one step in state vector tree (stored in global or host memory).
+inline __host__ __device__ nodetype direct_sv_step(compressed_nodetype *q, nodetype node, bool goright{% if not no_compact_hash_table %}, indextype non_root_offset{% endif %}) {
+	indextype index = get_pointer_from_vectortree_node(node, goright);
+	{% if no_compact_hash_table %}
+	return q[index];
+	{% else %}
+	compressed_nodetype p1, p2;
+	p1 = q[non_root_offset+(index*2)];
+	p2 = q[non_root_offset+(index*2)+1];
+	return combine_halfs((shared_inttype) p1, (shared_inttype) p2);
+	{% endif %}
+}
+
+// Functions to retrieve vector parts from global or host memory.
+{% for i in range(0,vectorstructure|length) %}
+
+inline __host__ __device__ nodetype direct_get_vectorpart_{{i}}(compressed_nodetype *q, nodetype node) {
+	{% if vectorsize <= 30 %}
+	return node;
+	{% else %}
+	{% if i|get_vector_tree_to_part_navigation|length > 0 %}
+	nodetype tmp = node;
+	{% endif %}
+	{% for b in i|get_vector_tree_to_part_navigation %}
+	tmp = sv_step(q, tmp, {% if b %}true{% else %}false{% endif %});
+	{% endfor %}
+	return tmp;
+	{% endif %}
 }
 {% endfor %}
 
@@ -471,7 +503,7 @@ inline __device__ void set_right_in_vectortree_node(inttype *node, indextype add
 }
 
 // Vectornode get functions.
-inline __device__ indextype get_pointer_from_vectortree_node(nodetype node, bool choice) {
+inline __host__ __device__ indextype get_pointer_from_vectortree_node(nodetype node, bool choice) {
 	indextype result;
 {% if no_compact_hash_table %}
 	asm("{\n\t"
@@ -1706,7 +1738,7 @@ inline __device__ compressed_nodetype get_compressed_node_root(nodetype h, uint8
 {% endif %}
 
 // Retrieve vectortree node at index i of the global memory hash table.
-inline __device __ nodetype HT_RETRIEVE(compressed_nodetype *d_q, indextype i{% if not no_compact_hash_table %}, indextype offset{% endif %}) {
+inline __host__ __device __ nodetype HT_RETRIEVE(compressed_nodetype *d_q, indextype i{% if not no_compact_hash_table %}, indextype offset{% endif %}) {
 	{% if no_compact_hash_table %}
 	return (nodetype) d_q[i];
 	{% else %}
@@ -2512,7 +2544,7 @@ __device__ shared_indextype get_sorted_opentile_element(uint8_t wid) {
 // Precondition: the given parts indeed contain the requested info.
 {% for s in vectorelem_in_structure_map.keys() %}
 {% set size = vectorelem_in_structure_map[s][0] %}
-inline __device__ void get_{{s|replace("[","_")|replace("]","")|replace("'","_")}}({% if s|is_state %}elem_statetype{% elif size == 1 %}elem_booltype{% elif size < 32 %}elem_chartype{% else %}elem_inttype{% endif %} *b, nodetype part1, nodetype part2) {
+inline __host__ __device__ void get_{{s|replace("[","_")|replace("]","")|replace("'","_")}}({% if s|is_state %}elem_statetype{% elif size == 1 %}elem_booltype{% elif size < 32 %}elem_chartype{% else %}elem_inttype{% endif %} *b, nodetype part1, nodetype part2) {
 {% if size == 1 %}
 	elem_chartype t2;
 {% endif %}
@@ -2535,7 +2567,7 @@ inline __device__ void get_{{s|replace("[","_")|replace("]","")|replace("'","_")
 {% if arraynames|length > 0 %}
 // Data retrieval functions, including the fetching of required vector parts, for array elements with dynamic indexing.
 {% for vname, t, size in arraynames %}
-inline __device__ void get_{{vname|replace("[","_")|replace("]","")|replace("'","_")}}(shared_indextype node_index, {% if t|gettypesize == 1 %}elem_booltype{% elif t|gettypesize < 32 %}elem_chartype{% else %}elem_inttype{% endif %} *b, array_indextype index) {
+inline __host__ __device__ void get_{{vname|replace("[","_")|replace("]","")|replace("'","_")}}(shared_indextype node_index, {% if t|gettypesize == 1 %}elem_booltype{% elif t|gettypesize < 32 %}elem_chartype{% else %}elem_inttype{% endif %} *b, array_indextype index) {
 	nodetype part1, part2;
 	switch (index) {
 		{% for i in range(0, size) %}
@@ -3008,3 +3040,45 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(shared_indext
 }
 
 {% endfor %}
+
+// *** START PRINT FUNCTIONS ***
+
+void print_content_hash_table(FILE* stream, compressed_nodetype *q{% if not no_compact_hash_table %}, indextype non_root_offset{% else %}, indextype q_size{% endif %}) {
+	for (indextype i = 0; i < {% if not no_compact_hash_table %}non_root_offset{% else %}q_size{% endif %}; i++) {
+		{% if no_compact_hash_table and vectorsize > 63 %}
+		if (is_root(d_q[i])) {
+		{% else %}
+		if (d_q[i] != {% if not no_compact_hash_table %}EMPTY_COMPRESSED_NODE{% else %}EMPTY_NODE{% endif %}) {
+		{% endif %}
+			// Retrieve state vector.
+			nodetype {% if vectorsize > 63 %}root{% else %}part1{% endif %} = HT_RETRIEVE(q, i{% if not no_compact_hash_table %}, non_root_offset{% endif %});
+			{% if vectorsize > 63 %}
+			{% for i in range(0,vectorstructure|length) %}
+			nodetype part{{i}} = direct_get_vectorpart_{{i}}(q, root);
+			{% endfor %}
+			{% else %}
+			nodetype part2;
+			{% endif %}
+			// Print the contents of the state.
+			nodetype *p1, *p2;
+			elem_statetype e_st;
+			elem_booltype e_b;
+			elem_chartype e_c;
+			elem_inttype e_i;
+			fprintf(stream, "-----\n");
+			{% for s in vectorelem_in_structure_map.keys() %}
+			{% set size = vectorelem_in_structure_map[s][0] %}
+			{% set PIDs = vectorelem_in_structure_map[s] %}
+			p1 = &part{{PIDs[1][0]}};
+			{% if PIDs|length > 2 %}
+			p2 = &part{{PIDs[2][0]}};
+			{% endif %}
+			get_{{s|replace("[","_")|replace("]","")|replace("'","_")}}({% if s|is_state %}&e_st{% elif size == 1 %}&e_b{% elif size < 32 %}&e_c{% else %}&e_i{% endif %}, *p1, *p2);
+			fprintf(stream, "{{s|vector_element_string_desc}} {{s}}: %u\n", (uint64_t) {% if s|is_state %}&e_st{% elif size == 1 %}&e_b{% elif size < 32 %}&e_c{% else %}&e_i{% endif %});
+			{% endfor %}
+			fprintf(stream, "-----\n");
+		}
+	}
+}
+
+// *** END PRINT FUNCTIONS ***
