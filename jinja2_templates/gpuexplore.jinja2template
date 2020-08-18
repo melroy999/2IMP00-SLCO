@@ -157,11 +157,13 @@ const size_t Mb = 1<<20;
 // Definitions for open tile element access.
 #define ENTRY_ID				(THREAD_ID / {{smnames|length}})
 #define	ENTRY_STATE_TID			(THREAD_ID - ENTRY_ID*{{smnames|length}})
-#define THREADHASSUCCWORK		(THREAD_ID < (OPENTILELEN * {{smnames|length}}))
+#define THREADHASSUCCWORK		(THREAD_ID < (OPENTILECOUNT * {{smnames|length}}))
 {% else %}
-#define ENTRY_ID				(WARP_ID % OPENTILELEN)
-#define ENTRY_STATE_ID			(WARP_ID % {{smnames|length}})
-#define THREADHASSUCCWORK		()
+// Fast division with rounding up:
+#define OPENTILE_WARP_WIDTH		((OPENTILELEN + WARP_SIZE - 1) / WARP_SIZE)
+#define ENTRY_ID				(((WARP_ID % OPENTILE_WARP_WIDTH) * WARP_SIZE) + LANE)
+#define ENTRY_STATE_ID			(WARP_ID / OPENTILE_WARP_WIDTH)
+#define THREADHASSUCCWORK		(ENTRY_ID < OPENTILECOUNT && ENTRY_STATE_ID < {{smnames|length}})
 {% endif %}
 
 // CONSTANTS FOR GLOBAL MEMORY HASH TABLE
