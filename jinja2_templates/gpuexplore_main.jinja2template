@@ -57,7 +57,7 @@ int cudaMallocCount ( void ** ptr,int size) {
  * CUDA kernel function to initialise the global memory hash table.
  */
 __global__ void init_hash_table(compressed_nodetype *d_q, uint64_t n_elem) {
-    for (indextype i = GLOBAL_THREAD_ID; i < n_elem; i += NTHREADS) {
+    for (indextype i = GLOBAL_THREAD_ID; i < n_elem; i += NR_THREADS) {
     	d_q[i] = (compressed_nodetype) {% if not no_compact_hash_table %}EMPTY_COMPRESSED_NODE{% else %}EMPTY_NODE{% endif %};
     }
 }
@@ -71,7 +71,7 @@ __global__ void count_states(compressed_nodetype *d_q, inttype result{% if not n
 	}
 	__syncthreads();
 	shared_inttype localResult = 0;
-	for (indextype i = GLOBAL_THREAD_ID; i < {% if not no_compact_hash_table %}non_root_offset{% else %}q_size{% endif %}; i += NTHREADS) {
+	for (indextype i = GLOBAL_THREAD_ID; i < {% if not no_compact_hash_table %}non_root_offset{% else %}q_size{% endif %}; i += NR_THREADS) {
 		{% if no_compact_hash_table and vectorsize > 63 %}
 		if (is_root(d_q[i])) {
 		{% else %}
@@ -84,5 +84,94 @@ __global__ void count_states(compressed_nodetype *d_q, inttype result{% if not n
 		if (THREAD_ID == 0) {
 			atomicAdd(result, shared[0]);
 		}
+	}
+}
+
+__global__ void __launch_bounds__(512, 2) gather(compressed_nodetype *d_q, uint8_t *d_contBFS, uint8_t *d_property_violation, volatile uint8_t *d_newstate_flags, shared_inttype *d_worktiles, const uint8_t scan) {
+	uint32_t i;
+	shared_inttype l;
+	compressed_node tmp;
+
+	// Reset the shared variables preceding the cache, and reset the cache.
+	if (THREAD_ID < d_shared_q_size) {
+		shared[THREAD_ID] = (THREAD_ID < SH_OFFSET ? 0 : EMPTYVECT32);
+	}
+	if (scan) {
+		// Copy the work tile from global memory.
+		if (THREAD_ID < OPENTILELEN + LASTSEARCHLEN) {
+			shared[OPENTILEOFFSET + THREAD_ID] = d_worktiles[(OPENTILELEN+LASTSEARCHLEN+1) * BLOCK_ID + THREAD_ID];
+		}
+		if (THREAD_ID == 0) {
+			OPENTILECOUNT = d_worktiles[(OPENTILELEN+LASTSEARCHLEN+1) * BLOCK_ID + OPENTILELEN + LASTSEARCHLEN];
+		}
+	}
+	else if (THREAD_ID < OPENTILELEN+LASTSEARCHLEN) {
+		// On first run: initialise the work tile to empty.
+		shared[OPENTILEOFFSET+THREAD_ID] = 0;
+	}
+	__syncthreads();
+	while (ITERATIONS < d_kernel_iters) {
+		if (THREAD_ID == 0 && OPENTILECOUNT < OPENTILELEN && d_newstate_flags[BLOCK_ID] == 1) {
+			// Indicate that we are scanning.
+			d_newstate_flags[BLOCK_ID] = 2;
+			SCAN = 1;
+		}
+		__syncthreads();
+		// Scan the open set for work; we use OPENTILECOUNT to count retrieved elements.
+		if (SCAN) {
+			indextype last_search_location = (indextype) shared[LASTSEARCHOFFSET + WARP_ID];
+			// This block should be able to find a new state.
+			bool found_new_state = false;
+			for (i = GLOBAL_THREAD_ID; i < {% if no_compact_hash_table %}d_hash_table_size{% else %}d_non_root_offset{% endif %} && OPENTILECOUNT < OPENTILELEN; i += NR_THREADS) {
+				indextype loc = i + last_search_location;
+				if (loc >= {% if no_compact_hash_table %}d_hash_table_size{% else %}d_non_root_offset{% endif %}) {
+					last_search_location = -i + GLOBAL_THREAD_ID;
+					loc = i + last_search_location;
+				}
+				tmp = d_q[loc];
+				l = EMPTYVECT32;
+				if ({% if no_compact_hash_table %}is_new(tmp){% else %}tmp != EMPTY_COMPRESSED_NODE{% endif %}) {
+					found_new_state = true;
+					// Try to increment the OPENTILECOUNT counter. If successful, store the state pointer.
+					l = atomicAdd((shared_inttype *) &OPENTILECOUNT, 1);
+					{% if no_compact_hash_table %}
+					if (l < OPENTILELEN) {
+						d_q[loc] = mark_old(tmp);
+					}
+					{% endif %}
+					shared[OPENTILEOFFSET+l] = tmp;
+				}
+			}
+			if (i < {% if no_compact_hash_table %}d_hash_table_size{% else %}d_non_root_offset{% endif %}) {
+				last_search_location = i - GLOBAL_WARP_ID;
+			}
+			else {
+				last_search_location = 0;
+			}
+			if (LANE == 0) {
+				shared[LASTSEARCHOFFSET + WARP_ID] = last_search_location;
+			}
+			if (found_new_state || i < {% if no_compact_hash_table %}d_hash_table_size{% else %}d_non_root_offset{% endif %}) {
+				WORKSCANRESULT = 1;
+			}
+		}
+		__syncthreads();
+		// If work has been retrieved, indicate this.
+		if (THREAD_ID == 0) {
+			if (OPENTILECOUNT > 0) {
+				(*d_contBFS) = 1;
+			}
+			if (SCAN && WORKSCANRESULT == 0 && d_newstate_flags[BLOCK_ID] == 2) {
+				// Scanning has completed and no new states were found by this block.
+				// Save this information to prevent unnecessary scanning later on.
+				d_newstate_flags[BLOCK_ID] = 0;
+			}
+			else {
+				WORKSCANRESULT = 0;
+			}
+			scan = 0;
+		}
+		// Does the thread have successor generation work to do?
+
 	}
 }

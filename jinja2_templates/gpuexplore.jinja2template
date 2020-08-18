@@ -90,6 +90,8 @@ __constant__ uint16_t d_shared_cache_size;
 __constant__ uint32_t d_hash_table_size;
 {% elif no_compact_hash_table %}
 __constant__ uint64_t d_hash_table_size;
+{% else %}
+__constant__ uint64_t d_non_root_offset;
 {% endif %}
 
 // GPU configuraton.
@@ -99,7 +101,7 @@ static const int NR_OF_BLOCKS = 3120;
 // Thread ids and dimensions.
 #define GRID_SIZE 				gridDim.x
 #define BLOCK_SIZE				blockDim.x
-#define NTHREADS				(GRID_SIZE * BLOCK_SIZE)
+#define NR_THREADS				(GRID_SIZE * BLOCK_SIZE)
 
 #define BLOCK_ID				blockIdx.x
 #define THREAD_ID 				threadIdx.x
@@ -132,14 +134,12 @@ const size_t Mb = 1<<20;
 
 // CONSTANTS FOR SHARED MEMORY CACHES
 // Offsets calculations for shared memory arrays
-#define HASHCONSTANTSLEN		(2*NR_HASH_FUNCTIONS)
 #define OPENTILELEN				{{tilesize}}
 #define LASTSEARCHLEN			(BLOCK_SIZE/WARP_SIZE)
 
 // Offsets in shared memory from which loaded data can be read.
 #define SH_OFFSET 5
-#define HASHCONSTANTSOFFSET 	(SH_OFFSET)
-#define OPENTILEOFFSET 			(HASHCONSTANTSOFFSET+HASHCONSTANTSLEN)
+#define OPENTILEOFFSET 			(SH_OFFSET)
 #define LASTSEARCHOFFSET		(OPENTILEOFFSET+OPENTILELEN)
 #define CACHEOFFSET 			(LASTSEARCHOFFSET+LASTSEARCHLEN)
 
@@ -155,14 +155,15 @@ const size_t Mb = 1<<20;
 
 {% if gpuexplore2_succdist %}
 // Definitions for open tile element access.
-#define	GROUP_TID				(LANE % {{smnames|length}})
-#define GROUPS_PER_WARP			(WARP_SIZE / {{smnames|length}})
-#define GROUP_ID				(WARP_ID * GROUPS_PER_WARP + LANE / {{smnames|length}})
-#define NR_GROUPS				((BLOCK_SIZE / WARP_SIZE) * GROUPS_PER_WARP)
-
-#define THREADINGROUP			(LANE < GROUPS_PER_WARP * {{smnames|length}})
-
+#define ENTRY_ID				(THREAD_ID / {{smnames|length}})
+#define	ENTRY_STATE_TID			(THREAD_ID - ENTRY_ID*{{smnames|length}})
+#define THREADHASSUCCWORK		(THREAD_ID < (OPENTILELEN * {{smnames|length}}))
+{% else %}
+#define ENTRY_ID				(WARP_ID % OPENTILELEN)
+#define ENTRY_STATE_ID			(WARP_ID % {{smnames|length}})
+#define THREADHASSUCCWORK		()
 {% endif %}
+
 // CONSTANTS FOR GLOBAL MEMORY HASH TABLE
 {% if no_compact_hash_table %}
 // Empty hash table element (exploits that a vectornode cannot be marked 'new' without being marked 'root')
@@ -236,7 +237,7 @@ inline __device__ uint64_t xor_rot2_64(uint64_t x, uint8_t a, uint8_t b) {
 // *** START FUNCTIONS FOR VECTOR TREE NODES MANIPULATION AND STORAGE TO THE SHARED MEMORY CACHE ***
 
 // Mark state as new or old.
-inline __device__ vectornodetype mark_new(compressed_nodetype node) {
+inline __device__ compressed_nodetype mark_new(compressed_nodetype node) {
 {% if vectorsize < 32 or not no_compact_hash_table %}
 	return node | 0x80000000;
 {% else %}
@@ -244,7 +245,7 @@ inline __device__ vectornodetype mark_new(compressed_nodetype node) {
 {% endif %}
 }
 
-inline __device__ vectornodetype mark_old(compressed_nodetype node) {
+inline __device__ compressed_nodetype mark_old(compressed_nodetype node) {
 {% if vectorsize < 32 or not no_compact_hash_table %}
 	return node & 0x7FFFFFFF;
 {% else %}
@@ -252,12 +253,13 @@ inline __device__ vectornodetype mark_old(compressed_nodetype node) {
 {% endif %}
 }
 
-// Check whether state is new.
+// Check whether state is new. This is the case if the highest two bits are set
+(if only the highest bit is set, the node is actually empty).
 inline __device__ bool is_new(compressed_nodetype node) {
 {% if vectorsize < 32 or not no_compact_hash_table %}
-	return (node & 0x80000000) != 0;
+	return (node & 0xC0000000) == 0xC0000000;
 {% else %}
-	return (node & 0x8000000000000000) != 0;
+	return (node & 0xC000000000000000) == 0x8000000000000000;
 {% endif %}
 }
 
@@ -402,14 +404,14 @@ inline __device__ void get_vectortree_node_{{i}}(nodetype *node, shared_inttype 
 {% endfor %}
 
 // Function to traverse one step in state vector tree (stored in global or host memory).
-inline __host__ __device__ nodetype direct_sv_step(compressed_nodetype *q, nodetype node, bool goright{% if not no_compact_hash_table %}, indextype non_root_offset{% endif %}) {
+inline __host__ __device__ nodetype direct_sv_step(compressed_nodetype *q, nodetype node, bool goright) {
 	indextype index = get_pointer_from_vectortree_node(node, goright);
 	{% if no_compact_hash_table %}
 	return q[index];
 	{% else %}
 	compressed_nodetype p1, p2;
-	p1 = q[non_root_offset+(index*2)];
-	p2 = q[non_root_offset+(index*2)+1];
+	p1 = q[d_non_root_offset+(index*2)];
+	p2 = q[d_non_root_offset+(index*2)+1];
 	return combine_halfs((shared_inttype) p1, (shared_inttype) p2);
 	{% endif %}
 }
@@ -1853,7 +1855,7 @@ inline ___device_ indextype FINDORPUT_SINGLE(compressed_nodetype *d_q, nodetype 
 }
 
 // Find or put all new vectortree nodes stored in the shared memory cache into the global memory hash table.
-__device__ bool FINDORPUT_MANY(compressed_nodetype *d_q, volatile uint8_t *d_newstate_flags{% if not no_compact_hash_table %}, indextype non_root_offset{% endif %}) {
+__device__ bool FINDORPUT_MANY(compressed_nodetype *d_q, volatile uint8_t *d_newstate_flags) {
 	nodetype node;
 	indextype addr;
 	{% if vectorsize > 62 %}
@@ -1865,7 +1867,7 @@ __device__ bool FINDORPUT_MANY(compressed_nodetype *d_q, volatile uint8_t *d_new
 		CONTINUE = 0;
 	}
 	__syncthreads();
-	for (shared_indextype i = THREAD_ID{% if vectorsize > 62 %}*3{% endif %}; i < d_shared_q_size; i += BLOCK_SIZE{% if vectorsize > 62 %}*3{% endif %}) {
+	for (shared_indextype i = THREAD_ID{% if vectorsize > 62 %}*3{% endif %}; i < d_shared_cache_size; i += BLOCK_SIZE{% if vectorsize > 62 %}*3{% endif %}) {
 		node_pointers = shared[CACHEOFFSET+i+2];
 		// Check if node is ready for storage. Only new leafs are ready at this point. We rely on old and new non-leafs having pointers with the highest
 		// two bits set to zero, empty entries and old leafs having pointers set to zero, and new leafs having pointers set to 0x40000000.
@@ -1928,7 +1930,7 @@ __device__ bool FINDORPUT_MANY(compressed_nodetype *d_q, volatile uint8_t *d_new
 		__syncthreads();
 		if (work_to_do) {
 			work_to_do = false;
-			for (shared_indextype i = THREAD_ID*3; i < d_shared_q_size; i += BLOCK_SIZE*3) {
+			for (shared_indextype i = THREAD_ID*3; i < d_shared_cache_size; i += BLOCK_SIZE*3) {
 				node_pointers_child = shared[CACHEOFFSET+i];
 				// If the node is marked new, this is a node still to be processed.
 				if (head_is_new(node_pointers_child)) {
@@ -1980,7 +1982,7 @@ __device__ bool FINDORPUT_MANY(compressed_nodetype *d_q, volatile uint8_t *d_new
 		__syncthreads();
 	}
 	{% else %}
-	for (shared_indextype i = THREAD_ID; i < d_shared_q_size; i += BLOCK_SIZE) {
+	for (shared_indextype i = THREAD_ID; i < d_shared_cache_size; i += BLOCK_SIZE) {
 		{% if vectorsize > 30 %}
 		node = combine_halfs(shared[CACHEOFFSET+i], shared[CACHEOFFSET+i+1]);
 		{% else %}
@@ -2000,9 +2002,9 @@ __device__ bool FINDORPUT_MANY(compressed_nodetype *d_q, volatile uint8_t *d_new
 }
 
 // Kernel to store the initial state in the global memory hash table.
-__global__ void store_initial_state(compressed_nodetype *d_q, volatile uint8_t *d_newstate_flags{% if not no_compact_hash_table %}, indextype non_root_offset{% endif %}) {
+__global__ void store_initial_state(compressed_nodetype *d_q, volatile uint8_t *d_newstate_flags) {
 {{cuda_initial_vector}}
-	FINDORPUT_MANY(d_q, d_newstate_flags{% if not no_compact_hash_table %}, non_root_offset{% endif %});
+	FINDORPUT_MANY(d_q, d_newstate_flags);
 }
 
 // Auxiliary functions for the fetching of vectortrees from the global hash table. They encode the distribution of vectortree nodes over the threads
@@ -2164,13 +2166,13 @@ inline __device__ shared_indextype FETCH(thread_group treegroup, compressed_node
 	{% if vectortree_level_nr_of_leaves[i] == lsize %}
 		{% if not no_smart_fetching %}
 		if (({% if j == 0 %}{{smart_vectortree_fetching_bitmask[0]}}{% else %}smart_fetching_bitmask{% endif %} & (1 << (31-gid))) != 0x0) {
-			leaf_node = HT_RETRIEVE(d_q, node_addr{% if not no_compact_hash_table %}, d_non_root_offset){% endif %});
+			leaf_node = HT_RETRIEVE(d_q, node_addr);
 			// Store the leaf node in the cache.
 			cache_pointers = 0;
 			cache_addr = STOREINCACHE(leaf_node, cache_pointers);
 		}
 		{% else %}
-		leaf_node = HT_RETRIEVE(d_q, node_addr{% if not no_compact_hash_table %}, d_non_root_offset){% endif %});
+		leaf_node = HT_RETRIEVE(d_q, node_addr);
 		// Store the leaf node in the cache.
 		cache_pointers = 0;
 		cache_addr = STOREINCACHE(leaf_node, cache_pointers);
@@ -2179,7 +2181,7 @@ inline __device__ shared_indextype FETCH(thread_group treegroup, compressed_node
 		if ({% for n in vectortree_level_ids[i] if vectortree[n]|length == 0 %}gid == {{vectortree_leaf_thread[n]}}{% if not loop.last %} || {% endif %}{% endfor %}) {
 			{% if not no_smart_fetching %}
 			if (({% if j == 0 %}{{smart_vectortree_fetching_bitmask[0]}}{% else %}smart_fetching_bitmask{% endif %} & (1 << (31-gid))) != 0x0) {
-				leaf_node = HT_RETRIEVE(d_q, node_addr{% if not no_compact_hash_table %}, d_non_root_offset){% endif %});
+				leaf_node = HT_RETRIEVE(d_q, node_addr);
 				// Store the leaf node in the cache.
 				cache_pointers = 0;
 				cache_addr = STOREINCACHE(leaf_node, cache_pointers);
@@ -2194,22 +2196,22 @@ inline __device__ shared_indextype FETCH(thread_group treegroup, compressed_node
 		else {
 			{% if not no_smart_fetching and j == 1 %}
 			if (node == 0 && ({% if j == 0 %}{{smart_vectortree_fetching_bitmask[0]}}{% else %}smart_fetching_bitmask{% endif %} & get_part_reachability(gid)) != 0x0) {
-				node = HT_RETRIEVE(d_q, node_addr{% if not no_compact_hash_table %}, d_non_root_offset){% endif %});
+				node = HT_RETRIEVE(d_q, node_addr);
 				node_tmp_1 = node;
 			}
 			{% else %}
-			node = HT_RETRIEVE(d_q, node_addr{% if not no_compact_hash_table %}, d_non_root_offset){% endif %});
+			node = HT_RETRIEVE(d_q, node_addr);
 			node_tmp_1 = node;
 			{% endif %}
 		}
 	{% else %}
 		{% if not no_smart_fetching and j == 1 %}
 		if (node == 0 && ({% if j == 0 %}{{smart_vectortree_fetching_bitmask[0]}}{% else %}smart_fetching_bitmask{% endif %} & get_part_reachability(gid)) != 0x0) {
-			node = HT_RETRIEVE(d_q, node_addr{% if not no_compact_hash_table %}, d_non_root_offset){% endif %});
+			node = HT_RETRIEVE(d_q, node_addr);
 			node_tmp_1 = node;
 		}
 		{% else %}
-		node = HT_RETRIEVE(d_q, node_addr{% if not no_compact_hash_table %}, d_non_root_offset){% endif %});
+		node = HT_RETRIEVE(d_q, node_addr);
 		node_tmp_1 = node;
 		{% endif %}
 	{% endif %}
