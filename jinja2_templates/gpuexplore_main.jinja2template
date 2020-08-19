@@ -90,6 +90,7 @@ __global__ void count_states(compressed_nodetype *d_q, inttype result{% if not n
 __global__ void __launch_bounds__(512, 2) gather(compressed_nodetype *d_q, uint8_t *d_contBFS, uint8_t *d_property_violation, volatile uint8_t *d_newstate_flags, shared_inttype *d_worktiles, const uint8_t scan) {
 	uint32_t i;
 	shared_inttype l;
+	shared_indextype sh_index;
 	compressed_node tmp;
 
 	// Reset the shared variables preceding the cache, and reset the cache.
@@ -171,7 +172,19 @@ __global__ void __launch_bounds__(512, 2) gather(compressed_nodetype *d_q, uint8
 			}
 			scan = 0;
 		}
+		// Fill the cache with the vector trees referred to in the work tile.
+		for (i = WARP_ID; i < OPENTILECOUNT; i += NR_WARPS_PER_BLOCK) {
+			// Create a cooperative group corresponding with the warp in which the thread resides.
+			thread_group tile32 = cooperative_groups::partition(this_thread_block(), 32);
+			sh_index = FETCH(tile32, d_q, shared[OPENTILEOFFSET+WARP_ID]);
+			if (LANE == 0) {
+				// Store the address to the tree in the cache in the work tile.
+				shared[OPENTILEOFFSET+WARP_ID] = sh_index;
+			}
+		}
 		// Does the thread have successor generation work to do?
-
+		if (THREADHASSUCCWORK) {
+			GENERATE_SUCCESSORS();
+		}
 	}
 }
