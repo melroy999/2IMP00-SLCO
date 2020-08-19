@@ -3414,7 +3414,7 @@ def preprocess():
 		# determine the tile size based on GPUexplore 2.0 successor work distribution
 		tilesize = int(512 / len(smnames))
 	else:
-		# divide 16 (number of warps in a block) by the number of statemachines in the model (or 16, if that number is smaller).
+		# divide 16 (number of warps in a block) by the number of statemachines in the model (or 16, if the former is smaller than the latter).
 		# multiply that number by 32, as each thread in a warp can work on a different state vector.
 		tilesize = int((16 / min(len(smnames), 16)) * 32)
 		# conpute the number of elements per thread in intra-warp regsort of tile elements

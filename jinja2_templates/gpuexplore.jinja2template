@@ -153,17 +153,18 @@ const size_t Mb = 1<<20;
 #define WORKSCANRESULT			(shared[3])
 #define SCAN					(shared[4])
 
+#define NR_SMS					({{smnames|length}})
 {% if gpuexplore2_succdist %}
 // Definitions for open tile element access.
-#define ENTRY_ID				(THREAD_ID / {{smnames|length}})
-#define	ENTRY_STATE_TID			(THREAD_ID - ENTRY_ID*{{smnames|length}})
-#define THREADHASSUCCWORK		(THREAD_ID < (OPENTILECOUNT * {{smnames|length}}))
+#define ENTRY_ID				(THREAD_ID / NR_SMS)
+#define	ENTRY_STATE_TID			(THREAD_ID - ENTRY_ID*NR_SMS)
+#define THREADHASSUCCWORK		(THREAD_ID < (OPENTILECOUNT * NR_SMS))
 {% else %}
 // Fast division with rounding up:
 #define OPENTILE_WARP_WIDTH		{{nr_warps_per_tile}}
 #define ENTRY_ID				(((WARP_ID % OPENTILE_WARP_WIDTH) * WARP_SIZE) + LANE)
 #define ENTRY_STATE_ID			(WARP_ID / OPENTILE_WARP_WIDTH)
-#define THREADHASSUCCWORK		(ENTRY_ID < OPENTILECOUNT && ENTRY_STATE_ID < {{smnames|length}})
+#define THREADHASSUCCWORK		(ENTRY_ID < OPENTILECOUNT && ENTRY_STATE_ID < NR_SMS)
 {% endif %}
 
 // CONSTANTS FOR GLOBAL MEMORY HASH TABLE
@@ -2911,16 +2912,28 @@ inline __device__ statetype get_target_{{sm.name}}_{{a}}(statetype src, statetyp
 // is stored in the shared memory.
 inline __device__ void GENERATE_SUCCESSORS() {
 	// Iterate over the designated work.
+	shared_indextype entry_id, entry_state_id;
+	shared_inttype src_state;
 	{% if gpuexplore2_succdist %}
-	shared_inttype src_state = shared[OPENTILEOFFSET+ENTRY_ID];
-	get_successors_of_sm((shared_indextype) src_state, ENTRY_STATE_ID);
+	for (shared_indextype i = THREAD_ID; i < (OPENTILECOUNT * NR_SMS); i += BLOCK_SIZE) {
+		entry_id = i / NR_SMS;
+		entry_state_id = i - (entry_id * NR_SMS);
+		src_state = shared[OPENTILEOFFSET+entry_id];
+		get_successors_sm((shared_indextype) src_state, entry_state_id);
+	}
 	{% elif no_regsort %}
-	shared_inttype src_state = shared[OPENTILEOFFSET+ENTRY_ID];
-	for (shared_indextype i = WARP_ID; (i/OPENTILE_WARP_WIDTH) < {{smnames|length}}; i += NR_WARPS_PER_BLOCK) {
-		get_successors_of_sm((shared_indextype) src_state, (i/OPENTILE_WARP_WIDTH));
+	entry_id = ((WARP_ID % OPENTILE_WARP_WIDTH) * WARP_SIZE) + LANE;
+	for (shared_indextype i = ENTRY_STATE_ID; i < NR_SMS; i += (NR_WARPS_PER_BLOCK / OPENTILE_WARP_WIDTH)) {
+		
+		entry_state_id = i / OPENTILE_WARP_WIDTH;
+		if (entry_id >= OPENTILECOUNT || entry_state_id >= NR_SMS) {
+			break;
+		}
+		src_state = shared[OPENTILEOFFSET+entry_id];
+		get_successors_of_sm((shared_indextype) src_state, entry_state_id);
 	}
 	{% else %}
-	for (elem_chartype i = WARP_ID; (i/OPENTILE_WARP_WIDTH) < {{smnames|length}}; i += NR_WARPS_PER_BLOCK) {
+	for (elem_chartype i = WARP_ID; (i/OPENTILE_WARP_WIDTH) < NR_SMS; i += NR_WARPS_PER_BLOCK) {
 		shared_inttype src_state = get_sorted_opentile_element(i/OPENTILE_WARP_WIDTH);
 		if (ISVECTORSTATE(src_state)) {
 			get_successors_of_sm((shared_indextype) src_state, (i/OPENTILE_WARP_WIDTH));
