@@ -2453,7 +2453,8 @@ inline __device__ void _exch_paral({% for i in range(0,regsort_nr_el_per_thread)
 
 // The main bitonic sorting function, including loading the data to be sorted,
 // and returning the tile index of the element to be subsequently used by the calling thread.
-// wid is the ID of the state machine we are interested in.
+// wid is the ID of the warp executing the function. It is a parameter (as opposed to deriving the ID from the thread dynamically),
+// to allow a thread to run the function with multiple IDs (may be needed in the future).
 __device__ shared_indextype get_sorted_opentile_element(uint8_t wid) {
 	statetype {% for i in range(0,regsort_nr_el_per_thread) %}s{{i}}{% if not loop.last %}, {% else %};{% endif %}{% endfor %}
 	
