@@ -96,7 +96,7 @@ __constant__ uint64_t d_non_root_offset;
 
 // GPU configuraton.
 static const int KERNEL_ITERS = 1;
-static const int NR_OF_BLOCKS = 3120;
+static const int NR_BLOCKS = {{nrblocks}};
 
 // Thread ids and dimensions.
 #define GRID_SIZE 				gridDim.x
@@ -135,7 +135,7 @@ const size_t Mb = 1<<20;
 // CONSTANTS FOR SHARED MEMORY CACHES
 // Offsets calculations for shared memory arrays
 #define OPENTILELEN				{{tilesize}}
-#define LASTSEARCHLEN			(BLOCK_SIZE/WARP_SIZE)
+#define LASTSEARCHLEN			NR_WARPS_PER_BLOCK
 
 // Offsets in shared memory from which loaded data can be read.
 #define SH_OFFSET 5
@@ -144,7 +144,7 @@ const size_t Mb = 1<<20;
 #define CACHEOFFSET 			(LASTSEARCHOFFSET+LASTSEARCHLEN)
 
 // Error value to indicate a full global hash table.
-#define HASHTABLE_FULL 0
+#define HASHTABLE_FULL 0xFFFFFFFF
 
 // Shared memory local progress flags
 #define ITERATIONS				(shared[0])
@@ -153,19 +153,8 @@ const size_t Mb = 1<<20;
 #define WORKSCANRESULT			(shared[3])
 #define SCAN					(shared[4])
 
+// The number of state machines in the model.
 #define NR_SMS					({{smnames|length}})
-{% if gpuexplore2_succdist %}
-// Definitions for open tile element access.
-#define ENTRY_ID				(THREAD_ID / NR_SMS)
-#define	ENTRY_STATE_TID			(THREAD_ID - ENTRY_ID*NR_SMS)
-#define THREADHASSUCCWORK		(THREAD_ID < (OPENTILECOUNT * NR_SMS))
-{% else %}
-// Fast division with rounding up:
-#define OPENTILE_WARP_WIDTH		{{nr_warps_per_tile}}
-#define ENTRY_ID				(((WARP_ID % OPENTILE_WARP_WIDTH) * WARP_SIZE) + LANE)
-#define ENTRY_STATE_ID			(WARP_ID / OPENTILE_WARP_WIDTH)
-#define THREADHASSUCCWORK		(ENTRY_ID < OPENTILECOUNT && ENTRY_STATE_ID < NR_SMS)
-{% endif %}
 
 // CONSTANTS FOR GLOBAL MEMORY HASH TABLE
 {% if no_compact_hash_table %}
@@ -572,9 +561,9 @@ inline __device__ indextype {% if not no_compact_hash_table %}U{% endif %}HASH(u
 // Store a vectortree node in the cache.
 // Return address if successful, HASHTABLE_FULL if cache is full.
 {% if vectorsize < 64 %}
-inline __device__ shared_indextype STOREINCACHE(nodetype node) {
+inline __device__ shared_inttype STOREINCACHE(nodetype node) {
 {% else %}
-inline __device__ bool STOREINCACHE(nodetype node, shared_inttype cache_pointers) {
+inline __device__ shared_inttype STOREINCACHE(nodetype node, shared_inttype cache_pointers) {
 {% endif %}
 	uint8_t i = 0;
 	shared_indextype addr;
@@ -598,7 +587,7 @@ inline __device__ bool STOREINCACHE(nodetype node, shared_inttype cache_pointers
 				element = atomicCAS((shared_inttype *) &(shared[CACHEOFFSET+addr+2], EMPTYVECT32, cache_pointers);
 				if (element == EMPTYVECT32 || element == cache_pointers) {
 					// Storage of node successful.
-					return addr;
+					return (shared_inttype) addr;
 				}
 				else {
 					// Storage of node after all not successful. Try another address.
@@ -644,7 +633,7 @@ inline __device__ bool STOREINCACHE(nodetype node, shared_inttype cache_pointers
 				continue;
 			}
 			{% else %}
-			return addr;
+			return (shared_inttype) addr;
 			{% endif %}
 		}
 		else {
@@ -2127,8 +2116,9 @@ inline __device__ uint32_t get_part_bitmask_for_states_in_vectorpart(uint8_t pid
 {% endif %}
 
 // Retrieve a vectortree from the global hash table and store it in the cache. This is performed in a warp-centric way.
-// Address addr points to the root of the requested vectortree. The function returns the address of the root of the vectortree in the cache.
-inline __device__ shared_indextype FETCH(thread_group treegroup, compressed_nodetype *d_q, indextype addr) {
+// Address addr points to the root of the requested vectortree. The function returns the address of the root of the vectortree in the cache,
+// or HASHTABLE_FULL in the case the cache is full.
+inline __device__ shared_inttype FETCH(thread_group treegroup, compressed_nodetype *d_q, indextype addr) {
 	nodetype node = 0;
 	{% if vectorsize > 62 %}
 	nodetype leaf_node = 0;
@@ -2136,6 +2126,7 @@ inline __device__ shared_indextype FETCH(thread_group treegroup, compressed_node
 	nodetype node_tmp_2 = 0;
 	indextype node_addr = 0;
 	shared_inttype cache_pointers = 0;
+	shared_inttype result;
 	shared_indextype cache_addr = 0;
 	shared_indextype cache_addr_child = 0;
 	uint8_t gid = treegroup.thread_rank();
@@ -2181,7 +2172,13 @@ inline __device__ shared_indextype FETCH(thread_group treegroup, compressed_node
 			leaf_node = HT_RETRIEVE(d_q, node_addr);
 			// Store the leaf node in the cache.
 			cache_pointers = 0;
-			cache_addr = STOREINCACHE(leaf_node, cache_pointers);
+			result = STOREINCACHE(leaf_node, cache_pointers);
+			if (result == HASHTABLE_FULL) {
+				return HASHTABLE_FULL;
+			}
+			else {
+				cache_addr = (shared_indextype) result;
+			}
 		}
 		{% else %}
 		leaf_node = HT_RETRIEVE(d_q, node_addr);
@@ -2196,13 +2193,25 @@ inline __device__ shared_indextype FETCH(thread_group treegroup, compressed_node
 				leaf_node = HT_RETRIEVE(d_q, node_addr);
 				// Store the leaf node in the cache.
 				cache_pointers = 0;
-				cache_addr = STOREINCACHE(leaf_node, cache_pointers);
+				result = STOREINCACHE(leaf_node, cache_pointers);
+				if (result == HASHTABLE_FULL) {
+					return HASHTABLE_FULL;
+				}
+				else {
+					cache_addr = (shared_indextype) result;
+				}
 			}
 			{% else %}
 			leaf_node = d_q[node_addr];
 			// Store the leaf node in the cache.
 			cache_pointers = 0;
-			cache_addr = STOREINCACHE(leaf_node, cache_pointers);
+			result = STOREINCACHE(leaf_node, cache_pointers);
+			if (result == HASHTABLE_FULL) {
+				return HASHTABLE_FULL;
+			}
+			else {
+				cache_addr = (shared_indextype) result;
+			}
 			{% endif %}
 		}
 		else {
@@ -2328,18 +2337,36 @@ inline __device__ shared_indextype FETCH(thread_group treegroup, compressed_node
 		{% if not no_smart_fetching %}
 		if ((smart_fetching_bitmask & get_part_reachability(gid)) != 0x0) {
 			node = mark_non_root_old(node);
-			cache_addr = STOREINCACHE(node, cache_pointers);
+			result = STOREINCACHE(leaf_node, cache_pointers);
+			if (result == HASHTABLE_FULL) {
+				return HASHTABLE_FULL;
+			}
+			else {
+				cache_addr = (shared_indextype) result;
+			}
 		}
 		{% else %}
 		node = mark_non_root_old(node);
-		cache_addr = STOREINCACHE(node, cache_pointers);
+		result = STOREINCACHE(leaf_node, cache_pointers);
+		if (result == HASHTABLE_FULL) {
+			return HASHTABLE_FULL;
+		}
+		else {
+			cache_addr = (shared_indextype) result;
+		}
 		{% endif %}
 	}
 	treegroup.sync();
 	{% endfor %}
 	{% else %}
 	node = HT_RETRIEVE(d_q, node_addr{% if not no_compact_hash_table %}, 0){% endif %});
-	cache_addr = STOREINCACHE(node, cache_pointers);
+	result = STOREINCACHE(leaf_node, cache_pointers);
+	if (result == HASHTABLE_FULL) {
+		return HASHTABLE_FULL;
+	}
+	else {
+		cache_addr = (shared_indextype) result;
+	}
 	{% endif %}
 	// Obtain cache address of the root and return it.
 	cache_addr_child = treegroup.shfl(cache_addr, 0);
@@ -2541,12 +2568,15 @@ __device__ shared_indextype get_sorted_opentile_element(uint8_t wid) {
 	// Finally, retrieve the index of the tile element of interest for the current thread.
 	uint8_t offset = wid % OPENTILE_WARP_WIDTH;
 	{% for i in range(0,regsort_nr_el_per_thread) %}
-	if (LANE*{{regsort_nr_el_per_thread}}+{{i}} >= offset && LANE*{{regsort_nr_el_per_thread}}+{{i}} < offset+WARP_SIZE) {
+	// If the index of the p{{i}} element of the thread is within the range of interest, prepare it for communication.
+	if (LANE*{{regsort_nr_el_per_thread}}+{{i}} >= offset*WARP_SIZE && LANE*{{regsort_nr_el_per_thread}}+{{i}} < (offset+1)*WARP_SIZE) {
 		p_tmp_1 = p{{i}};
 	}
 	__syncwarp();
-	p_tmp_2 = __shfl_sync(0xFFFFFFFF, p_tmp_1, (offset+LANE) / {{regsort_nr_el_per_thread}});
-	if ((offset+LANE) & {{regsort_nr_el_per_thread-1}} == {{i}}) {
+	// Retrieve from the thread that holds the element of interest for the current thread the prepared value (if it exists).
+	p_tmp_2 = __shfl_sync(0xFFFFFFFF, p_tmp_1, ((offset*WARP_SIZE)+LANE) / {{regsort_nr_el_per_thread}});
+	// If the value was indeed prepared by the source thread, store it.
+	if (LANE & {{regsort_nr_el_per_thread-1}} == {{i}}) {
 		// Value of interest is ready to be fetched.
 		p_result = p_tmp_2;
 	}
@@ -2913,33 +2943,37 @@ inline __device__ statetype get_target_{{sm.name}}_{{a}}(statetype src, statetyp
 // is stored in the shared memory.
 inline __device__ void GENERATE_SUCCESSORS() {
 	// Iterate over the designated work.
-	shared_indextype entry_id, entry_state_id;
+	shared_indextype entry_id;
+	{% if no_regsort %}
+	shared_indextype entry_state_id;
+	{% endif %}
 	shared_inttype src_state;
 	{% if gpuexplore2_succdist %}
 	for (shared_indextype i = THREAD_ID; i < (OPENTILECOUNT * NR_SMS); i += BLOCK_SIZE) {
 		entry_id = i / NR_SMS;
 		entry_state_id = i - (entry_id * NR_SMS);
 		src_state = shared[OPENTILEOFFSET+entry_id];
-		get_successors_sm((shared_indextype) src_state, entry_state_id);
-	}
-	{% elif no_regsort %}
-	entry_id = ((WARP_ID % OPENTILE_WARP_WIDTH) * WARP_SIZE) + LANE;
-	for (shared_indextype i = ENTRY_STATE_ID; i < NR_SMS; i += (NR_WARPS_PER_BLOCK / OPENTILE_WARP_WIDTH)) {
-		
-		entry_state_id = i / OPENTILE_WARP_WIDTH;
-		if (entry_id >= OPENTILECOUNT || entry_state_id >= NR_SMS) {
-			break;
-		}
-		src_state = shared[OPENTILEOFFSET+entry_id];
 		get_successors_of_sm((shared_indextype) src_state, entry_state_id);
 	}
 	{% else %}
-	for (elem_chartype i = WARP_ID; (i/OPENTILE_WARP_WIDTH) < NR_SMS; i += NR_WARPS_PER_BLOCK) {
-		shared_inttype src_state = get_sorted_opentile_element(i/OPENTILE_WARP_WIDTH);
-		if (ISVECTORSTATE(src_state)) {
-			get_successors_of_sm((shared_indextype) src_state, (i/OPENTILE_WARP_WIDTH));
+	{% if no_regsort %}
+	entry_id = ((WARP_ID % OPENTILE_WARP_WIDTH) * WARP_SIZE) + LANE;
+	if (entry_id < OPENTILECOUNT) {
+	{% endif %}
+	for (shared_indextype i = WARP_ID; i/OPENTILE_WARP_WIDTH < NR_SMS; i += NR_WARPS_PER_BLOCK) {	
+		{% if not no_regsort %}
+		entry_id = get_sorted_opentile_element(i);
+		if (entry_id < OPENTILECOUNT) {
+		{% endif %}
+			src_state = shared[OPENTILEOFFSET+entry_id];
+			get_successors_of_sm((shared_indextype) src_state, i/OPENTILE_WARP_WIDTH);
+		{% if not no_regsort %}
 		}
+		{% endif %}
 	}
+	{% if no_regsort %}
+	}
+	{% endif %}
 	{% endif %}
 } 
 

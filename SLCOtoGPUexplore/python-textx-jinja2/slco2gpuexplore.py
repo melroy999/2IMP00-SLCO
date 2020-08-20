@@ -21,6 +21,11 @@ no_regsort = False
 no_smart_fetching = False
 no_compact_hash_table = False
 
+# number of blocks
+nrblocks = 3120
+# number of threads per block
+nrthreadsperblock = 512
+
 # the size of a warp
 warpsize = 32
 
@@ -2848,7 +2853,7 @@ def debug(text):
 
 def preprocess():
 	"""Preprocessing of model"""
-	global model, vectorsize, vectorstructure, vectortree, vectortree_T, vectortree_level_ids, vectortree_leaf_thread, vectorstructure_string, smnames, vectorelem_in_structure_map, max_statesize, state_order, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, connected_channel, signalsize, signalnr, alphabet, syncactions, actiontargets, actions, syncreccomm, no_state_constant, no_prio_constant, dynamic_write_arrays, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth, vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children, tilesize, gpuexplore2_succdist, regsort_nr_el_per_thread, all_arrayindex_allocs_sizes, smart_vectortree_fetching_bitmask, nr_warps_per_tile, no_compact_hash_table, elements_strings
+	global model, vectorsize, vectorstructure, vectortree, vectortree_T, vectortree_level_ids, vectortree_leaf_thread, vectorstructure_string, smnames, vectorelem_in_structure_map, max_statesize, state_order, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, connected_channel, signalsize, signalnr, alphabet, syncactions, actiontargets, actions, syncreccomm, no_state_constant, no_prio_constant, dynamic_write_arrays, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth, vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children, tilesize, gpuexplore2_succdist, regsort_nr_el_per_thread, all_arrayindex_allocs_sizes, smart_vectortree_fetching_bitmask, nr_warps_per_tile, no_compact_hash_table, elements_strings, nrblocks, nrthreadsperblock
 
 	# construct set of statemachine names in the system
 	# also construct a map from names to objects
@@ -3409,21 +3414,21 @@ def preprocess():
 	while children != []:
 		vectortree_depth += 1
 		children = vectortree.get(children[0], [])
-	# determine the tile size. We assume 512 threads in a block here.
+	# determine the tile size.
 	if gpuexplore2_succdist:
 		# determine the tile size based on GPUexplore 2.0 successor work distribution
-		tilesize = int(512 / len(smnames))
+		tilesize = int(nrthreadsperblock / len(smnames))
 	else:
-		# divide 16 (number of warps in a block) by the number of statemachines in the model (or 16, if the former is smaller than the latter).
-		# multiply that number by 32, as each thread in a warp can work on a different state vector.
-		tilesize = int((16 / min(len(smnames), 16)) * 32)
+		# divide number of warps per block by the number of statemachines in the model (or 16, if the former is smaller than the latter).
+		# multiply that number by warpsize, as each thread in a warp can work on a different state vector.
+		tilesize = int(((nrthreadsperblock / warpsize) / min(len(smnames), (nrthreadsperblock / warpsize))) * warpsize)
 		# conpute the number of elements per thread in intra-warp regsort of tile elements
 		regsort_nr_el_per_thread = int(math.pow(2,math.ceil(math.log(tilesize, 2))) / warpsize)
 		nr_warps_per_tile = int(math.ceil(float(tilesize) / float(warpsize)))
 
 def translate():
 	"""The translation function"""
-	global modelname, model, vectorstructure, vectorstructure_string, vectortree, vectortree_T, vectortree_level_ids, vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children, vectorelem_in_structure_map, vectortree_leaf_thread, state_order, max_statesize, smnames, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, signalsize, connected_channel, alphabet, syncactions, actiontargets, no_state_constant, no_prio_constant, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth, gpuexplore2_succdist, no_regsort, tilesize, regsort_nr_el_per_thread, warpsize, all_arrayindex_allocs_sizes, no_smart_fetching, no_compact_hash_table
+	global modelname, model, vectorstructure, vectorstructure_string, vectortree, vectortree_T, vectortree_level_ids, vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children, vectorelem_in_structure_map, vectortree_leaf_thread, state_order, max_statesize, smnames, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, signalsize, connected_channel, alphabet, syncactions, actiontargets, no_state_constant, no_prio_constant, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth, gpuexplore2_succdist, no_regsort, tilesize, regsort_nr_el_per_thread, warpsize, all_arrayindex_allocs_sizes, no_smart_fetching, no_compact_hash_table, nrblocks, nrthreadsperblock
 	
 	path, name = split(modelname)
 	if name.endswith('.slco'):
@@ -3495,20 +3500,20 @@ def translate():
 
 	# load the GPUexplore template
 	template = jinja_env.get_template('gpuexplore.jinja2template')
-	out = template.render(model=model, vectorsize=vectorsize, vectorstructure=vectorstructure, vectorstructure_string=vectorstructure_string, vectortree=vectortree, vectortree_T=vectortree_T, max_statesize=max_statesize, vectorelem_in_structure_map=vectorelem_in_structure_map, state_order=state_order, smnames=smnames, smname_to_object=smname_to_object, state_id=state_id, arraynames=arraynames, max_arrayindexsize=max_arrayindexsize, max_buffer_allocs=max_buffer_allocs, connected_channel=connected_channel, alphabet=alphabet, syncactions=syncactions, actiontargets=actiontargets, syncreccomm=syncreccomm, no_state_constant=no_state_constant, no_prio_constant=no_prio_constant, dynamic_write_arrays=dynamic_write_arrays, signalsize=signalsize, async_channel_vectorpart_buffer_range=async_channel_vectorpart_buffer_range, vectortree_size=vectortree_size, vectortree_depth=vectortree_depth, vectortree_level_ids=vectortree_level_ids, vectortree_level_nr_of_leaves=vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children=vectortree_level_nr_of_nodes_with_two_children, vectortree_leaf_thread=vectortree_leaf_thread, gpuexplore2_succdist=gpuexplore2_succdist, no_regsort=no_regsort, tilesize=tilesize, regsort_nr_el_per_thread=regsort_nr_el_per_thread, nr_warps_per_tile=nr_warps_per_tile, warpsize=warpsize, all_arrayindex_allocs_sizes=all_arrayindex_allocs_sizes, smart_vectortree_fetching_bitmask=smart_vectortree_fetching_bitmask, no_smart_fetching=no_smart_fetching, no_compact_hash_table=no_compact_hash_table, nr_bits_address_root=nr_bits_address_root(), nr_bits_address_internal=nr_bits_address_internal(), cuda_initial_vector=cudastore_initial_vector())
+	out = template.render(model=model, vectorsize=vectorsize, vectorstructure=vectorstructure, vectorstructure_string=vectorstructure_string, vectortree=vectortree, vectortree_T=vectortree_T, max_statesize=max_statesize, vectorelem_in_structure_map=vectorelem_in_structure_map, state_order=state_order, smnames=smnames, smname_to_object=smname_to_object, state_id=state_id, arraynames=arraynames, max_arrayindexsize=max_arrayindexsize, max_buffer_allocs=max_buffer_allocs, connected_channel=connected_channel, alphabet=alphabet, syncactions=syncactions, actiontargets=actiontargets, syncreccomm=syncreccomm, no_state_constant=no_state_constant, no_prio_constant=no_prio_constant, dynamic_write_arrays=dynamic_write_arrays, signalsize=signalsize, async_channel_vectorpart_buffer_range=async_channel_vectorpart_buffer_range, vectortree_size=vectortree_size, vectortree_depth=vectortree_depth, vectortree_level_ids=vectortree_level_ids, vectortree_level_nr_of_leaves=vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children=vectortree_level_nr_of_nodes_with_two_children, vectortree_leaf_thread=vectortree_leaf_thread, gpuexplore2_succdist=gpuexplore2_succdist, no_regsort=no_regsort, tilesize=tilesize, regsort_nr_el_per_thread=regsort_nr_el_per_thread, nr_warps_per_tile=nr_warps_per_tile, warpsize=warpsize, all_arrayindex_allocs_sizes=all_arrayindex_allocs_sizes, smart_vectortree_fetching_bitmask=smart_vectortree_fetching_bitmask, no_smart_fetching=no_smart_fetching, no_compact_hash_table=no_compact_hash_table, nr_bits_address_root=nr_bits_address_root(), nr_bits_address_internal=nr_bits_address_internal(), cuda_initial_vector=cudastore_initial_vector(), nrblocks=nrblocks, nrthreadsperblock=nrthreadsperblock)
 	# write new SLCO model
 	outFile.write(out)
 	outFile.close()
 	# create the main file for GPUexplore
 	outFile = open(join(path,"gpuexplore.cu"), 'w')
 	template = jinja_env.get_template('gpuexplore_main.jinja2template')
-	out = template.render(name=name)
+	out = template.render(name=name, vectorsize=vectorsize)
 	outFile.write(out)
 	outFile.close()
 
 def main(args):
 	"""The main function"""
-	global modelname, model, property_file, deadlock_check, gpuexplore2_succdist, no_regsort, no_smart_fetching, no_compact_hash_table, global_memsize
+	global modelname, model, property_file, deadlock_check, gpuexplore2_succdist, no_regsort, no_smart_fetching, no_compact_hash_table, global_memsize, nrblocks, nrthreadsperblock
 	if len(args) == 0:
 		print("Missing argument: SLCO model")
 		sys.exit(1)
@@ -3521,6 +3526,8 @@ def main(args):
 			print(" -s                    size of the GPU global memory (in GB)")
 			print(" -d                    check for deadlocks")
 			print(" -p                    verify given LTL property")
+			print(" -b                    number of CUDA blocks to run (default 3120")
+			print(" -t                    number of threads per CUDA block (default 512)")
 			print(" -g2                   apply GPUexplore 2.0 successor generation work distribution")
 			print(" -noregsort            do not apply regsort for successor generation work distribution")
 			print(" -nosmartfetching      disable smart fetching of vectortrees from global memory")
@@ -3544,6 +3551,12 @@ def main(args):
 					no_smart_fetching = True
 				elif args[i] == '-nocompacthashtable':
 					no_compact_hash_table = True
+				elif args[i] == '-b':
+					nrblocks = int(args[i+1])
+					i += 1
+				elif args[i] == '-t':
+					nrthreadsperblock = int(args[i+1])
+					i += 1
 				else:
 					modelname = args[i]
 
