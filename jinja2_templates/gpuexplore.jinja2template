@@ -8,21 +8,11 @@ using namespace cooperative_groups;
 #define compressed_nodetype uint32_t
 {% else %}
 #define nodetype uint64_t
-{% if no_compact_hash_table %}
+{% if not compact_hash_table %}
 #define compressed_nodetype uint64_t
 {% else %}
 #define compressed_nodetype uint32_t
 {% endif %}
-{% endif %}
-// type of global memory elements used.
-{% if no_compact_hash_table %}
-{% if vectorsize < 32 %}
-#define global_inttype uint32_t
-{% else %}
-#define global_inttype uint64_t
-{% endif %}
-{% else %}
-#define global_inttype uint32_t
 {% endif %}
 // type of global memory indices used.
 {% if vectorsize < 63 %}
@@ -72,7 +62,7 @@ using namespace cooperative_groups;
 {% else %}
 #define buffer_indextype int32_t
 {% endif %}
-// type for vector nodes IDs.
+// type for vector node IDs.
 {% if vectortree|length < 2**8 %}
 #define vectornode_indextype uint8_t;
 {% elif vectortree|length < 2**16 %}
@@ -86,10 +76,8 @@ using namespace cooperative_groups;
 // GPU constants.
 static const int WARP_SIZE = 32;
 __constant__ uint16_t d_shared_cache_size;
-{% if vectorsize > 62 and no_compact_hash_table %}
-__constant__ uint32_t d_hash_table_size;
-{% elif no_compact_hash_table %}
-__constant__ uint64_t d_hash_table_size;
+{% if not compact_hash_table %}
+__constant__ indextype d_hash_table_size;
 {% else %}
 __constant__ uint64_t d_non_root_offset;
 {% endif %}
@@ -118,17 +106,16 @@ static const int NR_BLOCKS = {{nrblocks}};
 #define NO_STATE {{no_state_constant}}
 // Empty local cache element (exploits that a vectornode cannot be marked 'new' without being marked 'root')
 #define EMPTYVECT32 			0xBFFFFFFF
-#define ISVECTORSTATE(t)		((t) != EMPTYVECT32)
 #define EMPTYVECT16				0xFFFF
+{% if vectorsize > 62 %}
 #define CACHE_POINTERS_NEW_LEAF	0x40000000
+{% endif %}
 
 // Retry constant to determine number of retries for element insertion.
 #define RETRYFREQ 7
 #define NR_HASH_FUNCTIONS 32
 // Number of retries in local cache.
 #define CACHERETRYFREQ 20
-// Constant to indicate that no more work is required.
-#define EXPLORATION_DONE 0x7FFFFFFF
 
 const size_t Mb = 1<<20;
 
@@ -144,7 +131,11 @@ const size_t Mb = 1<<20;
 #define CACHEOFFSET 			(LASTSEARCHOFFSET+LASTSEARCHLEN)
 
 // Error value to indicate a full global hash table.
+{% if nr_bits_address_root < 32 %}
 #define HASHTABLE_FULL 0xFFFFFFFF
+{% else %}
+#define HASHTABLE_FULL 0xFFFFFFFFFFFFFFFF
+{% endif %}
 
 // Shared memory local progress flags
 #define ITERATIONS				(shared[0])
@@ -154,12 +145,12 @@ const size_t Mb = 1<<20;
 #define SCAN					(shared[4])
 
 // The number of state machines in the model.
-#define NR_SMS					({{smnames|length}})
+#define NR_SMS					{{smnames|length}}
 
 // CONSTANTS FOR GLOBAL MEMORY HASH TABLE
-{% if no_compact_hash_table %}
+{% if not compact_hash_table %}
 // Empty hash table element (exploits that a vectornode cannot be marked 'new' without being marked 'root')
-{% if vectorsize < 32 %}
+{% if vectorsize <= 30 %}
 #define EMPTY_NODE 	0xBFFFFFFF
 {% else %}
 #define EMPTY_NODE 	0xBFFFFFFFFFFFFFFF
@@ -176,7 +167,7 @@ extern __shared__ volatile shared_inttype shared[];
 
 // Structure of the state vector:
 // {{vectorstructure_string}}
-{% if not no_smart_fetching %}
+{% if vectorsize > 62 and not no_smart_fetching %}
 
 // Bitmask to identify parts of the state vector that contain state machine states.
 #define VECTOR_SMPARTS			{{smart_vectortree_fetching_bitmask["smstates"]}}
@@ -184,7 +175,7 @@ extern __shared__ volatile shared_inttype shared[];
 
 // *** START BIT OPERATIONS ***
 
-{% if not no_compact_hash_table %}
+{% if compact_hash_table %}
 // Bit left rotation function for {{nr_bits_address_internal*2}} bits.
 inline __device__ nodetype rot_{{nr_bits_address_internal*2}}(const nodetype x, uint8_t i) {
 	return (x << i) | (x >> ({{nr_bits_address_internal*2}}-i));
@@ -226,11 +217,11 @@ inline __device__ uint64_t xor_rot2_64(uint64_t x, uint8_t a, uint8_t b) {
 
 // *** END BIT OPERATIONS ***
 
-// *** START FUNCTIONS FOR VECTOR TREE NODES MANIPULATION AND STORAGE TO THE SHARED MEMORY CACHE ***
+// *** START FUNCTIONS FOR {% if vectorsize > 62 %}VECTOR TREE {% endif %}NODE MANIPULATION AND STORAGE TO THE SHARED MEMORY CACHE ***
 
 // Mark state as new or old.
 inline __device__ compressed_nodetype mark_new(compressed_nodetype node) {
-{% if vectorsize < 32 or not no_compact_hash_table %}
+{% if vectorsize <= 30 or compact_hash_table %}
 	return node | 0x80000000;
 {% else %}
 	return node | 0x8000000000000000;
@@ -238,7 +229,7 @@ inline __device__ compressed_nodetype mark_new(compressed_nodetype node) {
 }
 
 inline __device__ compressed_nodetype mark_old(compressed_nodetype node) {
-{% if vectorsize < 32 or not no_compact_hash_table %}
+{% if vectorsize <= 30 or compact_hash_table %}
 	return node & 0x7FFFFFFF;
 {% else %}
 	return node & 0x7FFFFFFFFFFFFFFF;
@@ -250,10 +241,17 @@ inline __device__ nodetype mark_non_root_old(nodetype node) {
 	return node & 0x7FFFFFFFFFFFFFFF;
 }
 {% endif %}
-// Check whether state is new. This is the case if the highest two bits are set
-(if only the highest bit is set, the node is actually empty).
+// Check whether state is new.
+{% if not compact_hash_table %}
+// This is the case if the highest two bits are set
+// (if only the highest bit is set, the node is actually empty).
+{% else %}
+// This is the case if the highest bit is set.
+{% endif %}
 inline __device__ bool is_new(compressed_nodetype node) {
-{% if vectorsize < 32 or not no_compact_hash_table %}
+{% if compact_hash_table %}
+	return (node & 0x80000000) == 0x80000000;
+{% elif vectorsize <= 30 %}
 	return (node & 0xC0000000) == 0xC0000000;
 {% else %}
 	return (node & 0xC000000000000000) == 0x8000000000000000;
@@ -265,7 +263,7 @@ inline __device__ bool head_is_new(shared_inttype node) {
 	return (node & 0x80000000) != 0;
 }
 
-{% if no_compact_hash_table and vectorsize > 31 %}
+{% if not compact_hash_table and vectorsize > 31 %}
 // Mark a node as root.
 inline __device__ inttype mark_root(compressed_nodetype node) {
 	return node | 0x4000000000000000;
@@ -305,10 +303,9 @@ inline __device__ shared_indextype sv_step(shared_indextype node_index, bool gor
 }
 
 {% endif %}
-{% if vectorsize > 31 %}
-// Get left or right half of a vectornode
-inline __device__ shared_inttype get_left(nodetype node) {
-	shared_inttype result;
+// Get left or right half of a 64-bit integer
+inline __device__ uint32_t get_left(uint64_t node) {
+	uint32_t result;
 	asm("{\n\t"
 		" .reg .u64 t1;\n\t"
 		" bfe.u64 t1, %1, 32, 32;\n\t"
@@ -317,26 +314,28 @@ inline __device__ shared_inttype get_left(nodetype node) {
 	return result;
 }
 
-inline __device__ shared_inttype get_right(nodetype node) {
-	shared_inttype result;
+inline __device__ uint32_t get_right(uint64_t node) {
+	uint32_t result;
 	asm("{\n\t"
 		" cvt.u32.u64 %0, %1;\n\t"
 		"}" : "=r"(result) : "l"(node));
 	return result;
 }
 
-// Combine two halfs of a vectornode
-inline __node__ __device__ nodetype combine_halfs(shared_inttype n1, shared_inttype n2) {
-	nodetype node = (nodetype) n2;
-	nodetype node2 = (nodetype) n1;
+// Combine two halfs of a 64-bit integer
+inline __node__ __device__ uint64_t combine_halfs(uint32_t n1, uint32_t n2) {
+	uint64_t node = (uint64_t) n2;
+	uint64_t node2 = (uint64_t) n1;
 	asm("{\n\t"
 		" bfi.u64 %0, %1, %0, 32, 32;\n\t
 		"}" : "+l"(node) : "l"(node2));
 	return node;
 }
 
+// Retrieval functions for vector parts from shared memory.
+{% if vectorsize > 62 %}
+We ignore shared memory node pointers (cache pointers).
 {% endif %}
-// Retrieval functions for vector parts from shared memory, ignoring shared memory node pointers (cache pointers).
 inline __device__ nodetype get_vectorpart(shared_indextype node_index, vectornode_indextype part_id) {
 	switch (part_id) {
 	  {% for i in range(0,vectorstructure|length) %}
@@ -351,7 +350,8 @@ inline __device__ nodetype get_vectorpart(shared_indextype node_index, vectornod
 
 inline __device__ nodetype get_vectorpart_{{i}}(shared_indextype node_index) {
 	{% if vectorsize <= 30 %}
-	return shared[CACHEOFFSET+node_index];
+	// The node is directly stored in the work tile.
+	return shared[OPENTILEOFFSET+node_index];
 	{% else %}
 	{% if i|get_vector_tree_to_part_navigation|length > 0 %}
 	shared_indextype index = node_index;
@@ -403,7 +403,7 @@ inline __device__ void get_vectortree_node_{{i}}(nodetype *node, shared_inttype 
 // Function to traverse one step in state vector tree (stored in global or host memory).
 inline __host__ __device__ nodetype direct_sv_step(compressed_nodetype *q, nodetype node, bool goright) {
 	indextype index = get_pointer_from_vectortree_node(node, goright);
-	{% if no_compact_hash_table %}
+	{% if not compact_hash_table %}
 	return q[index];
 	{% else %}
 	compressed_nodetype p1, p2;
@@ -459,7 +459,7 @@ inline __device__ bool cache_pointers_contain_global_address(shared_inttype poin
 
 // Vectornode reset functions.
 inline __device__ void reset_left_in_vectortree_node(nodetype *node) {
-{% if no_compact_hash_table %}
+{% if not compact_hash_table %}
 	asm("{\n\t"
 		" bfi.u64 %0, {{((nr_bits_address_root|pow2)-1)|bitshift_left(64-2-nr_bits_address_root)|hexa}}, %0, {{64-2-nr_bits_address_root}}, {{nr_bits_address_root}};\n\t"
 		"}" : "+l"(*node));
@@ -471,7 +471,7 @@ inline __device__ void reset_left_in_vectortree_node(nodetype *node) {
 }
 
 inline __device__ void reset_right_in_vectortree_node(nodetype *node) {
-{% if no_compact_hash_table %}
+{% if not compact_hash_table %}
 	asm("{\n\t"
 		" bfi.u64 %0, {{((nr_bits_address_root|pow2)-1)|hexa}}, %0, 0, {{nr_bits_address_root}};\n\t"
 		"}" : "+l"(*node));
@@ -484,7 +484,7 @@ inline __device__ void reset_right_in_vectortree_node(nodetype *node) {
 
 // Vectornode set functions.
 inline __device__ void set_left_in_vectortree_node(nodetype *node, indextype address) {
-{% if no_compact_hash_table %}
+{% if not compact_hash_table %}
 	asm("{\n\t"
 		" bfi.u64 %0, %1, %0, {{nr_bits_address_internal}}, {{nr_bits_address_internal}};\n\t"
 		"}" : "+l"(*node) : "r"(address));
@@ -504,7 +504,7 @@ inline __device__ void set_right_in_vectortree_node(nodetype *node, indextype ad
 // Vectornode get functions.
 inline __host__ __device__ indextype get_pointer_from_vectortree_node(nodetype node, bool choice) {
 	indextype result;
-{% if no_compact_hash_table %}
+{% if not compact_hash_table %}
 	asm("{\n\t"
 		" .reg .u64 t1;\n\t"
 		" bfe.u64 t1, %1, %2, {{nr_bits_address_root}};\n\t"
@@ -522,7 +522,7 @@ inline __host__ __device__ indextype get_pointer_from_vectortree_node(nodetype n
 
 // Vectornode check for a left or right pointer gap.
 inline __device__ bool vectortree_node_contains_left_gap(nodetype node) {
-{% if no_compact_hash_table %}
+{% if not compact_hash_table %}
 	return (node & {{((nr_bits_address_root|pow2)-1)|bitshift_left(64-2-nr_bits_address_root)|hexa}}) == {{((nr_bits_address_root|pow2)-1)|bitshift_left(64-2-nr_bits_address_root)|hexa}};
 {% else %}
 	return (node & {{((nr_bits_address_internal|pow2)-1)|bitshift_left(64-1-nr_bits_address_internal)|hexa}}) == {{((nr_bits_address_internal|pow2)-1)|bitshift_left(64-1-nr_bits_address_internal)|hexa}};
@@ -530,7 +530,7 @@ inline __device__ bool vectortree_node_contains_left_gap(nodetype node) {
 }
 
 inline __device__ bool vectortree_node_contains_right_gap(nodetype node) {
-{% if no_compact_hash_table %}
+{% if not compact_hash_table %}
 	return (node & {{((nr_bits_address_root|pow2)-1)|hexa}}) == {{((nr_bits_address_root|pow2)-1)|hexa}};
 {% else %}
 	return (node & {{((nr_bits_address_internal|pow2)-1)|hexa}}) == {{((nr_bits_address_internal|pow2)-1)|hexa}};
@@ -549,13 +549,7 @@ inline __device__ shared_indextype CACHE_HASH(nodetype node) {
 	{{43|cuda_xor_r3(31, 23, 1)}}
 	node1 *= 0xdb4f0ad2012a3801L;
 	{{28|cuda_xor_r(1)}}
-	return (indextype) {% if vectorsize > 62 %}3*{% elif vectorsize > 30 %}2*{% endif %}((node1 & 0x000000000000FFFF) * (d_shared_cache_size-CACHEOFFSET{% if vectorsize > 62 %}/3{% elif vectorsize > 30 %}/2{% endif %})) >> 16;
-}
-
-inline __device__ indextype {% if not no_compact_hash_table %}U{% endif %}HASH(uint8_t id, uint64_t node) {
-	uint64_t node1 = node;
-	switch (id) {
-		case 0:
+	return (shared_indextype) {% if vectorsize > 62 %}3*{% elif vectorsize > 30 %}2*{% endif %}((node1 & 0x000000000000FFFF) * (d_shared_cache_size-CACHEOFFSET{% if vectorsize > 62 %}/3{% elif vectorsize > 30 %}/2{% endif %})) >> 16;
 }
 
 // Store a vectortree node in the cache.
@@ -661,11 +655,11 @@ inline __device__ shared_inttype STOREINCACHE(nodetype node, shared_inttype cach
 	return HASHTABLE_FULL;
 }
 
-// *** END FUNCTIONS FOR VECTOR TREE NODES MANIPULATION AND STORAGE TO THE SHARED MEMORY CACHE ***
+// *** END FUNCTIONS FOR {% if vectorsize > 62 %}VECTOR TREE {% endif %}NODE MANIPULATION AND STORAGE TO THE SHARED MEMORY CACHE ***
 
-// *** START KERNELS AND FUNCTIONS FOR VECTOR TREE NODES STORAGE AND RETRIEVAL TO/FROM THE GLOBAL MEMORY HASH TABLE ***
+// *** START KERNELS AND FUNCTIONS FOR {% if vectorsize > 62 %}VECTOR TREE {% endif %}NODE STORAGE AND RETRIEVAL TO/FROM THE GLOBAL MEMORY HASH TABLE ***
 
-{% if not no_compact_hash_table %}
+{% if compact_hash_table %}
 // Initial bitmixer functions.
 inline __device__ nodetype HASH_INIT(nodetype node, indextype offset) {
 	if (offset != 0) {
@@ -1358,14 +1352,14 @@ inline __device__ nodetype HASH_INVERSE(uint8_t id, nodetype node) {
 
 {% endif %}
 // Initial bitmixer function.
-inline __device__ uint64_t {% if not no_compact_hash_table %}U{% endif %}HASH_INIT(nodetype node) {
+inline __device__ uint64_t {% if compact_hash_table %}U{% endif %}HASH_INIT(nodetype node) {
 	uint64_t node1 = xor_rot2_64((uint64_t) node, 38, 14);
 	node1 ^= 0xD1B54A32D192ED03L;
 	node1 *= 0xAEF17502108EF2D9L;
 	return node1;
 }
 
-inline __device__ indextype {% if not no_compact_hash_table %}U{% endif %}HASH(uint8_t id, uint64_t node) {
+inline __device__ indextype {% if compact_hash_table %}U{% endif %}HASH(uint8_t id, uint64_t node) {
 	uint64_t node1 = node;
 	switch (id) {
 		case 0:
@@ -1667,12 +1661,14 @@ inline __device__ indextype {% if not no_compact_hash_table %}U{% endif %}HASH(u
 			{{7|cuda_xor_r(3)}}
 			break;
 	}
-	{% if not no_compact_hash_table %}
+	{% if compact_hash_table %}
 	return 2*(node1 & {{(nr_bits_address_internal|pow2-1)|hexa}});
 	{% elif nr_bits_address_root <= 32 %}
 	return ((node1 & {{(nr_bits_address_root|pow2-1)|hexa}})*d_hash_table_size) >> {{nr_bits_address_root}};
 	{% else %}
+	{% if nr_bits_address_root < 64 %}
 	node1 = node1 & {{(nr_bits_address_root|pow2-1)|hexa}};
+	{% endif %}
 	// We apply long multiplication, to avoid integer overflow. Overflow must be avoided to ensure the result is within the range [0,...,d_hash_table_size).
 	uint32_t s0, s1, s2, s3;
 	uint64_t x = ((uint64_t) get_right(node1)) * ((uint64_t) get_right(d_hash_table_size));
@@ -1695,11 +1691,11 @@ inline __device__ indextype {% if not no_compact_hash_table %}U{% endif %}HASH(u
 	node1 = node1 >> {{nr_bits_address_root}};
 	x = x << {{64-nr_bits_address_root}};
 	node1 |= x;
-	return node1;
+	return (indextype) node1;
 	{% endif %}
 }
 
-{% if not no_compact_hash_table %}
+{% if compact_hash_table %}
 // Retrieve ID of used hash function from a compressed root vectortree node.
 inline __device__ uint8_t get_hash_id_root(compressed_nodetype n) {
 	uint8_t hid = (uint8_t) (n >> {{(2*nr_bits_address_internal)-nr_bits_address_root}});
@@ -1737,8 +1733,8 @@ inline __device__ compressed_nodetype get_compressed_node_root(nodetype h, uint8
 {% endif %}
 
 // Retrieve vectortree node at index i of the global memory hash table.
-inline __host__ __device __ nodetype HT_RETRIEVE(compressed_nodetype *d_q, indextype i{% if not no_compact_hash_table %}, indextype offset{% endif %}) {
-	{% if no_compact_hash_table %}
+inline __host__ __device __ nodetype HT_RETRIEVE(compressed_nodetype *d_q, indextype i{% if compact_hash_table %}, indextype offset{% endif %}) {
+	{% if not compact_hash_table %}
 	return (nodetype) d_q[i];
 	{% else %}
 	if (offset != 0) {
@@ -1755,9 +1751,9 @@ inline __host__ __device __ nodetype HT_RETRIEVE(compressed_nodetype *d_q, index
 }
 
 // Find or put a given vectortree node in the global hash table.
-inline ___device_ indextype FINDORPUT_SINGLE(compressed_nodetype *d_q, nodetype node, volatile uint8_t *d_newstate_flags{% if not no_compact_hash_table %}, indextype offset{% endif %}, bool claim_work) {
-	{% if not no_compact_hash_table %}
+inline __device__ {% if nr_bits_address_root < 32 %}indextype{% else %}uint64_t{% endif %} FINDORPUT_SINGLE(compressed_nodetype *d_q, nodetype node, volatile uint8_t *d_newstate_flags{% if compact_hash_table %}, indextype offset{% endif %}, bool claim_work) {
 	nodetype e1, e2;
+	{% if compact_hash_table %}
 	compressed_nodetype compressed_node;
 	compressed_nodetype compressed_element;
 	{% endif %}
@@ -1766,7 +1762,7 @@ inline ___device_ indextype FINDORPUT_SINGLE(compressed_nodetype *d_q, nodetype 
 	shared_inttype shared_addr;
 	e1 = HASH_INIT(node);
 	for (int i = 0; i < NR_HASH_FUNCTIONS; i++) {
-		{% if not no_compact_hash_table %}
+		{% if compact_hash_table %}
 		e2 = HASH(i, e1);
 		addr = get_index(e2);
 		if (offset == 0) {
@@ -1809,25 +1805,30 @@ inline ___device_ indextype FINDORPUT_SINGLE(compressed_nodetype *d_q, nodetype 
 		}
 		else {
 		{% else %}
-			addr = HASH(i, node);
+			addr = HASH(i, e1);
 		{% endif %}
 			element = *(d_q+addr);
 			if (element == EMPTY_NODE) {
-				element = atomicCAS(&(d_q[{% if not no_compact_hash_table %}offset+{% endif %}addr]), EMPTY_NODE, node);
+				element = atomicCAS(&(d_q[{% if compact_hash_table %}offset+{% endif %}addr]), EMPTY_NODE, node);
 				if (element == EMPTY_NODE) {
 					// Successfully stored the node.
-				{% if no_compact_hash_table and vectorsize > 62 %}
+				{% if not compact_hash_table and vectorsize > 62 %}
 					if (is_root(node)) {
 				{% endif %}
-					{% if no_compact_hash_table %}
+					{% if not compact_hash_table %}
 						// Try to claim the vector for future work. For this, try to increment the OPENTILECOUNT counter.
 						if (claim_work) {
 							shared_addr = atomicInc(&OPENTILECOUNT);
 							if (shared_addr < OPENTILELEN) {
+								{% if vectorsize > 30 %}
 								// Store pointer to root in the work tile.
 								shared[OPENTILEOFFSET+shared_addr] = (shared_inttype) addr;
+								{% else %}
+								// Store the node in the work tile.
+								shared[OPENTILEOFFSET+shared_addr] = node;
+								{% endif %}
 								// Mark the state as old in the hash table.
-								atomicCAS(&(d_q[{% if not no_compact_hash_table %}offset+{% endif %}addr]), node, mark_old(node));
+								atomicCAS(&(d_q[{% if compact_hash_table %}offset+{% endif %}addr]), node, mark_old(node));
 							}
 							else {
 								// There is work available for some block.
@@ -1839,7 +1840,7 @@ inline ___device_ indextype FINDORPUT_SINGLE(compressed_nodetype *d_q, nodetype 
 							d_newstate_flags[(addr / BLOCK_SIZE) % GRID_SIZE] = 1;
 						}
 					{% endif %}
-					{% if no_compact_hash_table and vectorsize > 62 %}
+					{% if not compact_hash_table and vectorsize > 62 %}
 					}
 					{% endif %}
 					return addr;
@@ -1849,14 +1850,16 @@ inline ___device_ indextype FINDORPUT_SINGLE(compressed_nodetype *d_q, nodetype 
 				// The node is already stored.
 				return addr;
 			}
+		{% if compact_hash_table %}
 		}
+		{% endif %}
 	}
 	// Error: hash table considered full.
 	return HASHTABLE_FULL;
 }
 
 // Find or put all new vectortree nodes stored in the shared memory cache into the global memory hash table.
-__device__ bool FINDORPUT_MANY(compressed_nodetype *d_q, volatile uint8_t *d_newstate_flags) {
+__device__ void FINDORPUT_MANY(compressed_nodetype *d_q, volatile uint8_t *d_newstate_flags) {
 	nodetype node;
 	indextype addr;
 	{% if vectorsize > 62 %}
@@ -1868,16 +1871,21 @@ __device__ bool FINDORPUT_MANY(compressed_nodetype *d_q, volatile uint8_t *d_new
 		CONTINUE = 0;
 	}
 	__syncthreads();
-	for (shared_indextype i = THREAD_ID{% if vectorsize > 62 %}*3{% endif %}; i < d_shared_cache_size; i += BLOCK_SIZE{% if vectorsize > 62 %}*3{% endif %}) {
+	for (shared_indextype i = THREAD_ID{% if vectorsize > 62 %}*3{% endif %}; i < d_shared_cache_size && CONTINUE != 2; i += BLOCK_SIZE{% if vectorsize > 62 %}*3{% endif %}) {
 		node_pointers = shared[CACHEOFFSET+i+2];
 		// Check if node is ready for storage. Only new leafs are ready at this point. We rely on old and new non-leafs having pointers with the highest
 		// two bits set to zero, empty entries and old leafs having pointers set to zero, and new leafs having pointers set to 0x40000000.
 		if (cache_pointers_are_marked_new_leaf(node_pointers)) {
 			node = combine_halfs(shared[CACHEOFFSET+i], shared[CACHEOFFSET+i+1]);
 			// Store node in hash table.
-			addr = FINDORPUT_SINGLE(d_q, node, d_newstate_flags{% if not no_compact_hash_table %}, d_non_root_offset{% endif %}, true);
-			// Store global memory address in cache.
-			set_cache_pointers_to_global_address(&shared[CACHEOFFSET+i], addr);
+			addr = FINDORPUT_SINGLE(d_q, node, d_newstate_flags{% if compact_hash_table %}, d_non_root_offset{% endif %}, true);
+			if (addr == HASHTABLE_FULL) {
+				CONTINUE = 2;
+			}
+			else {
+				// Store global memory address in cache.
+				set_cache_pointers_to_global_address(&shared[CACHEOFFSET+i], addr);
+			}
 		}
 		// Node is not ready yet. Check if it can be updated.
 		else if (node_pointers != 0) {
@@ -1912,9 +1920,14 @@ __device__ bool FINDORPUT_MANY(compressed_nodetype *d_q, volatile uint8_t *d_new
 						node = mark_non_root_old(node);
 					}
 					// Store node in hash table.
-					addr = FINDORPUT_SINGLE(d_q, node, d_newstate_flags{% if not no_compact_hash_table %}, (is_root(node) ? 0 : d_non_root_offset){% endif %}, true);
-					// Store global memory address in cache.
-					set_cache_pointers_to_global_address(&(shared[CACHEOFFSET+i]), addr);
+					addr = FINDORPUT_SINGLE(d_q, node, d_newstate_flags{% if compact_hash_table %}, (is_root(node) ? 0 : d_non_root_offset){% endif %}, true);
+					if (addr == HASHTABLE_FULL) {
+						CONTINUE = 2;
+					}
+					else {
+						// Store global memory address in cache.
+						set_cache_pointers_to_global_address(&(shared[CACHEOFFSET+i]), addr);
+					}
 				}
 				else {
 					work_to_do = true;
@@ -1968,9 +1981,14 @@ __device__ bool FINDORPUT_MANY(compressed_nodetype *d_q, volatile uint8_t *d_new
 								node = mark_non_root_old(node);
 							}
 							// Store node in hash table.
-							addr = FINDORPUT_SINGLE(d_q, node, d_newstate_flags{% if not no_compact_hash_table %}, (is_root(node) ? 0 : d_non_root_offset){% endif %}, true);
-							// Store global memory address in cache.
-							set_cache_pointers_to_global_address(&(shared[CACHEOFFSET+i]), addr);
+							addr = FINDORPUT_SINGLE(d_q, node, d_newstate_flags{% if compact_hash_table %}, (is_root(node) ? 0 : d_non_root_offset){% endif %}, true);
+							if (addr == HASHTABLE_FULL) {
+								CONTINUE = 2;
+							}
+							else {
+								// Store global memory address in cache.
+								set_cache_pointers_to_global_address(&(shared[CACHEOFFSET+i]), addr);
+							}
 						}
 						else {
 							work_to_do = true;
@@ -1983,7 +2001,7 @@ __device__ bool FINDORPUT_MANY(compressed_nodetype *d_q, volatile uint8_t *d_new
 		__syncthreads();
 	}
 	{% else %}
-	for (shared_indextype i = THREAD_ID; i < d_shared_cache_size; i += BLOCK_SIZE) {
+	for (shared_indextype i = THREAD_ID; i < d_shared_cache_size && CONTINUE != 2; i += BLOCK_SIZE) {
 		{% if vectorsize > 30 %}
 		node = combine_halfs(shared[CACHEOFFSET+i], shared[CACHEOFFSET+i+1]);
 		{% else %}
@@ -1991,12 +2009,10 @@ __device__ bool FINDORPUT_MANY(compressed_nodetype *d_q, volatile uint8_t *d_new
 		{% endif %}
 		if (is_new(node)) {
 			// Store node in hash table.
-			// Possibly reset new bit.
-			if (!is_root(node)) {
-				node = mark_non_root_old(node);
-			}
-			// Store node in hash table.
 			addr = FINDORPUT_SINGLE(d_q, node, d_newstate_flags, true);
+			if (addr == HASHTABLE_FULL) {
+				CONTINUE = 2;
+			}
 		}
 	}
 	{% endif %}
@@ -2007,6 +2023,7 @@ __global__ void store_initial_state(compressed_nodetype *d_q, volatile uint8_t *
 {{cuda_initial_vector}}
 	FINDORPUT_MANY(d_q, d_newstate_flags);
 }
+{% if vectorsize > 62 %}
 
 // Auxiliary functions for the fetching of vectortrees from the global hash table. They encode the distribution of vectortree nodes over the threads
 // in a vectortree group, and their structural relations with each other.
@@ -2136,7 +2153,7 @@ inline __device__ shared_inttype FETCH(thread_group treegroup, compressed_nodety
 	{% endif %}
 	
 	if (gid == 0) {
-		node = HT_RETRIEVE(d_q, addr{% if not no_compact_hash_table %}, 0{% endif %});
+		node = HT_RETRIEVE(d_q, addr{% if compact_hash_table %}, 0{% endif %});
 		node_tmp_1 = node;
 	}
 	{% set bound = 1 %}{% if not no_smart_fetching %}{% set bound = bound + 1 %}{% endif %}
@@ -2359,7 +2376,7 @@ inline __device__ shared_inttype FETCH(thread_group treegroup, compressed_nodety
 	treegroup.sync();
 	{% endfor %}
 	{% else %}
-	node = HT_RETRIEVE(d_q, node_addr{% if not no_compact_hash_table %}, 0){% endif %});
+	node = HT_RETRIEVE(d_q, node_addr{% if compact_hash_table %}, 0){% endif %});
 	result = STOREINCACHE(leaf_node, cache_pointers);
 	if (result == HASHTABLE_FULL) {
 		return HASHTABLE_FULL;
@@ -2372,8 +2389,9 @@ inline __device__ shared_inttype FETCH(thread_group treegroup, compressed_nodety
 	cache_addr_child = treegroup.shfl(cache_addr, 0);
 	return cache_addr_child;
 }
+{% endif %}
 
-// *** END KERNELS AND FUNCTIONS FOR VECTOR TREE NODES STORAGE AND RETRIEVAL TO/FROM THE GLOBAL MEMORY HASH TABLE ***
+// *** END KERNELS AND FUNCTIONS FOR {% if vectorsize > 62 %}VECTOR TREE {% endif %}NODE STORAGE AND RETRIEVAL TO/FROM THE GLOBAL MEMORY HASH TABLE ***
 
 // *** START FUNCTIONS FOR INTRA-WARP BITONIC MERGESORT (Fast Segmented Sort on GPUs, Hou et al., 2017) ***
 
@@ -2482,7 +2500,7 @@ inline __device__ void _exch_paral({% for i in range(0,regsort_nr_el_per_thread)
 // The main bitonic sorting function, including loading the data to be sorted,
 // and returning the tile index of the element to be subsequently used by the calling thread.
 // wid is the ID of the warp executing the function. It is a parameter (as opposed to deriving the ID from the thread dynamically),
-// to allow a thread to run the function with multiple IDs (may be needed in the future).
+// to allow a thread to run the function with multiple IDs.
 __device__ shared_indextype get_sorted_opentile_element(uint8_t wid) {
 	statetype {% for i in range(0,regsort_nr_el_per_thread) %}s{{i}}{% if not loop.last %}, {% else %};{% endif %}{% endfor %}
 	
@@ -2492,10 +2510,15 @@ __device__ shared_indextype get_sorted_opentile_element(uint8_t wid) {
 	{% for i in range(0,regsort_nr_el_per_thread) %}
 	{% if loop.last %}
 	if ({{i*warpsize}}+LANE < OPENTILELEN) {
+		{% if vectorsize > 30 %}
 		asm("{\n\t"
 			" cvt.u16.u32 %0, %1;\n\t"
 			"}" : "=r"(p{{i}}) : "r"(shared[OPENTILEOFFSET+{{i*warpsize}}+LANE]));
 		if (p{{i}} != EMPTYVECT16) {
+		{% else %}
+		p{{i}} = {{i+warpsize}}+LANE;
+		if (shared[OPENTILEOFFSET+p{{i}}] != EMPTYVECT32) {
+		{% endif %}
 			// Retrieve corresponding state value.
 			get_current_state(&s{{i}}, p{{i}}, wid / OPENTILE_WARP_WIDTH);
 		}
@@ -2505,21 +2528,28 @@ __device__ shared_indextype get_sorted_opentile_element(uint8_t wid) {
 		p{{i}} = {{i*warpsize}}+LANE;
 	}
 	else {
-		p{{i}} = EMPTYVECT16;
+		p{{i}} = EMPTYVECT{% if vectorsize <= 30 %}32{% else %}16{% endif %};
 		s{{i}} = NO_STATE;
 	}
 	{% else %}
+	{% if vectorsize > 30 %}
 	asm("{\n\t"
 		" cvt.u16.u32 %0, %1;\n\t"
 		"}" : "=r"(p{{i}}) : "r"(shared[OPENTILEOFFSET+{{i*warpsize}}+LANE]));
 	if (p{{i}} != EMPTYVECT16) {
+	{% else %}
+	p{{i}} = {{i*warpsize}}+LANE;
+	if (shared[OPENTILEOFFSET+p{{i}}] != EMPTYVECT32) {
+	{% endif %}
 		// Retrieve corresponding state value.
 		get_current_state(&s{{i}}, p{{i}}, wid / OPENTILE_WARP_WIDTH);
 	}
 	else {
 		s{{i}} = NO_STATE;
 	}
+	{% if vectorsize > 30 %}
 	p{{i}} = {{i*warpsize}}+LANE;
+	{% endif %}
 	{% endif %}
 	{% endfor %}
 	// Perform the sorting.
@@ -2636,7 +2666,7 @@ inline __host__ __device__ void get_{{vname|replace("[","_")|replace("]","")|rep
 {% endfor %}
 {% endif %}
 // Retrieval of current state of state machine at position i in state vector.
-inline __device__ void get_current_state(statetype *b, shared_indextype node_index, elem_chartype i) {
+inline __device__ void get_current_state(statetype *b, shared_indextype node_index, uint8_t i) {
 	nodetype part1, part2;
 	switch (i) {
 		{% for i in range(0,smnames|length) %}
@@ -2677,8 +2707,10 @@ inline __device__ void set_right_{{s|replace("[","_")|replace("]","")|replace("'
 
 {% endif %}
 {% endfor %}
-// Data update functions for arrays with dynamic indexing, focussed on one specific vector part.
 {% for x in dynamic_write_arrays.keys() %}
+{% if loop.first %}
+// Data update functions for arrays with dynamic indexing, focussed on one specific vector part.
+{% endif %}
 // Auxiliary functions for {{dynamic_write_arrays[x][0]}}.
 inline __device__ bool array_element_is_in_vectorpart_{{dynamic_write_arrays[x][0]|replace("'","_")}}(array_indextype i, vectornode_indextype pid) {
 	switch (pid) {
@@ -2741,8 +2773,10 @@ inline __device__ void set_{{dynamic_write_arrays[x][0]|replace("'","_")}}(nodet
 }
 {% endfor %}
 
-// Data update functions for channel buffers, focussed on one specific vector part.
 {% for c in model.channels|select("is_async") %}
+{% if loop.first %}
+// Data update functions for channel buffers, focussed on one specific vector part.
+{% endif %}
 // Data update function for parameter i of tail element of the buffer of {{c.name}}.
 {% for i in range(0,c.type|length+1) %}
 {% if i > 0 or signalsize[c] > 0 %}
@@ -2850,12 +2884,14 @@ inline __device__ void shift_buffer_tail_elements_{{c.name}}(shared_indextype no
 }
 
 {% endfor %}
+{% for n in all_arrayindex_allocs_sizes %}
+{% if loop.first %}
 // Auxiliary functions to check for and obtain/store an array element with an index equal to the given expression e.
 // There are functions for the various buffer sizes required to interpret the model.
 
 // Store the given value v under index e. Check for presence of e in the index buffer. If not present, store e and v.
 // Precondition: if e is not already present, there is space in the buffer to store it.
-{% for n in all_arrayindex_allocs_sizes %}
+{% endif %}
 template<class T>
 inline __device__ void A_STR_{{n}}({% for i in range(0,n) %}array_indextype *idx_{{i}}, {% endfor %}{% for i in range(0,n) %}T *v_{{i}}, {% endfor %}array_indextype e, T v) {
 {% for i in range(0,n) %}
@@ -2872,9 +2908,11 @@ inline __device__ void A_STR_{{n}}({% for i in range(0,n) %}array_indextype *idx
 }
 
 {% endfor %}
+{% for n in all_arrayindex_allocs_sizes %}
+{% if loop.first %}
 // Return the value stored at index e.
 // Precondition: provided array contains the requested element.
-{% for n in all_arrayindex_allocs_sizes %}
+{% endif %}
 template<class T>
 inline __device__ T A_LD_{{n}}({% for i in range(0,n) %}array_indextype idx_{{i}}, {% endfor %}{% for i in range(0,n) %}T v_{{i}}, {% endfor %}array_indextype e) {
 {% for i in range(0,n) %}
@@ -2887,8 +2925,10 @@ inline __device__ T A_LD_{{n}}({% for i in range(0,n) %}array_indextype idx_{{i}
 
 {% endfor %}
 
-// Check whether the given array index e is stored in the given array index buffer.
 {% for n in all_arrayindex_allocs_sizes %}
+{% if loop.first %}
+// Check whether the given array index e is stored in the given array index buffer.
+{% endif %}
 inline __device__ bool A_IEX_{{n}}({% for i in range(0,n) %}array_indextype idx_{{i}}, {% endfor %}array_indextype e) {
 {% for i in range(0,n) %}
 {% if not loop.first%}	else {% else %}	{% endif %}if (((array_indextype) e) == idx_{{i}}) {
@@ -2939,21 +2979,29 @@ inline __device__ statetype get_target_{{sm.name}}_{{a}}(statetype src, statetyp
 {% endfor %}
 {% endfor %}
 {% endfor %}
-// Kernel function to start parallel successor generation. Precondition: a tile of vectortree pointers to roots of cache-preloaded vectortrees
-// is stored in the shared memory.
+// Kernel function to start parallel successor generation.
+{% if vectorsize > 30 %}
+// Precondition: a tile of vectortree pointers to roots of cache-preloaded vectortrees is stored in the shared memory.
+{% else %}
+// Precondition: a tile of state nodes is stored in the shared memory.
+{% endif %}
 inline __device__ void GENERATE_SUCCESSORS() {
 	// Iterate over the designated work.
 	shared_indextype entry_id;
 	{% if no_regsort %}
 	shared_indextype entry_state_id;
 	{% endif %}
+	{% if vectorsize > 30 %}
 	shared_inttype src_state;
+	{% endif %}
 	{% if gpuexplore2_succdist %}
 	for (shared_indextype i = THREAD_ID; i < (OPENTILECOUNT * NR_SMS); i += BLOCK_SIZE) {
 		entry_id = i / NR_SMS;
 		entry_state_id = i - (entry_id * NR_SMS);
+		{% if vectorsize > 30 %}
 		src_state = shared[OPENTILEOFFSET+entry_id];
-		get_successors_of_sm((shared_indextype) src_state, entry_state_id);
+		{% endif %}
+		get_successors_of_sm({% if vectorsize > 30 %}(shared_indextype) src_state{% else %}entry_id{% endif %}, entry_state_id);
 	}
 	{% else %}
 	{% if no_regsort %}
@@ -2965,8 +3013,10 @@ inline __device__ void GENERATE_SUCCESSORS() {
 		entry_id = get_sorted_opentile_element(i);
 		if (entry_id < OPENTILECOUNT) {
 		{% endif %}
+			{% if vectorsize > 30 %}
 			src_state = shared[OPENTILEOFFSET+entry_id];
-			get_successors_of_sm((shared_indextype) src_state, i/OPENTILE_WARP_WIDTH);
+			{% endif %}
+			get_successors_of_sm({% if vectorsize > 30 %}(shared_indextype) src_state{% else %}entry_id{% endif %}, i/OPENTILE_WARP_WIDTH);
 		{% if not no_regsort %}
 		}
 		{% endif %}
@@ -3098,15 +3148,15 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(shared_indext
 
 // *** START PRINT FUNCTIONS ***
 
-void print_content_hash_table(FILE* stream, compressed_nodetype *q{% if not no_compact_hash_table %}, indextype non_root_offset{% else %}, indextype q_size{% endif %}) {
-	for (indextype i = 0; i < {% if not no_compact_hash_table %}non_root_offset{% else %}q_size{% endif %}; i++) {
-		{% if no_compact_hash_table and vectorsize > 63 %}
+void print_content_hash_table(FILE* stream, compressed_nodetype *q{% if compact_hash_table %}, indextype non_root_offset{% else %}, indextype q_size{% endif %}) {
+	for (indextype i = 0; i < {% if compact_hash_table %}non_root_offset{% else %}q_size{% endif %}; i++) {
+		{% if not compact_hash_table and vectorsize > 63 %}
 		if (is_root(d_q[i])) {
 		{% else %}
-		if (d_q[i] != {% if not no_compact_hash_table %}EMPTY_COMPRESSED_NODE{% else %}EMPTY_NODE{% endif %}) {
+		if (d_q[i] != {% if compact_hash_table %}EMPTY_COMPRESSED_NODE{% else %}EMPTY_NODE{% endif %}) {
 		{% endif %}
 			// Retrieve state vector.
-			nodetype {% if vectorsize > 63 %}root{% else %}part1{% endif %} = HT_RETRIEVE(q, i{% if not no_compact_hash_table %}, non_root_offset{% endif %});
+			nodetype {% if vectorsize > 63 %}root{% else %}part1{% endif %} = HT_RETRIEVE(q, i{% if compact_hash_table %}, non_root_offset{% endif %});
 			{% if vectorsize > 63 %}
 			{% for i in range(0,vectorstructure|length) %}
 			nodetype part{{i}} = direct_get_vectorpart_{{i}}(q, root);

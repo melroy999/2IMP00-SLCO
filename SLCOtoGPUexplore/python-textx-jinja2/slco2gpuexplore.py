@@ -15,11 +15,11 @@ model = ""
 # - gpuexplore2_succdist applies successor generation work distribution over threads in the style of GPUexplore 2.0 (vector groups)
 # - no_regsort disables warp-based in register sorting, thereby reducing the amount of expected regularity in successor generation.
 # - no_smart_fetching disables smart fetching of vectortrees from the global memory hash table.
-# - no_compact_hash_table disables compact storage of states in the global memory hash table.
+# - compact_hash_table enables compact storage of states in the global memory hash table.
 gpuexplore2_succdist = False
 no_regsort = False
 no_smart_fetching = False
-no_compact_hash_table = False
+compact_hash_table = True
 
 # number of blocks
 nrblocks = 3120
@@ -138,18 +138,36 @@ global_memsize = 24
 
 # Bits needed for root element and internal element addressing
 def nr_bits_address_root():
-	global global_memsize, no_compact_hash_table
-	if no_compact_hash_table:
-		return 31
+	global global_memsize, compact_hash_table, vectorsize
+	if not compact_hash_table:
+		if vectorsize > 62:
+			return 31
+		else:
+			if global_memsize <= 24:
+				if vectorsize <= 31:
+					return 64
+				else:
+					return 32
+			else:
+				return 64
 	elif global_memsize == 24:
 		return 32
 	elif global_memsize == 48:
 		return 33
 
 def nr_bits_address_internal():
-	global global_memsize, no_compact_hash_table
-	if no_compact_hash_table:
-		return 31
+	global global_memsize, compact_hash_table
+	if not compact_hash_table:
+		if vectorsize > 62:
+			return 31
+		else:
+			if global_memsize <= 24:
+				if vectorsize <= 31:
+					return 64
+				else:
+					return 32
+			else:
+				return 64
 	elif global_memsize == 24:
 		return 29
 	elif global_memsize == 48:
@@ -306,10 +324,10 @@ def scopename(v,i,o):
 
 def vectorpart_is_combined_with_nonleaf_node(p):
 	"""Return whether or not the given part (number) is combined with a non-leaf node in the vector tree"""
-	global vectorstructure, no_compact_hash_table, smnames, vectorsize
+	global vectorstructure, compact_hash_table, smnames, vectorsize
 	if p < len(vectorstructure)-1:
 		return False
-	if not no_compact_hash_table:
+	if compact_hash_table:
 		# the allowed size of the part is influenced by whether or not we try to store it in the root.
 		# we try to insert it in the root if we have either two state parts (parts with state machine states)
 		# and no data parts (parts without state machine states), or we have exactly one data part.
@@ -450,7 +468,7 @@ def vectorstructure_part_size(t):
 
 def vectorstructure_to_string(D):
 	"""Convert vectorstructure to string. D is dictionary to look up strings for individual elements."""
-	global vectorstructure, no_compact_hash_table
+	global vectorstructure, compact_hash_table
 
 	vs = ""
 	tfirst = True
@@ -460,7 +478,7 @@ def vectorstructure_to_string(D):
 			vs += ",\n// "
 		else:
 			tfirst = False
-		if nr_of_parts == 1 or no_compact_hash_table:
+		if nr_of_parts == 1 or not compact_hash_table:
 			vs += "[ two bits reserved, "
 		elif nr_of_parts > 1 and vectorstructure_part_size(t) > (64-1-nr_bits_address_internal()):
 			vs += "[ one bit reserved, "
@@ -686,8 +704,8 @@ def update_parts(name, value, vectorparts):
 def reset_left_pointer(node):
 	"""Reset the left pointer in the given vectortree node."""
 	"""Precondition: the given node has a left pointer."""
-	global no_compact_hash_table
-	if no_compact_hash_table:
+	global compact_hash_table
+	if not compact_hash_table:
 		resetvalue = ((pow2(nr_bits_address_root())-1) << 64-2-nr_bits_address_root())
 	else:
 		resetvalue = ((pow2(nr_bits_address_internal())-1) << 64-1-nr_bits_address_internal())		
@@ -697,8 +715,8 @@ def reset_left_pointer(node):
 def reset_right_pointer(node):
 	"""Reset the right pointer in the given vectortree node."""
 	"""Precondition: the given node has a right pointer."""
-	global no_compact_hash_table
-	if no_compact_hash_table:
+	global compact_hash_table
+	if not compact_hash_table:
 		resetvalue = pow2(nr_bits_address_root())-1
 	else:
 		resetvalue = pow2(nr_bits_address_internal())-1		
@@ -2853,7 +2871,7 @@ def debug(text):
 
 def preprocess():
 	"""Preprocessing of model"""
-	global model, vectorsize, vectorstructure, vectortree, vectortree_T, vectortree_level_ids, vectortree_leaf_thread, vectorstructure_string, smnames, vectorelem_in_structure_map, max_statesize, state_order, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, connected_channel, signalsize, signalnr, alphabet, syncactions, actiontargets, actions, syncreccomm, no_state_constant, no_prio_constant, dynamic_write_arrays, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth, vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children, tilesize, gpuexplore2_succdist, regsort_nr_el_per_thread, all_arrayindex_allocs_sizes, smart_vectortree_fetching_bitmask, nr_warps_per_tile, no_compact_hash_table, elements_strings, nrblocks, nrthreadsperblock
+	global model, vectorsize, vectorstructure, vectortree, vectortree_T, vectortree_level_ids, vectortree_leaf_thread, vectorstructure_string, smnames, vectorelem_in_structure_map, max_statesize, state_order, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, connected_channel, signalsize, signalnr, alphabet, syncactions, actiontargets, actions, syncreccomm, no_state_constant, no_prio_constant, dynamic_write_arrays, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth, vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children, tilesize, gpuexplore2_succdist, regsort_nr_el_per_thread, all_arrayindex_allocs_sizes, smart_vectortree_fetching_bitmask, nr_warps_per_tile, compact_hash_table, elements_strings, nrblocks, nrthreadsperblock
 
 	# construct set of statemachine names in the system
 	# also construct a map from names to objects
@@ -2964,15 +2982,15 @@ def preprocess():
 			dataelements.add((ch.name, tuple(typelist), dimension))
 	# if the vectorsize is sufficiently small, compact hash table storage is not needed.
 	if vectorsize < 63:
-		no_compact_hash_table = True
+		compact_hash_table = False
 	# store maximum number of bits needed to encode an automaton state
 	max_statesize = 0
 	for (s,i) in stateelements:
 		if i > max_statesize:
 			max_statesize = i
 	# store maximum number of bits needed for indices of arrays and channel buffers
-	max_arrayindexsize = 0
-	maxsize = 0
+	max_arrayindexsize = 1
+	maxsize = 1
 	for c in model.classes:
 		for v in c.variables:
 			if v.type.size > maxsize:
@@ -2996,7 +3014,7 @@ def preprocess():
 	intsize = 30
 	if vectorsize > 30:
 		intsize = 62
-	if not no_compact_hash_table:
+	if compact_hash_table:
 		intsize += 1
 	vp_id = 0
 	state_nr = 0
@@ -3428,7 +3446,7 @@ def preprocess():
 
 def translate():
 	"""The translation function"""
-	global modelname, model, vectorstructure, vectorstructure_string, vectortree, vectortree_T, vectortree_level_ids, vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children, vectorelem_in_structure_map, vectortree_leaf_thread, state_order, max_statesize, smnames, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, signalsize, connected_channel, alphabet, syncactions, actiontargets, no_state_constant, no_prio_constant, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth, gpuexplore2_succdist, no_regsort, tilesize, regsort_nr_el_per_thread, warpsize, all_arrayindex_allocs_sizes, no_smart_fetching, no_compact_hash_table, nrblocks, nrthreadsperblock
+	global modelname, model, vectorstructure, vectorstructure_string, vectortree, vectortree_T, vectortree_level_ids, vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children, vectorelem_in_structure_map, vectortree_leaf_thread, state_order, max_statesize, smnames, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, signalsize, connected_channel, alphabet, syncactions, actiontargets, no_state_constant, no_prio_constant, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth, gpuexplore2_succdist, no_regsort, tilesize, regsort_nr_el_per_thread, warpsize, all_arrayindex_allocs_sizes, no_smart_fetching, compact_hash_table, nrblocks, nrthreadsperblock
 	
 	path, name = split(modelname)
 	if name.endswith('.slco'):
@@ -3500,20 +3518,20 @@ def translate():
 
 	# load the GPUexplore template
 	template = jinja_env.get_template('gpuexplore.jinja2template')
-	out = template.render(model=model, vectorsize=vectorsize, vectorstructure=vectorstructure, vectorstructure_string=vectorstructure_string, vectortree=vectortree, vectortree_T=vectortree_T, max_statesize=max_statesize, vectorelem_in_structure_map=vectorelem_in_structure_map, state_order=state_order, smnames=smnames, smname_to_object=smname_to_object, state_id=state_id, arraynames=arraynames, max_arrayindexsize=max_arrayindexsize, max_buffer_allocs=max_buffer_allocs, connected_channel=connected_channel, alphabet=alphabet, syncactions=syncactions, actiontargets=actiontargets, syncreccomm=syncreccomm, no_state_constant=no_state_constant, no_prio_constant=no_prio_constant, dynamic_write_arrays=dynamic_write_arrays, signalsize=signalsize, async_channel_vectorpart_buffer_range=async_channel_vectorpart_buffer_range, vectortree_size=vectortree_size, vectortree_depth=vectortree_depth, vectortree_level_ids=vectortree_level_ids, vectortree_level_nr_of_leaves=vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children=vectortree_level_nr_of_nodes_with_two_children, vectortree_leaf_thread=vectortree_leaf_thread, gpuexplore2_succdist=gpuexplore2_succdist, no_regsort=no_regsort, tilesize=tilesize, regsort_nr_el_per_thread=regsort_nr_el_per_thread, nr_warps_per_tile=nr_warps_per_tile, warpsize=warpsize, all_arrayindex_allocs_sizes=all_arrayindex_allocs_sizes, smart_vectortree_fetching_bitmask=smart_vectortree_fetching_bitmask, no_smart_fetching=no_smart_fetching, no_compact_hash_table=no_compact_hash_table, nr_bits_address_root=nr_bits_address_root(), nr_bits_address_internal=nr_bits_address_internal(), cuda_initial_vector=cudastore_initial_vector(), nrblocks=nrblocks, nrthreadsperblock=nrthreadsperblock)
+	out = template.render(model=model, vectorsize=vectorsize, vectorstructure=vectorstructure, vectorstructure_string=vectorstructure_string, vectortree=vectortree, vectortree_T=vectortree_T, max_statesize=max_statesize, vectorelem_in_structure_map=vectorelem_in_structure_map, state_order=state_order, smnames=smnames, smname_to_object=smname_to_object, state_id=state_id, arraynames=arraynames, max_arrayindexsize=max_arrayindexsize, max_buffer_allocs=max_buffer_allocs, connected_channel=connected_channel, alphabet=alphabet, syncactions=syncactions, actiontargets=actiontargets, syncreccomm=syncreccomm, no_state_constant=no_state_constant, no_prio_constant=no_prio_constant, dynamic_write_arrays=dynamic_write_arrays, signalsize=signalsize, async_channel_vectorpart_buffer_range=async_channel_vectorpart_buffer_range, vectortree_size=vectortree_size, vectortree_depth=vectortree_depth, vectortree_level_ids=vectortree_level_ids, vectortree_level_nr_of_leaves=vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children=vectortree_level_nr_of_nodes_with_two_children, vectortree_leaf_thread=vectortree_leaf_thread, gpuexplore2_succdist=gpuexplore2_succdist, no_regsort=no_regsort, tilesize=tilesize, regsort_nr_el_per_thread=regsort_nr_el_per_thread, nr_warps_per_tile=nr_warps_per_tile, warpsize=warpsize, all_arrayindex_allocs_sizes=all_arrayindex_allocs_sizes, smart_vectortree_fetching_bitmask=smart_vectortree_fetching_bitmask, no_smart_fetching=no_smart_fetching, compact_hash_table=compact_hash_table, nr_bits_address_root=nr_bits_address_root(), nr_bits_address_internal=nr_bits_address_internal(), cuda_initial_vector=cudastore_initial_vector(), nrblocks=nrblocks, nrthreadsperblock=nrthreadsperblock)
 	# write new SLCO model
 	outFile.write(out)
 	outFile.close()
 	# create the main file for GPUexplore
 	outFile = open(join(path,"gpuexplore.cu"), 'w')
 	template = jinja_env.get_template('gpuexplore_main.jinja2template')
-	out = template.render(name=name, vectorsize=vectorsize)
+	out = template.render(name=name, vectorsize=vectorsize, compact_hash_table=compact_hash_table, global_memsize=global_memsize, nrthreadsperblock=nrthreadsperblock)
 	outFile.write(out)
 	outFile.close()
 
 def main(args):
 	"""The main function"""
-	global modelname, model, property_file, deadlock_check, gpuexplore2_succdist, no_regsort, no_smart_fetching, no_compact_hash_table, global_memsize, nrblocks, nrthreadsperblock
+	global modelname, model, property_file, deadlock_check, gpuexplore2_succdist, no_regsort, no_smart_fetching, compact_hash_table, global_memsize, nrblocks, nrthreadsperblock
 	if len(args) == 0:
 		print("Missing argument: SLCO model")
 		sys.exit(1)
@@ -3550,7 +3568,7 @@ def main(args):
 				elif args[i] == '-nosmartfetch':
 					no_smart_fetching = True
 				elif args[i] == '-nocompacthashtable':
-					no_compact_hash_table = True
+					compact_hash_table = False
 				elif args[i] == '-b':
 					nrblocks = int(args[i+1])
 					i += 1

@@ -56,16 +56,16 @@ int cudaMallocCount ( void ** ptr,int size) {
 /**
  * CUDA kernel function to initialise the global memory hash table.
  */
-__global__ void init_hash_table(compressed_nodetype *d_q, uint64_t n_elem) {
-    for (indextype i = GLOBAL_THREAD_ID; i < n_elem; i += NR_THREADS) {
-    	d_q[i] = (compressed_nodetype) {% if not no_compact_hash_table %}EMPTY_COMPRESSED_NODE{% else %}EMPTY_NODE{% endif %};
+__global__ void init_hash_table(compressed_nodetype *d_q) {
+    for (indextype i = GLOBAL_THREAD_ID; i < d_hash_table_size; i += NR_THREADS) {
+    	d_q[i] = (compressed_nodetype) {% if compact_hash_table %}EMPTY_COMPRESSED_NODE{% else %}EMPTY_NODE{% endif %};
     }
 }
 
 /**
  * CUDA kernel function to count the number of states in the global memory hash table.
  */
-__global__ void count_states(compressed_nodetype *d_q, nodetype *result{% if not no_compact_hash_table %}, indextype non_root_offset{% else %}, indextype hash_table_size{% endif %}) {
+__global__ void count_states(compressed_nodetype *d_q, nodetype *result) {
 	if (GLOBAL_THREAD_ID == 0) {
 		*result = 0;
 	}
@@ -74,11 +74,11 @@ __global__ void count_states(compressed_nodetype *d_q, nodetype *result{% if not
 	}
 	__syncthreads();
 	shared_inttype localResult = 0;
-	for (indextype i = GLOBAL_THREAD_ID; i < {% if not no_compact_hash_table %}non_root_offset{% else %}hash_table_size{% endif %}; i += NR_THREADS) {
-		{% if no_compact_hash_table and vectorsize > 63 %}
+	for (indextype i = GLOBAL_THREAD_ID; i < {% if compact_hash_table %}d_non_root_offset{% else %}d_hash_table_size{% endif %}; i += NR_THREADS) {
+		{% if not compact_hash_table and vectorsize > 63 %}
 		if (is_root(d_q[i])) {
 		{% else %}
-		if (d_q[i] != {% if not no_compact_hash_table %}EMPTY_COMPRESSED_NODE{% else %}EMPTY_NODE{% endif %}) {
+		if (d_q[i] != {% if compact_hash_table %}EMPTY_COMPRESSED_NODE{% else %}EMPTY_NODE{% endif %}) {
 		{% endif %}
 			localResult++;
 		}
@@ -95,6 +95,7 @@ __global__ void __launch_bounds__(512, 2) gather(compressed_nodetype *d_q, uint8
 	shared_inttype l;
 	shared_indextype sh_index;
 	compressed_node tmp;
+	bool success;
 
 	// Reset the shared variables preceding the cache, and reset the cache.
 	if (THREAD_ID < d_shared_cache_size) {
@@ -126,19 +127,19 @@ __global__ void __launch_bounds__(512, 2) gather(compressed_nodetype *d_q, uint8
 			indextype last_search_location = (indextype) shared[LASTSEARCHOFFSET + WARP_ID];
 			// This block should be able to find a new state.
 			bool found_new_state = false;
-			for (i = GLOBAL_THREAD_ID; i < {% if no_compact_hash_table %}d_hash_table_size{% else %}d_non_root_offset{% endif %} && OPENTILECOUNT < OPENTILELEN; i += NR_THREADS) {
+			for (i = GLOBAL_THREAD_ID; i < {% if not compact_hash_table %}d_hash_table_size{% else %}d_non_root_offset{% endif %} && OPENTILECOUNT < OPENTILELEN; i += NR_THREADS) {
 				indextype loc = i + last_search_location;
-				if (loc >= {% if no_compact_hash_table %}d_hash_table_size{% else %}d_non_root_offset{% endif %}) {
+				if (loc >= {% if not compact_hash_table %}d_hash_table_size{% else %}d_non_root_offset{% endif %}) {
 					last_search_location = -i + GLOBAL_THREAD_ID;
 					loc = i + last_search_location;
 				}
 				tmp = d_q[loc];
 				l = EMPTYVECT32;
-				if ({% if no_compact_hash_table %}is_new(tmp){% else %}tmp != EMPTY_COMPRESSED_NODE{% endif %}) {
+				if ({% if not compact_hash_table %}is_new(tmp){% else %}tmp != EMPTY_COMPRESSED_NODE{% endif %}) {
 					found_new_state = true;
 					// Try to increment the OPENTILECOUNT counter. If successful, store the state pointer.
 					l = atomicAdd((shared_inttype *) &OPENTILECOUNT, 1);
-					{% if no_compact_hash_table %}
+					{% if not compact_hash_table %}
 					if (l < OPENTILELEN) {
 						d_q[loc] = mark_old(tmp);
 					}
@@ -146,7 +147,7 @@ __global__ void __launch_bounds__(512, 2) gather(compressed_nodetype *d_q, uint8
 					shared[OPENTILEOFFSET+l] = tmp;
 				}
 			}
-			if (i < {% if no_compact_hash_table %}d_hash_table_size{% else %}d_non_root_offset{% endif %}) {
+			if (i < {% if not compact_hash_table %}d_hash_table_size{% else %}d_non_root_offset{% endif %}) {
 				last_search_location = i - GLOBAL_WARP_ID;
 			}
 			else {
@@ -155,7 +156,7 @@ __global__ void __launch_bounds__(512, 2) gather(compressed_nodetype *d_q, uint8
 			if (LANE == 0) {
 				shared[LASTSEARCHOFFSET + WARP_ID] = last_search_location;
 			}
-			if (found_new_state || i < {% if no_compact_hash_table %}d_hash_table_size{% else %}d_non_root_offset{% endif %}) {
+			if (found_new_state || i < {% if not compact_hash_table %}d_hash_table_size{% else %}d_non_root_offset{% endif %}) {
 				WORKSCANRESULT = 1;
 			}
 		}
@@ -234,8 +235,14 @@ __global__ void __launch_bounds__(512, 2) gather(compressed_nodetype *d_q, uint8
  * Host function that prepares data, copies it to the GPU, and handles the control flow of the model checking.
  */
 int main(int argc, char** argv) {
+	{% if not compact_hash_table %}
 	// Size of global hash table.
 	indextype hash_table_size = 0;
+	indextype d_hash_table_size;
+	{% else %}
+	// Pointer to the start of the internal hash table.
+	indextype non_root_offset, d_non_root_offset;
+	{% endif %}
 	// Number of search iterations in each kernel launch.
 	uint32_t kernel_iters = KERNEL_ITERS;
 	// Level of verbosity (1=print level progress)
@@ -338,6 +345,8 @@ int main(int argc, char** argv) {
 	CUDA_CHECK_RETURN(cudaMemcpy(d_worktiles, 0, NR_BLOCKS * (OPENTILELEN + LASTSEARCHLEN + 1) * sizeof(shared_inttype)));
 	CUDA_CHECK_RETURN(cudaMemcpy(d_counted_states, 0, sizeof(indextype)));
 
+	{% if not compact_hash_table %}
+	{% if vectorsize <= 62 %}
 	indextype available, total;
 	cudaMemGetInfo(&available, &total);
 	if (hash_table_size == 0) {
@@ -349,9 +358,19 @@ int main(int argc, char** argv) {
 		hash_table_size -= el_per_Mb;
 		if (hash_table_size < el_per_Mb) {
 			fprintf(sterr, "ERROR: not enough free memory on the GPU!\n");
-			exit(-1);
+			exit(1);
 		}
 	}
+	{% else %}
+	// We create a hash table for (non-compact) state vector trees. Its size is limited to 2^31 elements, as a 64-bit element needs to be able to store two pointers, plus two admin bits.
+	hash_table_size = 2147483648;
+	cudaMalloc((void **)&d_q, hash_table_size * sizeof(compressed_nodetype));
+	{% endif %}
+	{% elif global_memsize == 24 %}
+	// We create a global compact hash table for 24 GB. A root table is created that has exactly 2^32 elements, and an internal table is created with 500 million elements.
+	cudaMalloc((void **)&d_q, 4831838208 * sizeof(compressed_nodetype));
+	non_root_offset = 4294967296;
+	{% endif %}
 
 	fprintf (stdout, "Global mem queue size: %lu; Number of entries: %lu\n", hash_table_size*sizeof(compressed_nodetype), (indextype) hash_table_size);
 
@@ -362,9 +381,14 @@ int main(int argc, char** argv) {
 	// Copy symbols.
 	cudaMemcpyToSymbol(d_shared_cache_size, &shared_cache_size, sizeof(shared_indextype));
 	cudaMemcpyToSymbol(d_kernel_iters, &kernel_iters, sizeof(uint32_t));
+	{% if compact_hash_table %}
+	cudaMemcpyToSymbol(d_non_root_offset, &non_root_offset, sizeof(indextype));
+	{% else %}
+	cudaMemcpyToSymbol(d_hash_table_size, &hash_table_size, sizeof(indextype));
+	{% endif %}
 
 	// Initialise the hash table.
-	init_hash_table<<<NR_BLOCKS, {{nrthreadsperblock}}>>>(d_q, hash_table_size);
+	init_hash_table<<<NR_BLOCKS, {{nrthreadsperblock}}>>>(d_q);
 	store_initial_state<<<1, WARP_SIZE>>>(d_q, d_newstate_flags);
 
 	uint8_t zero = 0;
@@ -392,14 +416,14 @@ int main(int argc, char** argv) {
 				fprintf(stdout, "%d\n", iterations_counter++);
 			}
 			else if (verbosity == 2) {
-				count_states<<<((int) prop.multiProcessorCount)*8, 512, 1>>>(d_q, d_counted_states, {% if vectorsize > 62 %}non_root_offset{% else %}hash_table_size{% endif %});
+				count_states<<<((int) prop.multiProcessorCount)*8, 512, 1>>>(d_q, d_counted_states);
 				CUDA_CHECK_RETURN(cudaDeviceSynchronize());
 				CUDA_CHECK_RETURN(cudaMemcpy(&counted_states, d_counted_states, sizeof(indextype), cudaMemcpyDeviceToHost));
 				fprintf(stdout, "Nr. of states in hash table: %u\n", counted_states);
 			}
 			else if (verbosity == 3) {
 				cudaMemcpy(q_test, d_q, hash_table_size * sizeof(compressed_nodetype), cudaMemcpyDeviceToHost);
-				print_content_hash_table(stdout, q_test, {% if not no_compact_hash_table %}non_root_offset{% else %}hash_table_size{% endif %});
+				print_content_hash_table(stdout, q_test, {% if compact_hash_table %}non_root_offset{% else %}hash_table_size{% endif %});
 			}
 		}
 		scan = 1;
@@ -418,7 +442,7 @@ int main(int argc, char** argv) {
 	}
 
 	CUDA_CHECK_RETURN(cudaMemset(d_counted_states, 0, sizeof(indextype)));
-	count_states<<<((int) prop.multiProcessorCount)*8, 512, 1>>>(d_q, d_counted_states, {% if vectorsize > 62 %}non_root_offset{% else %}hash_table_size{% endif %});
+	count_states<<<((int) prop.multiProcessorCount)*8, 512, 1>>>(d_q, d_counted_states);
 	CUDA_CHECK_RETURN(cudaDeviceSynchronize());
 	CUDA_CHECK_RETURN(cudaMemcpy(&counted_states, d_counted_states, sizeof(indextype), cudaMemcpyDeviceToHost));
 	fprintf(stdout, "Nr. of states in hash table: %u\n", counted_states);
