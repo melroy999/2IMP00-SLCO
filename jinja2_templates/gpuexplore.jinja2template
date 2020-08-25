@@ -323,7 +323,7 @@ inline __device__ uint32_t get_right(uint64_t node) {
 }
 
 // Combine two halfs of a 64-bit integer
-inline __node__ __device__ uint64_t combine_halfs(uint32_t n1, uint32_t n2) {
+inline __device__ uint64_t combine_halfs(uint32_t n1, uint32_t n2) {
 	uint64_t node = (uint64_t) n2;
 	uint64_t node2 = (uint64_t) n1;
 	asm("{\n\t"
