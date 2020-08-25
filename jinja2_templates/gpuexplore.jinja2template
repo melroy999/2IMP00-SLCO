@@ -327,7 +327,7 @@ inline __node__ __device__ uint64_t combine_halfs(uint32_t n1, uint32_t n2) {
 	uint64_t node = (uint64_t) n2;
 	uint64_t node2 = (uint64_t) n1;
 	asm("{\n\t"
-		" bfi.u64 %0, %1, %0, 32, 32;\n\t
+		" bfi.u64 %0, %1, %0, 32, 32;\n\t"
 		"}" : "+l"(node) : "l"(node2));
 	return node;
 }
