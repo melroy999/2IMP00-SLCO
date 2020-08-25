@@ -1684,14 +1684,14 @@ inline __device__ indextype {% if compact_hash_table %}U{% endif %}HASH(uint8_t 
 	x = ((uint64_t) s2) + ((uint64_t) get_left(node1)) * ((uint64_t) get_left(d_hash_table_size)) + ((uint64_t) get_left(x));
 	s2 = get_right(x);
 	s3 = get_left(x);
-	// Result.
-	node1 = (uint64_t) s1;
-	node1 = node1 << 32 | s0;
 	// Carry.
 	x = (uint64_t) s3;
 	x = x << 32 | s2;
-	// Right shift to obtain final result.
 	{% if nr_bits_address_root < 64 %}
+	// Result.
+	node1 = (uint64_t) s1;
+	node1 = node1 << 32 | s0;
+	// Right shift to obtain final result.
 	node1 = node1 >> {{nr_bits_address_root}};
 	x = x << {{64-nr_bits_address_root}};
 	node1 |= x;
@@ -1738,9 +1738,8 @@ inline __device__ compressed_nodetype get_compressed_node_root(nodetype h, uint8
 }
 
 {% endif %}
-
 // Retrieve vectortree node at index i of the global memory hash table.
-inline __host__ __device __ nodetype HT_RETRIEVE(compressed_nodetype *d_q, indextype i{% if compact_hash_table %}, indextype offset{% endif %}) {
+inline __host__ __device__ nodetype HT_RETRIEVE(compressed_nodetype *d_q, indextype i{% if compact_hash_table %}, indextype offset{% endif %}) {
 	{% if not compact_hash_table %}
 	return (nodetype) d_q[i];
 	{% else %}
