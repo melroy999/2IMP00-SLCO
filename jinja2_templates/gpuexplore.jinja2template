@@ -2683,6 +2683,7 @@ inline __device__ void get_current_state(statetype *b, shared_indextype node_ind
 			part2 = get_vectorpart_{{vinfo[2][0]}}(node_index);
 			{% endif %}
 			get_{{state_order[i]|replace("'","_")}}(b, part1, part2);
+			break;
 		{% endfor %}
 		default:
 			break;
