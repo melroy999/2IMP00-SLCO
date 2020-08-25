@@ -2613,8 +2613,8 @@ __device__ shared_indextype get_sorted_opentile_element(uint8_t wid) {
 {% for s in vectorelem_in_structure_map.keys() %}
 {% set size = vectorelem_in_structure_map[s][0] %}
 inline __host__ __device__ void get_{{s|replace("[","_")|replace("]","")|replace("'","_")}}({% if s|is_state %}elem_statetype{% elif size == 1 %}elem_booltype{% elif size < 32 %}elem_chartype{% else %}elem_inttype{% endif %} *b, nodetype part1, nodetype part2) {
-{% if size == 1 %}
-	elem_chartype t2;
+{% if size < 16 %}
+	short t2;
 {% endif %}
 	asm("{\n\t"
 		" .reg .u{% if vectorsize < 31 %}32{% else %}64{% endif %} t1;\n\t"
@@ -2625,9 +2625,13 @@ inline __host__ __device__ void get_{{s|replace("[","_")|replace("]","")|replace
 		" bfi.b{% if vectorsize < 31 %}32{% else %}64{% endif %} t1, %1, t1, {{vectorelem_in_structure_map[s][2][2]}}, {{vectorelem_in_structure_map[s][1][2]}};\n\t"
 {% endif %}
 		" cvt.s{% if size < 32 %}8{% else %}32{% endif %}.u{% if vectorsize < 31 %}32{% else %}64{% endif %} %0, t1;\n\t"
-	    "}" : "=r"({% if size == 1%}t2{% else %}*b{% endif %}) : "l"(part1), "l"(part2));
-{% if size == 1 %}
+	    "}" : "={% if size < 16 %}h"(t2){% else %}r"(*b){% endif %} : "l"(part1), "l"(part2));
+{% if size < 16 %}
+	{% if size == 1 %}
 	*b = (elem_booltype) t2;
+	{% else %}
+	*b = (elem_chartype) t2;
+	{% endif %}
 {% endif %}
 }
 
