@@ -64,13 +64,13 @@ using namespace cooperative_groups;
 {% endif %}
 // type for vector node IDs.
 {% if vectortree|length < 2**8 %}
-#define vectornode_indextype uint8_t;
+#define vectornode_indextype uint8_t
 {% elif vectortree|length < 2**16 %}
-#define vectornode_indextype uint16_t;
+#define vectornode_indextype uint16_t
 {% elif vectortree|length < 2**32 %}
-#define vectornode_indextype uint32_t;
+#define vectornode_indextype uint32_t
 {% elif vectortree|length < 2**64 %}
-#define vectornode_indextype uint32_t;
+#define vectornode_indextype uint32_t
 {% endif %}
 
 // GPU constants.
@@ -332,20 +332,6 @@ inline __device__ uint64_t combine_halfs(uint32_t n1, uint32_t n2) {
 	return node;
 }
 
-// Retrieval functions for vector parts from shared memory.
-{% if vectorsize > 62 %}
-We ignore shared memory node pointers (cache pointers).
-{% endif %}
-inline __device__ nodetype get_vectorpart(shared_indextype node_index, vectornode_indextype part_id) {
-	switch (part_id) {
-	  {% for i in range(0,vectorstructure|length) %}
-	  case {{i}}:
-	  	return get_vectorpart_{{i}}(node_index);
-	  {% endfor %}
-	  default:
-	  	return 0;
-	}
-}
 {% for i in range(0,vectorstructure|length) %}
 
 inline __device__ nodetype get_vectorpart_{{i}}(shared_indextype node_index) {
@@ -367,6 +353,20 @@ inline __device__ nodetype get_vectorpart_{{i}}(shared_indextype node_index) {
 	{% endif %}
 }
 {% endfor %}
+// Retrieval functions for vector parts from shared memory.
+{% if vectorsize > 62 %}
+We ignore shared memory node pointers (cache pointers).
+{% endif %}
+inline __device__ nodetype get_vectorpart(shared_indextype node_index, vectornode_indextype part_id) {
+	switch (part_id) {
+	  {% for i in range(0,vectorstructure|length) %}
+	  case {{i}}:
+	  	return get_vectorpart_{{i}}(node_index);
+	  {% endfor %}
+	  default:
+	  	return 0;
+	}
+}
 
 {% if vectorsize > 62 %}
 // Retrieval functions for vector tree nodes from shared memory, including shared memory node pointers (cache pointers).
