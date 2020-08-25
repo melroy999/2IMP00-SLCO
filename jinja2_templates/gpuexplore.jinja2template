@@ -1691,9 +1691,13 @@ inline __device__ indextype {% if compact_hash_table %}U{% endif %}HASH(uint8_t 
 	x = (uint64_t) s3;
 	x = x << 32 | s2;
 	// Right shift to obtain final result.
+	{% if nr_bits_address_root < 64 %}
 	node1 = node1 >> {{nr_bits_address_root}};
 	x = x << {{64-nr_bits_address_root}};
 	node1 |= x;
+	{% else %}
+	node1 = x;
+	{% endif %}
 	return (indextype) node1;
 	{% endif %}
 }
