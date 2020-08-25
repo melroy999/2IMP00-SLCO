@@ -1816,23 +1816,16 @@ inline __device__ {% if nr_bits_address_root < 32 %}indextype{% else %}uint64_t{
 				{% endif %}
 					{% if not compact_hash_table %}
 						// Try to claim the vector for future work. For this, try to increment the OPENTILECOUNT counter.
-						if (claim_work) {
-							shared_addr = atomicInc(&OPENTILECOUNT);
-							if (shared_addr < OPENTILELEN) {
-								{% if vectorsize > 30 %}
-								// Store pointer to root in the work tile.
-								shared[OPENTILEOFFSET+shared_addr] = (shared_inttype) addr;
-								{% else %}
-								// Store the node in the work tile.
-								shared[OPENTILEOFFSET+shared_addr] = node;
-								{% endif %}
-								// Mark the state as old in the hash table.
-								atomicCAS(&(d_q[{% if compact_hash_table %}offset+{% endif %}addr]), node, mark_old(node));
-							}
-							else {
-								// There is work available for some block.
-								d_newstate_flags[(addr / BLOCK_SIZE) % GRID_SIZE] = 1;
-							}
+						if (claim_work && (shared_addr = atomicAdd((unsigned int*) &OPENTILECOUNT, 1)) < OPENTILELEN) {
+							{% if vectorsize > 30 %}
+							// Store pointer to root in the work tile.
+							shared[OPENTILEOFFSET+shared_addr] = (shared_inttype) addr;
+							{% else %}
+							// Store the node in the work tile.
+							shared[OPENTILEOFFSET+shared_addr] = node;
+							{% endif %}
+							// Mark the state as old in the hash table.
+							atomicCAS(&(d_q[{% if compact_hash_table %}offset+{% endif %}addr]), node, mark_old(node));
 						}
 						else {
 							// There is work available for some block.
