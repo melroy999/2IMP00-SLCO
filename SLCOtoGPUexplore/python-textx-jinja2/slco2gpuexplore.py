@@ -3528,6 +3528,13 @@ def translate():
 	out = template.render(name=name, vectorsize=vectorsize, compact_hash_table=compact_hash_table, global_memsize=global_memsize, nrthreadsperblock=nrthreadsperblock)
 	outFile.write(out)
 	outFile.close()
+	# create a Makefile
+	outFile = open(join(path,"Makefile"), 'w')
+	outFile.write('all:\n')
+	outFile.write('\tnvcc -arch=sm_30 -lcudart -o gpuexplore gpuexplore.cu\n')
+	outFile.write('debug:\n')
+	outFile.write('\tnvcc -arch=sm_30 -g -G -Xcompiler -rdynamic -lcudart -o gpuexplore gpuexplore.cu\n')
+	outFile.close()
 
 def main(args):
 	"""The main function"""
