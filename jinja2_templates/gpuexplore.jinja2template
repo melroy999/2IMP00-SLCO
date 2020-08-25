@@ -2701,7 +2701,7 @@ inline __device__ void set_left_{{s|replace("[","_")|replace("]","")|replace("'"
 		" shr.b{% if vectorsize < 31 %}32{% else %}64{% endif %} %1, %1, {{vectorelem_in_structure_map[s][2][2]}};\n\t"
 {% endif %}
 		" bfi.b{% if vectorsize < 31 %}32{% else %}64{% endif %} %0, %1, %0, {{vectorelem_in_structure_map[s][1][1]}}, {{vectorelem_in_structure_map[s][1][2]}};\n\t"
-		"}" : "+l"(*part) : "{% if vectorelem_in_structure_map[s]|length > 2 %}+{% endif %}l"(t1);
+		"}" : "+l"(*part) : "{% if vectorelem_in_structure_map[s]|length > 2 %}+{% endif %}l"(t1));
 }
 
 {% if vectorelem_in_structure_map[s]|length > 2 %}
@@ -2709,7 +2709,7 @@ inline __device__ void set_right_{{s|replace("[","_")|replace("]","")|replace("'
 	nodetype t1 = (nodetype) x;
 	asm("{\n\t"
 		" bfi.b{% if vectorsize < 31 %}32{% else %}64{% endif %} %0, t1, %0, {{vectorelem_in_structure_map[s][2][1]}}, {{vectorelem_in_structure_map[s][2][2]}};\n\t"
-		"}" : "+l"(*part) : "r"(x);
+		"}" : "+l"(*part) : "r"(x));
 }
 
 {% endif %}
