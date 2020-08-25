@@ -572,7 +572,7 @@ inline __device__ shared_inttype STOREINCACHE(nodetype node, shared_inttype cach
 	addr = CACHE_HASH(node);
 	while (i < CACHERETRYFREQ) {
 		element = atomicCAS((shared_inttype *) &(shared[CACHEOFFSET+addr]), EMPTYVECT32, {% if vectorsize < 64%}node{% else %}part1{% endif %});
-		if (element == EMPTYVECT_32 || element == {% if vectorsize < 64%}node{% else %}part1{% endif %}) {
+		if (element == EMPTYVECT32 || element == {% if vectorsize < 64%}node{% else %}part1{% endif %}) {
 			// Successful storage.
 			{% if vectorsize > 62 %}
 			element = atomicCAS((shared_inttype *) &(shared[CACHEOFFSET+addr+1]), EMPTYVECT32, part2);
