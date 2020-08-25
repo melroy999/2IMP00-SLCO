@@ -136,6 +136,9 @@ const size_t Mb = 1<<20;
 {% else %}
 #define HASHTABLE_FULL 0xFFFFFFFFFFFFFFFF
 {% endif %}
+// Error value to indicate that a shared memory cache is full.
+// Assumption: the cache cannot store 2^16 or more elements.
+#define CACHE_FULL 0xFFFF
 
 // Shared memory local progress flags
 #define ITERATIONS				(shared[0])
@@ -333,7 +336,6 @@ inline __device__ uint64_t combine_halfs(uint32_t n1, uint32_t n2) {
 }
 
 {% for i in range(0,vectorstructure|length) %}
-
 inline __device__ nodetype get_vectorpart_{{i}}(shared_indextype node_index) {
 	{% if vectorsize <= 30 %}
 	// The node is directly stored in the work tile.
@@ -352,6 +354,7 @@ inline __device__ nodetype get_vectorpart_{{i}}(shared_indextype node_index) {
 	return part;
 	{% endif %}
 }
+
 {% endfor %}
 // Retrieval functions for vector parts from shared memory.
 {% if vectorsize > 62 %}
@@ -652,7 +655,7 @@ inline __device__ shared_inttype STOREINCACHE(nodetype node, shared_inttype cach
 		}
 	}
 	// Storage of node not successful. We conclude that the cache is full.
-	return HASHTABLE_FULL;
+	return CACHE_FULL;
 }
 
 // *** END FUNCTIONS FOR {% if vectorsize > 62 %}VECTOR TREE {% endif %}NODE MANIPULATION AND STORAGE TO THE SHARED MEMORY CACHE ***
@@ -2135,7 +2138,7 @@ inline __device__ uint32_t get_part_bitmask_for_states_in_vectorpart(uint8_t pid
 // Retrieve a vectortree from the global hash table and store it in the cache. This is performed in a warp-centric way.
 // Address addr points to the root of the requested vectortree. The function returns the address of the root of the vectortree in the cache,
 // or HASHTABLE_FULL in the case the cache is full.
-inline __device__ shared_inttype FETCH(thread_group treegroup, compressed_nodetype *d_q, indextype addr) {
+inline __device__ shared_indextype FETCH(thread_group treegroup, compressed_nodetype *d_q, indextype addr) {
 	nodetype node = 0;
 	{% if vectorsize > 62 %}
 	nodetype leaf_node = 0;
@@ -2190,8 +2193,8 @@ inline __device__ shared_inttype FETCH(thread_group treegroup, compressed_nodety
 			// Store the leaf node in the cache.
 			cache_pointers = 0;
 			result = STOREINCACHE(leaf_node, cache_pointers);
-			if (result == HASHTABLE_FULL) {
-				return HASHTABLE_FULL;
+			if (result == CACHE_FULL) {
+				return CACHE_FULL;
 			}
 			else {
 				cache_addr = (shared_indextype) result;
@@ -2211,8 +2214,8 @@ inline __device__ shared_inttype FETCH(thread_group treegroup, compressed_nodety
 				// Store the leaf node in the cache.
 				cache_pointers = 0;
 				result = STOREINCACHE(leaf_node, cache_pointers);
-				if (result == HASHTABLE_FULL) {
-					return HASHTABLE_FULL;
+				if (result == CACHE_FULL) {
+					return CACHE_FULL;
 				}
 				else {
 					cache_addr = (shared_indextype) result;
@@ -2223,8 +2226,8 @@ inline __device__ shared_inttype FETCH(thread_group treegroup, compressed_nodety
 			// Store the leaf node in the cache.
 			cache_pointers = 0;
 			result = STOREINCACHE(leaf_node, cache_pointers);
-			if (result == HASHTABLE_FULL) {
-				return HASHTABLE_FULL;
+			if (result == CACHE_FULL) {
+				return CACHE_FULL;
 			}
 			else {
 				cache_addr = (shared_indextype) result;
@@ -2355,8 +2358,8 @@ inline __device__ shared_inttype FETCH(thread_group treegroup, compressed_nodety
 		if ((smart_fetching_bitmask & get_part_reachability(gid)) != 0x0) {
 			node = mark_non_root_old(node);
 			result = STOREINCACHE(leaf_node, cache_pointers);
-			if (result == HASHTABLE_FULL) {
-				return HASHTABLE_FULL;
+			if (result == CACHE_FULL) {
+				return CACHE_FULL;
 			}
 			else {
 				cache_addr = (shared_indextype) result;
@@ -2365,8 +2368,8 @@ inline __device__ shared_inttype FETCH(thread_group treegroup, compressed_nodety
 		{% else %}
 		node = mark_non_root_old(node);
 		result = STOREINCACHE(leaf_node, cache_pointers);
-		if (result == HASHTABLE_FULL) {
-			return HASHTABLE_FULL;
+		if (result == CACHE_FULL) {
+			return CACHE_FULL;
 		}
 		else {
 			cache_addr = (shared_indextype) result;
@@ -2378,8 +2381,8 @@ inline __device__ shared_inttype FETCH(thread_group treegroup, compressed_nodety
 	{% else %}
 	node = HT_RETRIEVE(d_q, node_addr{% if compact_hash_table %}, 0){% endif %});
 	result = STOREINCACHE(leaf_node, cache_pointers);
-	if (result == HASHTABLE_FULL) {
-		return HASHTABLE_FULL;
+	if (result == CACHE_FULL) {
+		return CACHE_FULL;
 	}
 	else {
 		cache_addr = (shared_indextype) result;
