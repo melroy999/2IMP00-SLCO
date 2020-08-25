@@ -2454,8 +2454,8 @@ inline __device__ void _exch_intxn({% for i in range(0,regsort_nr_el_per_thread)
 	ex_s1 = __shfl_xor_sync(0xFFFFFFFF, {% if regsort_nr_el_per_thread > 1 %}*s{{i*2+1}}{% else %}*s{{i*2}}{% endif %}, mask);
 	ex_p0 = *p{{i*2}};
 	ex_p1 = __shfl_xor_sync(0xFFFFFFFF, {% if regsort_nr_el_per_thread > 1 %}*p{{i*2+1}}{% else %}*p{{i*2}}{% endif %}, mask);
-	CMP_SWP(ex_s0, ex_s1, ex_p0, ex_p1);
-	if (bit) EQL_SWP(ex_s0, ex_s1, ex_p0, ex_p1);
+	CMP_SWP(&ex_s0, &ex_s1, &ex_p0, &ex_p1);
+	if (bit) EQL_SWP(&ex_s0, &ex_s1, &ex_p0, &ex_p1);
 	*s{{i*2}} = ex_s0;
 	{% if regsort_nr_el_per_thread > 1 %}
 	*s{{i*2+1}} = __shfl_xor_sync(0xFFFFFFFF, ex_s1, mask);
@@ -2485,8 +2485,8 @@ inline __device__ void _exch_paral({% for i in range(0,regsort_nr_el_per_thread)
 	ex_s1 = __shfl_xor_sync(0xFFFFFFFF, {% if regsort_nr_el_per_thread > 1 %}*s{{i*2+1}}{% else %}*s{{i*2}}{% endif %}, mask);
 	ex_p0 = *p{{i*2}};
 	ex_p1 = __shfl_xor_sync(0xFFFFFFFF, {% if regsort_nr_el_per_thread > 1 %}*p{{i*2+1}}{% else %}*p{{i*2}}{% endif %}, mask);
-	CMP_SWP(ex_s0, ex_s1, ex_p0, ex_p1);
-	if (bit) EQL_SWP(ex_s0, ex_s1, ex_p0, ex_p1);
+	CMP_SWP(&ex_s0, &ex_s1, &ex_p0, &ex_p1);
+	if (bit) EQL_SWP(&ex_s0, &ex_s1, &ex_p0, &ex_p1);
 	*s{{i*2}} = ex_s0;
 	{% if regsort_nr_el_per_thread > 1 %}
 	*s{{i*2+1}} = __shfl_xor_sync(0xFFFFFFFF, ex_s1, mask);
