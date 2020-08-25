@@ -1784,18 +1784,11 @@ inline __device__ {% if nr_bits_address_root < 32 %}indextype{% else %}uint64_t{
 				if (compressed_element == EMPTY_COMPRESSED_NODE) {
 					// Successfully stored the node.
 					// Try to claim the vector for future work. For this, try to increment the OPENTILECOUNT counter.
-					if (claim_work) {
-						shared_addr = atomicInc(&OPENTILECOUNT);
-						if (shared_addr < OPENTILELEN) {
-							// Store pointer to root in the work tile.
-							shared[OPENTILEOFFSET+shared_addr] = (shared_inttype) addr;
-							// Mark the state as old in the hash table.
-							atomicCAS(&(d_q[addr]), compressed_node, mark_old(compressed_node));
-						}
-						else {
-							// There is work available for some block.
-							d_newstate_flags[(addr / BLOCK_SIZE) % GRID_SIZE] = true;
-						}
+					if (claim_work && (shared_addr = atomicAdd((unsigned int*) &OPENTILECOUNT, 1)) < OPENTILELEN) {
+						// Store pointer to root in the work tile.
+						shared[OPENTILEOFFSET+shared_addr] = (shared_inttype) addr;
+						// Mark the state as old in the hash table.
+						atomicCAS(&(d_q[addr]), compressed_node, mark_old(compressed_node));
 					}
 					else {
 						// There is work available for some block.
