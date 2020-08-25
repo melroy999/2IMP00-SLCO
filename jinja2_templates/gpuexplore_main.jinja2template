@@ -333,11 +333,11 @@ int main(int argc, char** argv) {
 	nblocks = MAX(1,MIN(prop.maxGridSize[0], nblocks));
 
 	// Allocate memory on the GPU.
-	cudaMallocCount((void *) &d_confBFS, sizeof(uint8_t));
-	cudaMallocCount((void *) &d_property_violation, sizeof(uint8_t));
-	cudaMallocCount((void *) &d_counted_states, sizeof(indextype));
-	cudaMallocCount((void *) &d_newstate_flags, NR_BLOCKS * sizeof(uint8_t));
-	cudaMallocCount((void *) &d_worktiles, NR_BLOCKS * (OPENTILELEN+LASTSEARCHLEN+1) * sizeof(shared_inttype));
+	cudaMallocCount((void **) &d_confBFS, sizeof(uint8_t));
+	cudaMallocCount((void **) &d_property_violation, sizeof(uint8_t));
+	cudaMallocCount((void **) &d_counted_states, sizeof(indextype));
+	cudaMallocCount((void **) &d_newstate_flags, NR_BLOCKS * sizeof(uint8_t));
+	cudaMallocCount((void **) &d_worktiles, NR_BLOCKS * (OPENTILELEN+LASTSEARCHLEN+1) * sizeof(shared_inttype));
 
 	// Copy data to the GPU.
 	CUDA_CHECK_RETURN(cudaMemcpy(d_condBFS, &contBFS, sizeof(uint8_t), cudaMemcpyHostToDevice));
