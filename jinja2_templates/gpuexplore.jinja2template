@@ -1673,9 +1673,14 @@ inline __device__ indextype {% if compact_hash_table %}U{% endif %}HASH(uint8_t 
 	node1 = node1 & {{(nr_bits_address_root|pow2-1)|hexa}};
 	{% endif %}
 	// We apply long multiplication, to avoid integer overflow. Overflow must be avoided to ensure the result is within the range [0,...,d_hash_table_size).
-	uint32_t s0, s1, s2, s3;
+	{% if nr_bits_address_root < 64 %}
+	uint32_t s0;
+	{% endif %}
+	uint32_t s1, s2, s3;
 	uint64_t x = ((uint64_t) get_right(node1)) * ((uint64_t) get_right(d_hash_table_size));
+	{% if nr_bits_address_root < 64 %}
 	s0 = get_left(x);
+	{% endif %}
 	x = ((uint64_t) get_left(node1)) * ((uint64_t) get_right(d_hash_table_size)) + ((uint64_t) get_left(node1));
 	s1 = get_right(x);
 	s2 = get_left(x);
