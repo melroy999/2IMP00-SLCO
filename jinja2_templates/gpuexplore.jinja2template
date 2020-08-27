@@ -2614,7 +2614,7 @@ __device__ shared_indextype get_sorted_opentile_element(uint8_t wid) {
 {% set size = vectorelem_in_structure_map[s][0] %}
 inline __host__ __device__ void get_{{s|replace("[","_")|replace("]","")|replace("'","_")}}({% if s|is_state %}elem_statetype{% elif size == 1 %}elem_booltype{% elif size < 32 %}elem_chartype{% else %}elem_inttype{% endif %} *b, nodetype part1, nodetype part2) {
 {% if size < 16 %}
-	short t2;
+	uint16_t t2;
 {% endif %}
 	asm("{\n\t"
 		" .reg .u{% if vectorsize < 31 %}32{% else %}64{% endif %} t1;\n\t"
