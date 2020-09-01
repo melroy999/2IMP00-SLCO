@@ -792,9 +792,15 @@ def cudastore_initial_vector():
 			nodes_cachepointers[current] = p_cpointers
 		Open += children
 	# set all nodes to new, and the root node to root
-	nodes[0] |= 0x4000000000000000
+	if vectorsize < 31:
+		nodes[0] |= 0x40000000
+	else:
+		nodes[0] |= 0x4000000000000000
 	for i in range(0, nrnodes):
-		nodes[i] |= 0x8000000000000000
+		if vectorsize < 31:
+			nodes[i] |= 0x80000000
+		else:
+			nodes[i] |= 0x8000000000000000
 	# construct code
 	output = "\tif (GLOBAL_THREAD_ID < " + str(nrnodes) + ") {\n"
 	output += "\t\tswitch (GLOBAL_THREAD_ID) {\n"
@@ -822,7 +828,7 @@ def cudastore_initial_vector():
 def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, indent):
 	"""Construct CUDA code to produce and store new vectortree nodes. nodes_done is a list containing node ids that have been processed before. nav is a list of nodes still to be processed.
 	   W is a dictionary defining for all vectorparts which values need to be written to it."""
-	global vectortree, vectortree_T, connected_channel, dynamic_write_arrays, state_id
+	global vectortree, vectortree_T, connected_channel, dynamic_write_arrays, state_id, vectorsize
 	ic = indent
 	output = ""
 	if nav != []:
@@ -830,7 +836,8 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, ind
 		if is_vectorpart(p):
 			refs = W.get(p,[])
 			if refs != []:
-				output += "get_vectortree_node(&part1, &part_cachepointers, node_index, " + str(p) + ");\n" + indentspace(ic)
+				if vectorsize > 62:
+					output += "get_vectortree_node(&part1, &part_cachepointers, node_index, " + str(p) + ");\n" + indentspace(ic)
 				output += "// Store new values.\n" + indentspace(ic)
 				output += "part2 = part1;\n" + indentspace(ic)
 				for (v,i,isnotfirstpart) in refs:
@@ -1020,8 +1027,16 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, ind
 					output += "part2 = mark_new(part2);\n" + indentspace(ic)
 				else:
 					output += "part_cachepointers = CACHE_POINTERS_NEW_LEAF;\n" + indentspace(ic)
+				if vectorsize <= 62:
+					output += "buf16_" + str(pointer_cnt) + " = STOREINCACHE(part2);\n" + indentspace(ic)
+				else:
+					output += "buf16_" + str(pointer_cnt) + " = STOREINCACHE(part2, part_cachepointers);\n" + indentspace(ic)
+				ic += 1
+				output += "if (buf16_" + str(pointer_cnt) + " == CACHE_FULL) {\n" + indentspace(ic)
 				ic -= 1
-				output += "buf16_" + str(pointer_cnt) + " = STOREINCACHE(part2, part_cachepointers);\n" + indentspace(ic)
+				output += "// TODO: Plan B\n" + indentspace(ic)
+				ic -= 1
+				output += "}\n" + indentspace(ic)
 				output += "}\n"  + indentspace(ic)
 				ic += 1
 				if nav != []:
@@ -1334,7 +1349,7 @@ def cudafetchdata(s, indent, o, D, unguarded, resetfetched):
 	of statement s in Object o. M is a mapping from SLCO variables to register buffer variables. only_unguarded indicates whether or not
 	only values for unguarded variables must be fetched. If not, then all guarded variables are fetched, assuming that the unguarded
 	ones have already been fetched. If resetfetched, set the fetched variables to initial values."""
-	global connected_channel, signalsize, fetched
+	global connected_channel, signalsize, fetched, vectorsize
 	indentspace = ""
 	for i in range(0,indent):
 		indentspace += "\t"
@@ -1408,7 +1423,8 @@ def cudafetchdata(s, indent, o, D, unguarded, resetfetched):
 							if vpfirst and first:
 								if VP[i] != fetched[0] and VP[i] != fetched[1]:
 									fetched[0] = VP[i]
-									output += "part1 = get_vectorpart(node_index, " + str(VP[i]) + ");\n" + indentspace
+									if vectorsize > 62:
+										output += "part1 = get_vectorpart(node_index, " + str(VP[i]) + ");\n" + indentspace
 								elif VP[i] == fetched[1]:
 									fetched[0] = fetched[1]
 									output += "part1 = part2\n" + indentspace

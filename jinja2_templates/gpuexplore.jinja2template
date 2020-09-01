@@ -25,7 +25,7 @@ using namespace cooperative_groups;
 #define indextype uint32_t
 {% endif %}
 // type of shared memory elements used.
-{% if vectorsize > 31 and vectorsize < 64 %}
+{% if vectorsize > 30 and vectorsize <= 62 %}
 #define shared_inttype uint64_t
 {% else %}
 #define shared_inttype uint32_t
@@ -75,7 +75,7 @@ using namespace cooperative_groups;
 
 // GPU constants.
 static const int WARP_SIZE = 32;
-__constant__ uint16_t d_shared_cache_size;
+__constant__ shared_inttype d_shared_cache_size;
 {% if not compact_hash_table %}
 __constant__ indextype d_hash_table_size;
 {% else %}
@@ -122,13 +122,16 @@ const size_t Mb = 1<<20;
 // CONSTANTS FOR SHARED MEMORY CACHES
 // Offsets calculations for shared memory arrays
 #define OPENTILELEN				{{tilesize}}
-#define LASTSEARCHLEN			NR_WARPS_PER_BLOCK
+#define LASTSEARCHLEN			({{nrthreadsperblock}}/WARP_SIZE)
 
 // Offsets in shared memory from which loaded data can be read.
 #define SH_OFFSET 5
 #define OPENTILEOFFSET 			(SH_OFFSET)
 #define LASTSEARCHOFFSET		(OPENTILEOFFSET+OPENTILELEN)
 #define CACHEOFFSET 			(LASTSEARCHOFFSET+LASTSEARCHLEN)
+
+// Shared memory work tile size in nr. of warps
+#define OPENTILE_WARP_WIDTH		{{nr_warps_per_tile}}
 
 // Error value to indicate a full global hash table.
 {% if nr_bits_address_root < 32 %}
@@ -392,13 +395,9 @@ inline __device__ void get_vectortree_node_{{i}}(nodetype *node, shared_inttype 
 	{% for b in i|get_vector_tree_to_node_navigation %}
 	index = sv_step(index, {% if b %}true{% else %}false{% endif %});
 	{% endfor %}
-	{% if vectorsize < 32 %}
-	(*node) = shared[CACHEOFFSET+{% if i|get_vector_tree_to_node_navigation|length > 0 %}index{% else %}node_index{% endif %}];
-	{% else %}
 	asm("{\n\t"
 		" mov.b64 %0,{ %1, %2 };\n\t"
 		"}" : "=l"(*node) : "r"(shared[CACHEOFFSET+{% if i|get_vector_tree_to_node_navigation|length > 0 %}index{% else %}node_index{% endif %}]), "r"(shared[CACHEOFFSET+{% if i|get_vector_tree_to_node_navigation|length > 0 %}index{% else %}node_index{% endif %}+1]));
-	{% endif %}
 	*d_cachepointers = shared[CACHEOFFSET+{% if i|get_vector_tree_to_node_navigation|length > 0 %}index{% else %}node_index{% endif %}+2];
 }
 {% endfor %}
@@ -557,7 +556,7 @@ inline __device__ shared_indextype CACHE_HASH(nodetype node) {
 
 // Store a vectortree node in the cache.
 // Return address if successful, HASHTABLE_FULL if cache is full.
-{% if vectorsize < 64 %}
+{% if vectorsize <= 62 %}
 inline __device__ shared_inttype STOREINCACHE(nodetype node) {
 {% else %}
 inline __device__ shared_inttype STOREINCACHE(nodetype node, shared_inttype cache_pointers) {
@@ -1763,8 +1762,9 @@ inline __host__ __device__ nodetype HT_RETRIEVE(compressed_nodetype *d_q, indext
 
 // Find or put a given vectortree node in the global hash table.
 inline __device__ {% if nr_bits_address_root < 32 %}indextype{% else %}uint64_t{% endif %} FINDORPUT_SINGLE(compressed_nodetype *d_q, nodetype node, volatile uint8_t *d_newstate_flags{% if compact_hash_table %}, indextype offset{% endif %}, bool claim_work) {
-	nodetype e1, e2;
+	nodetype e1;
 	{% if compact_hash_table %}
+	nodetype e2;
 	compressed_nodetype compressed_node;
 	compressed_nodetype compressed_element;
 	{% endif %}
@@ -2016,9 +2016,18 @@ __device__ void FINDORPUT_MANY(compressed_nodetype *d_q, volatile uint8_t *d_new
 }
 
 // Kernel to store the initial state in the global memory hash table.
-__global__ void store_initial_state(compressed_nodetype *d_q, volatile uint8_t *d_newstate_flags) {
+__global__ void store_initial_state(compressed_nodetype *d_q, volatile uint8_t *d_newstate_flags, shared_inttype *d_worktiles) {
 {{cuda_initial_vector}}
+	__syncthreads();
 	FINDORPUT_MANY(d_q, d_newstate_flags);
+	__syncthreads();
+	// Done. Copy the work tile to global memory.
+	if (THREAD_ID < OPENTILELEN+LASTSEARCHLEN) {
+		d_worktiles[(OPENTILELEN+LASTSEARCHLEN+1)*BLOCK_ID + THREAD_ID] = shared[OPENTILEOFFSET+THREAD_ID];
+	}
+	if (THREAD_ID == 0) {
+		d_worktiles[(OPENTILELEN+LASTSEARCHLEN+1)*BLOCK_ID + OPENTILELEN + LASTSEARCHLEN] = OPENTILECOUNT;
+	}
 }
 {% if vectorsize > 62 %}
 
@@ -2390,234 +2399,13 @@ inline __device__ shared_indextype FETCH(thread_group treegroup, compressed_node
 
 // *** END KERNELS AND FUNCTIONS FOR {% if vectorsize > 62 %}VECTOR TREE {% endif %}NODE STORAGE AND RETRIEVAL TO/FROM THE GLOBAL MEMORY HASH TABLE ***
 
-// *** START FUNCTIONS FOR INTRA-WARP BITONIC MERGESORT (Fast Segmented Sort on GPUs, Hou et al., 2017) ***
+// *** START FUNCTIONS FOR MODEL DATA RETRIEVAL AND STORAGE ***
 
-inline __device__ void CMP_SWP(statetype *s0, statetype *s1, shared_indextype *p0, shared_indextype *p1) {
-	statetype s_tmp;
-	shared_indextype p_tmp;
-
-	if (*s0 > *s1) {
-		s_tmp = *s0;
-		*s0 = *s1;
-		*s1 = s_tmp;
-		p_tmp = *p0;
-		*p0 = *p1;
-		*p1 = p_tmp;
-	}
-}
-
-inline __device__ void EQL_SWP(statetype *s0, statetype *s1, shared_indextype *p0, shared_indextype *p1) {
-	statetype s_tmp;
-	shared_indextype p_tmp;
-
-	if (*s0 != *s1) {
-		s_tmp = *s0;
-		*s0 = *s1;
-		*s1 = s_tmp;
-		p_tmp = *p0;
-		*p0 = *p1;
-		*p1 = p_tmp;
-	}
-}
-
-inline __device__ void SWP(statetype *s0, statetype *s1, shared_indextype *p0, shared_indextype *p1) {
-	statetype s_tmp;
-	shared_indextype p_tmp;
-
-	s_tmp = *s0;
-	*s0 = *s1;
-	*s1 = s_tmp;
-	p_tmp = *p0;
-	*p0 = *p1;
-	*p1 = p_tmp;
-}
-
-inline __device__ void _exch_intxn({% for i in range(0,regsort_nr_el_per_thread) %}statetype *s{{i}}, {% endfor %}{% for i in range(0,regsort_nr_el_per_thread) %}shared_indextype *p{{i}}, {% endfor %}uint8_t mask, bool bit) {
-	statetype ex_s0, ex_s1;
-	shared_indextype ex_p0, ex_p1;
-	{% if regsort_nr_el_per_thread > 2 %}
-	{% for i in range (0,(regsort_nr_el_per_thread/2)|int) %}
-	if (bit) SWP(s{{i}}, s{{(regsort_nr_el_per_thread-1-((i/2)|int*2)-(1-(i%2)))|int}}, p{{i}}, p{{(regsort_nr_el_per_thread-1-((i/2)|int*2)-(1-(i%2)))|int}});
-	{% endfor %}
-	{% endif %}
-	{% for i in range(0,(regsort_nr_el_per_thread/2)|int) %}
-	ex_s0 = *s{{i*2}};
-	ex_s1 = __shfl_xor_sync(0xFFFFFFFF, {% if regsort_nr_el_per_thread > 1 %}*s{{i*2+1}}{% else %}*s{{i*2}}{% endif %}, mask);
-	ex_p0 = *p{{i*2}};
-	ex_p1 = __shfl_xor_sync(0xFFFFFFFF, {% if regsort_nr_el_per_thread > 1 %}*p{{i*2+1}}{% else %}*p{{i*2}}{% endif %}, mask);
-	CMP_SWP(&ex_s0, &ex_s1, &ex_p0, &ex_p1);
-	if (bit) EQL_SWP(&ex_s0, &ex_s1, &ex_p0, &ex_p1);
-	*s{{i*2}} = ex_s0;
-	{% if regsort_nr_el_per_thread > 1 %}
-	*s{{i*2+1}} = __shfl_xor_sync(0xFFFFFFFF, ex_s1, mask);
-	{% endif %}
-	*p{{i*2}} = ex_p0;
-	{% if regsort_nr_el_per_thread > 1 %}
-	*p{{i*2+1}} = __shfl_xor_sync(0xFFFFFFFF, ex_p1, mask);
-	{% endif %}
-	{% endfor %}
-	{% if regsort_nr_el_per_thread > 2 %}
-	{% for i in range (0,(regsort_nr_el_per_thread/2)|int) %}
-	if (bit) SWP(s{{i}}, s{{(regsort_nr_el_per_thread-1-((i/2)|int*2)-(1-(i%2)))|int}}, p{{i}}, p{{(regsort_nr_el_per_thread-1-((i/2)|int*2)-(1-(i%2)))|int}});
-	{% endfor %}
-	{% endif %}
-}
-
-inline __device__ void _exch_paral({% for i in range(0,regsort_nr_el_per_thread) %}statetype *s{{i}}, {% endfor %}{% for i in range(0,regsort_nr_el_per_thread) %}shared_indextype *p{{i}}, {% endfor %}uint8_t mask, bool bit) {
-	statetype ex_s0, ex_s1;
-	shared_indextype ex_p0, ex_p1;
-	{% if regsort_nr_el_per_thread > 1 %}
-	{% for i in range (0,(regsort_nr_el_per_thread/2)|int) %}
-	if (bit) SWP(s{{i*2}}, s{{i*2+1}}, p{{i*2}}, p{{i*2+1}});
-	{% endfor %}
-	{% endif %}
-	{% for i in range(0,(regsort_nr_el_per_thread/2)|int) %}
-	ex_s0 = *s{{i*2}};
-	ex_s1 = __shfl_xor_sync(0xFFFFFFFF, {% if regsort_nr_el_per_thread > 1 %}*s{{i*2+1}}{% else %}*s{{i*2}}{% endif %}, mask);
-	ex_p0 = *p{{i*2}};
-	ex_p1 = __shfl_xor_sync(0xFFFFFFFF, {% if regsort_nr_el_per_thread > 1 %}*p{{i*2+1}}{% else %}*p{{i*2}}{% endif %}, mask);
-	CMP_SWP(&ex_s0, &ex_s1, &ex_p0, &ex_p1);
-	if (bit) EQL_SWP(&ex_s0, &ex_s1, &ex_p0, &ex_p1);
-	*s{{i*2}} = ex_s0;
-	{% if regsort_nr_el_per_thread > 1 %}
-	*s{{i*2+1}} = __shfl_xor_sync(0xFFFFFFFF, ex_s1, mask);
-	{% endif %}
-	*p{{i*2}} = ex_p0;
-	{% if regsort_nr_el_per_thread > 1 %}
-	*p{{i*2+1}} = __shfl_xor_sync(0xFFFFFFFF, ex_p1, mask);
-	{% endif %}
-	{% endfor %}
-	{% if regsort_nr_el_per_thread > 1 %}
-	{% for i in range (0,(regsort_nr_el_per_thread/2)|int) %}
-	if (bit) SWP(s{{i*2}}, s{{i*2+1}}, p{{i*2}}, p{{i*2+1}});
-	{% endfor %}
-	{% endif %}
-}
-
-// The main bitonic sorting function, including loading the data to be sorted,
-// and returning the tile index of the element to be subsequently used by the calling thread.
-// wid is the ID of the warp executing the function. It is a parameter (as opposed to deriving the ID from the thread dynamically),
-// to allow a thread to run the function with multiple IDs.
-__device__ shared_indextype get_sorted_opentile_element(uint8_t wid) {
-	statetype {% for i in range(0,regsort_nr_el_per_thread) %}s{{i}}{% if not loop.last %}, {% else %};{% endif %}{% endfor %}
-	
-	shared_indextype {% for i in range(0,regsort_nr_el_per_thread) %}p{{i}}, {% endfor %}p_tmp1, p_tmp2, p_result;
-	
-	// Load the tile indices.
-	{% for i in range(0,regsort_nr_el_per_thread) %}
-	{% if loop.last %}
-	if ({{i*warpsize}}+LANE < OPENTILELEN) {
-		{% if vectorsize > 30 %}
-		asm("{\n\t"
-			" cvt.u16.u32 %0, %1;\n\t"
-			"}" : "=r"(p{{i}}) : "r"(shared[OPENTILEOFFSET+{{i*warpsize}}+LANE]));
-		if (p{{i}} != EMPTYVECT16) {
-		{% else %}
-		p{{i}} = {{i+warpsize}}+LANE;
-		if (shared[OPENTILEOFFSET+p{{i}}] != EMPTYVECT32) {
-		{% endif %}
-			// Retrieve corresponding state value.
-			get_current_state(&s{{i}}, p{{i}}, wid / OPENTILE_WARP_WIDTH);
-		}
-		else {
-			s{{i}} = NO_STATE;
-		}
-		p{{i}} = {{i*warpsize}}+LANE;
-	}
-	else {
-		p{{i}} = EMPTYVECT{% if vectorsize <= 30 %}32{% else %}16{% endif %};
-		s{{i}} = NO_STATE;
-	}
-	{% else %}
-	{% if vectorsize > 30 %}
-	asm("{\n\t"
-		" cvt.u16.u32 %0, %1;\n\t"
-		"}" : "=r"(p{{i}}) : "r"(shared[OPENTILEOFFSET+{{i*warpsize}}+LANE]));
-	if (p{{i}} != EMPTYVECT16) {
-	{% else %}
-	p{{i}} = {{i*warpsize}}+LANE;
-	if (shared[OPENTILEOFFSET+p{{i}}] != EMPTYVECT32) {
-	{% endif %}
-		// Retrieve corresponding state value.
-		get_current_state(&s{{i}}, p{{i}}, wid / OPENTILE_WARP_WIDTH);
-	}
-	else {
-		s{{i}} = NO_STATE;
-	}
-	{% if vectorsize > 30 %}
-	p{{i}} = {{i*warpsize}}+LANE;
-	{% endif %}
-	{% endif %}
-	{% endfor %}
-	// Perform the sorting.
-	{% for l in range(1, (regsort_nr_el_per_thread*warpsize)|log2+1)|reverse %}
-	{% set coop_elem_num = (l-1)|pow2 %}
-	{% set coop_thrd_num = ([warpsize|log2, l-1]|min)|pow2 %}
-	{% set coop_elem_size = ((regsort_nr_el_per_thread*warpsize)|log2-l+1)|pow2 %}
-	{% set coop_thrd_size = (warpsize|log2 - [warpsize|log2, l-1]|min)|pow2 %}
-	{% if coop_thrd_size == 1 %}
-	// exch_local intxn.
-	{% set rmask = coop_elem_size - 1 %}
-	{% set ns = namespace(L=[]) %}
-	{% for i in range(0,regsort_nr_el_per_thread) %}
-	{% if not i|in_list(ns.L) %}
-	CMP_SWP(&s{{i}}, &s{{i|xor(rmask)}}, &p{{i}}, &p{{i|xor(rmask)}});
-	{% set ns.L = ns.L + [i, i|xor(rmask)] %}
-	{% endif %}
-	{% endfor %}
-	{% else %}
-	_exch_intxn({% for i in range(0,regsort_nr_el_per_thread) %}&s{{i}}, {% endfor %}{% for i in range(0,regsort_nr_el_per_thread) %}&p{{i}}, {% endfor %}{{(coop_thrd_size-1)|hexa}}, (LANE & {{(((coop_thrd_size-1)|log2)|pow2)|hexa}}) != 0);
-	{% endif %}
-	{% for k in range(l+1, (regsort_nr_el_per_thread*warpsize)|log2+1) %}
-	{% set coop_elem_num = (k-1)|pow2 %}
-	{% set coop_thrd_num = ([warpsize|log2, k-1]|min)|pow2 %}
-	{% set coop_elem_size = ((regsort_nr_el_per_thread*warpsize)|log2-k+1)|pow2 %}
-	{% set coop_thrd_size = (warpsize|log2 - [warpsize|log2, k-1]|min)|pow2 %}
-	{% if coop_thrd_size == 1 %}
-	// exch_local paral.
-	{% set rmask = coop_elem_size - 1 %}
-	{% set rmask = rmask - rmask|bitshift_one_right %}
-	{% set ns = namespace(L=[]) %}
-	{% for i in range(0,regsort_nr_el_per_thread) %}
-	{% if not i|in_list(ns.L) %}
-	CMP_SWP(&s{{i}}, &s{{i|xor(rmask)}}, &p{{i}}, &p{{i|xor(rmask)}});
-	{% set ns.L = ns.L + [i, i|xor(rmask)] %}
-	{% endif %}
-	{% endfor %}
-	{% else %}
-	{% set tmask = coop_thrd_size - 1 %}
-	{% set tmask = tmask - tmask|bitshift_one_right %}
-	_exch_paral({% for i in range(0,regsort_nr_el_per_thread) %}&s{{i}}, {% endfor %}{% for i in range(0,regsort_nr_el_per_thread) %}&p{{i}}, {% endfor %}{{tmask|hexa}}, (LANE & {{(((coop_thrd_size - 1)|log2)|pow2)|hexa}}) != 0);
-	{% endif %}
-	{% endfor %}
-	{% endfor %}
-
-	// Finally, retrieve the index of the tile element of interest for the current thread.
-	uint8_t offset = wid % OPENTILE_WARP_WIDTH;
-	{% for i in range(0,regsort_nr_el_per_thread) %}
-	// If the index of the p{{i}} element of the thread is within the range of interest, prepare it for communication.
-	if (LANE*{{regsort_nr_el_per_thread}}+{{i}} >= offset*WARP_SIZE && LANE*{{regsort_nr_el_per_thread}}+{{i}} < (offset+1)*WARP_SIZE) {
-		p_tmp_1 = p{{i}};
-	}
-	__syncwarp();
-	// Retrieve from the thread that holds the element of interest for the current thread the prepared value (if it exists).
-	p_tmp_2 = __shfl_sync(0xFFFFFFFF, p_tmp_1, ((offset*WARP_SIZE)+LANE) / {{regsort_nr_el_per_thread}});
-	// If the value was indeed prepared by the source thread, store it.
-	if (LANE & {{regsort_nr_el_per_thread-1}} == {{i}}) {
-		// Value of interest is ready to be fetched.
-		p_result = p_tmp_2;
-	}
-	{% endfor %}
-	return p_result;
-}
-
-//*** END FUNCTIONS FOR INTRA-WARP BITONIC MERGESORT ***
-
-// Data retrieval functions. Retrieve particular state info from the given state vector part(s).
+// GPU data retrieval functions. Retrieve particular state info from the given state vector part(s).
 // Precondition: the given parts indeed contain the requested info.
 {% for s in vectorelem_in_structure_map.keys() %}
 {% set size = vectorelem_in_structure_map[s][0] %}
-inline __host__ __device__ void get_{{s|replace("[","_")|replace("]","")|replace("'","_")}}({% if s|is_state %}elem_statetype{% elif size == 1 %}elem_booltype{% elif size < 32 %}elem_chartype{% else %}elem_inttype{% endif %} *b, nodetype part1, nodetype part2) {
+inline __device__ void get_{{s|replace("[","_")|replace("]","")|replace("'","_")}}({% if s|is_state %}statetype{% elif size == 1 %}elem_booltype{% elif size < 32 %}elem_chartype{% else %}elem_inttype{% endif %} *b, nodetype part1, nodetype part2) {
 {% if size < 16 %}
 	uint16_t t2;
 {% endif %}
@@ -2629,10 +2417,12 @@ inline __host__ __device__ void get_{{s|replace("[","_")|replace("]","")|replace
 		" bfe.u{% if vectorsize < 31 %}32{% else %}64{% endif %} t1, %2, {{vectorelem_in_structure_map[s][2][1]}}, {{vectorelem_in_structure_map[s][2][2]}};\n\t"
 		" bfi.b{% if vectorsize < 31 %}32{% else %}64{% endif %} t1, %1, t1, {{vectorelem_in_structure_map[s][2][2]}}, {{vectorelem_in_structure_map[s][1][2]}};\n\t"
 {% endif %}
-		" cvt.s{% if size < 32 %}8{% else %}32{% endif %}.u{% if vectorsize < 31 %}32{% else %}64{% endif %} %0, t1;\n\t"
-	    "}" : "={% if size < 16 %}h"(t2){% else %}r"(*b){% endif %} : "l"(part1), "l"(part2));
+		" cvt.u{% if size < 32 %}16{% else %}32{% endif %}.u{% if vectorsize < 31 %}32{% else %}64{% endif %} %0, t1;\n\t"
+	    "}" : "={% if size < 16 %}h"(t2){% else %}r"(*b){% endif %} : "{% if vectorsize <= 30 %}r{% else %}l{% endif %}"(part1), "{% if vectorsize <= 30 %}r{% else %}l{% endif %}"(part2));
 {% if size < 16 %}
-	{% if size == 1 %}
+	{% if s|is_state %}
+	*b = (statetype) t2;
+	{% elif size == 1 %}
 	*b = (elem_booltype) t2;
 	{% else %}
 	*b = (elem_chartype) t2;
@@ -2644,7 +2434,7 @@ inline __host__ __device__ void get_{{s|replace("[","_")|replace("]","")|replace
 {% if arraynames|length > 0 %}
 // Data retrieval functions, including the fetching of required vector parts, for array elements with dynamic indexing.
 {% for vname, t, size in arraynames %}
-inline __host__ __device__ void get_{{vname|replace("[","_")|replace("]","")|replace("'","_")}}(shared_indextype node_index, {% if t|gettypesize == 1 %}elem_booltype{% elif t|gettypesize < 32 %}elem_chartype{% else %}elem_inttype{% endif %} *b, array_indextype index) {
+inline __device__ void get_{{vname|replace("[","_")|replace("]","")|replace("'","_")}}(shared_indextype node_index, {% if t|gettypesize == 1 %}elem_booltype{% elif t|gettypesize < 32 %}elem_chartype{% else %}elem_inttype{% endif %} *b, array_indextype index) {
 	nodetype part1, part2;
 	switch (index) {
 		{% for i in range(0, size) %}
@@ -2668,7 +2458,8 @@ inline __host__ __device__ void get_{{vname|replace("[","_")|replace("]","")|rep
 {% endif %}
 // Retrieval of current state of state machine at position i in state vector.
 inline __device__ void get_current_state(statetype *b, shared_indextype node_index, uint8_t i) {
-	nodetype part1, part2;
+	nodetype part1 = 0;
+	nodetype part2 = 0;
 	switch (i) {
 		{% for i in range(0,smnames|length) %}
 		case {{i}}:
@@ -2685,7 +2476,60 @@ inline __device__ void get_current_state(statetype *b, shared_indextype node_ind
 	}
 }
 
-// Data update functions. Update particular state info in the given state vector part(s).
+// CPU data retrieval functions. Retrieve particular state info from the given state vector part(s).
+// Precondition: the given parts indeed contain the requested info.
+{% for s in vectorelem_in_structure_map.keys() %}
+{% set size = vectorelem_in_structure_map[s][0] %}
+inline void host_get_{{s|replace("[","_")|replace("]","")|replace("'","_")}}({% if s|is_state %}statetype{% elif size == 1 %}elem_booltype{% elif size < 32 %}elem_chartype{% else %}elem_inttype{% endif %} *b, nodetype part1, nodetype part2) {
+	nodetype t1 = part1;
+	{% if vectorelem_in_structure_map[s]|length == 2 %}
+	// Strip away data beyond the requested data.
+	t1 = t1 & {{((vectorelem_in_structure_map[s][1][1]+vectorelem_in_structure_map[s][1][2])|pow2-1)|hexa}};
+	// Right shift to isolate requested data.
+	t1 = t1 >> {{vectorelem_in_structure_map[s][1][1]}};
+	{% else %}
+	nodetype t2 = part2;
+	// Strip away data beyond the requested data.
+	t2 = t2 & {{((vectorelem_in_structure_map[s][2][1]+vectorelem_in_structure_map[s][2][2])|pow2-1)|hexa}};
+	// Right shift to isolate requested data.
+	t2 = t2 >> vectorelem_in_structure_map[s][2][1];
+	// Isolate requested data.
+	t1 = t1 & {{((vectorelem_in_structure_map[s][1][2])|pow2-1)|hexa}};
+	// Move to integrate with first part.
+	t1 = t1 << vectorelem_in_structure_map[s][2][2];
+	t1 = t1 | t2;
+	{% endif %}
+	*b = ({% if s|is_state %}statetype{% elif size == 1 %}elem_booltype{% elif size < 32 %}elem_chartype{% else %}elem_inttype{% endif %}) t1;
+}
+
+{% endfor %}
+{% if arraynames|length > 0 %}
+// Data retrieval functions, including the fetching of required vector parts, for array elements with dynamic indexing.
+{% for vname, t, size in arraynames %}
+inline void host_get_{{vname|replace("[","_")|replace("]","")|replace("'","_")}}(shared_indextype node_index, {% if t|gettypesize == 1 %}elem_booltype{% elif t|gettypesize < 32 %}elem_chartype{% else %}elem_inttype{% endif %} *b, array_indextype index) {
+	nodetype part1, part2;
+	switch (index) {
+		{% for i in range(0, size) %}
+		case {{i}}:
+			// Retrieve correct vector part(s).
+			{% set PIDs = vectorelem_in_structure_map[vname + "[" + i|string + "]"] %}
+			part1 = get_vectorpart_{{PIDs[1][0]}}(node_index);
+			{% if PIDs|length > 2 %}
+			part2 = get_vectorpart_{{PIDs[2][0]}}(node_index);
+			{% endif %}
+			// Get the data.
+			host_get_{{vname|replace("[","_")|replace("]","") + "_" + i|string}}(b, part1, part2);
+			break;
+		{% endfor %}
+		default:
+			break;
+	}
+}
+
+{% endfor %}
+{% endif %}
+
+// GPU data update functions. Update particular state info in the given state vector part(s).
 // Precondition: the given part indeed needs to contain the indicated fragment (left or right in case the info is split over two parts) of the updated info.
 {% for s in vectorelem_in_structure_map.keys() %}
 {% set size = vectorelem_in_structure_map[s][0] %}
@@ -2696,7 +2540,7 @@ inline __device__ void set_left_{{s|replace("[","_")|replace("]","")|replace("'"
 		" shr.b{% if vectorsize < 31 %}32{% else %}64{% endif %} %1, %1, {{vectorelem_in_structure_map[s][2][2]}};\n\t"
 {% endif %}
 		" bfi.b{% if vectorsize < 31 %}32{% else %}64{% endif %} %0, %1, %0, {{vectorelem_in_structure_map[s][1][1]}}, {{vectorelem_in_structure_map[s][1][2]}};\n\t"
-		"}" : "+l"(*part) : "{% if vectorelem_in_structure_map[s]|length > 2 %}+{% endif %}l"(t1));
+		"}" : "+{% if vectorsize <= 30 %}r{% else %}l{% endif %}"(*part) : "{% if vectorelem_in_structure_map[s]|length > 2 %}+{% endif %}{% if vectorsize <= 30 %}r{% else %}l{% endif %}"(t1));
 }
 
 {% if vectorelem_in_structure_map[s]|length > 2 %}
@@ -2981,6 +2825,357 @@ inline __device__ statetype get_target_{{sm.name}}_{{a}}(statetype src, statetyp
 {% endfor %}
 {% endfor %}
 {% endfor %}
+
+// *** END FUNCTIONS FOR MODEL DATA RETRIEVAL AND STORAGE ***
+
+// *** START FUNCTIONS FOR INTRA-WARP BITONIC MERGESORT (Fast Segmented Sort on GPUs, Hou et al., 2017) ***
+
+inline __device__ void CMP_SWP(statetype *s0, statetype *s1, shared_indextype *p0, shared_indextype *p1) {
+	statetype s_tmp;
+	shared_indextype p_tmp;
+
+	if (*s0 > *s1) {
+		s_tmp = *s0;
+		*s0 = *s1;
+		*s1 = s_tmp;
+		p_tmp = *p0;
+		*p0 = *p1;
+		*p1 = p_tmp;
+	}
+}
+
+inline __device__ void EQL_SWP(statetype *s0, statetype *s1, shared_indextype *p0, shared_indextype *p1) {
+	statetype s_tmp;
+	shared_indextype p_tmp;
+
+	if (*s0 != *s1) {
+		s_tmp = *s0;
+		*s0 = *s1;
+		*s1 = s_tmp;
+		p_tmp = *p0;
+		*p0 = *p1;
+		*p1 = p_tmp;
+	}
+}
+
+inline __device__ void SWP(statetype *s0, statetype *s1, shared_indextype *p0, shared_indextype *p1) {
+	statetype s_tmp;
+	shared_indextype p_tmp;
+
+	s_tmp = *s0;
+	*s0 = *s1;
+	*s1 = s_tmp;
+	p_tmp = *p0;
+	*p0 = *p1;
+	*p1 = p_tmp;
+}
+
+inline __device__ void _exch_intxn({% for i in range(0,regsort_nr_el_per_thread) %}statetype *s{{i}}, {% endfor %}{% for i in range(0,regsort_nr_el_per_thread) %}shared_indextype *p{{i}}, {% endfor %}uint8_t mask, bool bit) {
+	statetype ex_s0, ex_s1;
+	shared_indextype ex_p0, ex_p1;
+	{% if regsort_nr_el_per_thread > 2 %}
+	{% for i in range (0,(regsort_nr_el_per_thread/2)|int) %}
+	if (bit) SWP(s{{i}}, s{{(regsort_nr_el_per_thread-1-((i/2)|int*2)-(1-(i%2)))|int}}, p{{i}}, p{{(regsort_nr_el_per_thread-1-((i/2)|int*2)-(1-(i%2)))|int}});
+	{% endfor %}
+	{% endif %}
+	{% for i in range(0,(regsort_nr_el_per_thread/2)|int) %}
+	ex_s0 = *s{{i*2}};
+	ex_s1 = __shfl_xor_sync(0xFFFFFFFF, {% if regsort_nr_el_per_thread > 1 %}*s{{i*2+1}}{% else %}*s{{i*2}}{% endif %}, mask);
+	ex_p0 = *p{{i*2}};
+	ex_p1 = __shfl_xor_sync(0xFFFFFFFF, {% if regsort_nr_el_per_thread > 1 %}*p{{i*2+1}}{% else %}*p{{i*2}}{% endif %}, mask);
+	CMP_SWP(&ex_s0, &ex_s1, &ex_p0, &ex_p1);
+	if (bit) EQL_SWP(&ex_s0, &ex_s1, &ex_p0, &ex_p1);
+	*s{{i*2}} = ex_s0;
+	{% if regsort_nr_el_per_thread > 1 %}
+	*s{{i*2+1}} = __shfl_xor_sync(0xFFFFFFFF, ex_s1, mask);
+	{% endif %}
+	*p{{i*2}} = ex_p0;
+	{% if regsort_nr_el_per_thread > 1 %}
+	*p{{i*2+1}} = __shfl_xor_sync(0xFFFFFFFF, ex_p1, mask);
+	{% endif %}
+	{% endfor %}
+	{% if regsort_nr_el_per_thread > 2 %}
+	{% for i in range (0,(regsort_nr_el_per_thread/2)|int) %}
+	if (bit) SWP(s{{i}}, s{{(regsort_nr_el_per_thread-1-((i/2)|int*2)-(1-(i%2)))|int}}, p{{i}}, p{{(regsort_nr_el_per_thread-1-((i/2)|int*2)-(1-(i%2)))|int}});
+	{% endfor %}
+	{% endif %}
+}
+
+inline __device__ void _exch_paral({% for i in range(0,regsort_nr_el_per_thread) %}statetype *s{{i}}, {% endfor %}{% for i in range(0,regsort_nr_el_per_thread) %}shared_indextype *p{{i}}, {% endfor %}uint8_t mask, bool bit) {
+	statetype ex_s0, ex_s1;
+	shared_indextype ex_p0, ex_p1;
+	{% if regsort_nr_el_per_thread > 1 %}
+	{% for i in range (0,(regsort_nr_el_per_thread/2)|int) %}
+	if (bit) SWP(s{{i*2}}, s{{i*2+1}}, p{{i*2}}, p{{i*2+1}});
+	{% endfor %}
+	{% endif %}
+	{% for i in range(0,(regsort_nr_el_per_thread/2)|int) %}
+	ex_s0 = *s{{i*2}};
+	ex_s1 = __shfl_xor_sync(0xFFFFFFFF, {% if regsort_nr_el_per_thread > 1 %}*s{{i*2+1}}{% else %}*s{{i*2}}{% endif %}, mask);
+	ex_p0 = *p{{i*2}};
+	ex_p1 = __shfl_xor_sync(0xFFFFFFFF, {% if regsort_nr_el_per_thread > 1 %}*p{{i*2+1}}{% else %}*p{{i*2}}{% endif %}, mask);
+	CMP_SWP(&ex_s0, &ex_s1, &ex_p0, &ex_p1);
+	if (bit) EQL_SWP(&ex_s0, &ex_s1, &ex_p0, &ex_p1);
+	*s{{i*2}} = ex_s0;
+	{% if regsort_nr_el_per_thread > 1 %}
+	*s{{i*2+1}} = __shfl_xor_sync(0xFFFFFFFF, ex_s1, mask);
+	{% endif %}
+	*p{{i*2}} = ex_p0;
+	{% if regsort_nr_el_per_thread > 1 %}
+	*p{{i*2+1}} = __shfl_xor_sync(0xFFFFFFFF, ex_p1, mask);
+	{% endif %}
+	{% endfor %}
+	{% if regsort_nr_el_per_thread > 1 %}
+	{% for i in range (0,(regsort_nr_el_per_thread/2)|int) %}
+	if (bit) SWP(s{{i*2}}, s{{i*2+1}}, p{{i*2}}, p{{i*2+1}});
+	{% endfor %}
+	{% endif %}
+}
+
+// The main bitonic sorting function, including loading the data to be sorted,
+// and returning the tile index of the element to be subsequently used by the calling thread.
+// wid is the ID of the warp executing the function. It is a parameter (as opposed to deriving the ID from the thread dynamically),
+// to allow a thread to run the function with multiple IDs.
+__device__ shared_indextype get_sorted_opentile_element(uint8_t wid) {
+	statetype {% for i in range(0,regsort_nr_el_per_thread) %}s{{i}}{% if not loop.last %}, {% else %};{% endif %}{% endfor %}
+	
+	shared_indextype {% for i in range(0,regsort_nr_el_per_thread) %}p{{i}}, {% endfor %}p_tmp1, p_tmp2, p_result;
+	
+	// Load the tile indices.
+	{% for i in range(0,regsort_nr_el_per_thread) %}
+	{% if loop.last %}
+	if ({{i*warpsize}}+LANE < OPENTILELEN) {
+		{% if vectorsize > 30 %}
+		asm("{\n\t"
+			" cvt.u16.u32 %0, %1;\n\t"
+			"}" : "=r"(p{{i}}) : "r"(shared[OPENTILEOFFSET+{{i*warpsize}}+LANE]));
+		if (p{{i}} != EMPTYVECT16) {
+		{% else %}
+		p{{i}} = {{i+warpsize}}+LANE;
+		if (shared[OPENTILEOFFSET+p{{i}}] != EMPTYVECT32) {
+		{% endif %}
+			// Retrieve corresponding state value.
+			get_current_state(&s{{i}}, p{{i}}, wid / OPENTILE_WARP_WIDTH);
+		}
+		else {
+			s{{i}} = NO_STATE;
+		}
+		p{{i}} = {{i*warpsize}}+LANE;
+	}
+	else {
+		p{{i}} = EMPTYVECT16;
+		s{{i}} = NO_STATE;
+	}
+	{% else %}
+	{% if vectorsize > 30 %}
+	asm("{\n\t"
+		" cvt.u16.u32 %0, %1;\n\t"
+		"}" : "=r"(p{{i}}) : "r"(shared[OPENTILEOFFSET+{{i*warpsize}}+LANE]));
+	if (p{{i}} != EMPTYVECT16) {
+	{% else %}
+	p{{i}} = {{i*warpsize}}+LANE;
+	if (shared[OPENTILEOFFSET+p{{i}}] != EMPTYVECT32) {
+	{% endif %}
+		// Retrieve corresponding state value.
+		get_current_state(&s{{i}}, p{{i}}, wid / OPENTILE_WARP_WIDTH);
+	}
+	else {
+		s{{i}} = NO_STATE;
+	}
+	{% if vectorsize > 30 %}
+	p{{i}} = {{i*warpsize}}+LANE;
+	{% endif %}
+	{% endif %}
+	{% endfor %}
+	// Perform the sorting.
+	{% for l in range(1, (regsort_nr_el_per_thread*warpsize)|log2+1)|reverse %}
+	{% set coop_elem_num = (l-1)|pow2 %}
+	{% set coop_thrd_num = ([warpsize|log2, l-1]|min)|pow2 %}
+	{% set coop_elem_size = ((regsort_nr_el_per_thread*warpsize)|log2-l+1)|pow2 %}
+	{% set coop_thrd_size = (warpsize|log2 - [warpsize|log2, l-1]|min)|pow2 %}
+	{% if coop_thrd_size == 1 %}
+	// exch_local intxn.
+	{% set rmask = coop_elem_size - 1 %}
+	{% set ns = namespace(L=[]) %}
+	{% for i in range(0,regsort_nr_el_per_thread) %}
+	{% if not i|in_list(ns.L) %}
+	CMP_SWP(&s{{i}}, &s{{i|xor(rmask)}}, &p{{i}}, &p{{i|xor(rmask)}});
+	{% set ns.L = ns.L + [i, i|xor(rmask)] %}
+	{% endif %}
+	{% endfor %}
+	{% else %}
+	_exch_intxn({% for i in range(0,regsort_nr_el_per_thread) %}&s{{i}}, {% endfor %}{% for i in range(0,regsort_nr_el_per_thread) %}&p{{i}}, {% endfor %}{{(coop_thrd_size-1)|hexa}}, (LANE & {{(((coop_thrd_size-1)|log2)|pow2)|hexa}}) != 0);
+	{% endif %}
+	{% for k in range(l+1, (regsort_nr_el_per_thread*warpsize)|log2+1) %}
+	{% set coop_elem_num = (k-1)|pow2 %}
+	{% set coop_thrd_num = ([warpsize|log2, k-1]|min)|pow2 %}
+	{% set coop_elem_size = ((regsort_nr_el_per_thread*warpsize)|log2-k+1)|pow2 %}
+	{% set coop_thrd_size = (warpsize|log2 - [warpsize|log2, k-1]|min)|pow2 %}
+	{% if coop_thrd_size == 1 %}
+	// exch_local paral.
+	{% set rmask = coop_elem_size - 1 %}
+	{% set rmask = rmask - rmask|bitshift_one_right %}
+	{% set ns = namespace(L=[]) %}
+	{% for i in range(0,regsort_nr_el_per_thread) %}
+	{% if not i|in_list(ns.L) %}
+	CMP_SWP(&s{{i}}, &s{{i|xor(rmask)}}, &p{{i}}, &p{{i|xor(rmask)}});
+	{% set ns.L = ns.L + [i, i|xor(rmask)] %}
+	{% endif %}
+	{% endfor %}
+	{% else %}
+	{% set tmask = coop_thrd_size - 1 %}
+	{% set tmask = tmask - tmask|bitshift_one_right %}
+	_exch_paral({% for i in range(0,regsort_nr_el_per_thread) %}&s{{i}}, {% endfor %}{% for i in range(0,regsort_nr_el_per_thread) %}&p{{i}}, {% endfor %}{{tmask|hexa}}, (LANE & {{(((coop_thrd_size - 1)|log2)|pow2)|hexa}}) != 0);
+	{% endif %}
+	{% endfor %}
+	{% endfor %}
+
+	// Finally, retrieve the index of the tile element of interest for the current thread.
+	uint8_t offset = wid % OPENTILE_WARP_WIDTH;
+	{% for i in range(0,regsort_nr_el_per_thread) %}
+	// If the index of the p{{i}} element of the thread is within the range of interest, prepare it for communication.
+	if (LANE*{{regsort_nr_el_per_thread}}+{{i}} >= offset*WARP_SIZE && LANE*{{regsort_nr_el_per_thread}}+{{i}} < (offset+1)*WARP_SIZE) {
+		p_tmp1 = p{{i}};
+	}
+	__syncwarp();
+	// Retrieve from the thread that holds the element of interest for the current thread the prepared value (if it exists).
+	p_tmp2 = __shfl_sync(0xFFFFFFFF, p_tmp1, ((offset*WARP_SIZE)+LANE) / {{regsort_nr_el_per_thread}});
+	// If the value was indeed prepared by the source thread, store it.
+	if (LANE & {{regsort_nr_el_per_thread-1}} == {{i}}) {
+		// Value of interest is ready to be fetched.
+		p_result = p_tmp2;
+	}
+	{% endfor %}
+	return p_result;
+}
+
+//*** END FUNCTIONS FOR INTRA-WARP BITONIC MERGESORT ***
+
+// Exploration functions to traverse outgoing transitions of the various states.
+{% for i in range(0,smnames|length) %}
+inline __device__ void explore_{{state_order[i]|replace("'","_")}}(shared_indextype node_index) {
+	// Fetch the current state of the state machine.
+	statetype current;
+	get_current_state(&current, node_index, {{i}});
+	statetype target = NO_STATE;
+	nodetype part1, part2;
+	{% if vectorsize > 62 %}
+	shared_inttype part_cachepointers;
+	{% else %}
+	part1 = shared[OPENTILEOFFSET+node_index];
+	{% endif %}
+	switch (current) {
+		{% for s in smname_to_object[state_order[i]][1].states %}
+		{% set o = smname_to_object[state_order[i]][0] %}
+		{% set sm = smname_to_object[state_order[i]][1] %}
+		{% if s|nr_of_transitions_to_be_processed_by(i,o) > 0 %}
+		case {{state_id[s]}}:
+			{% set indent = "" %}
+			{% set buffer_allocs = s|object_trans_to_be_processed_by_sm_thread(o)|get_buffer_allocs %}
+			{% if buffer_allocs[0] + buffer_allocs[1] + buffer_allocs[2] + buffer_allocs[3] + buffer_allocs[4] > 0 %}
+			// Allocate register memory to process transition(s).
+			{% endif %}
+			{% if buffer_allocs[0] > 0 %}
+			elem_inttype {% for j in range(0,buffer_allocs[0]) %}buf32_{{j}}{{', ' if not loop.last}}{% endfor %};
+			{% endif %}
+			{% if buffer_allocs[1] > 0 %}
+			shared_indextype {% for j in range(0,buffer_allocs[1]) %}buf16_{{j}}{{', ' if not loop.last}}{% endfor %};
+			{% endif %}
+			{% if buffer_allocs[2] > 0 %}
+			elem_chartype {% for j in range(0,buffer_allocs[2]) %}buf8_{{j}}{{', ' if not loop.last}}{% endfor %};
+			{% endif %}
+			{% if buffer_allocs[3] > 0 %}
+			bool {% for j in range(0,buffer_allocs[3]) %}buf1_{{j}}{{', ' if not loop.last}}{% endfor %};
+			{% endif %}
+			{% if buffer_allocs[4] > 0 %}
+			// Allocate register memory for dynamic array indexing.
+			array_indextype {% for j in range(0,buffer_allocs[4]) %}idx_{{j}}{{', ' if not loop.last}}{% endfor %};
+			{% endif %}
+			{% set ns = namespace(lastprio=100, prio_nestings=0) %}
+			{% for t in s|outgoingtrans(sm.transitions) %}
+			{% if t|must_be_processed_by(i,o) %}
+			{% if t.priority > ns.lastprio %}
+			if (target == NO_STATE) {
+			{% set ns.prio_nestings = ns.prio_nestings + 1 %}
+			{% set indent = indent + "\t" %}
+			{% endif %}
+			{% set ns.lastprio = t.priority %}
+			{% set st = t.statements[0] %}
+			{% set allocs = t|get_buffer_arrayindex_allocs(o) %}
+			
+			{{indent}}// {{s.name}} --{ {{st|getlabel}} }--> {{t.target.name}}
+			
+			{% set M = t|map_variables_on_buffer(o,buffer_allocs) %}
+			{% if st.__class__.__name__ == 'ReceiveSignal' %}
+			{% if st|cudarecsizeguard(M,o) != "" %}
+			{{indent}}// Fetch buffer size value.
+			{% set ch = connected_channel[(o, st.target)] %}
+			{% set VP = [(ch,"_size")]|get_vectorparts(o) %}
+			{% if vectorsize > 62 %}
+			{{indent}}part1 = get_vectorpart(node_index, {{VP[0]}});
+			{% if VP|length > 1 %}
+			{{indent}}part2 = get_vectorpart(node_index, {{VP[1]}});
+			{% endif %}
+			{% endif %}
+			{{indent}}get_{{ch.name}}_size(&{{M[(ch,"_size")][0]}}_{{M[(ch,"_size")][1]}}, part1, part2);
+			{{indent}}if ({{st|cudarecsizeguard(M,o)}}) {
+			{% set indent = indent + "\t" %}
+			{% endif %}
+			{% endif %}
+			{% set fetchcode = st|cudafetchdata(indent|length+3, o, M, True, True) %}
+			{% if fetchcode != "" %}
+			{{indent}}{{fetchcode}}
+			{% endif %}
+			{{indent}}// Statement computation.
+			{% if st|cudaguard(M,o) != "" %}
+			{{indent}}if ({{st|cudaguard(M,o)}}) {
+			{% set indent = indent + "\t" %}
+			{% endif %}
+			{% set fetchcode = st|cudafetchdata(indent|length+3, o, M, False, False) %}
+			{% if fetchcode != "" %}
+			{{indent}}{{fetchcode}}
+			{% endif %}
+			{% if st|cudastatement(1,o,M) != "" %}
+			{{indent}}{{st|cudastatement(indent|length+3,o,M)}}{% endif %}
+			{% if st|cudaguard(M,o) != "" %}
+			{% set indent = indent[:-1] %}
+			{{indent}}}
+			{% endif %}
+			{% if st.__class__.__name__ == "ReceiveSignal" %}
+			{% if st|cudarecsizeguard(M,o) != "" %}
+			}
+			{% endif %}
+			{% endif %}
+			{% endif %}
+			{% for j in range(0, ns.prio_nestings) %}
+			{% set indent = indent[:-1] %}
+			{{indent}}}
+			{% endfor %}
+			{% endfor %}
+			break;
+		{% endif %}
+		{% endfor %}
+		default:
+			break;
+	}
+}
+
+{% endfor %}
+// Successor construction function for a particular state machine. Given a state vector, construct its successor state vectors w.r.t. the state machine, and store them in cache.
+// Vgtid is the identity of the thread calling the function (id of thread relevant for successor generation).
+inline __device__ void get_successors_of_sm(shared_indextype node_index, uint8_t vgtid) {
+	// explore the outgoing transitions of the current state of the state machine assigned to vgtid.
+	switch (vgtid) {
+		{% for i in range(0,smnames|length) %}
+		case {{i}}:
+			explore_{{state_order[i]|replace("'","_")}}(node_index);
+			break;
+		{% endfor %}
+		default:
+			break;
+	}
+}
+
 // Kernel function to start parallel successor generation.
 {% if vectorsize > 30 %}
 // Precondition: a tile of vectortree pointers to roots of cache-preloaded vectortrees is stored in the shared memory.
@@ -3029,159 +3224,44 @@ inline __device__ void GENERATE_SUCCESSORS() {
 	{% endif %}
 } 
 
-// Successor construction function for a particular state machine. Given a state vector, construct its successor state vectors w.r.t. the state machine, and store them in cache.
-// Vgtid is the identity of the thread calling the function (id of thread relevant for successor generation).
-inline __device__ void get_successors_of_sm(shared_indextype node_index, uint8_t vgtid) {
-	// explore the outgoing transitions of the current state of the state machine assigned to vgtid.
-	switch (vgtid) {
-		{% for i in range(0,smnames|length) %}
-		case {{i}}:
-			explore_{{state_order[i]|replace("'","_")}}(node_index);
-			break;
-		{% endfor %}
-		default:
-			break;
-	}
-}
-
-// Exploration functions to traverse outgoing transitions of the various states.
-{% for i in range(0,smnames|length) %}
-inline __device__ void explore_{{state_order[i]|replace("'","_")}}(shared_indextype node_index) {
-	// Fetch the current state of the state machine.
-	get_current_state(&current, node_index, {{i}});
-	statetype target = NO_STATE;
-	nodetype part1, part2;
-	shared_inttype part_d_cachepointers;
-	switch (current) {
-		{% for s in smname_to_object[state_order[i]][1].states %}
-		{% set o = smname_to_object[state_order[i]][0] %}
-		{% set sm = smname_to_object[state_order[i]][1] %}
-		{% if s|nr_of_transitions_to_be_processed_by(i,o) > 0 %}
-		case {{state_id[s]}}:
-			{% set indent = "" %}
-			{% set buffer_allocs = s|object_trans_to_be_processed_by_sm_thread(o)|get_buffer_allocs %}
-			{% if buffer_allocs[0] + buffer_allocs[1] + buffer_allocs[2] + buffer_allocs[3] + buffer_allocs[4] > 0 %}
-			// Allocate register memory to process transition(s).
-			{% endif %}
-			{% if buffer_allocs[0] > 0 %}
-			elem_inttype {% for j in range(0,buffer_allocs[0]) %}buf32_{{j}}{{', ' if not loop.last}}{% endfor %};
-			{% endif %}
-			{% if buffer_allocs[1] > 0 %}
-			shared_indextype {% for j in range(0,buffer_allocs[1]) %}buf16_{{j}}{{', ' if not loop.last}}{% endfor %};
-			{% endif %}
-			{% if buffer_allocs[2] > 0 %}
-			elem_chartype {% for j in range(0,buffer_allocs[2]) %}buf8_{{j}}{{', ' if not loop.last}}{% endfor %};
-			{% endif %}
-			{% if buffer_allocs[3] > 0 %}
-			bool {% for j in range(0,buffer_allocs[3]) %}buf1_{{j}}{{', ' if not loop.last}}{% endfor %};
-			{% endif %}
-			{% if buffer_allocs[4] > 0 %}
-			// Allocate register memory for dynamic array indexing.
-			array_indextype {% for j in range(0,buffer_allocs[4]) %}idx_{{j}}{{', ' if not loop.last}}{% endfor %};
-			{% endif %}
-			{% set ns = namespace(lastprio=100, prio_nestings=0) %}
-			{% for t in s|outgoingtrans(sm.transitions) %}
-			{% if t|must_be_processed_by(i,o) %}
-			{% if t.priority > ns.lastprio %}
-			if (target == NO_STATE) {
-			{% set ns.prio_nestings = ns.prio_nestings + 1 %}
-			{% set indent = indent + "\t" %}
-			{% endif %}
-			{% set ns.lastprio = t.priority %}
-			{% set st = t.statements[0] %}
-			{% set allocs = t|get_buffer_arrayindex_allocs(o) %}
-			
-			{{indent}}// {{s.name}} --{ {{st|getlabel}} }--> {{t.target.name}}
-			
-			{% set M = t|map_variables_on_buffer(o,buffer_allocs) %}
-			{% if st.__class__.__name__ == 'ReceiveSignal' %}
-			{% if st|cudarecsizeguard(M,o) != "" %}
-			{{indent}}// Fetch buffer size value.
-			{% set ch = connected_channel[(o, st.target)] %}
-			{% set VP = [(ch,"_size")]|get_vectorparts(o) %}
-			{{indent}}part1 = get_vectorpart(node_index, {{VP[0]}});
-			{% if VP|length > 1 %}
-			{{indent}}part2 = get_vectorpart(node_index, {{VP[1]}});
-			{% endif %}
-			{{indent}}get_{{ch.name}}_size(&{{M[(ch,"_size")][0]}}_{{M[(ch,"_size")][1]}}, part1, part2);
-			{{indent}}if ({{st|cudarecsizeguard(M,o)}}) {
-			{% set indent = indent + "\t" %}
-			{% endif %}
-			{% endif %}
-			{% set fetchcode = st|cudafetchdata(indent|length+3, o, M, True, True) %}
-			{% if fetchcode != "" %}
-			{{indent}}{{fetchcode}}
-			{% endif %}
-			{{indent}}// Statement computation.
-			{% if st|cudaguard(M,o) != "" %}
-			{{indent}}if ({{st|cudaguard(M,o)}}) {
-			{% set indent = indent + "\t" %}
-			{% endif %}
-			{% set fetchcode = st|cudafetchdata(indent|length+3, o, M, False, False) %}
-			{% if fetchcode != "" %}
-			{{indent}}{{fetchcode}}
-			{% endif %}
-			{% if st|cudastatement(1,o,M) != "" %}
-			{{indent}}{{st|cudastatement(indent|length+3,o,M)}}{% endif %}
-			{% if st|cudaguard(M,o) != "" %}
-			{% set indent = indent[:-1] %}
-			{{indent}}}
-			{% endif %}
-			{% if st.__class__.__name__ == "ReceiveSignal" %}
-			{% if st|cudarecsizeguard(M,o) != "" %}
-			}
-			{% endif %}
-			{% endif %}
-			{% endif %}
-			{% for j in range(0, ns.prio_nestings) %}
-			{% set indent = indent[:-1] %}
-			{{indent}}}
-			{% endfor %}
-			{% endfor %}
-			break;
-		{% endif %}
-		{% endfor %}
-		default:
-			break;
-	}
-}
-
-{% endfor %}
-
 // *** START PRINT FUNCTIONS ***
 
 void print_content_hash_table(FILE* stream, compressed_nodetype *q{% if compact_hash_table %}, indextype non_root_offset{% else %}, indextype q_size{% endif %}) {
 	for (indextype i = 0; i < {% if compact_hash_table %}non_root_offset{% else %}q_size{% endif %}; i++) {
 		{% if not compact_hash_table and vectorsize > 63 %}
-		if (is_root(d_q[i])) {
+		if (is_root(q[i])) {
 		{% else %}
-		if (d_q[i] != {% if compact_hash_table %}EMPTY_COMPRESSED_NODE{% else %}EMPTY_NODE{% endif %}) {
+		if (q[i] != {% if compact_hash_table %}EMPTY_COMPRESSED_NODE{% else %}EMPTY_NODE{% endif %}) {
 		{% endif %}
 			// Retrieve state vector.
-			nodetype {% if vectorsize > 63 %}root{% else %}part1{% endif %} = HT_RETRIEVE(q, i{% if compact_hash_table %}, non_root_offset{% endif %});
-			{% if vectorsize > 63 %}
+			nodetype {% if vectorsize > 62 %}root{% else %}part0{% endif %} = HT_RETRIEVE(q, i{% if compact_hash_table %}, non_root_offset{% endif %});
+			{% if vectorsize > 62 %}
 			{% for i in range(0,vectorstructure|length) %}
 			nodetype part{{i}} = direct_get_vectorpart_{{i}}(q, root);
 			{% endfor %}
-			{% else %}
-			nodetype part2;
 			{% endif %}
 			// Print the contents of the state.
 			nodetype *p1, *p2;
-			elem_statetype e_st;
+			statetype e_st;
 			elem_booltype e_b;
 			elem_chartype e_c;
 			elem_inttype e_i;
 			fprintf(stream, "-----\n");
+			{% if vectorsize <= 62 %}
+			p1 = &part0;
+			p2 = &part0;
+			{% endif %}
 			{% for s in vectorelem_in_structure_map.keys() %}
 			{% set size = vectorelem_in_structure_map[s][0] %}
 			{% set PIDs = vectorelem_in_structure_map[s] %}
+			{% if vectorsize > 62 %}
 			p1 = &part{{PIDs[1][0]}};
 			{% if PIDs|length > 2 %}
 			p2 = &part{{PIDs[2][0]}};
 			{% endif %}
-			get_{{s|replace("[","_")|replace("]","")|replace("'","_")}}({% if s|is_state %}&e_st{% elif size == 1 %}&e_b{% elif size < 32 %}&e_c{% else %}&e_i{% endif %}, *p1, *p2);
-			fprintf(stream, "{{s|vector_element_string_desc}} {{s}}: %u\n", (uint64_t) {% if s|is_state %}&e_st{% elif size == 1 %}&e_b{% elif size < 32 %}&e_c{% else %}&e_i{% endif %});
+			{% endif %}
+			host_get_{{s|replace("[","_")|replace("]","")|replace("'","_")}}({% if s|is_state %}&e_st{% elif size == 1 %}&e_b{% elif size < 32 %}&e_c{% else %}&e_i{% endif %}, *p1, *p2);
+			fprintf(stream, "{{s|vector_element_string_desc}} {{s}}: %u\n", (uint32_t) {% if s|is_state %}e_st{% elif size == 1 %}e_b{% elif size < 32 %}e_c{% else %}e_i{% endif %});
 			{% endfor %}
 			fprintf(stream, "-----\n");
 		}

@@ -38,6 +38,11 @@ __constant__ uint32_t d_kernel_iters;
 		exit(1);															\
 	} }
 
+__inline__ void CUDA_CHECK_FOR_ERROR() {
+	cudaError_t err = cudaGetLastError();
+	CUDA_CHECK_RETURN(err);
+}
+
 int vmem = 0;
 
 // Wrapper around cudaMalloc to count allocated memory and check for error while allocating.
@@ -82,7 +87,7 @@ __global__ void count_states(compressed_nodetype *d_q, nodetype *result) {
 		{% endif %}
 			localResult++;
 		}
-		atomicAdd(&(shared[0]), localResult);
+		atomicAdd((unsigned int *) &(shared[0]), (unsigned int) localResult);
 		__syncthreads();
 		if (THREAD_ID == 0) {
 			atomicAdd(result, shared[0]);
@@ -93,9 +98,10 @@ __global__ void count_states(compressed_nodetype *d_q, nodetype *result) {
 __global__ void __launch_bounds__(512, 2) gather(compressed_nodetype *d_q, uint8_t *d_contBFS, uint8_t *d_property_violation, volatile uint8_t *d_newstate_flags, shared_inttype *d_worktiles, const uint8_t scan) {
 	uint32_t i;
 	shared_inttype l;
+	{% if vectorsize > 62 %}
 	shared_indextype sh_index;
-	compressed_node tmp;
-	bool success;
+	{% endif %}
+	compressed_nodetype tmp;
 
 	// Reset the shared variables preceding the cache, and reset the cache.
 	if (THREAD_ID < d_shared_cache_size) {
@@ -174,8 +180,8 @@ __global__ void __launch_bounds__(512, 2) gather(compressed_nodetype *d_q, uint8
 			else {
 				WORKSCANRESULT = 0;
 			}
-			scan = 0;
 		}
+		{% if vectorsize > 62 %}
 		// Fill the cache with the vector trees referred to in the work tile.
 		for (i = WARP_ID; i < OPENTILECOUNT; i += NR_WARPS_PER_BLOCK) {
 			// Create a cooperative group corresponding with the warp in which the thread resides.
@@ -192,6 +198,7 @@ __global__ void __launch_bounds__(512, 2) gather(compressed_nodetype *d_q, uint8
 				shared[OPENTILEOFFSET+WARP_ID] = sh_index;
 			}
 		}
+		{% endif %}
 		GENERATE_SUCCESSORS();
 		bool performed_work = OPENTILECOUNT != 0;
 		__syncthreads();
@@ -238,7 +245,6 @@ int main(int argc, char** argv) {
 	{% if not compact_hash_table %}
 	// Size of global hash table.
 	indextype hash_table_size = 0;
-	indextype d_hash_table_size;
 	{% else %}
 	// Pointer to the start of the internal hash table.
 	indextype non_root_offset, d_non_root_offset;
@@ -258,7 +264,7 @@ int main(int argc, char** argv) {
 	int nDevices;
 
 	// Flag to keep track of the progress and whether hash table errors occurred (value == 2).
-	uint8_t cont_BFS, *d_contBFS;
+	uint8_t contBFS, *d_contBFS;
 	// Flags to track which blocks have new states.
 	uint8_t *d_newstate_flags;
 	// Flag to keep track of property verification outcome.
@@ -284,10 +290,10 @@ int main(int argc, char** argv) {
 		"                      3 - print global hash table content after each kernel launch.\n"
 		"  -h, --help, -?   Show this help message.\n";
 
-	int i = 2;
+	int i = 1;
 	while (i < argc) {
 		if (!strcmp(argv[i],"--help") || !strcmp(argv[i],"-h") || !strcmp(argv[i],"-?")) {
-			fprintf(stdout, help_text);
+			fprintf(stdout, "%s", help_text);
 			exit(0);
 		}
 		else if (!strcmp(argv[i],"-k")) {
@@ -307,7 +313,7 @@ int main(int argc, char** argv) {
 		}
 		else {
 			fprintf(stderr, "ERROR: unrecognised option %s!\n", argv[i]);
-			forintf(stdout, help_text);
+			fprintf(stdout, "%s", help_text);
 			exit(1);
 		}
 	}
@@ -330,20 +336,20 @@ int main(int argc, char** argv) {
 	fprintf (stdout, "nr. of multiprocessors: %d\n", (int) prop.multiProcessorCount);
 
 	// Determine actual number of blocks.
-	nblocks = MAX(1,MIN(prop.maxGridSize[0], nblocks));
+	uint32_t nblocks = MAX(1,MIN(prop.maxGridSize[0], NR_BLOCKS));
 
 	// Allocate memory on the GPU.
-	cudaMallocCount((void **) &d_confBFS, sizeof(uint8_t));
+	cudaMallocCount((void **) &d_contBFS, sizeof(uint8_t));
 	cudaMallocCount((void **) &d_property_violation, sizeof(uint8_t));
 	cudaMallocCount((void **) &d_counted_states, sizeof(indextype));
-	cudaMallocCount((void **) &d_newstate_flags, NR_BLOCKS * sizeof(uint8_t));
-	cudaMallocCount((void **) &d_worktiles, NR_BLOCKS * (OPENTILELEN+LASTSEARCHLEN+1) * sizeof(shared_inttype));
+	cudaMallocCount((void **) &d_newstate_flags, nblocks * sizeof(uint8_t));
+	cudaMallocCount((void **) &d_worktiles, nblocks * (OPENTILELEN+LASTSEARCHLEN+1) * sizeof(shared_inttype));
 
-	// Copy data to the GPU.
-	CUDA_CHECK_RETURN(cudaMemcpy(d_condBFS, &contBFS, sizeof(uint8_t), cudaMemcpyHostToDevice));
-	CUDA_CHECK_RETURN(cudaMemcpy(d_newstate_flags, 0, NR_BLOCKS * sizeof(uint8_t)));
-	CUDA_CHECK_RETURN(cudaMemcpy(d_worktiles, 0, NR_BLOCKS * (OPENTILELEN + LASTSEARCHLEN + 1) * sizeof(shared_inttype)));
-	CUDA_CHECK_RETURN(cudaMemcpy(d_counted_states, 0, sizeof(indextype)));
+	// Set data on the GPU to initial values.
+	CUDA_CHECK_RETURN(cudaMemset(d_contBFS, 1, sizeof(uint8_t)));
+	CUDA_CHECK_RETURN(cudaMemset(d_newstate_flags, 0, nblocks * sizeof(uint8_t)));
+	CUDA_CHECK_RETURN(cudaMemset(d_worktiles, 0, nblocks * (OPENTILELEN + LASTSEARCHLEN + 1) * sizeof(shared_inttype)));
+	CUDA_CHECK_RETURN(cudaMemset(d_counted_states, 0, sizeof(indextype)));
 
 	{% if not compact_hash_table %}
 	{% if vectorsize <= 62 %}
@@ -357,7 +363,7 @@ int main(int argc, char** argv) {
 	while (cudaMalloc((void **)&d_q, hash_table_size * sizeof(compressed_nodetype)) == cudaErrorMemoryAllocation) {
 		hash_table_size -= el_per_Mb;
 		if (hash_table_size < el_per_Mb) {
-			fprintf(sterr, "ERROR: not enough free memory on the GPU!\n");
+			fprintf(stderr, "ERROR: not enough free memory on the GPU!\n");
 			exit(1);
 		}
 	}
@@ -374,12 +380,12 @@ int main(int argc, char** argv) {
 
 	fprintf (stdout, "Global mem queue size: %lu; Number of entries: %lu\n", hash_table_size*sizeof(compressed_nodetype), (indextype) hash_table_size);
 
-	shared_indextype shared_cache_size = (shared_indextype) prop.sharedMemPerMultiprocessor / sizeof(shared_inttype);
+	shared_inttype shared_cache_size = (shared_inttype) prop.sharedMemPerMultiprocessor / sizeof(shared_inttype) / 2;
 	fprintf (stdout, "Shared mem cache size: %lu; Number of entries: %u\n", shared_cache_size*sizeof(shared_inttype), shared_cache_size{% if vectorsize > 62 %}*3{% endif %});
-	fprintf (stdout, "Nr. of blocks: %d; Block size: {{nrthreadsperblock}}; Nr of kernel iterations: %d\n", NR_BLOCKS, kernel_iters);
+	fprintf (stdout, "Nr. of blocks: %d; Block size: {{nrthreadsperblock}}; Nr. of kernel iterations: %d\n", nblocks, kernel_iters);
 
 	// Copy symbols.
-	cudaMemcpyToSymbol(d_shared_cache_size, &shared_cache_size, sizeof(shared_indextype));
+	cudaMemcpyToSymbol(d_shared_cache_size, &shared_cache_size, sizeof(shared_inttype));
 	cudaMemcpyToSymbol(d_kernel_iters, &kernel_iters, sizeof(uint32_t));
 	{% if compact_hash_table %}
 	cudaMemcpyToSymbol(d_non_root_offset, &non_root_offset, sizeof(indextype));
@@ -389,22 +395,22 @@ int main(int argc, char** argv) {
 
 	// Initialise the hash table.
 	init_hash_table<<<NR_BLOCKS, {{nrthreadsperblock}}>>>(d_q);
-	store_initial_state<<<1, WARP_SIZE>>>(d_q, d_newstate_flags);
+	CUDA_CHECK_FOR_ERROR();
+	store_initial_state<<<1, WARP_SIZE, shared_cache_size * sizeof(shared_inttype)>>>(d_q, d_newstate_flags, d_worktiles);
 
-	uint8_t zero = 0;
 	compressed_nodetype *q_test = (compressed_nodetype*) malloc(sizeof(compressed_nodetype)*hash_table_size);
 
 	uint32_t iterations_counter = 0;
-	uint8_t scan = 0;
-	CUDA_CHECK_RETURN(cudaMemcpy(d_property_violation, &zero, sizeof(uint8_t), cudaMemcpyHostToDevice));
+	uint8_t scan = 1;
+	CUDA_CHECK_RETURN(cudaMemset(d_property_violation, 0, sizeof(uint8_t)));
 	uint8_t property_violation = 0;
 
 	clock_t exploration_start;
 	assert((exploration_start = clock()) != -1);
 
 	while (contBFS == 1) {
-		CUDA_CHECK_RETURN(cudaMemcpy(d_contBFS, &zero, sizeof(uint8_t), cudaMemcpyHostToDevice));
-		gather<<<NR_BLOCKS, {{nrthreadsperblock}}, shared_cache_size * sizeof(shared_inttype)>>>(d_q, d_contBFS, d_property_violation, d_newstate_flags, d_worktiles, scan);
+		CUDA_CHECK_RETURN(cudaMemset(d_contBFS, 0, sizeof(uint8_t)));
+		gather<<<nblocks, {{nrthreadsperblock}}, shared_cache_size * sizeof(shared_inttype)>>>(d_q, d_contBFS, d_property_violation, d_newstate_flags, d_worktiles, scan);
 
 		// Copy progress result.
 		CUDA_CHECK_RETURN(cudaDeviceSynchronize());
@@ -432,6 +438,8 @@ int main(int argc, char** argv) {
 	// Determine runtime.
 	stop = clock();
 	runtime = (double) (stop-start)/CLOCKS_PER_SEC;
+	fprintf(stdout, "Run time: %f\n", runtime);
+	runtime = (double) (stop-exploration_start)/CLOCKS_PER_SEC;
 	fprintf(stdout, "Exploration time: %f\n", runtime);
 
 	// TODO: Property violation report
