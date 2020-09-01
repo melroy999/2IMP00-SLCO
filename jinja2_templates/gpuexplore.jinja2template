@@ -2018,8 +2018,11 @@ __device__ void FINDORPUT_MANY(compressed_nodetype *d_q, volatile uint8_t *d_new
 // Kernel to store the initial state in the global memory hash table.
 __global__ void store_initial_state(compressed_nodetype *d_q, volatile uint8_t *d_newstate_flags, shared_inttype *d_worktiles) {
 	// Reset the shared variables preceding the cache, and reset the cache.
-	if (THREAD_ID < d_shared_cache_size) {
-		shared[THREAD_ID] = (THREAD_ID < SH_OFFSET ? 0 : EMPTYVECT32);
+	if (THREAD_ID < SH_OFFSET) {
+		shared[THREAD_ID] = 0;
+	}
+	for (uint32_t i = THREAD_ID; i < (d_shared_cache_size - SH_OFFSET); i += BLOCK_SIZE) {
+		shared[SH_OFFSET + i] = EMPTYVECT32;
 	}
 	__syncthreads();
 {{cuda_initial_vector}}
