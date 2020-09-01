@@ -1868,7 +1868,7 @@ __device__ void FINDORPUT_MANY(compressed_nodetype *d_q, volatile uint8_t *d_new
 		CONTINUE = 0;
 	}
 	__syncthreads();
-	for (shared_indextype i = THREAD_ID{% if vectorsize > 62 %}*3{% endif %}; i < d_shared_cache_size && CONTINUE != 2; i += BLOCK_SIZE{% if vectorsize > 62 %}*3{% endif %}) {
+	for (shared_indextype i = THREAD_ID{% if vectorsize > 62 %}*3{% endif %}; i < (d_shared_cache_size - CACHEOFFSET) && CONTINUE != 2; i += BLOCK_SIZE{% if vectorsize > 62 %}*3{% endif %}) {
 		node_pointers = shared[CACHEOFFSET+i+2];
 		// Check if node is ready for storage. Only new leafs are ready at this point. We rely on old and new non-leafs having pointers with the highest
 		// two bits set to zero, empty entries and old leafs having pointers set to zero, and new leafs having pointers set to 0x40000000.
@@ -1998,7 +1998,7 @@ __device__ void FINDORPUT_MANY(compressed_nodetype *d_q, volatile uint8_t *d_new
 		__syncthreads();
 	}
 	{% else %}
-	for (shared_indextype i = THREAD_ID; i < d_shared_cache_size && CONTINUE != 2; i += BLOCK_SIZE) {
+	for (shared_indextype i = THREAD_ID; i < (d_shared_cache_size - CACHEOFFSET) && CONTINUE != 2; i += BLOCK_SIZE) {
 		{% if vectorsize > 30 %}
 		node = combine_halfs(shared[CACHEOFFSET+i], shared[CACHEOFFSET+i+1]);
 		{% else %}
@@ -2017,6 +2017,11 @@ __device__ void FINDORPUT_MANY(compressed_nodetype *d_q, volatile uint8_t *d_new
 
 // Kernel to store the initial state in the global memory hash table.
 __global__ void store_initial_state(compressed_nodetype *d_q, volatile uint8_t *d_newstate_flags, shared_inttype *d_worktiles) {
+	// Reset the shared variables preceding the cache, and reset the cache.
+	if (THREAD_ID < d_shared_cache_size) {
+		shared[THREAD_ID] = (THREAD_ID < SH_OFFSET ? 0 : EMPTYVECT32);
+	}
+	__syncthreads();
 {{cuda_initial_vector}}
 	__syncthreads();
 	FINDORPUT_MANY(d_q, d_newstate_flags);

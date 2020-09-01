@@ -107,6 +107,7 @@ __global__ void __launch_bounds__(512, 2) gather(compressed_nodetype *d_q, uint8
 	if (THREAD_ID < d_shared_cache_size) {
 		shared[THREAD_ID] = (THREAD_ID < SH_OFFSET ? 0 : EMPTYVECT32);
 	}
+	__syncthreads();
 	if (scan) {
 		// Copy the work tile from global memory.
 		if (THREAD_ID < OPENTILELEN + LASTSEARCHLEN) {
@@ -396,7 +397,7 @@ int main(int argc, char** argv) {
 	// Initialise the hash table.
 	init_hash_table<<<NR_BLOCKS, {{nrthreadsperblock}}>>>(d_q);
 	CUDA_CHECK_FOR_ERROR();
-	store_initial_state<<<1, WARP_SIZE, shared_cache_size * sizeof(shared_inttype)>>>(d_q, d_newstate_flags, d_worktiles);
+	store_initial_state<<<1, {{nrthreadsperblock}}, shared_cache_size * sizeof(shared_inttype)>>>(d_q, d_newstate_flags, d_worktiles);
 
 	compressed_nodetype *q_test = (compressed_nodetype*) malloc(sizeof(compressed_nodetype)*hash_table_size);
 
