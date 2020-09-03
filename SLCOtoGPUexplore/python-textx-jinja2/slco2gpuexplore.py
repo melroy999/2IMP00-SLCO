@@ -3450,13 +3450,20 @@ def preprocess():
 		children = vectortree.get(children[0], [])
 	# determine the tile size.
 	if gpuexplore2_succdist:
-		# determine the tile size based on GPUexplore 2.0 successor work distribution
-		tilesize = int(nrthreadsperblock / len(smnames))
+		# determine the tile size based on GPUexplore 2.0 successor work distribution.
+		# As devisor we take minimum value 2, to ensure that the worktile is smaller than the block size.
+		tilesize = int(nrthreadsperblock / min(len(smnames), 2))
+		# to handle models with much data, we divide the tilesize by a factor.
+		datadiv = int(1 + (vectortree_size/4))
+		tilesize = int(tilesize / datadiv)
 	else:
-		# divide number of warps per block by the number of statemachines in the model (or 16, if the former is smaller than the latter).
+		# divide number of warps per block by the number of statemachines (minimum 2) in the model (or 16, if the former is smaller than the latter).
 		# multiply that number by warpsize, as each thread in a warp can work on a different state vector.
-		tilesize = int(((nrthreadsperblock / warpsize) / min(len(smnames), (nrthreadsperblock / warpsize))) * warpsize)
-		# conpute the number of elements per thread in intra-warp regsort of tile elements
+		tilesize = int(((nrthreadsperblock / warpsize) / min(min(len(smnames), 2), (nrthreadsperblock / warpsize))) * warpsize)
+		# to handle models with much data, we divide the tilesize by a factor.
+		datadiv = int(1 + (vectortree_size/4))
+		tilesize = int(tilesize / datadiv)
+		# compute the number of elements per thread in intra-warp regsort of tile elements
 		regsort_nr_el_per_thread = int(math.pow(2,math.ceil(math.log(tilesize, 2))) / warpsize)
 		nr_warps_per_tile = int(math.ceil(float(tilesize) / float(warpsize)))
 

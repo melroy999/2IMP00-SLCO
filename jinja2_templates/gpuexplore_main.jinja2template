@@ -210,7 +210,6 @@ __global__ void __launch_bounds__(512, 2) gather(compressed_nodetype *d_q, uint8
 		if (THREAD_ID == 0) {
 			OPENTILECOUNT = 0;
 		}
-		__syncthreads();
 		// Start scanning the local cache and write results to the global hash table.
 		if (performed_work) {
 			FINDORPUT_MANY(d_q, d_newstate_flags);
@@ -218,7 +217,7 @@ __global__ void __launch_bounds__(512, 2) gather(compressed_nodetype *d_q, uint8
 		__syncthreads();
 		// Write 'empty' pointers to unused part of the work tile.
 		if (THREAD_ID < OPENTILELEN - OPENTILECOUNT) {
-			shared[OPENTILEOFFSET+OPENTILECOUNT+THREAD_ID] = 0;
+			shared[OPENTILEOFFSET+OPENTILECOUNT+THREAD_ID] = EMPTYVECT32;
 		}
 		// Ready to start next iteration, if error has not occurred.
 		if (THREAD_ID == 0) {
