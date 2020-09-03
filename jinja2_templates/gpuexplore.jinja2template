@@ -3209,32 +3209,27 @@ inline __device__ void GENERATE_SUCCESSORS() {
 		get_successors_of_sm({% if vectorsize > 30 %}(shared_indextype) src_state{% else %}entry_id{% endif %}, entry_state_id);
 	}
 	{% else %}
-	{% if no_regsort %}
-	entry_id = ((WARP_ID % OPENTILE_WARP_WIDTH) * WARP_SIZE) + LANE;
-	if (entry_id < OPENTILECOUNT) {
-	{% endif %}
 	for (shared_indextype i = WARP_ID; i/OPENTILE_WARP_WIDTH < NR_SMS; i += NR_WARPS_PER_BLOCK) {	
+		entry_id = (i % OPENTILE_WARP_WIDTH) * WARP_SIZE;
 		{% if not no_regsort %}
-		entry_id = get_sorted_opentile_element(i);
 		if (entry_id < OPENTILECOUNT) {
+			entry_id = get_sorted_opentile_element(i);
+		}
 		{% endif %}
+		if (entry_id < OPENTILECOUNT) {
 			{% if vectorsize > 30 %}
 			src_state = shared[OPENTILEOFFSET+entry_id];
 			{% endif %}
 			get_successors_of_sm({% if vectorsize > 30 %}(shared_indextype) src_state{% else %}entry_id{% endif %}, i/OPENTILE_WARP_WIDTH);
-		{% if not no_regsort %}
 		}
-		{% endif %}
 	}
-	{% if no_regsort %}
-	}
-	{% endif %}
 	{% endif %}
 } 
 
 // *** START PRINT FUNCTIONS ***
 
 void print_content_hash_table(FILE* stream, compressed_nodetype *q{% if compact_hash_table %}, indextype non_root_offset{% else %}, indextype q_size{% endif %}) {
+	fprintf(stream, "BEGIN HASH TABLE CONTENTS.\n");
 	for (indextype i = 0; i < {% if compact_hash_table %}non_root_offset{% else %}q_size{% endif %}; i++) {
 		{% if not compact_hash_table and vectorsize > 63 %}
 		if (is_root(q[i])) {
@@ -3274,6 +3269,7 @@ void print_content_hash_table(FILE* stream, compressed_nodetype *q{% if compact_
 			fprintf(stream, "-----\n");
 		}
 	}
+	fprintf(stream, "END HASH TABLE CONTENTS.\n");
 }
 
 // *** END PRINT FUNCTIONS ***
