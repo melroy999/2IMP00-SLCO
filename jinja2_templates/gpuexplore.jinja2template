@@ -112,6 +112,7 @@ static const int NR_BLOCKS = {{nrblocks}};
 {% endif %}
 #define EMPTYVECT16				0xFFFF
 {% if vectorsize > 62 %}
+#define EMPTY_CACHE_POINTERS	0x00000000
 #define CACHE_POINTERS_NEW_LEAF	0x40000000
 {% endif %}
 

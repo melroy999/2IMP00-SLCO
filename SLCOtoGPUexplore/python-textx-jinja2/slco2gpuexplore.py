@@ -1005,7 +1005,7 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, ind
 				# node is also a non-leaf in the vectortree. update pointers.
 				if f:
 					ic += 1
-					output += "if (buf16_" + str(pointer_cnt) + " != EMPTYCACHEPOINTERS) {\n" + indentspace(ic)
+					output += "if (buf16_" + str(pointer_cnt) + " != EMPTY_CACHE_POINTERS) {\n" + indentspace(ic)
 					if refs == []:
 						output += "get_vectortree_node(&part1, &part_cachepointers, node_index, " + str(p) + ");\n" + indentspace(ic)
 					output += "set_left_cache_pointer(&part_cachepointers, buf16_" + str(pointer_cnt) + ");\n" + indentspace(ic)
@@ -1040,7 +1040,7 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, ind
 				if nav != []:
 					output += "else {\n" + indentspace(ic)
 					ic -= 1
-					output += "buf16_" + str(pointer_cnt) + " = EMPTYCACHEPOINTERS;\n" + indentspace(ic)
+					output += "buf16_" + str(pointer_cnt) + " = EMPTY_CACHE_POINTERS;\n" + indentspace(ic)
 					output += "}\n"  + indentspace(ic)
 			if nav != [] and not is_non_leaf(nav[0][0]):
 				pointer_cnt += 1
@@ -1048,7 +1048,7 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, ind
 		elif is_non_leaf(p):
 			if not f:
 				ic += 1
-				output += "if (buf16_" + str(pointer_cnt) + " != EMPTYCACHEPOINTERS) {\n" + indentspace(ic)
+				output += "if (buf16_" + str(pointer_cnt) + " != EMPTY_CACHE_POINTERS) {\n" + indentspace(ic)
 				output += "get_vectortree_node(&part1, &part_cachepointers, node_index, " + str(p) + ");\n" + indentspace(ic)
 				children = vectortree[p]
 				if nodes_done[len(nodes_done)-1] == children[0]:
@@ -1059,18 +1059,18 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, ind
 					output += "reset_right_in_vectortree_node(&part2);\n" + indentspace(ic)
 			else:
 				ic += 1
-				output += "if (buf16_" + str(pointer_cnt-1) + " != EMPTYCACHEPOINTERS || buf16_" + str(pointer_cnt) + " != EMPTYCACHEPOINTERS) {\n" + indentspace(ic)
+				output += "if (buf16_" + str(pointer_cnt-1) + " != EMPTY_CACHE_POINTERS || buf16_" + str(pointer_cnt) + " != EMPTY_CACHE_POINTERS) {\n" + indentspace(ic)
 				ic -= 1
 				output += "get_vectortree_node(&part1, &part_cachepointers, node_index, " + str(p) + ");\n" + indentspace(ic)
 				output += "}\n" + indentspace(ic)
 				ic += 1
-				output += "if (buf16_" + str(pointer_cnt-1) + " != EMPTYCACHEPOINTERS) {\n" + indentspace(ic)
+				output += "if (buf16_" + str(pointer_cnt-1) + " != EMPTY_CACHE_POINTERS) {\n" + indentspace(ic)
 				output += "set_right_cache_pointer(&part_cachepointers, buf16_" + str(pointer_cnt-1) + ");\n" + indentspace(ic)
 				ic -= 1
 				output += "reset_right_in_vectortree_node(&part2);\n" + indentspace(ic)
 				output += "}\n" + indentspace(ic)
 				ic += 1
-				output += "if (buf16_" + str(pointer_cnt) + " != EMPTYCACHEPOINTERS) {\n" + indentspace(ic)
+				output += "if (buf16_" + str(pointer_cnt) + " != EMPTY_CACHE_POINTERS) {\n" + indentspace(ic)
 				output += "set_left_cache_pointer(&part_cachepointers, buf16_" + str(pointer_cnt) + ");\n" + indentspace(ic)
 				ic -= 1
 				output += "reset_left_in_vectortree_node(&part2);\n" + indentspace(ic)
@@ -1085,7 +1085,7 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, ind
 			if nav != []:
 				output += "else {\n" + indentspace(ic)
 				ic -= 1
-				output += "buf16_" + str(pointer_cnt) + " = EMPTYCACHEPOINTERS;\n" + indentspace(ic)
+				output += "buf16_" + str(pointer_cnt) + " = EMPTY_CACHE_POINTERS;\n" + indentspace(ic)
 				output += "}\n"  + indentspace(ic)
 			if nav != [] and not is_non_leaf(nav[0][0]):
 				pointer_cnt += 1
