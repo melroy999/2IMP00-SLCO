@@ -314,6 +314,8 @@ def getlabel(s):
 			result += "[" + getlabel(s.index) + "]"
 	elif s.__class__.__name__ == "Variable":
 		result += s.name
+	elif s.__class__.__name__ == "ActionRef":
+		result += s.act.name
 	return result
 
 # model processor to check for name clashes and remove duplicates in lists
@@ -558,7 +560,10 @@ def statement_check_refs(s, V, model):
 						# TODO
 
 def statement_is_actionref(s):
-	return expression_is_actionref(s)
+	if s.__class__.__name__ == "ActionRef":
+		return True
+	else:
+		return expression_is_actionref(s)
 
 def expression_is_actionref(s):
 	"""Determine whether the given expression is an action reference"""

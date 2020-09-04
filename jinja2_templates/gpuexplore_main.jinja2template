@@ -70,10 +70,7 @@ __global__ void init_hash_table(compressed_nodetype *d_q) {
 /**
  * CUDA kernel function to count the number of states in the global memory hash table.
  */
-__global__ void count_states(compressed_nodetype *d_q, nodetype *result) {
-	if (GLOBAL_THREAD_ID == 0) {
-		*result = 0;
-	}
+__global__ void count_states(compressed_nodetype *d_q, uint64_t *result) {
 	if (THREAD_ID == 0) {
 		shared[0] = 0;
 	}
@@ -87,11 +84,11 @@ __global__ void count_states(compressed_nodetype *d_q, nodetype *result) {
 		{% endif %}
 			localResult++;
 		}
-		atomicAdd((unsigned int *) &(shared[0]), (unsigned int) localResult);
-		__syncthreads();
-		if (THREAD_ID == 0) {
-			atomicAdd(result, shared[0]);
-		}
+	}
+	atomicAdd((unsigned int *) &(shared[0]), (unsigned int) localResult);
+	__syncthreads();
+	if (THREAD_ID == 0) {
+		atomicAdd((unsigned long long *) result, (unsigned long long) shared[0]);
 	}
 }
 
@@ -108,7 +105,7 @@ __global__ void __launch_bounds__(512, 2) gather(compressed_nodetype *d_q, uint8
 		shared[THREAD_ID] = 0;
 	}
 	for (i = THREAD_ID; i < (d_shared_cache_size - SH_OFFSET); i += BLOCK_SIZE) {
-		shared[SH_OFFSET+i] = EMPTYVECT32;
+		shared[SH_OFFSET+i] = EMPTYVECT{% if vectorsize <= 30 or vectorsize > 62 %}32{% else %}64{% endif %};
 	}
 	__syncthreads();
 	if (scan) {
@@ -144,7 +141,7 @@ __global__ void __launch_bounds__(512, 2) gather(compressed_nodetype *d_q, uint8
 					loc = i + last_search_location;
 				}
 				tmp = d_q[loc];
-				l = EMPTYVECT32;
+				l = EMPTYVECT{% if vectorsize <= 30 or vectorsize > 62 %}32{% else %}64{% endif %};
 				if ({% if not compact_hash_table %}is_new(tmp){% else %}tmp != EMPTY_COMPRESSED_NODE{% endif %}) {
 					found_new_state = true;
 					// Try to increment the OPENTILECOUNT counter. If successful, store the state pointer.
@@ -189,7 +186,7 @@ __global__ void __launch_bounds__(512, 2) gather(compressed_nodetype *d_q, uint8
 		// Fill the cache with the vector trees referred to in the work tile.
 		for (i = WARP_ID; i < OPENTILECOUNT; i += NR_WARPS_PER_BLOCK) {
 			// Create a cooperative group corresponding with the warp in which the thread resides.
-			thread_group tile32 = cooperative_groups::partition(this_thread_block(), 32);
+			thread_block_tile<32> tile32 = tiled_partition<32>(this_thread_block());
 			l = FETCH(tile32, d_q, shared[OPENTILEOFFSET+WARP_ID]);
 			if (l == HASHTABLE_FULL) {
 				// PLAN B?
@@ -217,7 +214,7 @@ __global__ void __launch_bounds__(512, 2) gather(compressed_nodetype *d_q, uint8
 		__syncthreads();
 		// Write 'empty' pointers to unused part of the work tile.
 		if (THREAD_ID < OPENTILELEN - OPENTILECOUNT) {
-			shared[OPENTILEOFFSET+OPENTILECOUNT+THREAD_ID] = EMPTYVECT32;
+			shared[OPENTILEOFFSET+OPENTILECOUNT+THREAD_ID] = EMPTYVECT{% if vectorsize <= 30 or vectorsize > 62 %}32{% else %}64{% endif %};
 		}
 		// Ready to start next iteration, if error has not occurred.
 		if (THREAD_ID == 0) {
@@ -273,7 +270,7 @@ int main(int argc, char** argv) {
 	// Flag to keep track of property verification outcome.
 	uint8_t *d_property_violation;
 	// Integer to store the amount of states counted in the hash table.
-	nodetype counted_states, *d_counted_states;
+	uint64_t counted_states, *d_counted_states;
 	// Space to temporarily store work tiles.
 	shared_inttype *d_worktiles;
 
@@ -344,7 +341,7 @@ int main(int argc, char** argv) {
 	// Allocate memory on the GPU.
 	cudaMallocCount((void **) &d_contBFS, sizeof(uint8_t));
 	cudaMallocCount((void **) &d_property_violation, sizeof(uint8_t));
-	cudaMallocCount((void **) &d_counted_states, sizeof(indextype));
+	cudaMallocCount((void **) &d_counted_states, sizeof(uint64_t));
 	cudaMallocCount((void **) &d_newstate_flags, nblocks * sizeof(uint8_t));
 	cudaMallocCount((void **) &d_worktiles, nblocks * (OPENTILELEN+LASTSEARCHLEN+1) * sizeof(shared_inttype));
 
@@ -352,16 +349,16 @@ int main(int argc, char** argv) {
 	CUDA_CHECK_RETURN(cudaMemset(d_contBFS, 1, sizeof(uint8_t)));
 	CUDA_CHECK_RETURN(cudaMemset(d_newstate_flags, 0, nblocks * sizeof(uint8_t)));
 	CUDA_CHECK_RETURN(cudaMemset(d_worktiles, 0, nblocks * (OPENTILELEN + LASTSEARCHLEN + 1) * sizeof(shared_inttype)));
-	CUDA_CHECK_RETURN(cudaMemset(d_counted_states, 0, sizeof(indextype)));
+	CUDA_CHECK_RETURN(cudaMemset(d_counted_states, 0, sizeof(uint64_t)));
 
 	{% if not compact_hash_table %}
 	{% if vectorsize <= 62 %}
-	indextype available, total;
+	size_t available, total;
 	cudaMemGetInfo(&available, &total);
 	if (hash_table_size == 0) {
 		hash_table_size = total / sizeof(compressed_nodetype);
 	}
-	indextype el_per_Mb = Mb / sizeof(compressed_nodetype);
+	size_t el_per_Mb = Mb / sizeof(compressed_nodetype);
 
 	while (cudaMalloc((void **)&d_q, hash_table_size * sizeof(compressed_nodetype)) == cudaErrorMemoryAllocation) {
 		hash_table_size -= el_per_Mb;
@@ -381,10 +378,10 @@ int main(int argc, char** argv) {
 	non_root_offset = 4294967296;
 	{% endif %}
 
-	fprintf (stdout, "Global mem queue size: %lu; Number of entries: %lu\n", hash_table_size*sizeof(compressed_nodetype), (indextype) hash_table_size);
+	fprintf (stdout, "Global mem queue size: %lu; Number of entries: %{% if vectorsize <= 30 or vectorsize > 62 %}l{% endif %}u\n", hash_table_size*sizeof(compressed_nodetype), (indextype) hash_table_size);
 
 	shared_inttype shared_cache_size = (shared_inttype) prop.sharedMemPerMultiprocessor / sizeof(shared_inttype) / 2;
-	fprintf (stdout, "Shared mem cache size: %lu; Number of entries: %u\n", shared_cache_size*sizeof(shared_inttype), shared_cache_size{% if vectorsize > 62 %}*3{% endif %});
+	fprintf (stdout, "Shared mem cache size: %u; Number of entries: %u\n", (uint32_t) (shared_cache_size*sizeof(shared_inttype)), (uint32_t) shared_cache_size{% if vectorsize > 62 %}*3{% endif %});
 	fprintf (stdout, "Nr. of blocks: %d; Block size: {{nrthreadsperblock}}; Nr. of kernel iterations: %d\n", nblocks, kernel_iters);
 
 	// Copy symbols.
@@ -401,7 +398,10 @@ int main(int argc, char** argv) {
 	CUDA_CHECK_FOR_ERROR();
 	store_initial_state<<<1, {{nrthreadsperblock}}, shared_cache_size * sizeof(shared_inttype)>>>(d_q, d_newstate_flags, d_worktiles);
 
-	compressed_nodetype *q_test = (compressed_nodetype*) malloc(sizeof(compressed_nodetype)*hash_table_size);
+	compressed_nodetype *q_test;
+	if (verbosity == 3) {
+		q_test = (compressed_nodetype*) malloc(sizeof(compressed_nodetype)*hash_table_size);
+	}
 
 	uint32_t iterations_counter = 0;
 	uint8_t scan = 1;
@@ -413,7 +413,8 @@ int main(int argc, char** argv) {
 
 	while (contBFS == 1) {
 		CUDA_CHECK_RETURN(cudaMemset(d_contBFS, 0, sizeof(uint8_t)));
-		gather<<<nblocks, {{nrthreadsperblock}}, shared_cache_size * sizeof(shared_inttype)>>>(d_q, d_contBFS, d_property_violation, d_newstate_flags, d_worktiles, scan);
+		// TODO: change nr of blocks back to nblocks
+		gather<<<1, {{nrthreadsperblock}}, shared_cache_size * sizeof(shared_inttype)>>>(d_q, d_contBFS, d_property_violation, d_newstate_flags, d_worktiles, scan);
 
 		// Copy progress result.
 		CUDA_CHECK_RETURN(cudaDeviceSynchronize());
@@ -425,10 +426,11 @@ int main(int argc, char** argv) {
 				fprintf(stdout, "%d\n", iterations_counter++);
 			}
 			else if (verbosity == 2) {
+				cudaMemset(d_counted_states, 0, sizeof(uint64_t));
 				count_states<<<((int) prop.multiProcessorCount)*8, 512, 1>>>(d_q, d_counted_states);
 				CUDA_CHECK_RETURN(cudaDeviceSynchronize());
-				CUDA_CHECK_RETURN(cudaMemcpy(&counted_states, d_counted_states, sizeof(indextype), cudaMemcpyDeviceToHost));
-				fprintf(stdout, "Nr. of states in hash table: %u\n", counted_states);
+				CUDA_CHECK_RETURN(cudaMemcpy(&counted_states, d_counted_states, sizeof(uint64_t), cudaMemcpyDeviceToHost));
+				fprintf(stdout, "Nr. of states in hash table: %lu\n", counted_states);
 			}
 			else if (verbosity == 3) {
 				cudaMemcpy(q_test, d_q, hash_table_size * sizeof(compressed_nodetype), cudaMemcpyDeviceToHost);
@@ -453,10 +455,11 @@ int main(int argc, char** argv) {
 	}
 
 	CUDA_CHECK_RETURN(cudaMemset(d_counted_states, 0, sizeof(indextype)));
+	cudaMemset(d_counted_states, 0, sizeof(uint64_t));
 	count_states<<<((int) prop.multiProcessorCount)*8, 512, 1>>>(d_q, d_counted_states);
 	CUDA_CHECK_RETURN(cudaDeviceSynchronize());
-	CUDA_CHECK_RETURN(cudaMemcpy(&counted_states, d_counted_states, sizeof(indextype), cudaMemcpyDeviceToHost));
-	fprintf(stdout, "Nr. of states in hash table: %u\n", counted_states);
+	CUDA_CHECK_RETURN(cudaMemcpy(&counted_states, d_counted_states, sizeof(uint64_t), cudaMemcpyDeviceToHost));
+	fprintf(stdout, "Nr. of states in hash table: %lu\n", counted_states);
 
 	return 0;
 }

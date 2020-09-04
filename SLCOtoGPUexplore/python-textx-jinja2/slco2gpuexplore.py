@@ -806,20 +806,18 @@ def cudastore_initial_vector():
 	output += "\t\tswitch (GLOBAL_THREAD_ID) {\n"
 	for i in range(0, nrnodes):
 		output += "\t\t\tcase " + str(i) + ":\n"
-		if vectorsize < 31:
+		if vectorsize <= 62:
 			addr = str(i)
-		elif vectorsize < 63:
-			addr = "(" + str(i) + "*2)"
 		else:
 			addr = "(" + str(i) + "*3)"
 		output += "\t\t\t\tshared[CACHEOFFSET+" + addr + "] = "
-		if vectorsize > 30:
+		if vectorsize > 62:
 			output += "get_left(" + hexa(nodes[i]) + ");\n"
 			output += "\t\t\t\tshared[CACHEOFFSET+" + addr + "+1] = get_right(" + hexa(nodes[i]) + ");\n"
 		else:
 			output += hexa(nodes[i]) + ";\n"
 		if vectorsize > 62:
-			output += "\t\t\t\tshared[CACHEOFFSET+" + addr + "+2] = " + hexa(nodes_cachepointers[i]) + ");\n"
+			output += "\t\t\t\tshared[CACHEOFFSET+" + addr + "+2] = " + hexa(nodes_cachepointers[i]) + ";\n"
 		output += "\t\t\t\tbreak;\n"
 	output += "\t\t}\n"
 	output += "\t}"
@@ -1227,7 +1225,7 @@ def cudastatement(s,indent,o,D,sender_o='',sender_sm='',senderparams=[]):
 			# 		# add line to obtain index offset
 			# 		output += "add_idx(idx_" + o.name + "_" + e.left.var.name + ", " + getinstruction(e.left.index, o, D) + ");\n" + indentspace
 			output += getinstruction(e, o, D) + ";"
-		output += cudastore_new_vector(s,indent,o,D)
+		output += "\n" + indentspace + cudastore_new_vector(s,indent,o,D)
 	elif s.__class__.__name__ == "SendSignal":
 		c = connected_channel[(o, s.target)]
 		if c.synctype == 'async':
@@ -2996,9 +2994,6 @@ def preprocess():
 			# take buffer counter into account
 			vectorsize += int(max(1,math.ceil(math.log(dimension, 2))))
 			dataelements.add((ch.name, tuple(typelist), dimension))
-	# if the vectorsize is sufficiently small, compact hash table storage is not needed.
-	if vectorsize < 63:
-		compact_hash_table = False
 	# store maximum number of bits needed to encode an automaton state
 	max_statesize = 0
 	for (s,i) in stateelements:
@@ -3452,20 +3447,21 @@ def preprocess():
 	if gpuexplore2_succdist:
 		# determine the tile size based on GPUexplore 2.0 successor work distribution.
 		# As devisor we take minimum value 2, to ensure that the worktile is smaller than the block size.
-		tilesize = int(nrthreadsperblock / min(len(smnames), 2))
+		tilesize = int(nrthreadsperblock / max(len(smnames), 2))
 		# to handle models with much data, we divide the tilesize by a factor.
 		datadiv = int(1 + (vectortree_size/4))
 		tilesize = int(tilesize / datadiv)
 	else:
 		# divide number of warps per block by the number of statemachines (minimum 2) in the model (or 16, if the former is smaller than the latter).
 		# multiply that number by warpsize, as each thread in a warp can work on a different state vector.
-		tilesize = int(((nrthreadsperblock / warpsize) / min(min(len(smnames), 2), (nrthreadsperblock / warpsize))) * warpsize)
+		tilesize = int(((nrthreadsperblock / warpsize) / min(max(len(smnames), 2), (nrthreadsperblock / warpsize))) * warpsize)
 		# to handle models with much data, we divide the tilesize by a factor.
 		datadiv = int(1 + (vectortree_size/4))
 		tilesize = int(tilesize / datadiv)
-		# compute the number of elements per thread in intra-warp regsort of tile elements
-		regsort_nr_el_per_thread = int(math.pow(2,math.ceil(math.log(tilesize, 2))) / warpsize)
 		nr_warps_per_tile = int(math.ceil(float(tilesize) / float(warpsize)))
+		if not no_regsort:
+			# compute the number of elements per thread in intra-warp regsort of tile elements
+			regsort_nr_el_per_thread = int(math.pow(2,math.ceil(math.log(tilesize, 2))) / warpsize)
 
 def translate():
 	"""The translation function"""
@@ -3571,15 +3567,15 @@ def main(args):
 			print("")
 			print("Transform an SLCO 2.0 model to CUDA source code for GPUexplore 3.0.")
 			print("")
-			print(" -s                    size of the GPU global memory (in GB)")
+			print(" -s                    size of the GPU global memory (in GB) (default 24)")
 			print(" -d                    check for deadlocks")
 			print(" -p                    verify given LTL property")
 			print(" -b                    number of CUDA blocks to run (default 3120")
 			print(" -t                    number of threads per CUDA block (default 512)")
-			print(" -g2                   apply GPUexplore 2.0 successor generation work distribution")
-			print(" -noregsort            do not apply regsort for successor generation work distribution")
-			print(" -nosmartfetching      disable smart fetching of vectortrees from global memory")
-			print(" -nocompacthashtable   disable compact storage in global memory hash table")
+			print(" -g2                   apply GPUexplore 2.0 successor generation work distribution (default False)")
+			print(" -noregsort            do not apply regsort for successor generation work distribution (default False)")
+			print(" -nosmartfetching      disable smart fetching of vectortrees from global memory (default False)")
+			print(" -nocompacthashtable   disable compact storage in global memory hash table (default False)")
 			sys.exit(0)
 		else:
 			for i in range(0,len(args)):
@@ -3607,6 +3603,13 @@ def main(args):
 					i += 1
 				else:
 					modelname = args[i]
+
+	# if the vectorsize is sufficiently small, compact hash table storage is not needed.
+	if vectorsize < 63:
+		compact_hash_table = False
+	# if GPUexplore 2.0 successor generation is applied, regsorting is not.
+	if gpuexplore2_succdist:
+		no_regsort = True
 
 	batch = []
 	if modelname.endswith('.slco'):
