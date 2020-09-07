@@ -338,7 +338,7 @@ inline __device__ shared_inttype filter_global_address_marker(shared_inttype add
 // Function to traverse one step in state vector tree (stored in shared memory).
 inline __device__ shared_indextype sv_step(shared_indextype node_index, bool goright) {
 	shared_indextype index = 0;
-	shared_inttype tmp = shared[CACHEOFFSET+node_index+2];
+	shared_inttype tmp = shared[CACHEOFFSET+(node_index*3)+2];
 	if (!goright) {
 		asm("{\n\t"
 			" .reg .u32 t1;\n\t"
@@ -409,7 +409,7 @@ inline __device__ nodetype get_vectorpart_{{i}}(shared_indextype node_index) {
 	nodetype part;
 	asm("{\n\t"
 		" mov.b64 %0,{ %1, %2 };\n\t"
-		"}" : "=l"(part) : "r"(shared[CACHEOFFSET+{% if i|get_vector_tree_to_part_navigation|length > 0 %}index{% else %}node_index{% endif %}]), "r"(shared[CACHEOFFSET+{% if i|get_vector_tree_to_part_navigation|length > 0 %}index{% else %}node_index{% endif %}+1]));
+		"}" : "=l"(part) : "r"(shared[CACHEOFFSET+({% if i|get_vector_tree_to_part_navigation|length > 0 %}index{% else %}node_index{% endif %}*3)]), "r"(shared[CACHEOFFSET+({% if i|get_vector_tree_to_part_navigation|length > 0 %}index{% else %}node_index{% endif %}*3)+1]));
 	return part;
 	{% endif %}
 }
@@ -441,8 +441,8 @@ inline __device__ void get_vectortree_node_{{i}}(nodetype *node, shared_inttype 
 	{% endfor %}
 	asm("{\n\t"
 		" mov.b64 %0,{ %1, %2 };\n\t"
-		"}" : "=l"(*node) : "r"(shared[CACHEOFFSET+{% if i|get_vector_tree_to_node_navigation|length > 0 %}index{% else %}node_index{% endif %}]), "r"(shared[CACHEOFFSET+{% if i|get_vector_tree_to_node_navigation|length > 0 %}index{% else %}node_index{% endif %}+1]));
-	*d_cachepointers = shared[CACHEOFFSET+{% if i|get_vector_tree_to_node_navigation|length > 0 %}index{% else %}node_index{% endif %}+2];
+		"}" : "=l"(*node) : "r"(shared[CACHEOFFSET+({% if i|get_vector_tree_to_node_navigation|length > 0 %}index{% else %}node_index{% endif %}*3)]), "r"(shared[CACHEOFFSET+({% if i|get_vector_tree_to_node_navigation|length > 0 %}index{% else %}node_index{% endif %}*3)+1]));
+	*d_cachepointers = shared[CACHEOFFSET+({% if i|get_vector_tree_to_node_navigation|length > 0 %}index{% else %}node_index{% endif %}*3)+2];
 }
 
 {% endfor %}
