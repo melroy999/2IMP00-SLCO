@@ -184,19 +184,19 @@ __global__ void __launch_bounds__(512, 2) gather(compressed_nodetype *d_q, uint8
 		}
 		{% if vectorsize > 62 %}
 		// Fill the cache with the vector trees referred to in the work tile.
-		for (i = WARP_ID; i < OPENTILECOUNT; i += NR_WARPS_PER_BLOCK) {
-			// Create a cooperative group corresponding with the warp in which the thread resides.
-			thread_block_tile<32> tile32 = tiled_partition<32>(this_thread_block());
-			l = FETCH(tile32, d_q, shared[OPENTILEOFFSET+WARP_ID]);
+		// Create a cooperative group within a warp in which the thread resides.
+		thread_block_tile<VECTOR_GROUP_SIZE> gtile = tiled_partition<VECTOR_GROUP_SIZE>(this_thread_block());
+		for (i = VECTOR_GROUP_ID; i < OPENTILECOUNT; i += NR_VECTOR_GROUPS_PER_BLOCK) {
+			l = FETCH(gtile, d_q, shared[OPENTILEOFFSET+i]);
 			if (l == HASHTABLE_FULL) {
 				// PLAN B?
 			}
 			else {
 				sh_index = (shared_indextype) l;
 			}
-			if (LANE == 0) {
+			if (gtile.thread_rank() == 0) {
 				// Store the address to the tree in the cache in the work tile.
-				shared[OPENTILEOFFSET+WARP_ID] = sh_index;
+				shared[OPENTILEOFFSET+i] = sh_index;
 			}
 		}
 		{% endif %}
@@ -369,7 +369,9 @@ int main(int argc, char** argv) {
 	}
 	{% else %}
 	// We create a hash table for (non-compact) state vector trees. Its size is limited to 2^31 elements, as a 64-bit element needs to be able to store two pointers, plus two admin bits.
-	hash_table_size = 2147483648;
+	if (hash_table_size == 0 || hash_table_size > 2147483648) {
+		hash_table_size = 2147483648;
+	}
 	cudaMalloc((void **)&d_q, hash_table_size * sizeof(compressed_nodetype));
 	{% endif %}
 	{% elif global_memsize == 24 %}
@@ -378,9 +380,10 @@ int main(int argc, char** argv) {
 	non_root_offset = 4294967296;
 	{% endif %}
 
-	fprintf (stdout, "Global mem queue size: %lu; Number of entries: %{% if vectorsize <= 30 or vectorsize > 62 %}l{% endif %}u\n", hash_table_size*sizeof(compressed_nodetype), (indextype) hash_table_size);
+	fprintf (stdout, "Global mem queue size: %lu; Number of entries: %{% if vectorsize <= 30 or compact_hash_table %}l{% endif %}u\n", hash_table_size*sizeof(compressed_nodetype), (indextype) hash_table_size);
 
 	shared_inttype shared_cache_size = (shared_inttype) prop.sharedMemPerMultiprocessor / sizeof(shared_inttype) / 2;
+	fprintf (stdout, "Shared mem work tile size: {{tilesize}}\n");
 	fprintf (stdout, "Shared mem cache size: %u; Number of entries: %u\n", (uint32_t) (shared_cache_size*sizeof(shared_inttype)), (uint32_t) shared_cache_size{% if vectorsize > 62 %}*3{% endif %});
 	fprintf (stdout, "Nr. of blocks: %d; Block size: {{nrthreadsperblock}}; Nr. of kernel iterations: %d\n", nblocks, kernel_iters);
 
