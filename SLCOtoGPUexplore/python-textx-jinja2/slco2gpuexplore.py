@@ -3148,18 +3148,22 @@ def preprocess():
 		vlist = vectorstructure[len(vectorstructure)-1]
 		for (vname,vsize) in vlist:
 			PIDs = vectorelem_in_structure_map.get(vname)
-			newPIDs = []
-			for p in PIDs:
-				if p[0] != len(vectorstructure)-1:
-					newPIDs.append(p)
+			print(vname)
+			print(PIDs)
+			newPIDslist = [PIDs[0]]
+			for i in range(1, len(PIDs)):
+				print(PIDs[i])
+				if PIDs[i][0] != len(vectorstructure)-1:
+					newPIDslist.append(PIDs[i])
 				else:
 					newpos = 0
 					if compact_hash_table:
-						newpos = 63-nr_bits_address_internal()-p[2]
+						newpos = 63-nr_bits_address_internal()-PIDs[i][2]
 					else:
-						newpos = 62-nr_bits_address_internal()-p[2]						
-					newPIDs.append((p[0], newpos, p[2]))
-			vectorelem_in_structure_map[vname] = newPIDs
+						newpos = 62-nr_bits_address_root()-PIDs[i][2]
+					newPIDslist.append((PIDs[i][0], newpos, PIDs[i][2]))
+			vectorelem_in_structure_map[vname] = newPIDslist
+			print(newPIDslist)
 	# number of vector parts with state machine states
 	nrstatenodes = 0
 	for t in vectorstructure:

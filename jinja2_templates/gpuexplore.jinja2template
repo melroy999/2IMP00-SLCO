@@ -973,8 +973,8 @@ inline __device__ void set_{{dynamic_write_arrays[x][0]|replace("'","_")}}(nodet
 		}
 	}
 }
-{% endfor %}
 
+{% endfor %}
 {% for c in model.channels|select("is_async") %}
 {% if loop.first %}
 // Data update functions for channel buffers, focussed on one specific vector part.
@@ -1126,7 +1126,6 @@ inline __device__ T A_LD_{{n}}({% for i in range(0,n) %}array_indextype idx_{{i}
 }
 
 {% endfor %}
-
 {% for n in all_arrayindex_allocs_sizes %}
 {% if loop.first %}
 // Check whether the given array index e is stored in the given array index buffer.
@@ -1181,7 +1180,6 @@ inline __device__ statetype get_target_{{sm.name}}_{{a}}(statetype src, statetyp
 {% endfor %}
 {% endfor %}
 {% endfor %}
-
 // *** END FUNCTIONS FOR MODEL DATA RETRIEVAL AND STORAGE ***
 
 // *** START KERNELS AND FUNCTIONS FOR {% if vectorsize > 62 %}VECTOR TREE {% endif %}NODE STORAGE AND RETRIEVAL TO/FROM THE GLOBAL MEMORY HASH TABLE ***
