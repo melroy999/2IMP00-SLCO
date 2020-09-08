@@ -188,7 +188,7 @@ __global__ void __launch_bounds__(512, 2) gather(compressed_nodetype *d_q, uint8
 		thread_block_tile<VECTOR_GROUP_SIZE> gtile = tiled_partition<VECTOR_GROUP_SIZE>(this_thread_block());
 		for (i = VECTOR_GROUP_ID; i < OPENTILECOUNT; i += NR_VECTOR_GROUPS_PER_BLOCK) {
 			l = FETCH(gtile, d_q, shared[OPENTILEOFFSET+i]);
-			if (l == HASHTABLE_FULL) {
+			if (l == CACHE_FULL) {
 				// PLAN B?
 			}
 			else {

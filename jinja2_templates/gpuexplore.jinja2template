@@ -187,6 +187,16 @@ extern __shared__ volatile shared_inttype shared[];
 #define VECTOR_SMPARTS				{{smart_vectortree_fetching_bitmask["smstates"]}}
 {% endif %}
 
+// *** START MATH OPERATIONS ***
+
+// Fast modulo operation.
+inline __host__ __device__ shared_indextype fast_modulo(shared_indextype x, shared_indextype n) {
+	shared_indextype q = x / n;
+	return x - (q * n);
+}
+
+// *** END MATH OPERATIONS ***
+
 // *** START BIT OPERATIONS ***
 
 {% if compact_hash_table %}
@@ -664,7 +674,7 @@ inline __device__ shared_indextype CACHE_HASH(nodetype node) {
 	{{43|cuda_xor_r3(31, 23, 1)}}
 	node1 *= 0xdb4f0ad2012a3801L;
 	{{28|cuda_xor_r(1)}}
-	return (shared_indextype) {% if vectorsize > 62 %}3*{% elif vectorsize > 30 %}2*{% endif %}((node1 & 0x000000000000FFFF) * ((d_shared_cache_size-CACHEOFFSET){% if vectorsize > 62 %}/3{% elif vectorsize > 30 %}/2{% endif %})) >> 16;
+	return (shared_indextype) fast_modulo((node1 & 0x000000000000FFFF), ((d_shared_cache_size-CACHEOFFSET){% if vectorsize > 62 %}/3{% endif %}));
 }
 
 // Store a vectortree node in the cache.
@@ -686,14 +696,14 @@ inline __device__ shared_inttype STOREINCACHE(nodetype node, shared_inttype cach
 	{% endif %}
 	addr = CACHE_HASH(node);
 	while (i < CACHERETRYFREQ) {
-		element = atomicCAS((shared_inttype *) &(shared[CACHEOFFSET+addr]), {% if vectorsize > 30 and vectorsize <= 62 %}(unsigned long long) {% endif %}EMPTYVECT{% if vectorsize <= 30 or vectorsize > 62 %}32{% else %}64{% endif %}, {% if vectorsize <= 62 %}node{% else %}part1{% endif %});
+		element = atomicCAS((shared_inttype *) &(shared[CACHEOFFSET+{% if vectorsize > 62 %}(addr*3){% else %}addr{% endif %}]), {% if vectorsize > 30 and vectorsize <= 62 %}(unsigned long long) {% endif %}EMPTYVECT{% if vectorsize <= 30 or vectorsize > 62 %}32{% else %}64{% endif %}, {% if vectorsize <= 62 %}node{% else %}part1{% endif %});
 		if (element == EMPTYVECT{% if vectorsize <= 30 or vectorsize > 62 %}32{% else %}64{% endif %} || element == {% if vectorsize <= 62 %}node{% else %}part1{% endif %}) {
 			// Successful storage.
 			{% if vectorsize > 62 %}
-			element = atomicCAS((shared_inttype *) &(shared[CACHEOFFSET+addr+1]), EMPTYVECT32, part2);
+			element = atomicCAS((shared_inttype *) &(shared[CACHEOFFSET+{% if vectorsize > 62 %}(addr*3){% else %}addr{% endif %}+1]), EMPTYVECT32, part2);
 			if (element == EMPTYVECT32 || element == part2) {
 				// Successful storage.
-				element = atomicCAS((shared_inttype *) &(shared[CACHEOFFSET+addr+2]), EMPTYVECT32, cache_pointers);
+				element = atomicCAS((shared_inttype *) &(shared[CACHEOFFSET+{% if vectorsize > 62 %}(addr*3){% else %}addr{% endif %}+2]), EMPTYVECT32, cache_pointers);
 				if (element == EMPTYVECT32 || element == cache_pointers) {
 					// Storage of node successful.
 					return (shared_inttype) addr;
