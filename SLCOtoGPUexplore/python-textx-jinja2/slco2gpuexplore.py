@@ -691,10 +691,9 @@ def update_parts(name, value, vectorparts):
 		vectorparts[p[1][0]] |= value
 	else:
 		# lowest bits
-		i = 0
 		f = 0
 		for j in range(0, p[2][2]):
-			f |= (1 << i)
+			f |= (1 << j)
 		lovalue = value | f
 		lovalue = (lovalue << p[2][1])
 		vectorparts[p[2][0]] |= lovalue
