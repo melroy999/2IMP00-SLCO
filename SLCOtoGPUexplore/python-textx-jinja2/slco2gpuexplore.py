@@ -694,7 +694,7 @@ def update_parts(name, value, vectorparts):
 		f = 0
 		for j in range(0, p[2][2]):
 			f |= (1 << j)
-		lovalue = value | f
+		lovalue = value & f
 		lovalue = (lovalue << p[2][1])
 		vectorparts[p[2][0]] |= lovalue
 		# highest bits
@@ -3147,11 +3147,8 @@ def preprocess():
 		vlist = vectorstructure[len(vectorstructure)-1]
 		for (vname,vsize) in vlist:
 			PIDs = vectorelem_in_structure_map.get(vname)
-			print(vname)
-			print(PIDs)
 			newPIDslist = [PIDs[0]]
 			for i in range(1, len(PIDs)):
-				print(PIDs[i])
 				if PIDs[i][0] != len(vectorstructure)-1:
 					newPIDslist.append(PIDs[i])
 				else:
@@ -3162,7 +3159,6 @@ def preprocess():
 						newpos = 62-nr_bits_address_root()-PIDs[i][2]
 					newPIDslist.append((PIDs[i][0], newpos, PIDs[i][2]))
 			vectorelem_in_structure_map[vname] = newPIDslist
-			print(newPIDslist)
 	# number of vector parts with state machine states
 	nrstatenodes = 0
 	for t in vectorstructure:
