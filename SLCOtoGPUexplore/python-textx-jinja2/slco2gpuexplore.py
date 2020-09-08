@@ -3144,6 +3144,22 @@ def preprocess():
 	# compensate for a final vector part integrated into a non-leaf node
 	if vectorpart_is_combined_with_nonleaf_node(len(vectorstructure)-1):
 		nrnodes -= 1
+		# update the positioning of the data in the final vector part to account for the left node pointer inside it
+		vlist = vectorstructure[len(vectorstructure)-1]
+		for (vname,vsize) in vlist:
+			PIDs = vectorelem_in_structure_map.get(vname)
+			newPIDs = []
+			for p in PIDs:
+				if p[0] != len(vectorstructure)-1:
+					newPIDs.append(p)
+				else:
+					newpos = 0
+					if compact_hash_table:
+						newpos = 63-nr_bits_address_internal()-p[2]
+					else:
+						newpos = 62-nr_bits_address_internal()-p[2]						
+					newPIDs.append((p[0], newpos, p[2]))
+			vectorelem_in_structure_map[vname] = newPIDs
 	# number of vector parts with state machine states
 	nrstatenodes = 0
 	for t in vectorstructure:

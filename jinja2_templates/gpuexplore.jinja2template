@@ -501,11 +501,11 @@ inline __device__ bool cache_pointers_contain_global_address(shared_inttype poin
 inline __device__ void reset_left_in_vectortree_node(nodetype *node) {
 {% if not compact_hash_table %}
 	asm("{\n\t"
-		" bfi.b64 %0, {{((nr_bits_address_root|pow2)-1)|bitshift_left(64-2-nr_bits_address_root)|hexa}}, %0, {{64-2-nr_bits_address_root}}, {{nr_bits_address_root}};\n\t"
+		" bfi.b64 %0, 0xFFFFFFFFFFFFFFFF, %0, {{64-2-nr_bits_address_root}}, {{nr_bits_address_root}};\n\t"
 		"}" : "+l"(*node));
 {% else %}
 	asm("{\n\t"
-		" bfi.b64 %0, {{((nr_bits_address_internal|pow2)-1)|bitshift_left(64-1-nr_bits_address_internal)|hexa}}, %0, {{64-1-nr_bits_address_internal}}, {{nr_bits_address_internal}};\n\t"
+		" bfi.b64 %0, 0xFFFFFFFFFFFFFFFF, %0, {{64-1-nr_bits_address_internal}}, {{nr_bits_address_internal}};\n\t"
 		"}" : "+l"(*node));
 {% endif %}
 }
@@ -562,7 +562,7 @@ inline __device__ indextype get_pointer_from_vectortree_node(nodetype node, bool
 	return result;
 }
 
-// Function to traverse one step in state vector tree (stored in global or host memory).
+// Function to traverse one step in state vector tree (stored in global memory).
 inline __device__ nodetype direct_sv_step(compressed_nodetype *q, nodetype node, bool goright) {
 	indextype index = get_pointer_from_vectortree_node(node, goright);
 	{% if not compact_hash_table %}
