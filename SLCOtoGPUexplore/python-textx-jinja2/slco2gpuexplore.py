@@ -272,7 +272,7 @@ def object_trans_to_be_processed_by_sm_thread(s,o):
 	tlist = []
 	# lookup thread id
 	for i in range(0,len(state_order)):
-		if state_order[i] == o.name + "'" + s.parent.parent.name:
+		if state_order[i] == o.name + "'" + s.parent.name:
 			break
 	t = s.parent.transitions
 	for tr in t:
@@ -598,7 +598,7 @@ def cudaguard(s,D,o):
 					if a in alphabet[sm2]:
 						if guard != "":
 							guard += " && "
-						guard += "get_target_" + sm2.name + "_" + a + "((statetype) " + D[(sm2,"src")][0] + "_" + str(D[(sm2,"src")][1]) + ", (statetype) -1) != -1"
+						guard += "get_target_" + sm2.name + "_" + a + "((statetype) " + D[(sm2,"src")][0] + "_" + str(D[(sm2,"src")][1]) + ", (statetype) NO_STATE) != NO_STATE"
 			return guard
 	elif s.__class__.__name__ == "Expression":
 		return getinstruction(s, o, D)
@@ -861,11 +861,11 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, ind
 									if i != s.parent.parent:
 										target = D[(i,"tgt")][0] + "_" + str(D[(i,"tgt")][1])
 								if not isnotfirstpart:
-									output += "set_left_" + v.name + "_" + i.name + "(&part2, "
+									output += "set_left_" + v.name + "_" + i.name + "(&part2, (statetype) "
 									output += target
 									output += ");\n" + indentspace(ic)
 								else:
-									output += "set_right_" + v.name + "_" + i.name + "(&part2, "
+									output += "set_right_" + v.name + "_" + i.name + "(&part2, (statetype) "
 									output += target
 									output += ");\n" + indentspace(ic)
 								# else:
@@ -1190,18 +1190,18 @@ def cudastatement(s,indent,o,D,sender_o='',sender_sm='',senderparams=[]):
 					if a in alphabet[sm2]:
 						SMs.append(sm2)
 			for m in SMs:
-				output += D[(m,"tgt")][0] + "_" + str(D[(m,"tgt")][1]) + " = -1;\n" + indentspace
+				output += D[(m,"tgt")][0] + "_" + str(D[(m,"tgt")][1]) + " = NO_STATE;\n" + indentspace
 			output += "uint8_t i = " + str(len(SMs)) + ";\n" + indentspace
 			output += "while (i > 0) {\n" + indentspace
 			output += "\tswitch (i) {\n" + indentspace
 			for i in range(1,len(SMs)+1):
 				output += "\t\tcase " + str(i) + ":\n" + indentspace
 				output += "\t\t\t" + D[(SMs[i-1],"tgt")][0] + "_" + str(D[(SMs[i-1],"tgt")][1]) + " = get_target_" + SMs[i-1].name + "_" + a + "((statetype) " + D[(SMs[i-1],"src")][0] + "_" + str(D[(SMs[i-1],"src")][1]) + ", (statetype) " + D[(SMs[i-1],"tgt")][0] + "_" + str(D[(SMs[i-1],"tgt")][1]) + ");\n" + indentspace
-				output += "\t\t\tif (" + D[(SMs[i-1],"tgt")][0] + "_" + str(D[(SMs[i-1],"tgt")][1]) + " != -1) {\n" + indentspace
+				output += "\t\t\tif (((statetype) " + D[(SMs[i-1],"tgt")][0] + "_" + str(D[(SMs[i-1],"tgt")][1]) + ") != NO_STATE) {\n" + indentspace
 				output += "\t\t\t\ti++;\n" + indentspace
 				output += "\t\t\t}\n" + indentspace
 				output += "\t\t\telse {\n" + indentspace
-				output += "\t\t\t\t" + D[(m,"tgt")][0] + "_" + str(D[(m,"tgt")][1]) + " = -1;\n" + indentspace
+				output += "\t\t\t\t" + D[(m,"tgt")][0] + "_" + str(D[(m,"tgt")][1]) + " = NO_STATE;\n" + indentspace
 				output += "\t\t\t\ti--;\n" + indentspace
 				output += "\t\t\t}\n" + indentspace
 				output += "\t\t\tbreak;\n" + indentspace
@@ -1458,7 +1458,7 @@ def cudafetchdata(s, indent, o, D, unguarded, resetfetched):
 										# i is an (Object,Statemachine) pair. this refers to the current state variable of a state machine.
 										output += "get_" + scopename(v,j,o).replace("[","_").replace("]","").replace("'","_") + "(&" + D[(v,"state")][0] + "_" + str(D[(v,"state")][1]) + ", part1, part2);\n" + indentspace
 									else:
-										output += "get_" + scopename(v,j,o).replace("[","_").replace("]","").replace("'","_") + "(&" + D[(v,j)][0] + "_" + str(D[(v,j)][1]) + ", part1, part2);\n" + indentspace
+										output += "get_" + scopename(v,j,o).replace("[","_").replace("]","").replace("'","_") + "((statetype *) &" + D[(v,j)][0] + "_" + str(D[(v,j)][1]) + ", part1, part2);\n" + indentspace
 							else:
 								if no_dynamic_indexing((s.params[j-1].var, s.params[j-1].index), o):
 									output += "get_" + scopename(c, j, o).replace("[","_").replace("]","").replace("'","_")
@@ -2000,6 +2000,7 @@ def get_buffer_allocs(T):
 		for st in t.statements:
 			# O is set of variable refs occurring in block of t
 			O |= statement_varrefs(st, o2, sm2)
+		print("SET: " + str(O))
 		nr_32 = 0
 		nr_8 = 0
 		nr_bool = 0
@@ -2974,8 +2975,9 @@ def preprocess():
 			vectorsize += (size*max(1,dimension))
 			dataelements.add((o.name + "'" + v.name, tuple([size]), dimension))
 		for sm in o.type.statemachines:
-			# number of bits needed to encode states
-			size = int(max(1,math.ceil(math.log(len(sm.states), 2))))
+			# number of bits needed to encode states. We compute this for len(sm.states)+1 (i.e. we add an extra state,
+			# to incorporate the possibility of encoding the NO_STATE constant, which is the value for state variables not containing a state).
+			size = int(max(1,math.ceil(math.log(len(sm.states)+1, 2))))
 			vectorsize += size
 			stateelements.add((o.name + "'" + sm.name, size))
 			# statemachine local variables
@@ -3294,29 +3296,6 @@ def preprocess():
 			for v in sm.variables:
 				if v.type.size > 0:
 					arraynames.append((o.name + "'" + sm.name + "'" + v.name, v.type, v.type.size))
-	# for c in model.channels:
-	# 	if c.synctype == 'async':
-	# 		if signalsize[c] > 0:
-	# 			arraynames.append((c.name + "[0]", signalsize[c], c.size))
-	# 		for i in range(0,len(c.type)):
-	# 			arraynames.append((c.name + "[" + str(i+1) + "]", c.type[i], c.size))
-	# compute maximum number of buffer variable allocs needed for transition block processing
-	max_buffer_allocs = [0,0,0]
-	Cseen = set([])
-	for o in model.objects:
-		c = o.type
-		if c not in Cseen:
-			Cseen.add(c)
-			for sm in c.statemachines:
-				for s in sm.states:
-					allocs = get_buffer_allocs(object_trans_to_be_processed_by_sm_thread(s,o))
-					if allocs[0] > max_buffer_allocs[0]:
-						max_buffer_allocs[0] = allocs[0]
-					if allocs[2] > max_buffer_allocs[1]:
-						max_buffer_allocs[1] = allocs[2]
-					if allocs[3] > max_buffer_allocs[2]:
-						max_buffer_allocs[2] = allocs[3]
-	max_buffer_allocs = max(max_buffer_allocs)
 	# create action alphabets and construct dictionary providing target states when performing a given action in a given state
 	alphabet = {}
 	Adict = {}
@@ -3357,6 +3336,29 @@ def preprocess():
 				CC = syncactions.get(c,set([]))
 				CC.add(a)
 				syncactions[c] = CC
+	# for c in model.channels:
+	# 	if c.synctype == 'async':
+	# 		if signalsize[c] > 0:
+	# 			arraynames.append((c.name + "[0]", signalsize[c], c.size))
+	# 		for i in range(0,len(c.type)):
+	# 			arraynames.append((c.name + "[" + str(i+1) + "]", c.type[i], c.size))
+	# compute maximum number of buffer variable allocs needed for transition block processing
+	max_buffer_allocs = [0,0,0]
+	Cseen = set([])
+	for o in model.objects:
+		c = o.type
+		if c not in Cseen:
+			Cseen.add(c)
+			for sm in c.statemachines:
+				for s in sm.states:
+					allocs = get_buffer_allocs(object_trans_to_be_processed_by_sm_thread(s,o))
+					if allocs[0] > max_buffer_allocs[0]:
+						max_buffer_allocs[0] = allocs[0]
+					if allocs[2] > max_buffer_allocs[1]:
+						max_buffer_allocs[1] = allocs[2]
+					if allocs[3] > max_buffer_allocs[2]:
+						max_buffer_allocs[2] = allocs[3]
+	max_buffer_allocs = max(max_buffer_allocs)
 	# determine values for constants
 	no_state_constant = 0
 	for c in model.classes:

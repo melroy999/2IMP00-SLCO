@@ -1144,7 +1144,7 @@ inline __device__ bool A_IEX_{{n}}({% for i in range(0,n) %}array_indextype idx_
 {% set cloop = loop %}
 {% for sm in c.statemachines %}
 {% set smloop = loop %}
-{% for a in alphabet[sm] if a in syncactions %}
+{% for a in alphabet[sm] if a in syncactions[c] %}
 {% if cloop.first and smloop.first and loop.first %}
 // Action execution functions. For each state machine and action requiring synchronisation, there is a function returning for a given
 // source state a target state that can be reached by performing the action. In case of non-determinism, repeated calls of the function
@@ -1158,22 +1158,22 @@ inline __device__ statetype get_target_{{sm.name}}_{{a}}(statetype src, statetyp
 			switch (prev_tgt) {
 				{% for j in range(0, tgts|length+1) %}
 				{% if j == 0 %}
-				case -1:
+				case NO_STATE:
 				{% else %}
 				case {{tgts[j-1]}}:
 				{% endif %}
 					{% if j == tgts|length %}
-					return -1;
+					return NO_STATE;
 					{% else %}
 					return {{tgts[j]}};
 					{% endif %}
 				{% endfor %}
 				default:
-					return -1;
+					return NO_STATE;
 			}
 		{% endfor %}
 		default:
-			return -1;
+			return NO_STATE;
 	}
 }
 
@@ -3209,6 +3209,7 @@ inline __device__ void explore_{{state_order[i]|replace("'","_")}}(shared_indext
 	shared_inttype part_cachepointers;
 	{% else %}
 	part1 = shared[OPENTILEOFFSET+node_index];
+	part2 = part1;
 	{% endif %}
 	switch (current) {
 		{% for s in smname_to_object[state_order[i]][1].states %}
