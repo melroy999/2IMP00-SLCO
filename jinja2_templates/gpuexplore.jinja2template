@@ -419,7 +419,7 @@ inline __device__ nodetype get_vectorpart_{{i}}(shared_indextype node_index) {
 	nodetype part;
 	asm("{\n\t"
 		" mov.b64 %0,{ %1, %2 };\n\t"
-		"}" : "=l"(part) : "r"(shared[CACHEOFFSET+({% if i|get_vector_tree_to_part_navigation|length > 0 %}index{% else %}node_index{% endif %}*3)]), "r"(shared[CACHEOFFSET+({% if i|get_vector_tree_to_part_navigation|length > 0 %}index{% else %}node_index{% endif %}*3)+1]));
+		"}" : "=l"(part) : "r"(shared[CACHEOFFSET+({% if i|get_vector_tree_to_part_navigation|length > 0 %}index{% else %}node_index{% endif %}*3)+1]), "r"(shared[CACHEOFFSET+({% if i|get_vector_tree_to_part_navigation|length > 0 %}index{% else %}node_index{% endif %}*3)]));
 	return part;
 	{% endif %}
 }
@@ -451,7 +451,7 @@ inline __device__ void get_vectortree_node_{{i}}(nodetype *node, shared_inttype 
 	{% endfor %}
 	asm("{\n\t"
 		" mov.b64 %0,{ %1, %2 };\n\t"
-		"}" : "=l"(*node) : "r"(shared[CACHEOFFSET+({% if i|get_vector_tree_to_node_navigation|length > 0 %}index{% else %}node_index{% endif %}*3)]), "r"(shared[CACHEOFFSET+({% if i|get_vector_tree_to_node_navigation|length > 0 %}index{% else %}node_index{% endif %}*3)+1]));
+		"}" : "=l"(*node) : "r"(shared[CACHEOFFSET+({% if i|get_vector_tree_to_node_navigation|length > 0 %}index{% else %}node_index{% endif %}*3)+1]), "r"(shared[CACHEOFFSET+({% if i|get_vector_tree_to_node_navigation|length > 0 %}index{% else %}node_index{% endif %}*3)]));
 	*d_cachepointers = shared[CACHEOFFSET+({% if i|get_vector_tree_to_node_navigation|length > 0 %}index{% else %}node_index{% endif %}*3)+2];
 }
 
@@ -582,14 +582,14 @@ inline __host__ indextype host_get_pointer_from_vectortree_node(nodetype node, b
 		return (indextype) (node & {{((nr_bits_address_root|pow2)-1)|hexa}});
 	}
 	else {
-		return (indextype) (node & {{((nr_bits_address_root|pow2)-1)|bitshift_left(64-2-nr_bits_address_root)|hexa}});
+		return (indextype) ((node & {{((nr_bits_address_root|pow2)-1)|bitshift_left(64-2-nr_bits_address_root)|hexa}}) >> {{nr_bits_address_root}});
 	}
 	{% else %}
 	if (choice) {
 		return (indextype) (node & {{((nr_bits_address_internal|pow2)-1)|hexa}});
 	}
 	else {
-		return (indextype) (node & {{((nr_bits_address_internal|pow2)-1)|bitshift_left(64-1-nr_bits_address_internal)|hexa}});
+		return (indextype) ((node & {{((nr_bits_address_internal|pow2)-1)|bitshift_left(64-1-nr_bits_address_internal)|hexa}}) >> {{nr_bits_address_internal}});
 	}
 	{% endif %}
 }
@@ -604,7 +604,7 @@ inline __host__ nodetype host_direct_sv_step(compressed_nodetype *q, nodetype no
 	p1 = q[d_non_root_offset+(index*2)];
 	p2 = q[d_non_root_offset+(index*2)+1];
 	return host_combine_halfs((shared_inttype) p1, (shared_inttype) p2);
-	{% endif %}	
+	{% endif %}
 }
 
 // Functions to retrieve vector parts from global memory.
@@ -2293,6 +2293,7 @@ inline __device__ {% if nr_bits_address_root < 32 %}indextype{% else %}uint64_t{
 	nodetype element;
 	shared_inttype shared_addr;
 	e1 = HASH_INIT(filter_bookkeeping(node));
+	#pragma unroll
 	for (int i = 0; i < NR_HASH_FUNCTIONS; i++) {
 		{% if compact_hash_table %}
 		e2 = HASH(i, e1);
@@ -2389,12 +2390,12 @@ __device__ void FINDORPUT_MANY(compressed_nodetype *d_q, volatile uint8_t *d_new
 		CONTINUE = 0;
 	}
 	__syncthreads();
-	for (shared_indextype i = THREAD_ID*3; i+2 < (d_shared_cache_size - CACHEOFFSET) && CONTINUE != 2; i += BLOCK_SIZE*3) {
-		node_pointers = shared[CACHEOFFSET+i+2];
+	for (shared_indextype i = THREAD_ID; (i*3)+2 < (d_shared_cache_size - CACHEOFFSET) && CONTINUE != 2; i += BLOCK_SIZE) {
+		node_pointers = shared[CACHEOFFSET+(i*3)+2];
 		// Check if node is ready for storage. Only new leafs are ready at this point. We rely on old and new non-leafs having pointers with the highest
 		// two bits set to zero, empty entries and old leafs having pointers set to zero, and new leafs having pointers set to 0x40000000.
 		if (cache_pointers_are_marked_new_leaf(node_pointers)) {
-			node = combine_halfs(shared[CACHEOFFSET+i], shared[CACHEOFFSET+i+1]);
+			node = combine_halfs(shared[CACHEOFFSET+(i*3)], shared[CACHEOFFSET+(i*3)+1]);
 			// Mark new leaf as old.
 			node = mark_old(node);
 			// Store node in hash table.
@@ -2404,13 +2405,13 @@ __device__ void FINDORPUT_MANY(compressed_nodetype *d_q, volatile uint8_t *d_new
 			}
 			else {
 				// Store global memory address in cache.
-				set_cache_pointers_to_global_address(&shared[CACHEOFFSET+i+2], addr);
+				set_cache_pointers_to_global_address(&shared[CACHEOFFSET+(i*3)+2], addr);
 			}
 		}
 		// Node is not ready yet. Check if it can be updated.
 		else if (node_pointers != EMPTYVECT32) {
-			if (head_is_new(shared[CACHEOFFSET+i])) {
-				node = combine_halfs(shared[CACHEOFFSET+i], shared[CACHEOFFSET+i+1]);
+			if (head_is_new(shared[CACHEOFFSET+(i*3)])) {
+				node = combine_halfs(shared[CACHEOFFSET+(i*3)], shared[CACHEOFFSET+(i*3)+1]);
 				if (vectortree_node_contains_left_gap(node)) {
 					// Look up left child and check for presence of global memory address.
 					node_pointers_child = sv_step(i, false);
@@ -2418,8 +2419,8 @@ __device__ void FINDORPUT_MANY(compressed_nodetype *d_q, volatile uint8_t *d_new
 					if (cache_pointers_contain_global_address(node_pointers_child)) {
 						set_left_in_vectortree_node(&node, node_pointers_child);
 						// Copy back to shared memory.
-						shared[CACHEOFFSET+i] = get_left(node);
-						shared[CACHEOFFSET+i+1] = get_right(node);
+						shared[CACHEOFFSET+(i*3)] = get_left(node);
+						shared[CACHEOFFSET+(i*3)+1] = get_right(node);
 					}
 				}
 				if (vectortree_node_contains_right_gap(node)) {
@@ -2429,8 +2430,8 @@ __device__ void FINDORPUT_MANY(compressed_nodetype *d_q, volatile uint8_t *d_new
 					if (cache_pointers_contain_global_address(node_pointers_child)) {
 						set_right_in_vectortree_node(&node, node_pointers_child);
 						// Copy back to shared memory.
-						shared[CACHEOFFSET+i] = get_left(node);
-						shared[CACHEOFFSET+i+1] = get_right(node);
+						shared[CACHEOFFSET+(i*3)] = get_left(node);
+						shared[CACHEOFFSET+(i*3)+1] = get_right(node);
 					}
 				}
 				// Ready now?
@@ -2450,7 +2451,7 @@ __device__ void FINDORPUT_MANY(compressed_nodetype *d_q, volatile uint8_t *d_new
 					}
 					else {
 						// Store global memory address in cache.
-						set_cache_pointers_to_global_address(&(shared[CACHEOFFSET+i+2]), addr);
+						set_cache_pointers_to_global_address(&(shared[CACHEOFFSET+(i*3)+2]), addr);
 					}
 				}
 				else {
@@ -2468,15 +2469,15 @@ __device__ void FINDORPUT_MANY(compressed_nodetype *d_q, volatile uint8_t *d_new
 		__syncthreads();
 		if (work_to_do) {
 			work_to_do = false;
-			for (shared_indextype i = THREAD_ID*3; i+2 < d_shared_cache_size; i += BLOCK_SIZE*3) {
-				node_pointers_child = shared[CACHEOFFSET+i+2];
+			for (shared_indextype i = THREAD_ID; (i*3)+2 < (d_shared_cache_size - CACHEOFFSET) && CONTINUE != 2; i += BLOCK_SIZE) {
+				node_pointers_child = shared[CACHEOFFSET+(i*3)];
 				if (node_pointers_child != EMPTYVECT32) {
 					// If the node is marked new, this is a node still to be processed.
 					if (head_is_new(node_pointers_child)) {
-						node_pointers = shared[CACHEOFFSET+i+2];
+						node_pointers = shared[CACHEOFFSET+(i*3)+2];
 						// If this is a root node, processing is only required if the pointers do not contain a global address.
 						if (!head_is_root(node_pointers_child) || !cache_pointers_contain_global_address(node_pointers)) {
-							node = combine_halfs(shared[CACHEOFFSET+i], shared[CACHEOFFSET+i+1]);
+							node = combine_halfs(node_pointers_child, shared[CACHEOFFSET+(i*3)+1]);
 							if (vectortree_node_contains_left_gap(node)) {
 								// Look up left child and check for presence of global memory address.
 								node_pointers_child = sv_step(i, false);
@@ -2484,8 +2485,8 @@ __device__ void FINDORPUT_MANY(compressed_nodetype *d_q, volatile uint8_t *d_new
 								if (cache_pointers_contain_global_address(node_pointers_child)) {
 									set_left_in_vectortree_node(&node, node_pointers_child);
 									// Copy back to shared memory.
-									shared[CACHEOFFSET+i] = get_left(node);
-									shared[CACHEOFFSET+i+1] = get_right(node);
+									shared[CACHEOFFSET+(i*3)] = get_left(node);
+									shared[CACHEOFFSET+(i*3)+1] = get_right(node);
 								}
 							}
 							if (vectortree_node_contains_right_gap(node)) {
@@ -2495,8 +2496,8 @@ __device__ void FINDORPUT_MANY(compressed_nodetype *d_q, volatile uint8_t *d_new
 								if (cache_pointers_contain_global_address(node_pointers_child)) {
 									set_right_in_vectortree_node(&node, node_pointers_child);
 									// Copy back to shared memory.
-									shared[CACHEOFFSET+i] = get_left(node);
-									shared[CACHEOFFSET+i+1] = get_right(node);
+									shared[CACHEOFFSET+(i*3)] = get_left(node);
+									shared[CACHEOFFSET+(i*3)+1] = get_right(node);
 								}
 							}
 							// Ready now?
@@ -2516,7 +2517,7 @@ __device__ void FINDORPUT_MANY(compressed_nodetype *d_q, volatile uint8_t *d_new
 								}
 								else {
 									// Store global memory address in cache.
-									set_cache_pointers_to_global_address(&(shared[CACHEOFFSET+i]), addr);
+									set_cache_pointers_to_global_address(&(shared[CACHEOFFSET+(i*3)+2]), addr);
 								}
 							}
 							else {
@@ -2550,6 +2551,7 @@ __global__ void store_initial_state(compressed_nodetype *d_q, volatile uint8_t *
 	if (THREAD_ID < SH_OFFSET) {
 		shared[THREAD_ID] = 0;
 	}
+	#pragma unroll
 	for (uint32_t i = THREAD_ID; i < (d_shared_cache_size - SH_OFFSET); i += BLOCK_SIZE) {
 		shared[SH_OFFSET + i] = EMPTYVECT{% if vectorsize <= 30 or vectorsize > 62 %}32{% else %}64{% endif %};
 	}
@@ -3094,7 +3096,7 @@ __device__ shared_indextype get_sorted_opentile_element(uint8_t wid) {
 			"}" : "=h"(p{{i}}) : "r"(shared[OPENTILEOFFSET+{{i*warpsize}}+LANE]));
 		if (p{{i}} != EMPTYVECT16) {
 		{% else %}
-		p{{i}} = {{i+warpsize}}+LANE;
+		p{{i}} = {{i*warpsize}}+LANE;
 		if (shared[OPENTILEOFFSET+p{{i}}] != EMPTYVECT{% if vectorsize <= 30 or vectorsize > 62 %}32{% else %}64{% endif %}) {
 		{% endif %}
 			// Retrieve corresponding state value.
@@ -3103,7 +3105,6 @@ __device__ shared_indextype get_sorted_opentile_element(uint8_t wid) {
 		else {
 			s{{i}} = NO_STATE;
 		}
-		p{{i}} = {{i*warpsize}}+LANE;
 	}
 	else {
 		p{{i}} = EMPTYVECT16;
@@ -3130,6 +3131,7 @@ __device__ shared_indextype get_sorted_opentile_element(uint8_t wid) {
 	{% endif %}
 	{% endif %}
 	{% endfor %}
+	__syncwarp();
 	// Perform the sorting.
 	{% for l in range(1, (regsort_nr_el_per_thread*warpsize)|log2+1)|reverse %}
 	{% set coop_elem_num = (l-1)|pow2 %}
@@ -3182,9 +3184,9 @@ __device__ shared_indextype get_sorted_opentile_element(uint8_t wid) {
 	}
 	__syncwarp();
 	// Retrieve from the thread that holds the element of interest for the current thread the prepared value (if it exists).
-	p_tmp2 = __shfl_sync(0xFFFFFFFF, p_tmp1, ((offset*WARP_SIZE)+LANE) / {{regsort_nr_el_per_thread}});
+	p_tmp2 = __shfl_sync(0xFFFFFFFF, p_tmp1, LANE / {{regsort_nr_el_per_thread}});
 	// If the value was indeed prepared by the source thread, store it.
-	if (LANE & {{regsort_nr_el_per_thread-1}} == {{i}}) {
+	if ((LANE & {{(regsort_nr_el_per_thread-1)|hexa}}) == {{i}}) {
 		// Value of interest is ready to be fetched.
 		p_result = p_tmp2;
 	}
@@ -3338,6 +3340,8 @@ inline __device__ void GENERATE_SUCCESSORS() {
 	shared_inttype src_state;
 	{% endif %}
 	{% if gpuexplore2_succdist %}
+
+	#pragma unroll
 	for (shared_indextype i = THREAD_ID; i < (OPENTILECOUNT * NR_SMS); i += BLOCK_SIZE) {
 		entry_id = i / NR_SMS;
 		entry_state_id = i - (entry_id * NR_SMS);
@@ -3347,8 +3351,10 @@ inline __device__ void GENERATE_SUCCESSORS() {
 		get_successors_of_sm({% if vectorsize > 30 %}(shared_indextype) src_state{% else %}entry_id{% endif %}, entry_state_id);
 	}
 	{% else %}
+
+	#pragma unroll
 	for (shared_indextype i = WARP_ID; i/OPENTILE_WARP_WIDTH < NR_SMS; i += NR_WARPS_PER_BLOCK) {	
-		entry_id = (i % OPENTILE_WARP_WIDTH) * WARP_SIZE;
+		entry_id = ((fast_modulo(i, OPENTILE_WARP_WIDTH)) * WARP_SIZE);
 		{% if not no_regsort %}
 		if (entry_id < OPENTILECOUNT) {
 			entry_id = get_sorted_opentile_element(i);
@@ -3357,10 +3363,10 @@ inline __device__ void GENERATE_SUCCESSORS() {
 		entry_id += LANE;
 		{% endif %}
 		if (entry_id < OPENTILECOUNT) {
-			{% if vectorsize > 30 %}
+			{% if vectorsize > 62 %}
 			src_state = shared[OPENTILEOFFSET+entry_id];
 			{% endif %}
-			get_successors_of_sm({% if vectorsize > 30 %}(shared_indextype) src_state{% else %}entry_id{% endif %}, i/OPENTILE_WARP_WIDTH);
+			get_successors_of_sm({% if vectorsize > 62 %}(shared_indextype) src_state{% else %}entry_id{% endif %}, i/OPENTILE_WARP_WIDTH);
 		}
 	}
 	{% endif %}
@@ -3390,6 +3396,7 @@ void print_content_hash_table(FILE* stream, compressed_nodetype *q{% if compact_
 			elem_chartype e_c;
 			elem_inttype e_i;
 			fprintf(stream, "-----\n");
+			fprintf(stream, "At index %{% if vectorsize <= 30 %}l{% endif %}u:\n", i);
 			{% if vectorsize <= 62 %}
 			p1 = &part0;
 			p2 = &part0;

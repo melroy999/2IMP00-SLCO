@@ -199,6 +199,7 @@ __global__ void __launch_bounds__(512, 2) gather(compressed_nodetype *d_q, uint8
 				shared[OPENTILEOFFSET+i] = sh_index;
 			}
 		}
+		__syncthreads();
 		{% endif %}
 		GENERATE_SUCCESSORS();
 		bool performed_work = OPENTILECOUNT != 0;

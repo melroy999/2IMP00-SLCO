@@ -1014,6 +1014,7 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, ind
 					output += "if (buf16_" + str(pointer_cnt) + " != EMPTY_CACHE_POINTERS) {\n" + indentspace(ic)
 					if refs == []:
 						output += "get_vectortree_node(&part1, &part_cachepointers, node_index, " + str(p) + ");\n" + indentspace(ic)
+						output += "part2 = part1;\n" + indentspace(ic)
 					output += "set_left_cache_pointer(&part_cachepointers, buf16_" + str(pointer_cnt) + ");\n" + indentspace(ic)
 					if refs != []:
 						ic -= 1
@@ -1027,7 +1028,7 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, ind
 				output += "if (part2 != part1) {\n" + indentspace(ic)
 			if is_non_leaf(p) or refs != []:
 				output += "// This part has been altered. Store it in shared memory and remember address of new part.\n" + indentspace(ic)
-				if is_non_leaf(p) or vectorsize < 64:
+				if is_non_leaf(p) or vectorsize <= 62:
 					output += "part2 = mark_new(part2);\n" + indentspace(ic)
 				else:
 					output += "part_cachepointers = CACHE_POINTERS_NEW_LEAF;\n" + indentspace(ic)
