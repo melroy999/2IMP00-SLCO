@@ -1,28 +1,19 @@
 model Test {
-  actions a
   classes
   P {
     variables
-			Byte x
+			Boolean[10] x
 
     state machines
     REC1 {
-      
+      variables
+        Byte i
       initial R0 states R1
 
       transitions
       R0 -> R1 {
-        a
+        [i := 2; x[i] := false]
       }
-    }
-
-    REC2 {
-      initial Q0 states Q1
-
-      transitions
-      Q0 -> Q1 {
-        a
-      }    
     }
   }
   objects p: P()
