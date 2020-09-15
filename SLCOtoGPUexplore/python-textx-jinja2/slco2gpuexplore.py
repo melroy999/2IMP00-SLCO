@@ -3457,7 +3457,7 @@ def preprocess():
 					tmp[3] = old_PIDs[2][2]
 					tmp[4] = old_PIDs[2][1]
 				L.append(tuple(tmp))
-				tmp = [i,0,PIDs[1][1]]
+				tmp = [i,0,PIDs[1][1],0,0]
 		# store final tuple
 		tmp[1] = size-1
 		if len(PIDs) > 2:
@@ -3465,6 +3465,7 @@ def preprocess():
 			tmp[4] = PIDs[2][1]
 		L.append(tuple(tmp))
 		array_in_structure_map[vname] = L
+	print(array_in_structure_map)
 	# construct async_channel_vectorpart_buffer_range: for all (asynchronous channel, vectorpart) pairs, provide the range of buffer elements of that channel stored in that vectorpart of a vector.
 	async_channel_vectorpart_buffer_range = {}
 	for c in model.channels:

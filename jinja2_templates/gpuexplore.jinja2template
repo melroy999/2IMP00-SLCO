@@ -981,11 +981,11 @@ inline __device__ bool is_left_vectorpart_for_array_element_{{dynamic_write_arra
 inline __device__ void set_left_{{x|replace("'","_")}}(nodetype *part, array_indextype index, {{t|cudatype(True)}} buf, uint8_t pid) {
 	nodetype t1 = (nodetype) buf;
 	switch (pid) {
-		{% for i in range(0, vectorstructure|length) %}
+		{% for i in range(1, array_in_structure_map[x]|length) %}
 		case {{i}}:
 			asm("{\n\t"
 			" bfi.b{% if vectorsize <= 30 %}32{% else %}64{% endif %} %0, %1, %0, %2, %3;\n\t"
-			"}" : "+{% if vectorsize <= 30 %}r{% else %}l{% endif %}"(*part) : "{% if vectorsize <= 30 %}r{% else %}l{% endif %}"{% if array_in_structure_map[x][i+1][3] == 0 %}(t1){% else %}(index == {{array_in_structure_map[x][i+1][1]}} ? (t1 >> {{array_in_structure_map[x][i+1][3]}}) : t1){% endif %}, {% if array_in_structure_map[x][i+1][3] == 0 %}"{% if vectorsize <= 30 %}r{% else %}l{% endif %}"({{array_in_structure_map[x][i+1][2]}}-(index-{{array_in_structure_map[x][i+1][0]}})*{{t|gettypesize}}), "{% if vectorsize <= 30 %}r{% else %}l{% endif %}"({{t|gettypesize}}){% else %}"r"(index == {{array_in_structure_map[x][i+1][1]}}) ? 0 : {{array_in_structure_map[x][i+1][2]}}-(index-{{array_in_structure_map[x][i+1][0]}})*{{t|gettypesize}}), "r"(index == {{array_in_structure_map[x][i+1][1]}}) ? {{(t|gettypesize) - array_in_structure_map[x][i+1][3]}} : {{t|gettypesize}}){% endif %});
+			"}" : "+{% if vectorsize <= 30 %}r{% else %}l{% endif %}"(*part) : "{% if vectorsize <= 30 %}r{% else %}l{% endif %}"{% if array_in_structure_map[x][i][3] == 0 %}(t1){% else %}(index == {{array_in_structure_map[x][i][1]}} ? (t1 >> {{array_in_structure_map[x][i][3]}}) : t1){% endif %}, {% if array_in_structure_map[x][i][3] == 0 %}"{% if vectorsize <= 30 %}r{% else %}l{% endif %}"({{array_in_structure_map[x][i][2]}}-(index-{{array_in_structure_map[x][i][0]}})*{{t|gettypesize}}), "{% if vectorsize <= 30 %}r{% else %}l{% endif %}"({{t|gettypesize}}){% else %}"r"(index == {{array_in_structure_map[x][i][1]}}) ? 0 : {{array_in_structure_map[x][i][2]}}-(index-{{array_in_structure_map[x][i][0]}})*{{t|gettypesize}}), "r"(index == {{array_in_structure_map[x][i][1]}}) ? {{(t|gettypesize) - array_in_structure_map[x][i][3]}} : {{t|gettypesize}}){% endif %});
 			break;
 		{% endfor %}
 		default:
@@ -998,11 +998,11 @@ inline __device__ void set_left_{{x|replace("'","_")}}(nodetype *part, array_ind
 inline __device__ void set_right_{{x|replace("'","_")}}(nodetype *part, array_indextype index, {{t|cudatype(True)}} buf, uint8_t pid) {
 	nodetype t1 = (nodetype) buf;
 	switch (pid) {
-		{% for i in range(0, vectorstructure|length) %}
-		{% if array_in_structure_map[x][i+1][3] != 0 %}
+		{% for i in range(1, array_in_structure_map[x]|length) %}
+		{% if array_in_structure_map[x][i][3] != 0 %}
 		case {{i}}:
 			asm("{\n\t"
-			" bfi.b{% if vectorsize <= 30 %}32{% else %}64{% endif %} %0, %1, %0, {{array_in_structure_map[x][i+1][4]}}, {{array_in_structure_map[i+1][3]}};\n\t"
+			" bfi.b{% if vectorsize <= 30 %}32{% else %}64{% endif %} %0, %1, %0, {{array_in_structure_map[x][i][4]}}, {{array_in_structure_map[x][i][3]}};\n\t"
 			"}" : "+{% if vectorsize <= 30 %}r{% else %}l{% endif %}"(*part2) : "{% if vectorsize <= 30 %}r{% else %}l{% endif %}"(t1));
 			break;
 		{% endif %}
