@@ -1041,9 +1041,9 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, ind
 				output += "part2 = mark_new(part2);\n" + indentspace(ic)
 			if is_non_leaf(p) or refs != []:
 				output += "// This part has been altered. Store it in shared memory and remember address of new part.\n" + indentspace(ic)
-				if p == 0:
-					output += "mark_cached_node_new_root(&part_cachepointers);\n" + indentspace(ic)
-				elif vectorsize > 62:
+				if vectorsize > 62:
+					if p == 0:
+						output += "mark_cached_node_new_root(&part_cachepointers);\n" + indentspace(ic)
 					if is_non_leaf(p):
 						output += "mark_cached_node_new_nonleaf(&part_cachepointers);\n" + indentspace(ic)
 					else:
@@ -3047,6 +3047,9 @@ def preprocess():
 			# take buffer counter into account
 			vectorsize += int(max(1,math.ceil(math.log(dimension, 2))))
 			dataelements.add((ch.name, tuple(typelist), dimension))
+	# if the vectorsize is sufficiently small, compact hash table storage is not needed.
+	if vectorsize < 63:
+		compact_hash_table = False
 	# store maximum number of bits needed to encode an automaton state
 	max_statesize = 0
 	for (s,i) in stateelements:
@@ -3748,9 +3751,6 @@ def main(args):
 		print("processing model %s" % basename(file))
 		try:
 			preprocess()
-			# if the vectorsize is sufficiently small, compact hash table storage is not needed.
-			if vectorsize < 63:
-				compact_hash_table = False
 			# translate
 			translate()
 		except Exception:
