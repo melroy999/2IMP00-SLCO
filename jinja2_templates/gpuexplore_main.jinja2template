@@ -142,7 +142,7 @@ __global__ void __launch_bounds__(512, 2) gather(compressed_nodetype *d_q, uint8
 				}
 				tmp = d_q[loc];
 				l = EMPTYVECT{% if vectorsize <= 30 or vectorsize > 62 %}32{% else %}64{% endif %};
-				if ({% if not compact_hash_table %}is_new(tmp){% else %}tmp != EMPTY_COMPRESSED_NODE{% endif %}) {
+				if (is_new(tmp)) {
 					found_new_state = true;
 					// Try to increment the OPENTILECOUNT counter. If successful, store the state pointer.
 					l = atomicAdd((shared_inttype *) &OPENTILECOUNT, 1);
@@ -243,12 +243,13 @@ __global__ void __launch_bounds__(512, 2) gather(compressed_nodetype *d_q, uint8
  * Host function that prepares data, copies it to the GPU, and handles the control flow of the model checking.
  */
 int main(int argc, char** argv) {
-	{% if not compact_hash_table %}
 	// Size of global hash table.
+	{% if not compact_hash_table %}
 	indextype hash_table_size = 0;
 	{% else %}
+	uint64_t hash_table_size;
 	// Pointer to the start of the internal hash table.
-	indextype non_root_offset, d_non_root_offset;
+	uint64_t non_root_offset, d_non_root_offset;
 	{% endif %}
 	// Number of search iterations in each kernel launch.
 	uint32_t kernel_iters = KERNEL_ITERS;
@@ -377,11 +378,12 @@ int main(int argc, char** argv) {
 	{% endif %}
 	{% elif global_memsize == 24 %}
 	// We create a global compact hash table for 24 GB. A root table is created that has exactly 2^32 elements, and an internal table is created with 500 million elements.
-	cudaMalloc((void **)&d_q, 4831838208 * sizeof(compressed_nodetype));
+	hash_table_size = 4831838208;
+	cudaMalloc((void **)&d_q, hash_table_size * sizeof(compressed_nodetype));
 	non_root_offset = 4294967296;
 	{% endif %}
 
-	fprintf (stdout, "Global mem queue size: %lu; Number of entries: %{% if vectorsize <= 30 or compact_hash_table %}l{% endif %}u\n", hash_table_size*sizeof(compressed_nodetype), (indextype) hash_table_size);
+	fprintf (stdout, "Global mem hash table size: %lu; Number of entries: %{% if vectorsize <= 30 or compact_hash_table %}l{% endif %}u\n", hash_table_size*sizeof(compressed_nodetype), {% if not compact_hash_table %}(indextype){% endif %} hash_table_size);
 
 	shared_inttype shared_cache_size = (shared_inttype) prop.sharedMemPerMultiprocessor / sizeof(shared_inttype) / 2;
 	fprintf (stdout, "Shared mem work tile size: {{tilesize}}\n");
@@ -392,7 +394,8 @@ int main(int argc, char** argv) {
 	cudaMemcpyToSymbol(d_shared_cache_size, &shared_cache_size, sizeof(shared_inttype));
 	cudaMemcpyToSymbol(d_kernel_iters, &kernel_iters, sizeof(uint32_t));
 	{% if compact_hash_table %}
-	cudaMemcpyToSymbol(d_non_root_offset, &non_root_offset, sizeof(indextype));
+	cudaMemcpyToSymbol(d_non_root_offset, &non_root_offset, sizeof(uint64_t));
+	cudaMemcpyToSymbol(d_hash_table_size, &hash_table_size, sizeof(uint64_t));
 	{% else %}
 	cudaMemcpyToSymbol(d_hash_table_size, &hash_table_size, sizeof(indextype));
 	{% endif %}

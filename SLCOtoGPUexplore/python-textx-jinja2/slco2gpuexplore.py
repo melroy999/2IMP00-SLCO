@@ -490,7 +490,7 @@ def vectorstructure_to_string(D):
 		if nr_of_parts == 1 or not compact_hash_table:
 			vs += "[ two bits reserved, "
 		elif nr_of_parts > 1 and vectorstructure_part_size(t) > (64-1-nr_bits_address_internal()):
-			vs += "[ one bit reserved, "
+			vs += "[ "
 		else:
 			vs += "Combined with a non-leaf vector tree node: [ "
 		first = True
@@ -1036,12 +1036,18 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, ind
 			elif refs != []:
 				ic += 1
 				output += "if (part2 != part1) {\n" + indentspace(ic)
+			if p == 0:
+				output += "// Mark root node as new.\n" + indentspace(ic)
+				output += "part2 = mark_new(part2);\n" + indentspace(ic)
 			if is_non_leaf(p) or refs != []:
 				output += "// This part has been altered. Store it in shared memory and remember address of new part.\n" + indentspace(ic)
-				if is_non_leaf(p) or vectorsize <= 62:
-					output += "part2 = mark_new(part2);\n" + indentspace(ic)
-				else:
-					output += "part_cachepointers = CACHE_POINTERS_NEW_LEAF;\n" + indentspace(ic)
+				if p == 0:
+					output += "mark_cached_node_new_root(&part_cachepointers);\n" + indentspace(ic)
+				elif vectorsize > 62:
+					if is_non_leaf(p):
+						output += "mark_cached_node_new_nonleaf(&part_cachepointers);\n" + indentspace(ic)
+					else:
+						output += "part_cachepointers = CACHE_POINTERS_NEW_LEAF;\n" + indentspace(ic)
 				if vectorsize <= 62:
 					output += "buf16_" + str(pointer_cnt) + " = STOREINCACHE(part2);\n" + indentspace(ic)
 				else:
@@ -3073,7 +3079,7 @@ def preprocess():
 	if vectorsize > 30:
 		intsize = 62
 	if compact_hash_table:
-		intsize += 1
+		intsize += 2
 	vp_id = 0
 	state_nr = 0
 	while stateelements != set([]) or dataelements != set([]):
@@ -3668,7 +3674,7 @@ def translate():
 
 def main(args):
 	"""The main function"""
-	global modelname, model, property_file, deadlock_check, gpuexplore2_succdist, no_regsort, no_smart_fetching, compact_hash_table, global_memsize, nrblocks, nrthreadsperblock
+	global modelname, model, property_file, deadlock_check, gpuexplore2_succdist, no_regsort, no_smart_fetching, compact_hash_table, global_memsize, nrblocks, nrthreadsperblock, vectorsize
 	if len(args) == 0:
 		print("Missing argument: SLCO model")
 		sys.exit(1)
@@ -3715,9 +3721,6 @@ def main(args):
 				else:
 					modelname = args[i]
 
-	# if the vectorsize is sufficiently small, compact hash table storage is not needed.
-	if vectorsize < 63:
-		compact_hash_table = False
 	# if GPUexplore 2.0 successor generation is applied, regsorting is not.
 	if gpuexplore2_succdist:
 		no_regsort = True
@@ -3745,6 +3748,9 @@ def main(args):
 		print("processing model %s" % basename(file))
 		try:
 			preprocess()
+			# if the vectorsize is sufficiently small, compact hash table storage is not needed.
+			if vectorsize < 63:
+				compact_hash_table = False
 			# translate
 			translate()
 		except Exception:
