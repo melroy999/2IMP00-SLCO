@@ -12,7 +12,7 @@ model Test {
 
       transitions
       R0 -> R1 {
-        [i := 7; x[i] := 1]
+        [i := 7; x[i] := 17]
       }
     }
   }

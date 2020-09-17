@@ -325,9 +325,10 @@ def scopename(v,i,o):
 			name += "'" + v.parent.name
 		name += "'" + v.name
 		if v.__class__.__name__ != "StateMachine":
-			i_str = getinstruction(i, o, {})
-			if i != None and RepresentsInt(i_str):
-				name += "[" + i_str + "]"
+			if i != None:
+				i_str = getinstruction(i, o, {})
+				if RepresentsInt(i_str):
+					name += "[" + i_str + "]"
 	return name
 
 def vectorpart_is_combined_with_nonleaf_node(p):
@@ -838,7 +839,7 @@ def cudastore_initial_vector():
 def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, indent):
 	"""Construct CUDA code to produce and store new vectortree nodes. nodes_done is a list containing node ids that have been processed before. nav is a list of nodes still to be processed.
 	   W is a dictionary defining for all vectorparts which values need to be written to it."""
-	global vectortree, vectortree_T, connected_channel, dynamic_write_arrays, state_id, vectorsize
+	global vectortree, vectortree_T, connected_channel, dynamic_write_arrays, state_id, vectorsize, array_in_structure_map
 	ic = indent
 	output = ""
 	if nav != []:
@@ -961,9 +962,10 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, ind
 								idx_offset = e[2]
 							#output += "set_" + set_methodname + "(&part2, idx_" + o.name + "_" + v.name + ", " + vname + ", " + str(offset) + ", " + str(vectorpart_id(p)) + ");\n" + indentspace(ic)
 							part_id = str(vectorpart_id(p))
-							output += "if (" + part_id + " >= " + str(dynamic_write_arrays[v][1]) + " && " + part_id + " <= " + str(dynamic_write_arrays[v][1]) + ") {\n" + indentspace(ic)
+							output += "if (" + part_id + " >= " + str(dynamic_write_arrays[v][1]) + " && " + part_id + " <= " + str(dynamic_write_arrays[v][2]) + ") {\n" + indentspace(ic)
 							allocs = get_buffer_arrayindex_allocs(s.parent, o)
 							indentnew = "\t"
+							# range over the number of elements that may be stored in the buffer for the current array
 							for i in range(0,allocs[(o,v)]):
 								output += indentnew + "if (idx_" + str(i+idx_offset) + " != EMPTY_INDEX) {\n" + indentspace(ic)
 								indentnew = indentnew + "\t"
@@ -974,10 +976,12 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, ind
 								output += indentnew + "set_left_" + str(dynamic_write_arrays[v][0]).replace("'","_") + "(&part2, idx_" + str(i+idx_offset) + ", " + vname + "_" + str(offset+i) + ", " + part_id + ");\n" + indentspace(ic)
 								indentnew = indentnew[:-1]
 								output += indentnew + "}\n" + indentspace(ic)
-								if len(vectorelem_in_structure_map[str(dynamic_write_arrays[v][0]) + "[" + str(i) + "]"]) > 2:
+								arrayname = scopename(v,None,o)
+								arraystructure = array_in_structure_map[arrayname]
+								if vectorpart_id(p)-1 >= 0 and vectorpart_id(p)-1 <= arraystructure[0]+(len(arraystructure)-2) and arraystructure[vectorpart_id(p)][3] != 0:
 									output += indentnew + "else {\n" + indentspace(ic)
 									indentnew = indentnew + "\t"
-									output += indentnew + "set_right_" + str(dynamic_write_arrays[v][0]).replace("'","_") + "_" + str(i) + "(&part2, " + vname + "_" + str(offset+i) + ");\n" + indentspace(ic)
+									output += indentnew + "set_right_" + str(dynamic_write_arrays[v][0]).replace("'","_") + "(&part2, idx_" + str(i+idx_offset) + ", " + vname + "_" + str(offset+i) + ", " + part_id + ");\n" + indentspace(ic)
 									indentnew = indentnew[:-1]
 									output += indentnew + "}\n" + indentspace(ic)
 							for i in range(0,allocs[(o,v)]):
@@ -1326,7 +1330,7 @@ def cudastatement(s,indent,o,D,sender_o='',sender_sm='',senderparams=[]):
 							output2 += "&idx_" + str(j+idx_offset) + ", "
 						for j in range(0,size):
 							output2 += "&buf" + tpsize + "_" + str(j+offset) + ", (array_indextype) "
-						output2 += indexresult + ", " + getinstruction(senderparams[i+1],sender_o,D) + ");\n" + indentspace
+						output2 += indexresult + ", (" + cudatype(s.params[i].var.type, True) + ") " + getinstruction(senderparams[i+1],sender_o,D) + ");\n" + indentspace
 					else:
 						indexdict = get_constant_indices(s.params[i].var, s.params[i].var.name, s.parent, o)
 						offsetcnt += indexdict[indexresult]
@@ -1448,6 +1452,8 @@ def cudafetchdata(s, indent, o, D, unguarded, resetfetched):
 								elif VP[i+1] == fetched[0]:
 									fetched[1] = fetched[0]
 									output += "part2 = part1;\n" + indentspace
+							else:
+								output += "part2 = part1;\n" + indentspace
 							if not (v.__class__.__name__ == "Channel" and RepresentsInt(j)):
 								if v.__class__.__name__ != "Channel" and v.__class__.__name__ != "StateMachine":
 									output += "get_" + scopename(v,None,o).replace("'","_")
@@ -1549,7 +1555,7 @@ def getinstruction(s, o, D):
 					result += "&idx_" + str(j+idx_offset) + ", "
 				for j in range(0,size):
 					result += "&buf" + tpsize + "_" + str(j+offset) + ", (array_indextype) "
-				result += indexresult + ", " + rightexp + ")"
+				result += indexresult + ", (" + cudatype(s.left.var.type, True) + ") " + rightexp + ")"
 			else:
 				indexdict = get_constant_indices(s.left.var, s.left.var.name, t, o)
 				offsetcnt += indexdict[indexresult]
@@ -2196,7 +2202,6 @@ def get_buffer_allocs(T):
 
 def get_buffer_arrayindex_allocs(t, o):
 	"""Return info on variable allocations needed to do bookkeeping on dynamically accessing SLCO array elements, for the transition t. o is Object owning the transitions."""
-	global connected_channel
 	allocs = {}
 	sm = t.parent
 	Vseen = set([])
@@ -3154,15 +3159,17 @@ def preprocess():
 							vp_id += 1
 						added_size = min(l, intsize - tmpsize)
 						tmp.append((sname + sindex, added_size))
-						PIDs = [l, (vp_id, (intsize)-(tmpsize+added_size), added_size)]
+						PIDs = [l, (vp_id, intsize-(tmpsize+added_size), added_size)]
 						tmpsize += added_size
 						if l - added_size > 0:
 							# add remainder of element to new vector part
 							vectorstructure.append(tmp)
 							tmp = [(sname + sindex, l - added_size)]
-							tmpsize = l - added_size
+							added_size = l - added_size
+							tmpsize = 0
 							vp_id += 1
-							PIDs.append((vp_id, intsize-(l - added_size), l - added_size))
+							PIDs.append((vp_id, intsize-(tmpsize+added_size), added_size))
+							tmpsize = added_size
 						vectorelem_in_structure_map[sname + sindex] = PIDs
 						if elements_strings.get(sname + sindex) == None:
 							if is_async_channel(sname):
@@ -3190,9 +3197,9 @@ def preprocess():
 				else:
 					newpos = 0
 					if compact_hash_table:
-						newpos = 63-nr_bits_address_internal()-PIDs[i][2]
+						newpos = 63-nr_bits_address_internal()-(62-PIDs[i][1])
 					else:
-						newpos = 62-nr_bits_address_root()-PIDs[i][2]
+						newpos = 62-nr_bits_address_root()-(62-PIDs[i][1])
 					newPIDslist.append((PIDs[i][0], newpos, PIDs[i][2]))
 			vectorelem_in_structure_map[vname] = newPIDslist
 	# number of vector parts with state machine states
@@ -3465,7 +3472,6 @@ def preprocess():
 			tmp[4] = PIDs[2][1]
 		L.append(tuple(tmp))
 		array_in_structure_map[vname] = L
-	print(array_in_structure_map)
 	# construct async_channel_vectorpart_buffer_range: for all (asynchronous channel, vectorpart) pairs, provide the range of buffer elements of that channel stored in that vectorpart of a vector.
 	async_channel_vectorpart_buffer_range = {}
 	for c in model.channels:

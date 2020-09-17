@@ -810,7 +810,7 @@ inline __device__ void get_{{vname|replace("[","_")|replace("]","")|replace("'",
 			" .reg .u{% if vectorsize < 31 %}32{% else %}64{% endif %} t1;\n\t"
 			" bfe.u{% if vectorsize < 31 %}32{% else %}64{% endif %} t1, %1, %2, %3;\n\t"
 			" cvt.u{% if (t|gettypesize) < 32 %}16{% else %}32{% endif %}.u{% if vectorsize < 31 %}32{% else %}64{% endif %} %0, t1;\n\t"
-	    	"}" : "={% if (t|gettypesize) < 16 %}h"(t2){% else %}r"(*b){% endif %} : "{% if vectorsize <= 30 %}r{% else %}l{% endif %}"(part), {% if array_in_structure_map[vname][i][3] == 0 %}"{% if vectorsize <= 30 %}r{% else %}l{% endif %}"({{array_in_structure_map[vname][i][2]}}-(index-{{array_in_structure_map[vname][i][0]}})*{{t|gettypesize}}), "{% if vectorsize <= 30 %}r{% else %}l{% endif %}"({{t|gettypesize}}){% else %}"r"(index == {{array_in_structure_map[vname][i][1]}}) ? 0 : {{array_in_structure_map[vname][i][2]}}-(index-{{array_in_structure_map[vname][i][0]}})*{{t|gettypesize}}), "r"(index == {{array_in_structure_map[vname][i][1]}}) ? {{(t|gettypesize) - array_in_structure_map[vname][i][3]}} : {{t|gettypesize}}){% endif %});
+	    	"}" : "={% if (t|gettypesize) < 16 %}h"(t2){% else %}r"(*b){% endif %} : "{% if vectorsize <= 30 %}r{% else %}l{% endif %}"(part), {% if array_in_structure_map[vname][i][3] == 0 %}"r"({{array_in_structure_map[vname][i][2]}}-(index-{{array_in_structure_map[vname][i][0]}})*{{t|gettypesize}}), "r"({{t|gettypesize}}){% else %}"r"((index == {{array_in_structure_map[vname][i][1]}}) ? 0 : {{array_in_structure_map[vname][i][2]}}-(index-{{array_in_structure_map[vname][i][0]}})*{{t|gettypesize}}), "r"((index == {{array_in_structure_map[vname][i][1]}}) ? {{(t|gettypesize) - array_in_structure_map[vname][i][3]}} : {{t|gettypesize}}){% endif %});
 		{% if array_in_structure_map[vname][i][3] != 0 %}
 		if (index == {{array_in_structure_map[vname][i][1]}}) {
 			part = get_vectorpart_{{array_in_structure_map[vname][0]+i}}(node_index);
@@ -982,10 +982,10 @@ inline __device__ void set_left_{{x|replace("'","_")}}(nodetype *part, array_ind
 	nodetype t1 = (nodetype) buf;
 	switch (pid) {
 		{% for i in range(1, array_in_structure_map[x]|length) %}
-		case {{i}}:
+		case {{array_in_structure_map[x][0]+i-1}}:
 			asm("{\n\t"
 			" bfi.b{% if vectorsize <= 30 %}32{% else %}64{% endif %} %0, %1, %0, %2, %3;\n\t"
-			"}" : "+{% if vectorsize <= 30 %}r{% else %}l{% endif %}"(*part) : "{% if vectorsize <= 30 %}r{% else %}l{% endif %}"{% if array_in_structure_map[x][i][3] == 0 %}(t1){% else %}(index == {{array_in_structure_map[x][i][1]}} ? (t1 >> {{array_in_structure_map[x][i][3]}}) : t1){% endif %}, {% if array_in_structure_map[x][i][3] == 0 %}"{% if vectorsize <= 30 %}r{% else %}l{% endif %}"({{array_in_structure_map[x][i][2]}}-(index-{{array_in_structure_map[x][i][0]}})*{{t|gettypesize}}), "{% if vectorsize <= 30 %}r{% else %}l{% endif %}"({{t|gettypesize}}){% else %}"r"(index == {{array_in_structure_map[x][i][1]}}) ? 0 : {{array_in_structure_map[x][i][2]}}-(index-{{array_in_structure_map[x][i][0]}})*{{t|gettypesize}}), "r"(index == {{array_in_structure_map[x][i][1]}}) ? {{(t|gettypesize) - array_in_structure_map[x][i][3]}} : {{t|gettypesize}}){% endif %});
+			"}" : "+{% if vectorsize <= 30 %}r{% else %}l{% endif %}"(*part) : "{% if vectorsize <= 30 %}r{% else %}l{% endif %}"{% if array_in_structure_map[x][i][3] == 0 %}(t1){% else %}(index == {{array_in_structure_map[x][i][1]}} ? (t1 >> {{array_in_structure_map[x][i][3]}}) : t1){% endif %}, {% if array_in_structure_map[x][i][3] == 0 %}"{% if vectorsize <= 30 %}r{% else %}l{% endif %}"({{array_in_structure_map[x][i][2]}}-(index-{{array_in_structure_map[x][i][0]}})*{{t|gettypesize}}), "{% if vectorsize <= 30 %}r{% else %}l{% endif %}"({{t|gettypesize}}){% else %}"r"((index == {{array_in_structure_map[x][i][1]}}) ? 0 : {{array_in_structure_map[x][i][2]}}-(index-{{array_in_structure_map[x][i][0]}})*{{t|gettypesize}}), "r"((index == {{array_in_structure_map[x][i][1]}}) ? {{(t|gettypesize) - array_in_structure_map[x][i][3]}} : {{t|gettypesize}}){% endif %});
 			break;
 		{% endfor %}
 		default:
@@ -1003,7 +1003,7 @@ inline __device__ void set_right_{{x|replace("'","_")}}(nodetype *part, array_in
 		case {{i}}:
 			asm("{\n\t"
 			" bfi.b{% if vectorsize <= 30 %}32{% else %}64{% endif %} %0, %1, %0, {{array_in_structure_map[x][i][4]}}, {{array_in_structure_map[x][i][3]}};\n\t"
-			"}" : "+{% if vectorsize <= 30 %}r{% else %}l{% endif %}"(*part2) : "{% if vectorsize <= 30 %}r{% else %}l{% endif %}"(t1));
+			"}" : "+{% if vectorsize <= 30 %}r{% else %}l{% endif %}"(*part) : "{% if vectorsize <= 30 %}r{% else %}l{% endif %}"(t1));
 			break;
 		{% endif %}
 		{% endfor %}
@@ -3441,6 +3441,7 @@ void print_content_hash_table(FILE* stream, compressed_nodetype *q{% if compact_
 			p2 = &part0;
 			{% endif %}
 			{% for s in vectorelem_in_structure_map.keys() %}
+			{% if (s.split("["))[0] not in arraynames %}
 			{% set size = vectorelem_in_structure_map[s][0] %}
 			{% set PIDs = vectorelem_in_structure_map[s] %}
 			{% if vectorsize > 62 %}
@@ -3451,7 +3452,6 @@ void print_content_hash_table(FILE* stream, compressed_nodetype *q{% if compact_
 			p2 = p1;
 			{% endif %}
 			{% endif %}
-			{% if (s.split("["))[0] not in arraynames %}
 			host_get_{{s|replace("[","_")|replace("]","")|replace("'","_")}}({% if s|is_state %}&e_st{% elif size == 1 %}&e_b{% elif size < 32 %}&e_c{% else %}&e_i{% endif %}, *p1, *p2);
 			fprintf(stream, "{{s|vector_element_string_desc}} {{s}}: %u\n", (uint32_t) {% if s|is_state %}e_st{% elif size == 1 %}e_b{% elif size < 32 %}e_c{% else %}e_i{% endif %});
 			{% endif %}
