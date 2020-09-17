@@ -38,7 +38,8 @@ __constant__ uint32_t d_kernel_iters;
 		exit(1);															\
 	} }
 
-__inline__ void CUDA_CHECK_FOR_ERROR() {
+__inline__ void CUDA_CHECK_FOR_ERROR(int i) {
+	fprintf(stderr, "Call %u:\n", i);
 	cudaError_t err = cudaGetLastError();
 	CUDA_CHECK_RETURN(err);
 }
@@ -402,7 +403,7 @@ int main(int argc, char** argv) {
 
 	// Initialise the hash table.
 	init_hash_table<<<NR_BLOCKS, {{nrthreadsperblock}}>>>(d_q);
-	CUDA_CHECK_FOR_ERROR();
+	CUDA_CHECK_FOR_ERROR(0);
 	store_initial_state<<<1, {{nrthreadsperblock}}, shared_cache_size * sizeof(shared_inttype)>>>(d_q, d_newstate_flags, d_worktiles);
 
 	compressed_nodetype *q_test;
