@@ -62,7 +62,7 @@ int cudaMallocCount ( void ** ptr,int size) {
  * CUDA kernel function to initialise the global memory hash table.
  */
 __global__ void init_hash_table(compressed_nodetype *d_q) {
-    for (indextype i = GLOBAL_THREAD_ID; i < d_hash_table_size; i += NR_THREADS) {
+    for (uint64_t i = GLOBAL_THREAD_ID; i < d_hash_table_size; i += NR_THREADS) {
     	d_q[i] = (compressed_nodetype) {% if compact_hash_table %}EMPTY_COMPRESSED_NODE{% else %}EMPTY_NODE{% endif %};
     }
 }

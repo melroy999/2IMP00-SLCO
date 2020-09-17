@@ -1044,7 +1044,7 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, ind
 				if vectorsize > 62:
 					if p == 0:
 						output += "mark_cached_node_new_root(&part_cachepointers);\n" + indentspace(ic)
-					if is_non_leaf(p):
+					elif is_non_leaf(p):
 						output += "mark_cached_node_new_nonleaf(&part_cachepointers);\n" + indentspace(ic)
 					else:
 						output += "part_cachepointers = CACHE_POINTERS_NEW_LEAF;\n" + indentspace(ic)
