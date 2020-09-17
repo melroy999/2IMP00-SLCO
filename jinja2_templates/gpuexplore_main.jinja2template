@@ -249,8 +249,8 @@ int main(int argc, char** argv) {
 	indextype hash_table_size = 0;
 	{% else %}
 	uint64_t hash_table_size;
-	// Pointer to the start of the internal hash table.
-	uint64_t non_root_offset;
+	// Size of the internal hash table.
+	uint64_t internal_hash_table_size;
 	{% endif %}
 	// Number of search iterations in each kernel launch.
 	uint32_t kernel_iters = KERNEL_ITERS;
@@ -279,6 +279,10 @@ int main(int argc, char** argv) {
 
 	// Global hash table.
 	compressed_nodetype *d_q;
+	{% if compact_hash_table %}
+	// Internal node global hash table.
+	nodetype *d_q_i;
+	{% endif %}
 
 	const char* help_text =
 		"Usage: gpuexplore [OPTIONS]\n"
@@ -379,12 +383,16 @@ int main(int argc, char** argv) {
 	{% endif %}
 	{% elif global_memsize == 24 %}
 	// We create a global compact hash table for 24 GB. A root table is created that has exactly 2^32 elements, and an internal table is created with 500 million elements.
-	hash_table_size = 4831838208;
+	hash_table_size = 4294967296;
 	cudaMalloc((void **)&d_q, hash_table_size * sizeof(compressed_nodetype));
-	non_root_offset = 4294967296;
+	internal_hash_table_size = 536870912;
+	cudaMalloc((void **)&d_q_i, internal_hash_table_size * sizeof(nodetype));
 	{% endif %}
 
 	fprintf (stdout, "Global mem hash table size: %lu; Number of entries: %{% if vectorsize <= 30 or compact_hash_table %}l{% endif %}u\n", hash_table_size*sizeof(compressed_nodetype), {% if not compact_hash_table %}(indextype){% endif %} hash_table_size);
+	{% if compact_hash_table %}
+	fprintf (stdout, "Internal global mem hash table size: %lu; Number of entries: lu\n", internal_hash_table_size*sizeof(nodetype), internal_hash_table_size);
+	{% endif %}
 
 	shared_inttype shared_cache_size = (shared_inttype) prop.sharedMemPerMultiprocessor / sizeof(shared_inttype) / 2;
 	fprintf (stdout, "Shared mem work tile size: {{tilesize}}\n");
@@ -395,7 +403,7 @@ int main(int argc, char** argv) {
 	cudaMemcpyToSymbol(d_shared_cache_size, &shared_cache_size, sizeof(shared_inttype));
 	cudaMemcpyToSymbol(d_kernel_iters, &kernel_iters, sizeof(uint32_t));
 	{% if compact_hash_table %}
-	cudaMemcpyToSymbol(d_non_root_offset, &non_root_offset, sizeof(uint64_t));
+	cudaMemcpyToSymbol(d_internal_hash_table_size, &internal_hash_table_size, sizeof(uint64_t));
 	cudaMemcpyToSymbol(d_hash_table_size, &hash_table_size, sizeof(uint64_t));
 	{% else %}
 	cudaMemcpyToSymbol(d_hash_table_size, &hash_table_size, sizeof(indextype));
@@ -407,8 +415,14 @@ int main(int argc, char** argv) {
 	store_initial_state<<<1, {{nrthreadsperblock}}, shared_cache_size * sizeof(shared_inttype)>>>(d_q, d_newstate_flags, d_worktiles);
 
 	compressed_nodetype *q_test;
+	{% if compact_hash_table %}
+	nodetype *q_i_test;
+	{% endif %}
 	if (verbosity == 3) {
 		q_test = (compressed_nodetype*) malloc(sizeof(compressed_nodetype)*hash_table_size);
+		{% if compact_hash_table %}
+		q_i_test = (nodetype*) malloc(sizeof(nodetype)*internal_hash_table_size);
+		{% endif %}
 	}
 
 	uint32_t iterations_counter = 0;
@@ -422,7 +436,7 @@ int main(int argc, char** argv) {
 	while (contBFS == 1) {
 		CUDA_CHECK_RETURN(cudaMemset(d_contBFS, 0, sizeof(uint8_t)));
 		// TODO: change nr of blocks back to nblocks
-		gather<<<1, {{nrthreadsperblock}}, shared_cache_size * sizeof(shared_inttype)>>>(d_q, d_contBFS, d_property_violation, d_newstate_flags, d_worktiles, scan);
+		gather<<<1, {{nrthreadsperblock}}, shared_cache_size * sizeof(shared_inttype)>>>(d_q{% if compact_hash_table %}, d_q_i{% endif %}, d_contBFS, d_property_violation, d_newstate_flags, d_worktiles, scan);
 
 		// Copy progress result.
 		CUDA_CHECK_RETURN(cudaDeviceSynchronize());
@@ -442,7 +456,10 @@ int main(int argc, char** argv) {
 			}
 			else if (verbosity == 3) {
 				cudaMemcpy(q_test, d_q, hash_table_size * sizeof(compressed_nodetype), cudaMemcpyDeviceToHost);
-				print_content_hash_table(stdout, q_test, {% if compact_hash_table %}non_root_offset{% else %}hash_table_size{% endif %});
+				{% if compact_hash_table %}
+				cudaMemcpy(q_i_test, d_q_i, internal_hash_table_size * sizeof(nodetype), cudaMemcpyDeviceToHost);
+				{% endif %}
+				print_content_hash_table(stdout, q_test, {% if compact_hash_table %}q_i_test{% endif %}hash_table_size{% if compact_hash_table %}, internal_hash_table_size{% endif %});
 			}
 		}
 		scan = 1;
