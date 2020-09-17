@@ -250,7 +250,7 @@ int main(int argc, char** argv) {
 	{% else %}
 	uint64_t hash_table_size;
 	// Pointer to the start of the internal hash table.
-	uint64_t non_root_offset, d_non_root_offset;
+	uint64_t non_root_offset;
 	{% endif %}
 	// Number of search iterations in each kernel launch.
 	uint32_t kernel_iters = KERNEL_ITERS;
