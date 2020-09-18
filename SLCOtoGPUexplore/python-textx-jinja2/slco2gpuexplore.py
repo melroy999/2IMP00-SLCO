@@ -784,13 +784,13 @@ def cudastore_initial_vector():
 			part_id = vectorpart_id(current)
 			p = vectorparts[part_id]
 			if vectorpart_is_combined_with_nonleaf_node(part_id):
-				p_cpointers = 0
+				p_cpointers = 0x80000000
 				p = reset_left_pointer(p)
 				p_cpointers = set_left_cache_pointer(p_cpointers, children[0])
 			nodes[current] = p
 			nodes_cachepointers[current] = p_cpointers
 		else:
-			p_cpointers = 0
+			p_cpointers = 0x80000000
 			p = reset_left_pointer(p)
 			p_cpointers = set_left_cache_pointer(p_cpointers, children[0])
 			if len(children) == 2:
@@ -800,15 +800,14 @@ def cudastore_initial_vector():
 			nodes_cachepointers[current] = p_cpointers
 		Open += children
 	# set all nodes to new, and the root node to root
-	if vectorsize < 31:
-		nodes[0] |= 0x40000000
-	else:
-		nodes[0] |= 0x4000000000000000
-	for i in range(0, nrnodes):
+	if vectorsize <= 62:
 		if vectorsize < 31:
-			nodes[i] |= 0x80000000
+			nodes[0] |= 0x40000000
 		else:
-			nodes[i] |= 0x8000000000000000
+			nodes[0] |= 0x4000000000000000
+	else:
+		# mark root node as such
+		nodes_cachepointers[0] = (nodes_cachepointers[0] & 0x3FFFFFFF) | 0x40000000
 	# construct code
 	output = "\tif (GLOBAL_THREAD_ID < " + str(nrnodes) + ") {\n"
 	output += "\t\tswitch (GLOBAL_THREAD_ID) {\n"

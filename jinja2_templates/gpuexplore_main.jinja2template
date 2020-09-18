@@ -77,7 +77,7 @@ __global__ void count_states(compressed_nodetype *d_q, uint64_t *result) {
 	}
 	__syncthreads();
 	shared_inttype localResult = 0;
-	for (indextype i = GLOBAL_THREAD_ID; i < {% if compact_hash_table %}d_non_root_offset{% else %}d_hash_table_size{% endif %}; i += NR_THREADS) {
+	for (indextype i = GLOBAL_THREAD_ID; i < d_hash_table_size; i += NR_THREADS) {
 		{% if not compact_hash_table and vectorsize > 63 %}
 		if (is_root(d_q[i])) {
 		{% else %}
@@ -93,7 +93,7 @@ __global__ void count_states(compressed_nodetype *d_q, uint64_t *result) {
 	}
 }
 
-__global__ void __launch_bounds__(512, 2) gather(compressed_nodetype *d_q, uint8_t *d_contBFS, uint8_t *d_property_violation, volatile uint8_t *d_newstate_flags, shared_inttype *d_worktiles, const uint8_t scan) {
+__global__ void __launch_bounds__(512, 2) gather(compressed_nodetype *d_q{% if compact_hash_table %}, nodetype *d_q_i{% endif %}, uint8_t *d_contBFS, uint8_t *d_property_violation, volatile uint8_t *d_newstate_flags, shared_inttype *d_worktiles, const uint8_t scan) {
 	uint32_t i;
 	shared_inttype l;
 	{% if vectorsize > 62 %}
@@ -135,9 +135,9 @@ __global__ void __launch_bounds__(512, 2) gather(compressed_nodetype *d_q, uint8
 			indextype last_search_location = (indextype) shared[LASTSEARCHOFFSET + WARP_ID];
 			// This block should be able to find a new state.
 			bool found_new_state = false;
-			for (i = GLOBAL_THREAD_ID; i < {% if not compact_hash_table %}d_hash_table_size{% else %}d_non_root_offset{% endif %} && OPENTILECOUNT < OPENTILELEN; i += NR_THREADS) {
+			for (i = GLOBAL_THREAD_ID; i < d_hash_table_size && OPENTILECOUNT < OPENTILELEN; i += NR_THREADS) {
 				indextype loc = i + last_search_location;
-				if (loc >= {% if not compact_hash_table %}d_hash_table_size{% else %}d_non_root_offset{% endif %}) {
+				if (loc >= d_hash_table_size) {
 					last_search_location = -i + GLOBAL_THREAD_ID;
 					loc = i + last_search_location;
 				}
@@ -155,7 +155,7 @@ __global__ void __launch_bounds__(512, 2) gather(compressed_nodetype *d_q, uint8
 					shared[OPENTILEOFFSET+l] = tmp;
 				}
 			}
-			if (i < {% if not compact_hash_table %}d_hash_table_size{% else %}d_non_root_offset{% endif %}) {
+			if (i < d_hash_table_size) {
 				last_search_location = i - GLOBAL_WARP_ID;
 			}
 			else {
@@ -164,7 +164,7 @@ __global__ void __launch_bounds__(512, 2) gather(compressed_nodetype *d_q, uint8
 			if (LANE == 0) {
 				shared[LASTSEARCHOFFSET + WARP_ID] = last_search_location;
 			}
-			if (found_new_state || i < {% if not compact_hash_table %}d_hash_table_size{% else %}d_non_root_offset{% endif %}) {
+			if (found_new_state || i < d_hash_table_size) {
 				WORKSCANRESULT = 1;
 			}
 		}
@@ -188,7 +188,7 @@ __global__ void __launch_bounds__(512, 2) gather(compressed_nodetype *d_q, uint8
 		// Create a cooperative group within a warp in which the thread resides.
 		thread_block_tile<VECTOR_GROUP_SIZE> gtile = tiled_partition<VECTOR_GROUP_SIZE>(this_thread_block());
 		for (i = VECTOR_GROUP_ID; i < OPENTILECOUNT; i += NR_VECTOR_GROUPS_PER_BLOCK) {
-			l = FETCH(gtile, d_q, shared[OPENTILEOFFSET+i]);
+			l = FETCH(gtile, d_q{% if compact_hash_table %}, d_q_i{% endif %}, shared[OPENTILEOFFSET+i]);
 			if (l == CACHE_FULL) {
 				// PLAN B?
 			}
@@ -211,7 +211,7 @@ __global__ void __launch_bounds__(512, 2) gather(compressed_nodetype *d_q, uint8
 		}
 		// Start scanning the local cache and write results to the global hash table.
 		if (performed_work) {
-			FINDORPUT_MANY(d_q, d_newstate_flags);
+			FINDORPUT_MANY(d_q{% if compact_hash_table %}, d_q_i{% endif %}, d_newstate_flags);
 		}
 		__syncthreads();
 		// Write 'empty' pointers to unused part of the work tile.
@@ -391,7 +391,7 @@ int main(int argc, char** argv) {
 
 	fprintf (stdout, "Global mem hash table size: %lu; Number of entries: %{% if vectorsize <= 30 or compact_hash_table %}l{% endif %}u\n", hash_table_size*sizeof(compressed_nodetype), {% if not compact_hash_table %}(indextype){% endif %} hash_table_size);
 	{% if compact_hash_table %}
-	fprintf (stdout, "Internal global mem hash table size: %lu; Number of entries: lu\n", internal_hash_table_size*sizeof(nodetype), internal_hash_table_size);
+	fprintf (stdout, "Internal global mem hash table size: %lu; Number of entries: %lu\n", internal_hash_table_size*sizeof(nodetype), internal_hash_table_size);
 	{% endif %}
 
 	shared_inttype shared_cache_size = (shared_inttype) prop.sharedMemPerMultiprocessor / sizeof(shared_inttype) / 2;
@@ -412,7 +412,7 @@ int main(int argc, char** argv) {
 	// Initialise the hash table.
 	init_hash_table<<<NR_BLOCKS, {{nrthreadsperblock}}>>>(d_q);
 	CUDA_CHECK_FOR_ERROR(0);
-	store_initial_state<<<1, {{nrthreadsperblock}}, shared_cache_size * sizeof(shared_inttype)>>>(d_q, d_newstate_flags, d_worktiles);
+	store_initial_state<<<1, {{nrthreadsperblock}}, shared_cache_size * sizeof(shared_inttype)>>>(d_q{% if compact_hash_table %}, d_q_i{% endif %}, d_newstate_flags, d_worktiles);
 
 	compressed_nodetype *q_test;
 	{% if compact_hash_table %}
@@ -459,7 +459,7 @@ int main(int argc, char** argv) {
 				{% if compact_hash_table %}
 				cudaMemcpy(q_i_test, d_q_i, internal_hash_table_size * sizeof(nodetype), cudaMemcpyDeviceToHost);
 				{% endif %}
-				print_content_hash_table(stdout, q_test, {% if compact_hash_table %}q_i_test{% endif %}hash_table_size{% if compact_hash_table %}, internal_hash_table_size{% endif %});
+				print_content_hash_table(stdout, q_test{% if compact_hash_table %}, q_i_test{% endif %}, hash_table_size);
 			}
 		}
 		scan = 1;

@@ -602,7 +602,7 @@ inline __host__ indextype host_get_pointer_from_vectortree_node(nodetype node, b
 }
 
 // Host (CPU) version of direct_sv_step.
-inline __host__ nodetype host_direct_sv_step(compressed_nodetype *q{% if compact_hash_table %}nodetype *q_i{% endif %}, nodetype node, bool goright) {
+inline __host__ nodetype host_direct_sv_step(compressed_nodetype *q{% if compact_hash_table %}, nodetype *q_i{% endif %}, nodetype node, bool goright) {
 	indextype index = host_get_pointer_from_vectortree_node(node, goright);
 	{% if not compact_hash_table %}
 	return q[index];
@@ -613,7 +613,7 @@ inline __host__ nodetype host_direct_sv_step(compressed_nodetype *q{% if compact
 
 // Functions to retrieve vector parts from global memory.
 {% for i in range(0,vectorstructure|length) %}
-inline __device__ nodetype direct_get_vectorpart_{{i}}(compressed_nodetype *d_q{% if compact_hash_table %}nodetype *d_q_i{% endif %}, nodetype node) {
+inline __device__ nodetype direct_get_vectorpart_{{i}}(compressed_nodetype *d_q{% if compact_hash_table %}, nodetype *d_q_i{% endif %}, nodetype node) {
 	{% if vectorsize <= 30 %}
 	return node;
 	{% else %}
@@ -632,7 +632,7 @@ inline __device__ nodetype direct_get_vectorpart_{{i}}(compressed_nodetype *d_q{
 {% endfor %}
 // Functions to retrieve vector parts from host memory.
 {% for i in range(0,vectorstructure|length) %}
-inline __host__ nodetype host_direct_get_vectorpart_{{i}}(compressed_nodetype *q{% if compact_hash_table %}nodetype *q_i{% endif %}, nodetype node) {
+inline __host__ nodetype host_direct_get_vectorpart_{{i}}(compressed_nodetype *q{% if compact_hash_table %}, nodetype *q_i{% endif %}, nodetype node) {
 	{% if vectorsize <= 30 %}
 	return node;
 	{% else %}
@@ -2306,7 +2306,7 @@ inline __device__ compressed_nodetype get_compressed_node_root(nodetype h, uint8
 
 {% endif %}
 // Retrieve vectortree node at index i of the global memory hash table.
-inline __host__ __device__ nodetype HT_RETRIEVE(compressed_nodetype *d_q{% if compact_hash_table %}nodetype *d_q_i{% endif %}, indextype i{% if compact_hash_table %}, bool is_root{% endif %}) {
+inline __host__ __device__ nodetype HT_RETRIEVE(compressed_nodetype *d_q{% if compact_hash_table %}, nodetype *d_q_i{% endif %}, indextype i{% if compact_hash_table %}, bool is_root{% endif %}) {
 	{% if not compact_hash_table %}
 	return (nodetype) d_q[i];
 	{% else %}
@@ -2324,7 +2324,7 @@ inline __host__ __device__ nodetype HT_RETRIEVE(compressed_nodetype *d_q{% if co
 }
 
 // Find or put a given vectortree node in the global hash table.
-inline __device__ {% if nr_bits_address_root < 32 %}indextype{% else %}uint64_t{% endif %} FINDORPUT_SINGLE(compressed_nodetype *d_q{% if compact_hash_table %}nodetype *d_q_i{% endif %}, nodetype node, volatile uint8_t *d_newstate_flags{% if compact_hash_table %}, bool is_root{% endif %}, bool claim_work) {
+inline __device__ {% if nr_bits_address_root < 32 %}indextype{% else %}uint64_t{% endif %} FINDORPUT_SINGLE(compressed_nodetype *d_q{% if compact_hash_table %}, nodetype *d_q_i{% endif %}, nodetype node, volatile uint8_t *d_newstate_flags{% if compact_hash_table %}, bool is_root{% endif %}, bool claim_work) {
 	nodetype e1;
 	{% if compact_hash_table %}
 	nodetype e2;
@@ -2424,7 +2424,7 @@ inline __device__ {% if nr_bits_address_root < 32 %}indextype{% else %}uint64_t{
 }
 
 // Find or put all new vectortree nodes stored in the shared memory cache into the global memory hash table.
-__device__ void FINDORPUT_MANY(compressed_nodetype *d_q{% if compact_hash_table %}nodetype *d_q_i{% endif %}, volatile uint8_t *d_newstate_flags) {
+__device__ void FINDORPUT_MANY(compressed_nodetype *d_q{% if compact_hash_table %}, nodetype *d_q_i{% endif %}, volatile uint8_t *d_newstate_flags) {
 	nodetype node;
 	indextype addr;
 	{% if vectorsize > 62 %}
@@ -2443,7 +2443,7 @@ __device__ void FINDORPUT_MANY(compressed_nodetype *d_q{% if compact_hash_table 
 		if (cached_node_is_new_leaf(node_pointers)) {
 			node = combine_halfs(shared[CACHEOFFSET+(i*3)], shared[CACHEOFFSET+(i*3)+1]);
 			// Store node in hash table.
-			addr = FINDORPUT_SINGLE(d_q{% if compact_hash_table %}d_q_i{% endif %}, node, d_newstate_flags{% if compact_hash_table %}, false{% endif %}, true);
+			addr = FINDORPUT_SINGLE(d_q{% if compact_hash_table %}, d_q_i{% endif %}, node, d_newstate_flags{% if compact_hash_table %}, false{% endif %}, true);
 			if (addr == HASHTABLE_FULL) {
 				CONTINUE = 2;
 			}
@@ -2481,7 +2481,7 @@ __device__ void FINDORPUT_MANY(compressed_nodetype *d_q{% if compact_hash_table 
 				// Ready now?
 				if (!vectortree_node_contains_left_gap(node) && !vectortree_node_contains_right_gap(node)) {
 					// Store node in hash table.
-					addr = FINDORPUT_SINGLE(d_q{% if compact_hash_table %}d_q_i{% endif %}, node, d_newstate_flags{% if compact_hash_table %}, cached_node_is_new_root(node_pointers){% endif %}, true);
+					addr = FINDORPUT_SINGLE(d_q{% if compact_hash_table %}, d_q_i{% endif %}, node, d_newstate_flags{% if compact_hash_table %}, cached_node_is_new_root(node_pointers){% endif %}, true);
 					if (addr == HASHTABLE_FULL) {
 						CONTINUE = 2;
 					}
@@ -2538,7 +2538,7 @@ __device__ void FINDORPUT_MANY(compressed_nodetype *d_q{% if compact_hash_table 
 							// Ready now?
 							if (!vectortree_node_contains_left_gap(node) && !vectortree_node_contains_right_gap(node)) {
 								// Store node in hash table.
-								addr = FINDORPUT_SINGLE(d_q{% if compact_hash_table %}d_q_i{% endif %}, node, d_newstate_flags{% if compact_hash_table %}, cached_node_is_new_root(node){% endif %}, true);
+								addr = FINDORPUT_SINGLE(d_q{% if compact_hash_table %}, d_q_i{% endif %}, node, d_newstate_flags{% if compact_hash_table %}, cached_node_is_new_root(node){% endif %}, true);
 								if (addr == HASHTABLE_FULL) {
 									CONTINUE = 2;
 								}
@@ -2573,7 +2573,7 @@ __device__ void FINDORPUT_MANY(compressed_nodetype *d_q{% if compact_hash_table 
 }
 
 // Kernel to store the initial state in the global memory hash table.
-__global__ void store_initial_state(compressed_nodetype *d_q{% if compact_hash_table %}nodetype *d_q_i{% endif %}, volatile uint8_t *d_newstate_flags, shared_inttype *d_worktiles) {
+__global__ void store_initial_state(compressed_nodetype *d_q{% if compact_hash_table %}, nodetype *d_q_i{% endif %}, volatile uint8_t *d_newstate_flags, shared_inttype *d_worktiles) {
 	// Reset the shared variables preceding the cache, and reset the cache.
 	if (THREAD_ID < SH_OFFSET) {
 		shared[THREAD_ID] = 0;
@@ -2585,7 +2585,7 @@ __global__ void store_initial_state(compressed_nodetype *d_q{% if compact_hash_t
 	__syncthreads();
 {{cuda_initial_vector}}
 	__syncthreads();
-	FINDORPUT_MANY(d_q{% if compact_hash_table %}d_q_i{% endif %}, d_newstate_flags);
+	FINDORPUT_MANY(d_q{% if compact_hash_table %}, d_q_i{% endif %}, d_newstate_flags);
 	__syncthreads();
 	// Done. Copy the work tile to global memory.
 	if (THREAD_ID < OPENTILELEN+LASTSEARCHLEN) {
@@ -2708,7 +2708,7 @@ inline __device__ uint32_t get_part_bitmask_for_states_in_vectorpart(uint8_t pid
 // Retrieve a vectortree from the global hash table and store it in the cache. This is performed in a warp-centric way.
 // Address addr points to the root of the requested vectortree. The function returns the address of the root of the vectortree in the cache,
 // or HASHTABLE_FULL in the case the cache is full.
-inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> treegroup, compressed_nodetype *d_q{% if compact_hash_table %}nodetype *d_q_i{% endif %}, indextype addr) {
+inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> treegroup, compressed_nodetype *d_q{% if compact_hash_table %}, nodetype *d_q_i{% endif %}, indextype addr) {
 	nodetype node = 0;
 	{% if vectorsize > 62 %}
 	nodetype leaf_node = 0;
@@ -2726,7 +2726,7 @@ inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> tr
 	{% endif %}
 	
 	if (gid == 0) {
-		node = HT_RETRIEVE(d_q{% if compact_hash_table %}d_q_i{% endif %}, addr{% if compact_hash_table %}, true{% endif %});
+		node = HT_RETRIEVE(d_q{% if compact_hash_table %}, d_q_i{% endif %}, addr{% if compact_hash_table %}, true{% endif %});
 		node_tmp_1 = node;
 	}
 	{% set bound = 1 %}{% if not no_smart_fetching %}{% set bound = bound + 1 %}{% endif %}
@@ -2766,7 +2766,7 @@ inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> tr
 		{% if not no_smart_fetching %}
 		// Smart fetching: first only fetch state vector parts containing statemachine states.
 		if (({% if j == 0 %}{{smart_vectortree_fetching_bitmask[0]}}{% else %}smart_fetching_bitmask{% endif %} & (1 << (31-gid))) != 0x0) {
-			leaf_node = HT_RETRIEVE(d_q{% if compact_hash_table %}d_q_i{% endif %}, node_addr{% if compact_hash_table %}, false{% endif %});
+			leaf_node = HT_RETRIEVE(d_q{% if compact_hash_table %}, d_q_i{% endif %}, node_addr{% if compact_hash_table %}, false{% endif %});
 			// Store the leaf node in the cache.
 			cache_pointers = 0;
 			result = STOREINCACHE(leaf_node, cache_pointers);
@@ -2778,7 +2778,7 @@ inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> tr
 			}
 		}
 		{% else %}
-		leaf_node = HT_RETRIEVE(d_q{% if compact_hash_table %}d_q_i{% endif %}, node_addr{% if compact_hash_table %}, false{% endif %});
+		leaf_node = HT_RETRIEVE(d_q{% if compact_hash_table %}, d_q_i{% endif %}, node_addr{% if compact_hash_table %}, false{% endif %});
 		// Store the leaf node in the cache.
 		cache_pointers = 0;
 		result = STOREINCACHE(leaf_node, cache_pointers);
@@ -2793,7 +2793,7 @@ inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> tr
 		if ({% for n in vectortree_level_ids[i] if vectortree[n]|length == 0 %}gid == {{vectortree_leaf_thread[n]}}{% if not loop.last %} || {% endif %}{% endfor %}) {
 			{% if not no_smart_fetching %}
 			if (({% if j == 0 %}{{smart_vectortree_fetching_bitmask[0]}}{% else %}smart_fetching_bitmask{% endif %} & (1 << (31-gid))) != 0x0) {
-				leaf_node = HT_RETRIEVE(d_q, node_addr);
+				leaf_node = HT_RETRIEVE(d_q,{% if compact_hash_table %}, d_q_i{% endif %}, node_addr{% if compact_hash_table %}, false{% endif %});
 				// Store the leaf node in the cache.
 				cache_pointers = 0;
 				result = STOREINCACHE(leaf_node, cache_pointers);
@@ -2805,7 +2805,7 @@ inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> tr
 				}
 			}
 			{% else %}
-			leaf_node = d_q[node_addr];
+			leaf_node = HT_RETRIEVE(d_q{% if compact_hash_table %}, d_q_i{% endif %}, node_addr{% if compact_hash_table %}, false{% endif %});
 			// Store the leaf node in the cache.
 			cache_pointers = 0;
 			result = STOREINCACHE(leaf_node, cache_pointers);
@@ -2820,22 +2820,22 @@ inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> tr
 		else {
 			{% if not no_smart_fetching and j == 1 %}
 			if (node == 0 && ({% if j == 0 %}{{smart_vectortree_fetching_bitmask[0]}}{% else %}smart_fetching_bitmask{% endif %} & get_part_reachability(gid)) != 0x0) {
-				node = HT_RETRIEVE(d_q, node_addr);
+				node = HT_RETRIEVE(d_q{% if compact_hash_table %}, d_q_i{% endif %}, node_addr{% if compact_hash_table %}, false{% endif %});
 				node_tmp_1 = node;
 			}
 			{% else %}
-			node = HT_RETRIEVE(d_q, node_addr);
+			node = HT_RETRIEVE(d_q{% if compact_hash_table %}d_q_i{% endif %}, node_addr{% if compact_hash_table %}, false{% endif %});
 			node_tmp_1 = node;
 			{% endif %}
 		}
 	{% else %}
 		{% if not no_smart_fetching and j == 1 %}
 		if (node == 0 && ({% if j == 0 %}{{smart_vectortree_fetching_bitmask[0]}}{% else %}smart_fetching_bitmask{% endif %} & get_part_reachability(gid)) != 0x0) {
-			node = HT_RETRIEVE(d_q, node_addr);
+			node = HT_RETRIEVE(d_q{% if compact_hash_table %}, d_q_i{% endif %}, node_addr{% if compact_hash_table %}, false{% endif %});
 			node_tmp_1 = node;
 		}
 		{% else %}
-		node = HT_RETRIEVE(d_q, node_addr);
+		node = HT_RETRIEVE(d_q{% if compact_hash_table %}, d_q_i{% endif %}, node_addr{% if compact_hash_table %}, false{% endif %});
 		node_tmp_1 = node;
 		{% endif %}
 	{% endif %}
@@ -2977,7 +2977,7 @@ inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> tr
 	treegroup.sync();
 	{% endfor %}
 	{% else %}
-	node = HT_RETRIEVE(d_q, node_addr{% if compact_hash_table %}, 0){% endif %});
+	node = HT_RETRIEVE(d_q{% if compact_hash_table %}d_q_i{% endif %}, node_addr{% if compact_hash_table %}, true{% endif %});
 	result = STOREINCACHE(leaf_node, cache_pointers);
 	if (result == CACHE_FULL) {
 		return CACHE_FULL;
@@ -3397,19 +3397,19 @@ inline __device__ void GENERATE_SUCCESSORS() {
 
 // *** START PRINT FUNCTIONS ***
 
-void print_content_hash_table(FILE* stream, compressed_nodetype *q{% if compact_hash_table %}, uint64_t non_root_offset{% else %}, indextype q_size{% endif %}) {
+void print_content_hash_table(FILE* stream, compressed_nodetype *q{% if compact_hash_table %}, nodetype *q_i, uint64_t q_size{% else %}indextype q_size{% endif %}) {
 	fprintf(stream, "BEGIN HASH TABLE CONTENTS.\n");
-	for (indextype i = 0; i < {% if compact_hash_table %}non_root_offset{% else %}q_size{% endif %}; i++) {
+	for ({% if compact_hash_table %}uint64_t{% else %}indextype{% endif %} i = 0; i < q_size; i++) {
 		{% if not compact_hash_table and vectorsize > 63 %}
 		if (is_root(q[i])) {
 		{% else %}
 		if (q[i] != {% if compact_hash_table %}EMPTY_COMPRESSED_NODE{% else %}EMPTY_NODE{% endif %}) {
 		{% endif %}
 			// Retrieve state vector.
-			nodetype {% if vectorsize > 62 %}root{% else %}part0{% endif %} = HT_RETRIEVE(q, i{% if compact_hash_table %}, non_root_offset{% endif %});
+			nodetype {% if vectorsize > 62 %}root{% else %}part0{% endif %} = HT_RETRIEVE(q{% if compact_hash_table %}, q_i{% endif %}, i{% if compact_hash_table %}, true{% endif %});
 			{% if vectorsize > 62 %}
 			{% for i in range(0,vectorstructure|length) %}
-			nodetype part{{i}} = host_direct_get_vectorpart_{{i}}(q, root{% if compact_hash_table %}, non_root_offset{% endif %});
+			nodetype part{{i}} = host_direct_get_vectorpart_{{i}}(q{% if compact_hash_table %}, q_i{% endif %}, root);
 			{% endfor %}
 			{% endif %}
 			// Print the contents of the state.
@@ -3419,7 +3419,7 @@ void print_content_hash_table(FILE* stream, compressed_nodetype *q{% if compact_
 			elem_chartype e_c;
 			elem_inttype e_i;
 			fprintf(stream, "-----\n");
-			fprintf(stream, "At index %{% if vectorsize <= 30 %}l{% endif %}u:\n", i);
+			fprintf(stream, "At index %{% if vectorsize <= 30 or compact_hash_table %}l{% endif %}u:\n", i);
 			{% if vectorsize <= 62 %}
 			p1 = &part0;
 			p2 = &part0;
