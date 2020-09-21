@@ -184,20 +184,37 @@ __global__ void __launch_bounds__(512, 2) gather(compressed_nodetype *d_q{% if c
 			}
 		}
 		{% if vectorsize > 62 %}
-		// Fill the cache with the vector trees referred to in the work tile.
-		// Create a cooperative group within a warp in which the thread resides.
-		thread_block_tile<VECTOR_GROUP_SIZE> gtile = tiled_partition<VECTOR_GROUP_SIZE>(this_thread_block());
-		for (i = VECTOR_GROUP_ID; i < OPENTILECOUNT; i += NR_VECTOR_GROUPS_PER_BLOCK) {
-			l = FETCH(gtile, d_q{% if compact_hash_table %}, d_q_i{% endif %}, shared[OPENTILEOFFSET+i]);
-			if (l == CACHE_FULL) {
-				// PLAN B?
+		if (ITERATIONS == 0) {
+			// Fill the cache with the vector trees referred to in the work tile.
+			// Create a cooperative group within a warp in which the thread resides.
+			thread_block_tile<VECTOR_GROUP_SIZE> gtile = tiled_partition<VECTOR_GROUP_SIZE>(this_thread_block());
+
+			#pragma unroll
+			for (i = VECTOR_GROUP_ID; i < OPENTILECOUNT; i += NR_VECTOR_GROUPS_PER_BLOCK) {
+				l = FETCH(gtile, d_q{% if compact_hash_table %}, d_q_i{% endif %}, shared[OPENTILEOFFSET+i]);
+				if (l == CACHE_FULL) {
+					// PLAN B?
+				}
+				else {
+					sh_index = (shared_indextype) l;
+				}
+				if (gtile.thread_rank() == 0) {
+					// Store the address to the tree in the cache in the work tile.
+					shared[OPENTILEOFFSET+i] = sh_index;
+				}
 			}
-			else {
-				sh_index = (shared_indextype) l;
-			}
-			if (gtile.thread_rank() == 0) {
-				// Store the address to the tree in the cache in the work tile.
-				shared[OPENTILEOFFSET+i] = sh_index;
+		}
+		else {
+			// Remove global hash table addresses from the cache to prepare the cache for the next iteration.
+			#pragma unroll
+			for (i = THREAD_ID; (i*3)+2 < d_shared_cache_size - CACHEOFFSET; i += BLOCK_SIZE) {
+				if (cached_node_contains_global_address(shared[CACHEOFFSET+(i*3)+2])) {
+					// The original cache pointers.
+					l = shared[CACHEOFFSET+(i*3)];
+					// Reconstruct the node.
+					shared[CACHEOFFSET+(i*3)] = get_left({% if compact_hash_table %}d_q_i{% else %}d_q{% endif %}[global_address(shared[CACHEOFFSET+(i*3)+2])]);
+					shared[CACHEOFFSET+(i*3)+2] = l;
+				}
 			}
 		}
 		__syncthreads();
