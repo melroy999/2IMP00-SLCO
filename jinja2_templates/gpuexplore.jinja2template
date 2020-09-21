@@ -337,22 +337,27 @@ inline __device__ bool cached_node_is_new_leaf(shared_inttype pointers) {
 	return pointers == CACHE_POINTERS_NEW_LEAF;
 }
 
-inline __device__ void set_cache_pointers_to_global_address(volatile shared_inttype *pointers, indextype address) {
+// The cache pointers of a node are assigned a global hash table address by setting the highest two bits
+// of the cache pointers to '11' and setting the remaining bits to the address. After this function is called,
+// typically the original cache pointers are stored in the first half of the node itself, to allow efficient follow-up\
+// iterations in the successor generation procedure. Looking up the original node is faster than reconstructing
+// cache pointers.
+inline __device__ void set_cache_pointers_to_global_address(volatile shared_inttype *pointers, inttype addr) {
 	// The highest two bits in pointers are set to indicate that it now stores a global memory address.
-	*pointers = address | 0xC0000000;
+	*pointers = addr | 0xC0000000;
 }
 
-inline __device__ bool cache_pointers_contain_global_address(shared_inttype pointers) {
+inline __device__ bool cached_node_contains_global_address(shared_inttype pointers) {
 	return (pointers & 0xC0000000) == 0xC0000000;
 }
 
-// Filter the bookkeeping bits of a global memory index stored in the cache.
-inline __device__ shared_inttype global_address(shared_inttype address) {
-	return address & 0x3FFFFFFF;
+// Extract the global address from cache pointers.
+inline __device__ inttype global_address(shared_inttype pointers) {
+	return (pointers & 0x3FFFFFFF);
 }
 
 inline __device__ bool cached_node_is_new(shared_inttype pointers) {
-	return (cached_node_is_new_leaf(pointers) || cached_node_is_new_root(pointers) || cached_node_is_new_nonleaf(pointers));
+	return (pointers & 0xC0000000) != 0x00000000;
 }
 
 {% endif %}
@@ -1234,7 +1239,7 @@ inline __device__ uint64_t {% if compact_hash_table %}U{% endif %}HASH_INIT(node
 	return node1;
 }
 
-inline __device__ indextype {% if compact_hash_table %}U{% endif %}HASH(uint8_t id, uint64_t node) {
+inline __device__ {% if compact_hash_table %}nodetype U{% else %}indextype{% endif %}HASH(uint8_t id, uint64_t node) {
 	uint64_t node1 = node;
 	switch (id) {
 		case 0:
@@ -1537,7 +1542,7 @@ inline __device__ indextype {% if compact_hash_table %}U{% endif %}HASH(uint8_t 
 			break;
 	}
 	{% if compact_hash_table %}
-	return 2*(node1 & {{(nr_bits_address_internal|pow2-1)|hexa}});
+	return node1;
 	{% elif nr_bits_address_root <= 32 %}
 	return ((node1 & {{(nr_bits_address_root|pow2-1)|hexa}})*d_hash_table_size) >> {{nr_bits_address_root}};
 	{% else %}
@@ -2262,11 +2267,11 @@ inline __host__ __device__ nodetype HASH_INVERSE(uint8_t id, nodetype node) {
 
 // Hash functions.
 inline __device__ nodetype HASH(uint8_t id, nodetype node, bool is_root) {
-	if (!is_root) {
-		return (nodetype) UHASH(id, node);
+	if (is_root) {
+		return RHASH(id, node);
 	}
 	else {
-		return RHASH(id, node);
+		return UHASH(id, node);
 	}
 }
 
@@ -2293,7 +2298,7 @@ inline __host__ __device__ nodetype get_uncompressed_node_root(compressed_nodety
 
 // Extract a global memory internal hash table index from a given hash.
 inline __device__ indextype get_index(nodetype h) {
-	return (indextype) (h >> {{nr_bits_address_internal}});
+	return (indextype) (h >> {{2*nr_bits_address_internal - nr_bits_address_root}});
 }
 
 // Construct from a hash and a hash function ID a compressed root vectortree node.
@@ -2448,6 +2453,8 @@ __device__ void FINDORPUT_MANY(compressed_nodetype *d_q{% if compact_hash_table 
 				CONTINUE = 2;
 			}
 			else {
+				// Preserve original cache pointers for future successor generation iterations.
+				shared[CACHEOFFSET+(i*3)] = shared[CACHEOFFSET+(i*3)+2];
 				// Store global memory address in cache.
 				set_cache_pointers_to_global_address(&shared[CACHEOFFSET+(i*3)+2], addr);
 			}
@@ -2460,7 +2467,7 @@ __device__ void FINDORPUT_MANY(compressed_nodetype *d_q{% if compact_hash_table 
 					// Look up left child and check for presence of global memory address.
 					node_pointers_child = sv_step(i, false);
 					node_pointers_child = shared[CACHEOFFSET+(node_pointers_child*3)+2];
-					if (cache_pointers_contain_global_address(node_pointers_child)) {
+					if (cached_node_contains_global_address(node_pointers_child)) {
 						set_left_in_vectortree_node(&node, node_pointers_child);
 						// Copy back to shared memory.
 						shared[CACHEOFFSET+(i*3)] = get_left(node);
@@ -2471,7 +2478,7 @@ __device__ void FINDORPUT_MANY(compressed_nodetype *d_q{% if compact_hash_table 
 					// Look up right child and check for presence of global memory address.
 					node_pointers_child = sv_step(i, true);
 					node_pointers_child = shared[CACHEOFFSET+(node_pointers_child*3)+2];
-					if (cache_pointers_contain_global_address(node_pointers_child)) {
+					if (cached_node_contains_global_address(node_pointers_child)) {
 						set_right_in_vectortree_node(&node, node_pointers_child);
 						// Copy back to shared memory.
 						shared[CACHEOFFSET+(i*3)] = get_left(node);
@@ -2486,8 +2493,14 @@ __device__ void FINDORPUT_MANY(compressed_nodetype *d_q{% if compact_hash_table 
 						CONTINUE = 2;
 					}
 					else if (!cached_node_is_new_root(node_pointers)) {
+						// Preserve original cache pointers for future successor generation iterations.
+						shared[CACHEOFFSET+(i*3)] = shared[CACHEOFFSET+(i*3)+2];
 						// Store global memory address in cache.
-						set_cache_pointers_to_global_address(&(shared[CACHEOFFSET+(i*3)+2]), addr);
+						set_cache_pointers_to_global_address(&shared[CACHEOFFSET+(i*3)+2], addr);
+					}
+					else {
+						// New root. Reset the cache pointers to make it old.
+						shared[CACHEOFFSET+(i*3)+2] = 0;
 					}
 				}
 				else {
@@ -2511,13 +2524,13 @@ __device__ void FINDORPUT_MANY(compressed_nodetype *d_q{% if compact_hash_table 
 					// If the node is marked new, this is a node still to be processed.
 					if (cached_node_is_new(node_pointers)) {
 						// If this is a root node, processing is only required if the pointers do not contain a global address.
-						if (!cached_node_is_new_root(node_pointers) || !cache_pointers_contain_global_address(node_pointers)) {
+						if (!cached_node_is_new_root(node_pointers) || !cached_node_contains_global_address(node_pointers)) {
 							node = combine_halfs(shared[CACHEOFFSET+(i*3)], shared[CACHEOFFSET+(i*3)+1]);
 							if (vectortree_node_contains_left_gap(node)) {
 								// Look up left child and check for presence of global memory address.
 								node_pointers_child = sv_step(i, false);
 								node_pointers_child = shared[CACHEOFFSET+(node_pointers_child*3)+2];
-								if (cache_pointers_contain_global_address(node_pointers_child)) {
+								if (cached_node_contains_global_address(node_pointers_child)) {
 									set_left_in_vectortree_node(&node, node_pointers_child);
 									// Copy back to shared memory.
 									shared[CACHEOFFSET+(i*3)] = get_left(node);
@@ -2543,8 +2556,14 @@ __device__ void FINDORPUT_MANY(compressed_nodetype *d_q{% if compact_hash_table 
 									CONTINUE = 2;
 								}
 								else if (!cached_node_is_new_root(node)) {
+									// Preserve original cache pointers for future successor generation iterations.
+									shared[CACHEOFFSET+(i*3)] = shared[CACHEOFFSET+(i*3)+2];
 									// Store global memory address in cache.
-									set_cache_pointers_to_global_address(&(shared[CACHEOFFSET+(i*3)+2]), addr);
+									set_cache_pointers_to_global_address(&shared[CACHEOFFSET+(i*3)+2], addr);
+								}
+								else {
+									// New root. Reset the cache pointers to make it old.
+									shared[CACHEOFFSET+(i*3)+2] = 0;
 								}
 							}
 							else {
