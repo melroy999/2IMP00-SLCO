@@ -511,58 +511,67 @@ def vectorstructure_to_string(D):
 
 def cuda_xor_lr(a, nrbits, ic):
 	"""Produce CUDA code to compute an XOR + left & right bit shift operation on a variable node1."""
-	result = "node1 ^= (node1 << " + str(a) + ");\n" + indentspace(ic)
-	if nrbits < 64:
-		result += "node1 &= " + str(hex(int(math.pow(2,nrbits))-1)) + "L;\n" + indentspace(ic)
-	result += "node1 ^= (node1 >> " + str(nrbits-a) + ");"
+	result = "node1 = xor_shft2_" + str(nrbits) + "(node1, " + str(a) + ", " + str(nrbits-a) + ");"
 	return result
 
 def cuda_xor_lr_inv(a, nrbits, ic):
 	"""Produce CUDA code to compute the inverse of an XOR + left & right bit shift operation on a variable node1."""
-	result = ""
-	i = a
-	while i < nrbits:
-		result += "node1 ^= (node1 << " + str(i) + ");\n" + indentspace(ic)
-		i += i
-	if nrbits < 64:
-		result += "node1 &= " + str(hex(int(math.pow(2,nrbits))-1)) + "L;\n" + indentspace(ic)
-	i = nrbits-a
-	while i < nrbits:
-		result += "node1 ^= (node1 >> " + str(i) + ");"
-		if i+i < nrbits:
-			result += "\n" + indentspace(ic)
-		i += i
+	result = "node1 = xor_shft2_inv_" + str(nrbits) + "(node1, " + str(a) + ", " + str(nrbits-a) + ");"
 	return result
+
+# def cuda_xor_lr_inv(a, nrbits, ic):
+# 	"""Produce CUDA code to compute the inverse of an XOR + left & right bit shift operation on a variable node1."""
+# 	result = ""
+# 	i = a
+# 	while i < nrbits:
+# 		result += "node1 ^= (node1 << " + str(i) + ");\n" + indentspace(ic)
+# 		i += i
+# 	if nrbits < 64:
+# 		result += "node1 &= " + str(hex(int(math.pow(2,nrbits))-1)) + "L;\n" + indentspace(ic)
+# 	i = nrbits-a
+# 	while i < nrbits:
+# 		result += "node1 ^= (node1 >> " + str(i) + ");"
+# 		if i+i < nrbits:
+# 			result += "\n" + indentspace(ic)
+# 		i += i
+# 	return result
 
 def cuda_xor_r3(a, b, c, ic):
 	"""Produce CUDA code to compute an XOR + 3 right bit shifts on a variable node1."""
-	result = "node1 ^= (node1 >> " + str(a) + ");\n" + indentspace(ic)
-	result += "node1 ^= (node1 >> " + str(b) + ");\n" + indentspace(ic)
-	result += "node1 ^= (node1 >> " + str(c) + ");"
+	result = "node1 ^= rshft(node1, " + str(a) + ");\n" + indentspace(ic)
+	result += "node1 ^= rshft(node1, " + str(b) + ");\n" + indentspace(ic)
+	result += "node1 ^= rshft(node1, " + str(c) + ");"
 	return result
 
-def cuda_xor_r3_inv(a, b, c, nrbits, ic):
-	"""Produce CUDA code to compute the inverse of an XOR + 3 right bit shifts on a variable node1."""
-	result = ""
-	i = c
-	while i < nrbits:
-		result += "node1 ^= (node1 >> " + str(i) + ");\n" + indentspace(ic)
-		i += i
-	i = b
-	while i < nrbits:
-		result += "node1 ^= (node1 >> " + str(i) + ");\n" + indentspace(ic)
-		i += i
-	i = a
-	while i < nrbits:
-		result += "node1 ^= (node1 >> " + str(i) + ");"
-		if i+i < nrbits:
-			result += "\n" + indentspace(ic)
-		i += i
+def cuda_xor_r3_inv(a, b, c, ic):
+	"""Produce CUDA code to compute an XOR + 3 right bit shifts on a variable node1."""
+	result = "node1 = xor_rshft_inv(node1, " + str(a) + ");\n" + indentspace(ic)
+	result += "node1 = xor_rshft_inv(node1, " + str(b) + ");\n" + indentspace(ic)
+	result += "node1 = xor_rshft_inv(node1, " + str(c) + ");"
 	return result
+
+# def cuda_xor_r3_inv(a, b, c, nrbits, ic):
+# 	"""Produce CUDA code to compute the inverse of an XOR + 3 right bit shifts on a variable node1."""
+# 	result = ""
+# 	i = c
+# 	while i < nrbits:
+# 		result += "node1 ^= (node1 >> " + str(i) + ");\n" + indentspace(ic)
+# 		i += i
+# 	i = b
+# 	while i < nrbits:
+# 		result += "node1 ^= (node1 >> " + str(i) + ");\n" + indentspace(ic)
+# 		i += i
+# 	i = a
+# 	while i < nrbits:
+# 		result += "node1 ^= (node1 >> " + str(i) + ");"
+# 		if i+i < nrbits:
+# 			result += "\n" + indentspace(ic)
+# 		i += i
+# 	return result
 
 def cuda_xor_r(a, ic):
 	"""Produce CUDA code to compute an XOR + 1 right bit shift on a variable node1."""
-	result = "node1 ^= (node1 >> " + str(a) + ");"
+	result = "node1 ^= rshft(node1, " + str(a) + ");"
 	return result
 
 def cuda_xor_r_inv(a, nrbits, ic):

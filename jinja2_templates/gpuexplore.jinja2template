@@ -201,43 +201,77 @@ inline __host__ __device__ shared_indextype fast_modulo(shared_indextype x, shar
 // *** START BIT OPERATIONS ***
 
 {% if compact_hash_table %}
-// Bit left rotation function for {{nr_bits_address_internal*2}} bits.
-inline __host__ __device__ nodetype rot_{{nr_bits_address_internal*2}}(const nodetype x, uint8_t i) {
-	return (x << i) | (x >> ({{nr_bits_address_internal*2}}-i));
+// Bit left shift function for {{nr_bits_address_internal*2}} bits.
+inline __host__ __device__ uint64_t lshft_{{nr_bits_address_internal*2}}(const uint64_t x, uint8_t i) {
+	uint64_t y = (x << i);
+	return y & {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
 }
 
-// XOR two times bit left rotation function for {{nr_bits_address_internal*2}} bits.
-inline __host__ __device__ nodetype xor_rot2_{{nr_bits_address_internal*2}}(nodetype x, uint8_t a, uint8_t b) {
-	nodetype y = x ^ rot_{{nr_bits_address_internal*2}}(x,a);
-	y = y ^ rot_{{nr_bits_address_internal*2}}(y,b);
-	return y &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+// Multiplication modulo 2^{{nr_bits_address_internal*2}}.
+inline __host__ __device__ uint64_t mult_{{nr_bits_address_internal*2}}(const uint64_t x, uint64_t a) {
+	return ((x * a) & {{((nr_bits_address_internal*2)|pow2-1)|hexa}});
 }
 
-// Inverse function for XOR two times bit left rotation, mod {{nr_bits_address_internal*2}}.
-inline __host__ __device__ nodetype xor_rot2_inv_{{nr_bits_address_internal*2}}(nodetype x, uint8_t a, uint8_t b) {
-	nodetype y = xor_rot2_{{nr_bits_address_internal*2}}(x, a, b);
-	uint8_t a1 = (8*a) & {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-	uint8_t b1 = (8*b) & {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-	y = xor_rot2_{{nr_bits_address_internal*2}}(y, a1, b1);
-	a1 = (a1+a1) & {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-	b1 = (b1+b1) & {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-	y = xor_rot2_{{nr_bits_address_internal*2}}(y, a1, b1);
-	a1 = (a1+a1) & {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-	b1 = (b1+b1) & {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-	y = xor_rot2_{{nr_bits_address_internal*2}}(y, a1, b1);
+// XOR two times bit shift function for {{nr_bits_address_internal*2}} bits.
+inline __host__ __device__ nodetype xor_shft2_{{nr_bits_address_internal*2}}(const uint64_t x, uint8_t a, uint8_t b) {
+	uint64_t y = (x ^ lshft_{{nr_bits_address_internal*2}}(x,a));
+	y = (y ^ rshft(y,b));
+	return y;
+}
+
+// Inverse function for XOR two times bit shift, mod 2^{{nr_bits_address_internal*2}}.
+inline __host__ __device__ uint64_t xor_shft2_inv_{{nr_bits_address_internal*2}}(uint64_t x, uint8_t a, uint8_t b) {
+	uint64_t y = x;
+	int i = b;
+	while (1) {
+		y = (x ^ rshft(y, b));
+		if (i >= {{nr_bits_address_internal*2}}) {
+			break;
+		}
+		i += b;
+	}
+	uint64_t z = y;
+	i = a;
+	while (1) {
+		z = (y ^ lshft_{{nr_bits_address_internal*2}}(z, a));
+		if (i >= {{nr_bits_address_internal*2}}) {
+			break;
+		}
+		i += a;
+	}
+	return z & {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+}
+
+// Inverse function for XOR bit right shift.
+inline __host__ __device__ uint64_t xor_rshft_inv(uint64_t x, uint8_t a) {
+	uint64_t y = x;
+	int i = a;
+	while (1) {
+		y = (x ^ rshft(y, a));
+		if (i >= {{nr_bits_address_internal*2}}) {
+			break;
+		}
+		i += b;
+	}
 	return y;
 }
 
 {% endif %}
-// Bit left rotation function for 64 bits.
-inline __device__ uint64_t rot_64(const uint64_t x, uint8_t i) {
-	return (x << i) | (x >> 64-i);
+// Bit left shift function for 64 bits.
+inline __device__ uint64_t lshft_64(const uint64_t x, uint8_t i) {
+	return (x << i);
 }
 
-// XOR two times bit left rotation function for 64 bits.
+// Bit right shift function.
+inline __device__ uint64_t rshft(const uint64_t x, uint8_t i) {
+	return (x >> i);
+}
+
+// XOR two times bit shift function for 64 bits.
 inline __device__ uint64_t xor_rot2_64(uint64_t x, uint8_t a, uint8_t b) {
-	nodetype y = x ^ rot_64(x,a);
-	return y ^ rot_64(y,b);
+	uint64_t y = (x ^ lshft_64(x,a));
+	y = (y ^ rshft(x,b));
+	return y;
 }
 
 // *** END BIT OPERATIONS ***
@@ -1596,17 +1630,17 @@ inline __device__ {% if compact_hash_table %}nodetype U{% else %}indextype{% end
 {% if compact_hash_table %}
 // Initial bitmixer functions.
 inline __device__ nodetype RHASH_INIT(nodetype node) {
-	nodetype node1 = xor_rot2_{{nr_bits_address_internal*2}}(node, 38, 14);
+	nodetype node1 = xor_shft2_{{nr_bits_address_internal*2}}(node, 38, 14);
 	node1 ^= 0x01b54a32d192ed03L;
-	node1 *= 0x02f17502108ef2d9L;
+	node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x02f17502108ef2d9L);
 	return node1;
 }
 
 inline __host__ __device__ nodetype RHASH_INIT_INVERSE(nodetype node) {
 	nodetype node1 = node;
-	node1 *= 0x4ca582acb86d69L;
-	node1 ^= 0x2106ccfa448e5abL;
-	node1 = xor_rot2_inv_{{nr_bits_address_internal*2}}(node, 38, 14);
+	node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x4ca582acb86d69L);
+	node1 ^= 0x01b54a32d192ed03L;
+	node1 = xor_shft2_inv_{{nr_bits_address_internal*2}}(node1, 38, 14);
 	return node1;
 }
 
@@ -1625,321 +1659,257 @@ inline __device__ nodetype RHASH(uint8_t id, nodetype node) {
 		case 0:
 			{{12|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			{{37|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x346d5269d6a44c1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x346d5269d6a44c1L);
 			{{43|cuda_xor_r3(31, 23, 3)}}
-			node1 *= 0x36d3c2b4804a8e1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x36d3c2b4804a8e1L);
 			{{28|cuda_xor_r(3)}}
 			break;
 		case 1:
 			{{10|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			{{35|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x3866c0692e5e421L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3866c0692e5e421L);
 			{{40|cuda_xor_r3(34, 19, 3)}}
-			node1 *= 0x39838add4d38e61L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x39838add4d38e61L);
 			{{26|cuda_xor_r(3)}}
 			break;
 		case 2:
 			{{14|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			{{39|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x3a5787914312801L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3a5787914312801L);
 			{{44|cuda_xor_r3(30, 15, 3)}}
-			node1 *= 0x3afb7bb024c4681L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3afb7bb024c4681L);
 			{{30|cuda_xor_r(3)}}
 			break;
 		case 3:
 			{{13|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			{{34|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x3b7e13a202e41c1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3b7e13a202e41c1L);
 			{{39|cuda_xor_r3(33, 25, 3)}}
-			node1 *= 0x3be88e9173fb7c1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3be88e9173fb7c1L);
 			{{28|cuda_xor_r(3)}}
 			break;
 		case 4:
 			{{11|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			{{35|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x3c4109af0f01241L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3c4109af0f01241L);
 			{{23|cuda_xor_r3(30, 26, 3)}}
-			node1 *= 0x3c8bbb336719fc1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3c8bbb336719fc1L);
 			{{20|cuda_xor_r(3)}}
 			break;
 		case 5:
 			{{15|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			{{33|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x3ccba0994f7af81L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3ccba0994f7af81L);
 			{{41|cuda_xor_r3(36, 20, 3)}}
-			node1 *= 0x3d02e8d5ad09d61L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3d02e8d5ad09d61L);
 			{{23|cuda_xor_r(3)}}
 			break;
 		case 6:
 			{{34|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			{{12|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x3d3335b9a01aac1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3d3335b9a01aac1L);
 			{{38|cuda_xor_r3(42, 24, 3)}}
-			node1 *= 0x3d5dc5b2dd89301L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3d5dc5b2dd89301L);
 			{{29|cuda_xor_r(3)}}
 			break;
 		case 7:
 			{{23|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			{{35|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x3d839037059b321L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3d839037059b321L);
 			{{26|cuda_xor_r3(46, 23, 3)}}
-			node1 *= 0x3da557a7a356621L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3da557a7a356621L);
 			{{26|cuda_xor_r(3)}}
 			break;
 		case 8:
 			{{31|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			{{34|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x3dc3b70f5d13b41L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3dc3b70f5d13b41L);
 			{{29|cuda_xor_r3(40, 20, 3)}}
-			node1 *= 0x3ddf2c9626244a1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3ddf2c9626244a1L);
 			{{27|cuda_xor_r(3)}}
 			break;
 		case 9:
 			{{24|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			{{20|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x3df81dfdd3d5e01L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3df81dfdd3d5e01L);
 			{{40|cuda_xor_r3(33, 25, 3)}}
-			node1 *= 0x3e0ee0bdbcd6ea1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3e0ee0bdbcd6ea1L);
 			{{30|cuda_xor_r(3)}}
 			break;
 		case 10:
 			{{10|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			{{19|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x3e23ba68e0e7381L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3e23ba68e0e7381L);
 			{{26|cuda_xor_r3(46, 23, 3)}}
-			node1 *= 0x3e36e66407cf201L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3e36e66407cf201L);
 			{{28|cuda_xor_r(3)}}
 			break;
 		case 11:
 			{{14|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			{{30|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x3e48961660141a1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3e48961660141a1L);
 			{{43|cuda_xor_r3(12, 26, 3)}}
-			node1 *= 0x3e58f4f3df8a861L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3e58f4f3df8a861L);
 			{{31|cuda_xor_r(3)}}
 			break;
 		case 12:
 			{{19|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			{{41|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x3e68266fecc08a1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3e68266fecc08a1L);
 			{{24|cuda_xor_r3(39, 21, 3)}}
-			node1 *= 0x3e764a9bd2ba4c1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3e764a9bd2ba4c1L);
 			{{25|cuda_xor_r(3)}}
 			break;
 		case 13:
 			{{28|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			{{15|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x3e837baf5cdd9e1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3e837baf5cdd9e1L);
 			{{32|cuda_xor_r3(40, 24, 3)}}
-			node1 *= 0x3e8fd1c4d2d9d01L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3e8fd1c4d2d9d01L);
 			{{27|cuda_xor_r(3)}}
 			break;
 		case 14:
 			{{43|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			{{32|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x3e9b61d7f9527a1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3e9b61d7f9527a1L);
 			{{31|cuda_xor_r3(46, 28, 3)}}
-			node1 *= 0x3ea63db9f9aa901L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3ea63db9f9aa901L);
 			{{26|cuda_xor_r(3)}}
 			break;
 		case 15:
 			{{35|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			{{42|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x3eb074fc94e0161L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3eb074fc94e0161L);
 			{{25|cuda_xor_r3(44, 29, 3)}}
-			node1 *= 0x3eba165b7e383e1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3eba165b7e383e1L);
 			{{28|cuda_xor_r(3)}}
 			break;
 		case 16:
 			{{35|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			{{49|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x3ec32dcb8264481L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3ec32dcb8264481L);
 			{{20|cuda_xor_r3(29, 44, 3)}}
-			node1 *= 0x3ecbc7575141a21L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3ecbc7575141a21L);
 			{{35|cuda_xor_r(3)}}
 			break;
 		case 17:
 			{{45|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			{{29|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x3ed3ec3963f4841L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3ed3ec3963f4841L);
 			{{15|cuda_xor_r3(44, 33, 3)}}
-			node1 *= 0x3edba5bb75d7341L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3edba5bb75d7341L);
 			{{41|cuda_xor_r(3)}}
 			break;
 		case 18:
 			{{20|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			{{36|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x3ee2fc3e0dbac21L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3ee2fc3e0dbac21L);
 			{{21|cuda_xor_r3(41, 13, 3)}}
-			node1 *= 0x3ee9f6ba8914441L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3ee9f6ba8914441L);
 			{{34|cuda_xor_r(3)}}
 			break;
 		case 19:
 			{{10|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			{{8|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x3ef09bb82cdbe21L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3ef09bb82cdbe21L);
 			{{49|cuda_xor_r3(11, 34, 3)}}
-			node1 *= 0x3ef6f14ae3b4501L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3ef6f14ae3b4501L);
 			{{15|cuda_xor_r(3)}}
 			break;
 		case 20:
 			{{29|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			{{50|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x3efcfd121b9a201L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3efcfd121b9a201L);
 			{{43|cuda_xor_r3(39, 49, 3)}}
-			node1 *= 0x3f02c33f9a541c1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3f02c33f9a541c1L);
 			{{24|cuda_xor_r(3)}}
 			break;
 		case 21:
 			{{38|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			{{31|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x3f08497eaba1a01L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3f08497eaba1a01L);
 			{{50|cuda_xor_r3(34, 48, 3)}}
-			node1 *= 0x3f0d9313139b901L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3f0d9313139b901L);
 			{{44|cuda_xor_r(3)}}
 			break;
 		case 22:
 			{{14|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			{{49|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x3f12a43ce6c0301L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3f12a43ce6c0301L);
 			{{11|cuda_xor_r3(23, 11, 3)}}
-			node1 *= 0x3f178047799bae1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3f178047799bae1L);
 			{{8|cuda_xor_r(3)}}
 			break;
 		case 23:
 			{{20|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			{{19|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x3f1c2a814d54a41L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3f1c2a814d54a41L);
 			{{50|cuda_xor_r3(29, 28, 3)}}
-			node1 *= 0x3f20a5bf510f741L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3f20a5bf510f741L);
 			{{43|cuda_xor_r(3)}}
 			break;
 		case 24:
 			{{31|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			{{18|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x3f24f45c5a49c41L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3f24f45c5a49c41L);
 			{{39|cuda_xor_r3(14, 32, 3)}}
-			node1 *= 0x3f2919aea827c81L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3f2919aea827c81L);
 			{{20|cuda_xor_r(3)}}
 			break;
 		case 25:
 			{{26|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			{{35|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x3f2d1798bf827a1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3f2d1798bf827a1L);
 			{{18|cuda_xor_r3(24, 50, 3)}}
-			node1 *= 0x3f30effeb7d35a1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3f30effeb7d35a1L);
 			{{25|cuda_xor_r(3)}}
 			break;
 		case 26:
 			{{48|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			{{49|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x3f34a542fbc9a21L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3f34a542fbc9a21L);
 			{{28|cuda_xor_r3(33, 41, 3)}}
-			node1 *= 0x3f3838cfc8b3a01L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3f3838cfc8b3a01L);
 			{{17|cuda_xor_r(3)}}
 			break;
 		case 27:
 			{{26|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			{{20|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x3f3bad0a59f2881L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3f3bad0a59f2881L);
 			{{46|cuda_xor_r3(43, 23, 3)}}
-			node1 *= 0x3f3f02e25afd0c1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3f3f02e25afd0c1L);
 			{{18|cuda_xor_r(3)}}
 			break;
 		case 28:
 			{{32|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			{{12|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x3f423cbf612eea1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3f423cbf612eea1L);
 			{{10|cuda_xor_r3(15, 49, 3)}}
-			node1 *= 0x3f455b15e806c41L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3f455b15e806c41L);
 			{{29|cuda_xor_r(3)}}
 			break;
 		case 29:
 			{{30|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			{{49|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x3f485fd255036a1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3f485fd255036a1L);
 			{{27|cuda_xor_r3(45, 36, 3)}}
-			node1 *= 0x3f4b4b6a79ccae1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3f4b4b6a79ccae1L);
 			{{49|cuda_xor_r(3)}}
 			break;
 		case 30:
 			{{28|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			{{17|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x3f4e204983b0bc1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3f4e204983b0bc1L);
 			{{12|cuda_xor_r3(39, 34, 3)}}
-			node1 *= 0x3f50de694fe52a1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3f50de694fe52a1L);
 			{{43|cuda_xor_r(3)}}
 			break;
 		case 31:
 			{{47|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
 			{{10|cuda_xor_lr(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x3f53873be153f21L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3f53873be153f21L);
 			{{28|cuda_xor_r3(39, 50, 3)}}
-			node1 *= 0x3f561bb689cd3e1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3f561bb689cd3e1L);
 			{{7|cuda_xor_r(3)}}
 			break;
 	}
@@ -1952,321 +1922,257 @@ inline __host__ __device__ nodetype HASH_INVERSE(uint8_t id, nodetype node) {
 	switch (id) {
 		case 0:
 			{{28|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x3e340cf8be69b21L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-			{{43|cuda_xor_r3_inv(31, 23, nr_bits_address_internal*2, 3)}}
-			node1 *= 0x16e2e65fde04b41L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3e340cf8be69b21L);
+			{{43|cuda_xor_r3_inv(31, 23, 3)}}
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x16e2e65fde04b41L);
 			{{37|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			{{12|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 1:
 			{{26|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x27e8bdf6b3595a1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-			{{40|cuda_xor_r3_inv(34, 19, nr_bits_address_internal*2, 3)}}
-			node1 *= 0x3234705f3029fe1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};			
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x27e8bdf6b3595a1L);
+			{{40|cuda_xor_r3_inv(34, 19, 3)}}
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3234705f3029fe1L);
 			{{35|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			{{10|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 2:
 			{{30|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x38516503a7df981L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-			{{44|cuda_xor_r3_inv(30, 15, nr_bits_address_internal*2, 3)}}
-			node1 *= 0x3880f7d420ed801L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x38516503a7df981L);
+			{{44|cuda_xor_r3_inv(30, 15, 3)}}
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3880f7d420ed801L);
 			{{39|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			{{14|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 3:
 			{{28|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x3a638f15ba85841L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-			{{39|cuda_xor_r3_inv(33, 25, nr_bits_address_internal*2, 3)}}
-			node1 *= 0x20fabc04158ce41L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3a638f15ba85841L);
+			{{39|cuda_xor_r3_inv(33, 25, 3)}}
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x20fabc04158ce41L);
 			{{34|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			{{13|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 4:
 			{{20|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x3592d3c27c27041L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-			{{23|cuda_xor_r3_inv(30, 26, nr_bits_address_internal*2, 3)}}
-			node1 *= 0x4f6952eaf8fdc1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3592d3c27c27041L);
+			{{23|cuda_xor_r3_inv(30, 26, 3)}}
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x4f6952eaf8fdc1L);
 			{{35|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			{{11|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 5:
 			{{23|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x1a0c447ad94c6a1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-			{{41|cuda_xor_r3_inv(36, 20, nr_bits_address_internal*2, 3)}}
-			node1 *= 0x2a87df258789081L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x1a0c447ad94c6a1L);
+			{{41|cuda_xor_r3_inv(36, 20, 3)}}
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x2a87df258789081L);
 			{{33|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			{{15|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 6:
 			{{29|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
-			node1 *= 0xa6775beb906d01L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-			{{38|cuda_xor_r3_inv(42, 24, nr_bits_address_internal*2, 3)}}
-			node1 *= 0x37e24eee615e541L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0xa6775beb906d01L);
+			{{38|cuda_xor_r3_inv(42, 24, 3)}}
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x37e24eee615e541L);
 			{{12|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			{{34|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 7:
 			{{26|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x33b48646b8f9de1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-			{{26|cuda_xor_r3_inv(46, 23, nr_bits_address_internal*2, 3)}}
-			node1 *= 0x14eaae5968790e1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x33b48646b8f9de1L);
+			{{26|cuda_xor_r3_inv(46, 23, 3)}}
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x14eaae5968790e1L);
 			{{35|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			{{23|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 8:
 			{{27|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x1fdf88f19a49f61L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-			{{29|cuda_xor_r3_inv(40, 20, nr_bits_address_internal*2, 3)}}
-			node1 *= 0xdbbcfbf69154c1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x1fdf88f19a49f61L);
+			{{29|cuda_xor_r3_inv(40, 20, 3)}}
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0xdbbcfbf69154c1L);
 			{{34|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			{{31|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 9:
 			{{30|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x2565bb394a9f561L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-			{{40|cuda_xor_r3_inv(33, 25, nr_bits_address_internal*2, 3)}}
-			node1 *= 0x209a299946a201L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x2565bb394a9f561L);
+			{{40|cuda_xor_r3_inv(33, 25, 3)}}
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x209a299946a201L);
 			{{20|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			{{24|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 10:
 			{{28|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x2749093cc470e01L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-			{{26|cuda_xor_r3_inv(46, 23, nr_bits_address_internal*2, 3)}}
-			node1 *= 0x397388d192dcc81L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x2749093cc470e01L);
+			{{26|cuda_xor_r3_inv(46, 23, 3)}}
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x397388d192dcc81L);
 			{{19|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			{{10|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 11:
 			{{31|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x31b72238ae7fba1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-			{{43|cuda_xor_r3_inv(12, 26, nr_bits_address_internal*2, 3)}}
-			node1 *= 0x17db804c1d6e261L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x31b72238ae7fba1L);
+			{{43|cuda_xor_r3_inv(12, 26, 3)}}
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x17db804c1d6e261L);
 			{{30|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			{{14|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 12:
 			{{25|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x17cd12a8d2eeb41L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-			{{24|cuda_xor_r3_inv(39, 21, nr_bits_address_internal*2, 3)}}
-			node1 *= 0xdda8affbefdb61L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x17cd12a8d2eeb41L);
+			{{24|cuda_xor_r3_inv(39, 21, 3)}}
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0xdda8affbefdb61L);
 			{{41|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			{{19|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 13:
 			{{27|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x13d6fbb801b6301L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-			{{32|cuda_xor_r3_inv(40, 24, nr_bits_address_internal*2, 3)}}
-			node1 *= 0x34aade611b82a21L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x13d6fbb801b6301L);
+			{{32|cuda_xor_r3_inv(40, 24, 3)}}
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x34aade611b82a21L);
 			{{15|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			{{28|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 14:
 			{{26|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x303124e6af65701L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-			{{31|cuda_xor_r3_inv(46, 28, nr_bits_address_internal*2, 3)}}
-			node1 *= 0x2b47151bd0a7c61L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x303124e6af65701L);
+			{{31|cuda_xor_r3_inv(46, 28, 3)}}
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x2b47151bd0a7c61L);
 			{{32|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			{{43|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 15:
 			{{28|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x1941bdcc12c0021L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-			{{25|cuda_xor_r3_inv(44, 29, nr_bits_address_internal*2, 3)}}
-			node1 *= 0x998456ffaa62a1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x1941bdcc12c0021L);
+			{{25|cuda_xor_r3_inv(44, 29, 3)}}
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x998456ffaa62a1L);
 			{{42|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			{{35|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 16:
 			{{35|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x2efb706fdede9e1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-			{{20|cuda_xor_r3_inv(29, 44, nr_bits_address_internal*2, 3)}}
-			node1 *= 0x3933d59b50dfb81L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x2efb706fdede9e1L);
+			{{20|cuda_xor_r3_inv(29, 44, 3)}}
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3933d59b50dfb81L);
 			{{49|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			{{35|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 17:
 			{{41|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x21a8aeb5ab11cc1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-			{{15|cuda_xor_r3_inv(44, 33, nr_bits_address_internal*2, 3)}}
-			node1 *= 0x26923bf4120c7c1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x21a8aeb5ab11cc1L);
+			{{15|cuda_xor_r3_inv(44, 33, 3)}}
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x26923bf4120c7c1L);
 			{{29|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			{{45|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 18:
 			{{34|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x399c741b25ccbc1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-			{{21|cuda_xor_r3_inv(41, 13, nr_bits_address_internal*2, 3)}}
-			node1 *= 0x31b1f4e059ed7e1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x399c741b25ccbc1L);
+			{{21|cuda_xor_r3_inv(41, 13, 3)}}
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x31b1f4e059ed7e1L);
 			{{36|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			{{20|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 19:
 			{{15|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x1880d14f55dbb01L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-			{{49|cuda_xor_r3_inv(11, 34, nr_bits_address_internal*2, 3)}}
-			node1 *= 0x201dedfc54d45e1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x1880d14f55dbb01L);
+			{{49|cuda_xor_r3_inv(11, 34, 3)}}
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x201dedfc54d45e1L);
 			{{8|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			{{10|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 20:
 			{{24|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x2afe38ab861ce41L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-			{{43|cuda_xor_r3_inv(39, 49, nr_bits_address_internal*2, 3)}}
-			node1 *= 0xdf792e0ca5e01L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x2afe38ab861ce41L);
+			{{43|cuda_xor_r3_inv(39, 49, 3)}}
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0xdf792e0ca5e01L);
 			{{50|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			{{29|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 21:
 			{{44|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x11e22dcd774701L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-			{{50|cuda_xor_r3_inv(34, 48, nr_bits_address_internal*2, 3)}}
-			node1 *= 0x36a0d8d37e9e601L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x11e22dcd774701L);
+			{{50|cuda_xor_r3_inv(34, 48, 3)}}
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x36a0d8d37e9e601L);
 			{{31|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			{{38|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 22:
 			{{8|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x358ac41663d0921L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-			{{11|cuda_xor_r3_inv(23, 11, nr_bits_address_internal*2, 3)}}
-			node1 *= 0xa7320f9e9cfd01L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x358ac41663d0921L);
+			{{11|cuda_xor_r3_inv(23, 11, 3)}}
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0xa7320f9e9cfd01L);
 			{{49|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			{{14|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 23:
 			{{43|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x18e70c0e0a798c1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-			{{50|cuda_xor_r3_inv(29, 28, nr_bits_address_internal*2, 3)}}
-			node1 *= 0x1a5d3987f4fc5c1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x18e70c0e0a798c1L);
+			{{50|cuda_xor_r3_inv(29, 28, 3)}}
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x1a5d3987f4fc5c1L);
 			{{19|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			{{20|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 24:
 			{{20|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x114d3af41ee9c381L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-			{{39|cuda_xor_r3_inv(14, 32, nr_bits_address_internal*2, 3)}}
-			node1 *= 0x2c334d4e37573c1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x114d3af41ee9c381L);
+			{{39|cuda_xor_r3_inv(14, 32, 3)}}
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x2c334d4e37573c1L);
 			{{18|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			{{31|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 25:
 			{{25|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
-			node1 *= 0xb5b41ead3ee61L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-			{{18|cuda_xor_r3_inv(24, 50, nr_bits_address_internal*2, 3)}}
-			node1 *= 0x343bd3492677c61L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0xb5b41ead3ee61L);
+			{{18|cuda_xor_r3_inv(24, 50, 3)}}
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x343bd3492677c61L);
 			{{35|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			{{26|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 26:
 			{{17|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
-			node1 *= 0xdd46cce498c601L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-			{{28|cuda_xor_r3_inv(33, 41, nr_bits_address_internal*2, 3)}}
-			node1 *= 0xb43892c16569e1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0xdd46cce498c601L);
+			{{28|cuda_xor_r3_inv(33, 41, 3)}}
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0xb43892c16569e1L);
 			{{49|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			{{48|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 27:
 			{{18|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x3e7f2be0c9cbf41L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-			{{46|cuda_xor_r3_inv(43, 23, nr_bits_address_internal*2, 3)}}
-			node1 *= 0x2a9e04101a91781L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x3e7f2be0c9cbf41L);
+			{{46|cuda_xor_r3_inv(43, 23, 3)}}
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x2a9e04101a91781L);
 			{{20|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			{{26|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 28:
 			{{29|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x1bf68f79001a3c1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-			{{10|cuda_xor_r3_inv(15, 49, nr_bits_address_internal*2, 3)}}
-			node1 *= 0x5e966c19447561L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x1bf68f79001a3c1L);
+			{{10|cuda_xor_r3_inv(15, 49, 3)}}
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x5e966c19447561L);
 			{{12|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			{{32|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 29:
 			{{49|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x11235df1f15f921L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-			{{27|cuda_xor_r3_inv(45, 36, nr_bits_address_internal*2, 3)}}
-			node1 *= 0x5e845710612d61L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x11235df1f15f921L);
+			{{27|cuda_xor_r3_inv(45, 36, 3)}}
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x5e845710612d61L);
 			{{49|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			{{30|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 30:
 			{{43|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x27940ca3c661161L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-			{{12|cuda_xor_r3_inv(39, 34, nr_bits_address_internal*2, 3)}}
-			node1 *= 0xe1cd6bed930441L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x27940ca3c661161L);
+			{{12|cuda_xor_r3_inv(39, 34, 3)}}
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0xe1cd6bed930441L);
 			{{17|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			{{28|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
 		case 31:
 			{{7|cuda_xor_r_inv(nr_bits_address_internal*2, 3)}}
-			node1 *= 0x2bd62da95deb021L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
-			{{28|cuda_xor_r3_inv(39, 50, nr_bits_address_internal*2, 3)}}
-			node1 *= 0xe61a0f027704e1L;
-			node1 &= {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0x2bd62da95deb021L);
+			{{28|cuda_xor_r3_inv(39, 50, 3)}}
+			node1 = mult_{{nr_bits_address_internal*2}}(node1, 0xe61a0f027704e1L);
 			{{10|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			{{47|cuda_xor_lr_inv(nr_bits_address_internal*2, 3)}}
 			break;
