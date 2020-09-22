@@ -490,7 +490,7 @@ def vectorstructure_to_string(D):
 			tfirst = False
 		if nr_of_parts == 1 or not compact_hash_table:
 			vs += "[ two bits reserved, "
-		elif nr_of_parts > 1 and vectorstructure_part_size(t) > (64-1-nr_bits_address_internal()):
+		elif nr_of_parts > 1 and ((not compact_hash_table) and vectorstructure_part_size(t) > (64-2-nr_bits_address_root()) or (compact_hash_table and vectorstructure_part_size(t) > nr_bits_address_internal())):
 			vs += "[ "
 		else:
 			vs += "Combined with a non-leaf vector tree node: [ "
