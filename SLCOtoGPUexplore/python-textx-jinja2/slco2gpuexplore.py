@@ -337,20 +337,21 @@ def vectorpart_is_combined_with_nonleaf_node(p):
 	if p < len(vectorstructure)-1:
 		return False
 	if compact_hash_table:
-		# the allowed size of the part is influenced by whether or not we try to store it in the root.
-		# we try to insert it in the root if we have either two state parts (parts with state machine states)
-		# and no data parts (parts without state machine states), or we have exactly one data part.
-		nrstateparts = 0
-		nrdataparts = 0
-		for t in vectorstructure:
-			if t[0][0] in smnames:
-				nrstateparts += 1
-			else:
-				nrdataparts += 1
-		if (nrstateparts == 2 and nrdataparts == 0) or (nrdataparts == 1):
-			return vectorstructure_part_size(vectorstructure[p]) <= nr_bits_address_internal()
-		else:
-			return vectorstructure_part_size(vectorstructure[p]) <= (64-1-nr_bits_address_internal())
+		# # the allowed size of the part is influenced by whether or not we try to store it in the root.
+		# # we try to insert it in the root if we have either two state parts (parts with state machine states)
+		# # and no data parts (parts without state machine states), or we have exactly one data part.
+		# nrstateparts = 0
+		# nrdataparts = 0
+		# for t in vectorstructure:
+		# 	if t[0][0] in smnames:
+		# 		nrstateparts += 1
+		# 	else:
+		# 		nrdataparts += 1
+		# if (nrstateparts == 2 and nrdataparts == 0) or (nrdataparts == 1):
+		# 	return vectorstructure_part_size(vectorstructure[p]) <= nr_bits_address_internal()
+		# else:
+		# 	return vectorstructure_part_size(vectorstructure[p]) <= (64-1-nr_bits_address_internal())
+		return vectorstructure_part_size(vectorstructure[p]) <= nr_bits_address_internal()
 	elif vectorsize > 62:
 		return vectorstructure_part_size(vectorstructure[p]) <= 31
 	else:
@@ -3205,7 +3206,7 @@ def preprocess():
 				else:
 					newpos = 0
 					if compact_hash_table:
-						newpos = 63-nr_bits_address_internal()-(62-PIDs[i][1])
+						newpos = nr_bits_address_internal()-(62-PIDs[i][1])
 					else:
 						newpos = 62-nr_bits_address_root()-(62-PIDs[i][1])
 					newPIDslist.append((PIDs[i][0], newpos, PIDs[i][2]))

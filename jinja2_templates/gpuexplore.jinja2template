@@ -361,17 +361,26 @@ inline __device__ bool cached_node_is_new(shared_inttype pointers) {
 }
 
 {% endif %}
+{% if not compact_hash_table %}
 // Filter the bookkeeping bit values from the given node.
 inline __device__ compressed_nodetype filter_bookkeeping(compressed_nodetype node) {
 {% if vectorsize <= 30 %}
 	return node & 0x3FFFFFFF;
-{% elif compact_hash_table %}
-	return node & 0x7FFFFFFF;
 {% else %}
 	return node & 0x3FFFFFFFFFFFFFFF;
 {% endif %}
 }
+{% else %}
+// Filter the bookkeeping bit values from the given node.
+inline __device__ compressed_nodetype filter_compressed_bookkeeping(compressed_nodetype node) {
+	return node & 0x7FFFFFFF;
+}
 
+inline __device__ nodetype filter_bookkeeping(nodetype node) {
+	return node & 0x7FFFFFFFFFFFFFFF;
+}
+
+{% endif %}
 {% if vectorsize > 62 %}
 // Function to traverse one step in state vector tree (stored in shared memory).
 inline __device__ shared_indextype sv_step(shared_indextype node_index, bool goright) {
@@ -520,7 +529,7 @@ inline __device__ void reset_left_in_vectortree_node(nodetype *node) {
 		"}" : "+l"(*node));
 {% else %}
 	asm("{\n\t"
-		" bfi.b64 %0, 0xFFFFFFFFFFFFFFFF, %0, {{64-1-nr_bits_address_internal}}, {{nr_bits_address_internal}};\n\t"
+		" bfi.b64 %0, 0xFFFFFFFFFFFFFFFF, %0, {{nr_bits_address_internal}}, {{nr_bits_address_internal}};\n\t"
 		"}" : "+l"(*node));
 {% endif %}
 }
@@ -542,11 +551,11 @@ inline __device__ void set_left_in_vectortree_node(nodetype *node, indextype add
 	nodetype t1 = (nodetype) global_address(address);
 {% if not compact_hash_table %}
 	asm("{\n\t"
-		" bfi.b64 %0, %1, %0, {{nr_bits_address_root}}, {{nr_bits_address_root}};\n\t"
+		" bfi.b64 %0, %1, %0, {{64-2-nr_bits_address_root}}, {{nr_bits_address_root}};\n\t"
 		"}" : "+l"(*node) : "l"(t1));
 {% else %}
 	asm("{\n\t"
-		" bfi.b64 %0, %1, %0, {{64-1-nr_bits_address_internal}}, {{nr_bits_address_internal}};\n\t"
+		" bfi.b64 %0, %1, %0, {{nr_bits_address_internal}}, {{nr_bits_address_internal}};\n\t"
 		"}" : "+l"(*node) : "l"(t1));
 {% endif %}
 }
@@ -572,7 +581,7 @@ inline __device__ indextype get_pointer_from_vectortree_node(nodetype node, bool
 		" .reg .u64 t1;\n\t"
 		" bfe.u64 t1, %1, %2, {{nr_bits_address_internal}};\n\t"
 		" cvt.u32.u64 %0, t1;\n\t"
-		"}" : "=r"(result) : "l"(node), "r"((1-(choice ? 1 : 0))*{{64-1-nr_bits_address_internal}}));
+		"}" : "=r"(result) : "l"(node), "r"((1-(choice ? 1 : 0))*{{nr_bits_address_internal}}));
 {% endif %}
 	return result;
 }
@@ -594,14 +603,14 @@ inline __host__ indextype host_get_pointer_from_vectortree_node(nodetype node, b
 		return (indextype) (node & {{((nr_bits_address_root|pow2)-1)|hexa}});
 	}
 	else {
-		return (indextype) ((node & {{((nr_bits_address_root|pow2)-1)|bitshift_left(64-2-nr_bits_address_root)|hexa}}) >> {{nr_bits_address_root}});
+		return (indextype) ((node & {{((nr_bits_address_root|pow2)-1)|bitshift_left(64-2-nr_bits_address_root)|hexa}}) >> {{64-2-nr_bits_address_root}});
 	}
 	{% else %}
 	if (choice) {
 		return (indextype) (node & {{((nr_bits_address_internal|pow2)-1)|hexa}});
 	}
 	else {
-		return (indextype) ((node & {{((nr_bits_address_internal|pow2)-1)|bitshift_left(64-1-nr_bits_address_internal)|hexa}}) >> {{nr_bits_address_internal}});
+		return (indextype) ((node & {{((nr_bits_address_internal|pow2)-1)|bitshift_left(nr_bits_address_internal)|hexa}}) >> {{nr_bits_address_internal}});
 	}
 	{% endif %}
 }
@@ -659,7 +668,7 @@ inline __device__ bool vectortree_node_contains_left_gap(nodetype node) {
 {% if not compact_hash_table %}
 	return (node & {{((nr_bits_address_root|pow2)-1)|bitshift_left(64-2-nr_bits_address_root)|hexa}}) == {{((nr_bits_address_root|pow2)-1)|bitshift_left(64-2-nr_bits_address_root)|hexa}};
 {% else %}
-	return (node & {{((nr_bits_address_internal|pow2)-1)|bitshift_left(64-1-nr_bits_address_internal)|hexa}}) == {{((nr_bits_address_internal|pow2)-1)|bitshift_left(64-1-nr_bits_address_internal)|hexa}};
+	return (node & {{((nr_bits_address_internal|pow2)-1)|bitshift_left(nr_bits_address_internal)|hexa}}) == {{((nr_bits_address_internal|pow2)-1)|bitshift_left(nr_bits_address_internal)|hexa}};
 {% endif %}
 }
 
@@ -2371,7 +2380,7 @@ inline __device__ {% if nr_bits_address_root < 32 %}indextype{% else %}uint64_t{
 					return addr;
 				}
 			}
-			if (filter_bookkeeping(compressed_element) == filter_bookkeeping(compressed_node)) {
+			if (filter_{% if compact_hash_table %}compressed_{% endif %}bookkeeping(compressed_element) == filter_{% if compact_hash_table %}compressed_{% endif %}bookkeeping(compressed_node)) {
 				// The node is already stored.
 				return addr;
 			}
