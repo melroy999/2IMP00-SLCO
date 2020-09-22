@@ -2352,7 +2352,7 @@ inline __device__ {% if nr_bits_address_root < 32 %}indextype{% else %}uint64_t{
 	#pragma unroll
 	for (int i = 0; i < NR_HASH_FUNCTIONS; i++) {
 		{% if compact_hash_table %}
-		e2 = HASH(i, e1{% if compact_hash_table %}, is_root{% endif %});
+		e2 = HASH(i, e1, is_root);
 		addr = get_index(e2);
 		if (is_root) {
 			compressed_node = get_compressed_node_root(e2, i);

@@ -717,7 +717,7 @@ def reset_left_pointer(node):
 	if not compact_hash_table:
 		resetvalue = ((pow2(nr_bits_address_root())-1) << 64-2-nr_bits_address_root())
 	else:
-		resetvalue = ((pow2(nr_bits_address_internal())-1) << 64-1-nr_bits_address_internal())		
+		resetvalue = ((pow2(nr_bits_address_internal())-1) << nr_bits_address_internal())		
 	node |= resetvalue
 	return node
 
@@ -800,15 +800,18 @@ def cudastore_initial_vector():
 			nodes[current] = p
 			nodes_cachepointers[current] = p_cpointers
 		Open += children
-	# set all nodes to new, and the root node to root
+	# set the root node to new root
 	if vectorsize <= 62:
 		if vectorsize < 31:
-			nodes[0] |= 0x40000000
+			nodes[0] |= 0xC0000000
 		else:
-			nodes[0] |= 0x4000000000000000
+			nodes[0] |= 0xC000000000000000
 	else:
 		# mark root node as such
-		nodes_cachepointers[0] = (nodes_cachepointers[0] & 0x3FFFFFFF) | 0x40000000
+		if compact_hash_table:
+			nodes_cachepointers[0] = (nodes_cachepointers[0] | 0x80000000)
+		else:
+			nodes_cachepointers[0] = (nodes_cachepointers[0] | 0xC0000000)
 	# construct code
 	output = "\tif (GLOBAL_THREAD_ID < " + str(nrnodes) + ") {\n"
 	output += "\t\tswitch (GLOBAL_THREAD_ID) {\n"
