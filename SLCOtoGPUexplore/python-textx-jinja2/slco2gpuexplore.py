@@ -808,10 +808,11 @@ def cudastore_initial_vector():
 			nodes[0] |= 0xC000000000000000
 	else:
 		# mark root node as such
+		nodes_cachepointers[0] = (nodes_cachepointers[0] & 0x3FFFFFFF) | 0x40000000;
 		if compact_hash_table:
-			nodes_cachepointers[0] = (nodes_cachepointers[0] | 0x80000000)
+			nodes[0] = (nodes[0] | 0x80000000)
 		else:
-			nodes_cachepointers[0] = (nodes_cachepointers[0] | 0xC0000000)
+			nodes[0] = (nodes[0] | 0xC0000000)
 	# construct code
 	output = "\tif (GLOBAL_THREAD_ID < " + str(nrnodes) + ") {\n"
 	output += "\t\tswitch (GLOBAL_THREAD_ID) {\n"
