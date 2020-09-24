@@ -207,6 +207,11 @@ inline __host__ __device__ uint64_t lshft_{{nr_bits_address_internal*2}}(const u
 	return y & {{((nr_bits_address_internal*2)|pow2-1)|hexa}};
 }
 
+// Bit right shift function.
+inline __host__ __device__ uint64_t rshft(const uint64_t x, uint8_t i) {
+	return (x >> i);
+}
+
 // Multiplication modulo 2^{{nr_bits_address_internal*2}}.
 inline __host__ __device__ uint64_t mult_{{nr_bits_address_internal*2}}(const uint64_t x, uint64_t a) {
 	return ((x * a) & {{((nr_bits_address_internal*2)|pow2-1)|hexa}});
@@ -221,17 +226,12 @@ inline __host__ __device__ uint64_t xor_shft2_{{nr_bits_address_internal*2}}(con
 
 {% endif %}
 // Bit left shift function for 64 bits.
-inline __device__ uint64_t lshft_64(const uint64_t x, uint8_t i) {
+inline __host__ __device__ uint64_t lshft_64(const uint64_t x, uint8_t i) {
 	return (x << i);
 }
 
-// Bit right shift function.
-inline __device__ uint64_t rshft(const uint64_t x, uint8_t i) {
-	return (x >> i);
-}
-
 // XOR two times bit shift function for 64 bits.
-inline __device__ uint64_t xor_rot2_64(uint64_t x, uint8_t a, uint8_t b) {
+inline __host__ __device__ uint64_t xor_shft2_64(uint64_t x, uint8_t a, uint8_t b) {
 	uint64_t y = (x ^ lshft_64(x,a));
 	y = (y ^ rshft(x,b));
 	return y;
@@ -680,7 +680,7 @@ inline __device__ bool vectortree_node_contains_right_gap(nodetype node) {
 {% endif %}
 // Cache hash function.
 inline __device__ shared_indextype CACHE_HASH(nodetype node) {
-	uint64_t node1 = xor_rot2_64((uint64_t) node, 38, 14);
+	uint64_t node1 = xor_shft2_64((uint64_t) node, 38, 14);
 	node1 ^= 0xD1B54A32D192ED03L;
 	node1 *= 0xAEF17502108EF2D9L;
 	{{12|cuda_xor_lr(64, 1)}}
@@ -1239,7 +1239,7 @@ inline __device__ statetype get_target_{{sm.name}}_{{a}}(statetype src, statetyp
 
 // Initial bitmixer function.
 inline __device__ uint64_t {% if compact_hash_table %}U{% endif %}HASH_INIT(nodetype node) {
-	uint64_t node1 = xor_rot2_64((uint64_t) node, 38, 14);
+	uint64_t node1 = xor_shft2_64((uint64_t) node, 38, 14);
 	node1 ^= 0xD1B54A32D192ED03L;
 	node1 *= 0xAEF17502108EF2D9L;
 	return node1;
@@ -2178,9 +2178,14 @@ inline __host__ __device__ nodetype get_uncompressed_node_root(compressed_nodety
 	return RHASH_INIT_INVERSE(e);
 }
 
-// Extract a global memory internal hash table index from a given hash.
-inline __device__ indextype get_index(nodetype h) {
+// Extract a global memory root hash table index from a given hash.
+inline __device__ indextype get_index_root(nodetype h) {
 	return (indextype) (h >> {{2*nr_bits_address_internal - nr_bits_address_root}});
+}
+
+// Extract a global memory internal hash table index from a given hash.
+inline __device__ indextype get_index_internal(nodetype h) {
+	return (indextype) (h >> {{64-nr_bits_address_internal}});
 }
 
 // Construct from a hash and a hash function ID a compressed root vectortree node.
@@ -2226,7 +2231,6 @@ inline __device__ {% if nr_bits_address_root < 32 %}indextype{% else %}uint64_t{
 	for (int i = 0; i < NR_HASH_FUNCTIONS; i++) {
 		{% if compact_hash_table %}
 		e2 = HASH(i, e1, is_root);
-		addr = get_index(e2);
 		if (is_root) {
 			compressed_node = get_compressed_node_root(e2, i);
 			compressed_node = mark_new(compressed_node);
@@ -2234,6 +2238,7 @@ inline __device__ {% if nr_bits_address_root < 32 %}indextype{% else %}uint64_t{
 			if (compressed_node == EMPTY_COMPRESSED_NODE) {
 				continue;
 			}
+			addr = get_index_root(e2);
 			compressed_element = d_q[addr];
 			if (compressed_element == EMPTY_COMPRESSED_NODE) {
 				compressed_element = atomicCAS(&(d_q[addr]), EMPTY_COMPRESSED_NODE, compressed_node);
@@ -2259,6 +2264,7 @@ inline __device__ {% if nr_bits_address_root < 32 %}indextype{% else %}uint64_t{
 			}
 		}
 		else {
+			addr = get_index_internal(e2);
 		{% else %}
 			addr = HASH(i, e1);
 		{% endif %}
