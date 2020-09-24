@@ -516,7 +516,33 @@ def cuda_xor_lr(a, nrbits, ic):
 
 def cuda_xor_lr_inv(a, nrbits, ic):
 	"""Produce CUDA code to compute the inverse of an XOR + left & right bit shift operation on a variable node1."""
-	result = "node1 = xor_shft2_inv_" + str(nrbits) + "(node1, " + str(a) + ", " + str(nrbits-a) + ");"
+	result = "node2 = node1;\n" + indentspace(ic)
+	i = nrbits-a
+	while True:
+		result += "node2 = (node1 ^ rshft(node2, " + str(nrbits-a) + "));\n" + indentspace(ic)
+		if i >= nrbits:
+			break
+		i += nrbits-a
+	result += "node1 = node2;\n" + indentspace(ic)
+	i = a
+	while True:
+		result += "node1 = (node2 ^ lshft_" + str(nrbits) + "(node1, " + str(a) + "));\n" + indentspace(ic)
+		if i >= nrbits:
+			break
+		i += a
+	result += "node1 &= " + hexa(pow2(nrbits)-1) + ";"
+	return result
+
+def cuda_xor_r_inv(a, nrbits, ic):
+	"""Produce CUDA code for the xor_rshft_inv function for 64-bits."""
+	result = "node2 = node1;\n" + indentspace(ic)
+	i = a
+	while True:
+		result += "node2 = (node1 ^ rshft(node2, " + str(a) + "));\n" + indentspace(ic)
+		if i >= nrbits:
+			break
+		i += a
+	result += "node1 = node2;"
 	return result
 
 # def cuda_xor_lr_inv(a, nrbits, ic):
@@ -543,11 +569,30 @@ def cuda_xor_r3(a, b, c, ic):
 	result += "node1 ^= rshft(node1, " + str(c) + ");"
 	return result
 
-def cuda_xor_r3_inv(a, b, c, ic):
+def cuda_xor_r3_inv(a, b, c, nrbits, ic):
 	"""Produce CUDA code to compute an XOR + 3 right bit shifts on a variable node1."""
-	result = "node1 = xor_rshft_inv(node1, " + str(a) + ");\n" + indentspace(ic)
-	result += "node1 = xor_rshft_inv(node1, " + str(b) + ");\n" + indentspace(ic)
-	result += "node1 = xor_rshft_inv(node1, " + str(c) + ");"
+	result = "node2 = node1;\n" + indentspace(ic)
+	i = a
+	while True:
+		result += "node2 = (node1 ^ rshft(node2, " + str(a) + "));\n" + indentspace(ic)
+		if i >= nrbits:
+			break
+		i += a
+	result += "node1 = node2;\n" + indentspace(ic)
+	i = b
+	while True:
+		result += "node1 = (node2 ^ rshft(node1, " + str(b) + "));\n" + indentspace(ic)
+		if i >= nrbits:
+			break
+		i += b
+	result += "node2 = node1;\n" + indentspace(ic)
+	i = c
+	while True:
+		result += "node2 = (node1 ^ rshft(node2, " + str(c) + "));\n" + indentspace(ic)
+		if i >= nrbits:
+			break
+		i += c
+	result += "node1 = node2;"
 	return result
 
 # def cuda_xor_r3_inv(a, b, c, nrbits, ic):
@@ -572,17 +617,6 @@ def cuda_xor_r3_inv(a, b, c, ic):
 def cuda_xor_r(a, ic):
 	"""Produce CUDA code to compute an XOR + 1 right bit shift on a variable node1."""
 	result = "node1 ^= rshft(node1, " + str(a) + ");"
-	return result
-
-def cuda_xor_r_inv(a, nrbits, ic):
-	"""Produce CUDA code to compute the inverse of an XOR + 1 right bit shift on a variable node1."""
-	result = ""
-	i = a
-	while i < nrbits:
-		result += "node1 ^= (node1 >> " + str(i) + ");"
-		if i+i < nrbits:
-			result += "\n" + indentspace(ic)
-		i += i
 	return result
 
 def cudarecsizeguard(s, D, o):
