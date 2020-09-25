@@ -2191,14 +2191,14 @@ inline __host__ __device__ uint8_t get_hash_id_root(compressed_nodetype n) {
 // Reconstruct uncompressed root vectortree node from the given compressed root vectortree node and the address at which it is stored in the global memory hash table.
 inline __host__ __device__ nodetype get_uncompressed_node_root(compressed_nodetype n, indextype i) {
 	nodetype e = (nodetype) i;
-	fprintf(stdout, "Intermediate value 1: %lu.\n", e);
+	printf("Intermediate value 1: %lu.\n", e);
 	e = (e << {{(2*nr_bits_address_internal)-nr_bits_address_root}});
-	fprintf(stdout, "Intermediate value 2: %lu.\n", e);
+	printf("Intermediate value 2: %lu.\n", e);
 	// Obtain hash function ID.
 	uint8_t hid = get_hash_id_root(n);
 	// Remove five bits for hash function ID + one for 'new' flag.
 	e |= (nodetype) (n & 0x03FFFFFF);
-	fprintf(stdout, "Intermediate value 3: %lu.\n", e);
+	printf("Intermediate value 3: %lu.\n", e);
 	// Retrieve uncompressed node and return it.
 	e = HASH_INVERSE(hid, e);
 	return RHASH_INIT_INVERSE(e);
