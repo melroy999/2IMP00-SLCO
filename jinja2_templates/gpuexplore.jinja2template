@@ -623,14 +623,14 @@ inline __host__ nodetype host_direct_sv_step(compressed_nodetype *q{% if compact
 	{% if not compact_hash_table %}
 	{% if vectorsize > 62 %}
 	if (print_pointers) {
-		fprintf(stream, "Navigating from root to " + (goright ? "right" : "left") + " child located at %lu.\n", index);
+		fprintf(stream, "Navigating from root to " + (goright ? "right" : "left") + " child located at %u.\n", index);
 	}
 	{% endif %}
 	return q[index];
 	{% else %}
 	{% if vectorsize > 62 %}
 	if (print_pointers) {
-		fprintf(stream, "Navigating from root to " + (goright ? "right" : "left") + " child in internal hash table located at %lu.\n", index);
+		fprintf(stream, "Navigating from root to " + (goright ? "right" : "left") + " child in internal hash table located at %u.\n", index);
 	}
 	{% endif %}
 	return q_i[index];
