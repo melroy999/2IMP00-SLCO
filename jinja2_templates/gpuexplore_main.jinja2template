@@ -336,8 +336,8 @@ int main(int argc, char** argv) {
 		}
 		else if (!strcmp(argv[i],"-v")) {
 			verbosity = atoi(argv[i+1]);
-			if (verbosity > 3) {
-				verbosity = 3;
+			if (verbosity > 4) {
+				verbosity = 4;
 			}
 			i += 2;
 		}
@@ -441,7 +441,7 @@ int main(int argc, char** argv) {
 	{% if compact_hash_table %}
 	nodetype *q_i_test;
 	{% endif %}
-	if (verbosity == 3) {
+	if (verbosity > 3) {
 		q_test = (compressed_nodetype*) malloc(sizeof(compressed_nodetype)*hash_table_size);
 		{% if compact_hash_table %}
 		q_i_test = (nodetype*) malloc(sizeof(nodetype)*internal_hash_table_size);
@@ -484,7 +484,7 @@ int main(int argc, char** argv) {
 				{% endif %}
 				print_content_hash_table(stdout, q_test{% if compact_hash_table %}, q_i_test{% endif %}, hash_table_size{% if compact_hash_table %}, internal_hash_table_size, false{% endif %});
 			}
-			else if (verbosity == 3) {
+			else if (verbosity == 4) {
 				cudaMemcpy(q_test, d_q, hash_table_size * sizeof(compressed_nodetype), cudaMemcpyDeviceToHost);
 				{% if compact_hash_table %}
 				cudaMemcpy(q_i_test, d_q_i, internal_hash_table_size * sizeof(nodetype), cudaMemcpyDeviceToHost);

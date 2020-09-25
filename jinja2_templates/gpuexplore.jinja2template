@@ -623,13 +623,15 @@ inline __host__ nodetype host_direct_sv_step(compressed_nodetype *q{% if compact
 	{% if not compact_hash_table %}
 	{% if vectorsize > 62 %}
 	if (print_pointers) {
-		fprintf(stream, "Navigating from root to " + (goright ? "right" : "left") + " child located at %lu.\n", index);
+		fprintf(stream, "Navigating node with value %lu.\n", node);
+		fprintf(stream, "Navigating from node to " + (goright ? "right" : "left") + " child located at %lu.\n", index);
 	}
 	{% endif %}
 	return q[index];
 	{% else %}
 	{% if vectorsize > 62 %}
 	if (print_pointers) {
+		fprintf(stream, "Navigating node with value %lu.\n", node);
 		if (goright) {
 			fprintf(stream, "Navigating from root to right child in internal hash table located at %u.\n", index);
 		}
@@ -3392,7 +3394,7 @@ void print_content_hash_table(FILE* stream, compressed_nodetype *q{% if compact_
 	{% if compact_hash_table %}
 	if (print_pointers) {
 		for (uint64_t i = 0; i < q_i_size; i++) {
-			if (q[i] != EMPTY_NODE) {
+			if (q_i[i] != EMPTY_NODE) {
 				fprintf(stream, "internal node present at index %lu.\n", i);
 			}
 		}
