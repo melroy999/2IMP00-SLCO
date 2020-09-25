@@ -1905,7 +1905,7 @@ inline __device__ nodetype RHASH(uint8_t id, nodetype node) {
 }
 
 // Inverse hash functions.
-inline __host__ __device__ nodetype HASH_INVERSE(uint8_t id, nodetype node) {
+inline __host__ __device__ nodetype RHASH_INVERSE(uint8_t id, nodetype node) {
 	nodetype node1 = node;
 	nodetype node2;
 	switch (id) {
@@ -2200,7 +2200,7 @@ inline __host__ __device__ nodetype get_uncompressed_node_root(compressed_nodety
 	e |= (nodetype) (n & 0x03FFFFFF);
 	printf("Intermediate value 3: %lu.\n", e);
 	// Retrieve uncompressed node and return it.
-	e = HASH_INVERSE(hid, e);
+	e = RHASH_INVERSE(hid, e);
 	return RHASH_INIT_INVERSE(e);
 }
 
@@ -3341,6 +3341,7 @@ void print_content_hash_table(FILE* stream, compressed_nodetype *q{% if compact_
 		{% endif %}
 			// Retrieve state vector.
 			nodetype {% if vectorsize > 62 %}root{% else %}part0{% endif %} = HT_RETRIEVE(q{% if compact_hash_table %}, q_i{% endif %}, i{% if compact_hash_table %}, true{% endif %});
+			printf("retrieved node: %lu\n", root);
 			{% if vectorsize > 62 %}
 			{% for i in range(0,vectorstructure|length) %}
 			nodetype part{{i}} = host_direct_get_vectorpart_{{i}}(q{% if compact_hash_table %}, q_i{% endif %}, root{% if vectorsize > 62 %}, stream, print_pointers{% else %}, false{% endif %});
