@@ -62,10 +62,15 @@ int cudaMallocCount ( void ** ptr,int size) {
 /**
  * CUDA kernel function to initialise the global memory hash table.
  */
-__global__ void init_hash_table(compressed_nodetype *d_q) {
+__global__ void init_hash_table(compressed_nodetype *d_q{% if compact_hash_table %}, nodetype *d_q_i{% endif %}) {
     for (uint64_t i = GLOBAL_THREAD_ID; i < d_hash_table_size; i += NR_THREADS) {
     	d_q[i] = (compressed_nodetype) {% if compact_hash_table %}EMPTY_COMPRESSED_NODE{% else %}EMPTY_NODE{% endif %};
     }
+    {% if compact_hash_table %}
+    for (uint64_t i = GLOBAL_THREAD_ID; i < d_internal_hash_table_size; i += NR_THREADS) {
+    	d_q_i[i] = (nodetype) EMPTY_NODE;
+    }
+    {% endif %}
 }
 
 /**
@@ -427,7 +432,7 @@ int main(int argc, char** argv) {
 	{% endif %}
 
 	// Initialise the hash table.
-	init_hash_table<<<NR_BLOCKS, {{nrthreadsperblock}}>>>(d_q);
+	init_hash_table<<<NR_BLOCKS, {{nrthreadsperblock}}>>>(d_q{% if compact_hash_table %}, d_q_i{% endif %});
 	CUDA_CHECK_FOR_ERROR(0);
 	store_initial_state<<<1, {{nrthreadsperblock}}, shared_cache_size * sizeof(shared_inttype)>>>(d_q{% if compact_hash_table %}, d_q_i{% endif %}, d_newstate_flags, d_worktiles);
 
@@ -496,8 +501,7 @@ int main(int argc, char** argv) {
 		fprintf(stderr, "ERROR: problem with hash table or caches!\n");
 	}
 
-	CUDA_CHECK_RETURN(cudaMemset(d_counted_states, 0, sizeof(indextype)));
-	cudaMemset(d_counted_states, 0, sizeof(uint64_t));
+	CUDA_CHECK_RETURN(cudaMemset(d_counted_states, 0, sizeof(uint64_t)));
 	count_states<<<((int) prop.multiProcessorCount)*8, 512, 1>>>(d_q, d_counted_states);
 	CUDA_CHECK_RETURN(cudaDeviceSynchronize());
 	CUDA_CHECK_RETURN(cudaMemcpy(&counted_states, d_counted_states, sizeof(uint64_t), cudaMemcpyDeviceToHost));

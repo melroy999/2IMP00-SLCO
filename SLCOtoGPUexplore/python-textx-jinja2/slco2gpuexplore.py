@@ -853,9 +853,9 @@ def cudastore_initial_vector():
 		# mark root node as such
 		nodes_cachepointers[0] = (nodes_cachepointers[0] & 0x3FFFFFFF) | 0x40000000;
 		if compact_hash_table:
-			nodes[0] = (nodes[0] | 0x80000000)
+			nodes[0] = (nodes[0] | 0x8000000000000000)
 		else:
-			nodes[0] = (nodes[0] | 0xC0000000)
+			nodes[0] = (nodes[0] | 0xC000000000000000)
 	# construct code
 	output = "\tif (GLOBAL_THREAD_ID < " + str(nrnodes) + ") {\n"
 	output += "\t\tswitch (GLOBAL_THREAD_ID) {\n"
@@ -3055,6 +3055,8 @@ def preprocess():
 			for s in sm.states:
 				state_id[s] = state_nr
 				state_nr += 1
+	# store maximum number of bits needed to encode an automaton state
+	max_statesize = 0
 	# calculate state vector size
 	for o in model.objects:
 		# object global variables
@@ -3066,11 +3068,16 @@ def preprocess():
 			vectorsize += (size*max(1,dimension))
 			dataelements.add((o.name + "'" + v.name, tuple([size]), dimension))
 		for sm in o.type.statemachines:
-			# number of bits needed to encode states. We compute this for len(sm.states)+1 (i.e. we add an extra state,
-			# to incorporate the possibility of encoding the NO_STATE constant, which is the value for state variables not containing a state).
-			size = int(max(1,math.ceil(math.log(len(sm.states)+1, 2))))
+			# number of bits needed to encode states of this state machine.
+			size = int(max(1,math.ceil(math.log(len(sm.states), 2))))
 			vectorsize += size
 			stateelements.add((o.name + "'" + sm.name, size))
+			# Update max_statesize. We do this with len(sm.states)+1 (i.e. we add an extra state,
+			# to incorporate the possibility of encoding the NO_STATE constant, which is the value
+			# for state variables not containing a state).
+			tmpsize = int(max(1,math.ceil(math.log(len(sm.states)+1, 2))))
+			if max_statesize < tmpsize:
+				max_statesize = tmpsize
 			# statemachine local variables
 			for v in sm.variables:
 				size = gettypesize(v.type)
@@ -3097,8 +3104,6 @@ def preprocess():
 	# if the vectorsize is sufficiently small, compact hash table storage is not needed.
 	if vectorsize < 63:
 		compact_hash_table = False
-	# store maximum number of bits needed to encode an automaton state
-	max_statesize = 0
 	for (s,i) in stateelements:
 		if i > max_statesize:
 			max_statesize = i
@@ -3253,7 +3258,7 @@ def preprocess():
 				else:
 					newpos = 0
 					if compact_hash_table:
-						newpos = nr_bits_address_internal()-(62-PIDs[i][1])
+						newpos = 58-nr_bits_address_internal()-(64-PIDs[i][1])
 					else:
 						newpos = 62-nr_bits_address_root()-(62-PIDs[i][1])
 					newPIDslist.append((PIDs[i][0], newpos, PIDs[i][2]))

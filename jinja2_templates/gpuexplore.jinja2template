@@ -2,6 +2,9 @@
 #include <cooperative_groups.h>
 using namespace cooperative_groups;
 
+// Structure of the state vector:
+// {{vectorstructure_string}}
+
 // type of vectortree nodes used.
 {% if vectorsize < 32 %}
 #define nodetype uint32_t
@@ -179,9 +182,6 @@ const size_t Mb = 1<<20;
 
 // GPU shared memory array.
 extern __shared__ volatile shared_inttype shared[];
-
-// Structure of the state vector:
-// {{vectorstructure_string}}
 {% if vectorsize > 62 and not no_smart_fetching %}
 
 // Bitmask to identify parts of the state vector that contain state machine states.
@@ -373,8 +373,13 @@ inline __device__ compressed_nodetype filter_compressed_bookkeeping(compressed_n
 	return node & 0x7FFFFFFF;
 }
 
-inline __device__ nodetype filter_bookkeeping(nodetype node) {
-	return node & 0x7FFFFFFFFFFFFFFF;
+inline __device__ nodetype filter_bookkeeping(nodetype node, bool is_root) {
+	if (is_root) {
+		return node & 0x7FFFFFFFFFFFFFFF;
+	}
+	else {
+		return node;
+	}
 }
 
 {% endif %}
@@ -578,7 +583,7 @@ inline __device__ indextype get_pointer_from_vectortree_node(nodetype node, bool
 		" .reg .u64 t1;\n\t"
 		" bfe.u64 t1, %1, %2, {{nr_bits_address_internal}};\n\t"
 		" cvt.u32.u64 %0, t1;\n\t"
-		"}" : "=r"(result) : "l"(node), "r"((1-(choice ? 1 : 0))*{{nr_bits_address_internal}}));
+		"}" : "=r"(result) : "l"(node), "r"(choice ? 0 : {{nr_bits_address_internal}}));
 {% endif %}
 	return result;
 }
@@ -790,7 +795,7 @@ inline __device__ void get_{{s|replace("[","_")|replace("]","")|replace("'","_")
 		" bfe.u{% if vectorsize < 31 %}32{% else %}64{% endif %} t1, %1, {{vectorelem_in_structure_map[s][1][1]}}, {{vectorelem_in_structure_map[s][1][2]}};\n\t"
 {% else %}
 		" bfe.u{% if vectorsize < 31 %}32{% else %}64{% endif %} t1, %2, {{vectorelem_in_structure_map[s][2][1]}}, {{vectorelem_in_structure_map[s][2][2]}};\n\t"
-		" bfi.b{% if vectorsize < 31 %}32{% else %}64{% endif %} t1, %1, t1, {{vectorelem_in_structure_map[s][2][2]}}, {{vectorelem_in_structure_map[s][1][2]}};\n\t"
+		" bfi.b{% if vectorsize < 31 %}32{% else %}64{% endif %} t1, %1, t1, 0, {{vectorelem_in_structure_map[s][1][2]}};\n\t"
 {% endif %}
 		" cvt.u{% if size < 32 %}16{% else %}32{% endif %}.u{% if vectorsize < 31 %}32{% else %}64{% endif %} %0, t1;\n\t"
 	    "}" : "={% if size < 16 %}h"(t2){% else %}r"(*b){% endif %} : "{% if vectorsize <= 30 %}r{% else %}l{% endif %}"(part1), "{% if vectorsize <= 30 %}r{% else %}l{% endif %}"(part2));
@@ -2226,12 +2231,12 @@ inline __device__ {% if nr_bits_address_root < 32 %}indextype{% else %}uint64_t{
 	indextype addr;
 	nodetype element;
 	shared_inttype shared_addr;
-	e1 = HASH_INIT(filter_bookkeeping(node){% if compact_hash_table %}, is_root{% endif %});
+	e1 = HASH_INIT(filter_bookkeeping(node{% if compact_hash_table %}, is_root{% endif %}){% if compact_hash_table %}, is_root{% endif %});
 	#pragma unroll
 	for (int i = 0; i < NR_HASH_FUNCTIONS; i++) {
 		{% if compact_hash_table %}
-		e2 = HASH(i, e1, is_root);
 		if (is_root) {
+			e2 = HASH(i, e1, true);
 			compressed_node = get_compressed_node_root(e2, i);
 			compressed_node = mark_new(compressed_node);
 			// Special case: if the compressed node coincides with the value for an empty compressed node, continue
@@ -2264,6 +2269,7 @@ inline __device__ {% if nr_bits_address_root < 32 %}indextype{% else %}uint64_t{
 			}
 		}
 		else {
+			e2 = HASH(i, e1, false);
 			addr = get_index_internal(e2);
 		{% else %}
 			addr = HASH(i, e1);
@@ -2304,7 +2310,7 @@ inline __device__ {% if nr_bits_address_root < 32 %}indextype{% else %}uint64_t{
 					return addr;
 				}
 			}
-			if (filter_bookkeeping(element) == filter_bookkeeping(node)) {
+			if ({% if not compact_hash_table %}filter_bookkeeping({% endif %}element{% if not compact_hash_table %}){% endif %} == {% if not compact_hash_table %}filter_bookkeeping({% endif %}node{% if not compact_hash_table %}){% endif %}) {
 				// The node is already stored.
 				return addr;
 			}
@@ -3305,6 +3311,74 @@ inline __device__ void GENERATE_SUCCESSORS() {
 // *** START PRINT FUNCTIONS ***
 
 void print_content_hash_table(FILE* stream, compressed_nodetype *q{% if compact_hash_table %}, nodetype *q_i, uint64_t q_size{% else %}indextype q_size{% endif %}) {
+	fprintf(stream, "BEGIN HASH TABLE CONTENTS.\n");
+	for ({% if compact_hash_table %}uint64_t{% else %}indextype{% endif %} i = 0; i < q_size; i++) {
+		{% if not compact_hash_table and vectorsize > 63 %}
+		if (is_root(q[i])) {
+		{% else %}
+		if (q[i] != {% if compact_hash_table %}EMPTY_COMPRESSED_NODE{% else %}EMPTY_NODE{% endif %}) {
+		{% endif %}
+			// Retrieve state vector.
+			nodetype {% if vectorsize > 62 %}root{% else %}part0{% endif %} = HT_RETRIEVE(q{% if compact_hash_table %}, q_i{% endif %}, i{% if compact_hash_table %}, true{% endif %});
+			{% if vectorsize > 62 %}
+			{% for i in range(0,vectorstructure|length) %}
+			nodetype part{{i}} = host_direct_get_vectorpart_{{i}}(q{% if compact_hash_table %}, q_i{% endif %}, root);
+			{% endfor %}
+			{% endif %}
+			// Print the contents of the state.
+			nodetype *p1, *p2;
+			statetype e_st;
+			elem_booltype e_b;
+			elem_chartype e_c;
+			elem_inttype e_i;
+			fprintf(stream, "-----\n");
+			fprintf(stream, "At index %{% if vectorsize <= 30 or compact_hash_table %}l{% endif %}u:\n", i);
+			{% if vectorsize <= 62 %}
+			p1 = &part0;
+			p2 = &part0;
+			{% endif %}
+			{% for s in vectorelem_in_structure_map.keys() %}
+			{% if (s.split("["))[0] not in arraynames %}
+			{% set size = vectorelem_in_structure_map[s][0] %}
+			{% set PIDs = vectorelem_in_structure_map[s] %}
+			{% if vectorsize > 62 %}
+			p1 = &part{{PIDs[1][0]}};
+			{% if PIDs|length > 2 %}
+			p2 = &part{{PIDs[2][0]}};
+			{% else %}
+			p2 = p1;
+			{% endif %}
+			{% endif %}
+			host_get_{{s|replace("[","_")|replace("]","")|replace("'","_")}}({% if s|is_state %}&e_st{% elif size == 1 %}&e_b{% elif size < 32 %}&e_c{% else %}&e_i{% endif %}, *p1, *p2);
+			fprintf(stream, "{{s|vector_element_string_desc}} {{s}}: %u\n", (uint32_t) {% if s|is_state %}e_st{% elif size == 1 %}e_b{% elif size < 32 %}e_c{% else %}e_i{% endif %});
+			{% endif %}
+			{% endfor %}
+			{% for x in arraynames %}
+			{% set t = arraynames[x][0] %}
+			{% set asize = arraynames[x][1] %}
+			{% set size = t|gettypesize %}
+			{% for i in range(0,asize) %}
+			{% set PIDs = vectorelem_in_structure_map[x + "[" + i|string + "]"] %}
+			{% if vectorsize > 62 %}
+			p1 = &part{{PIDs[1][0]}};
+			{% if PIDs|length > 2 %}
+			p2 = &part{{PIDs[2][0]}};
+			{% else %}
+			p2 = p1;
+			{% endif %}
+			{% endif %}
+			host_get_{{x|replace("[","_")|replace("]","")|replace("'","_")}}({% if size == 1 %}&e_b{% elif size < 32 %}&e_c{% else %}&e_i{% endif %}, *p1, *p2, {{i}});
+			fprintf(stream, "array element {{x}}[{{i}}]: %u\n", (uint32_t) {% if size == 1 %}e_b{% elif size < 32 %}e_c{% else %}e_i{% endif %});
+			{% endfor %}
+			{% endfor %}
+			fprintf(stream, "-----\n");
+		}
+	}
+	fprintf(stream, "END HASH TABLE CONTENTS.\n");
+}
+
+// Print method for state vector trees. Besides state content it also prints the tree structure, with pointer info.
+void print_content_hash_table_with_state_tree_structure(FILE* stream, compressed_nodetype *q{% if compact_hash_table %}, nodetype *q_i, uint64_t q_size{% else %}indextype q_size{% endif %}) {
 	fprintf(stream, "BEGIN HASH TABLE CONTENTS.\n");
 	for ({% if compact_hash_table %}uint64_t{% else %}indextype{% endif %} i = 0; i < q_size; i++) {
 		{% if not compact_hash_table and vectorsize > 63 %}
