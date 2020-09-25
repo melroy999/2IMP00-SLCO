@@ -2196,12 +2196,14 @@ inline __host__ __device__ nodetype get_uncompressed_node_root(compressed_nodety
 	printf("Intermediate value 2: %lu.\n", e);
 	// Obtain hash function ID.
 	uint8_t hid = get_hash_id_root(n);
-	printf("hash function: %u\n", (unsigned int) hid);
 	// Remove five bits for hash function ID + one for 'new' flag.
 	e |= (nodetype) (n & 0x03FFFFFF);
 	printf("Intermediate value 3: %lu.\n", e);
 	// Retrieve uncompressed node and return it.
 	e = RHASH_INVERSE(hid, e);
+	printf("Intermediate value 4: %lu.\n", e);	
+	e = RHASH_INIT_INVERSE(e);
+	printf("Intermediate value 5: %lu.\n", e);		
 	return RHASH_INIT_INVERSE(e);
 }
 
