@@ -317,6 +317,7 @@ int main(int argc, char** argv) {
 		"                      1 - print sequence number of each kernel launch (search step).\n"
 		"                      2 - print number of states in the global hash table after each kernel launch.\n"
 		"                      3 - print global hash table content after each kernel launch.\n"
+		"                      4 - print global hash table content, with pointer info, after each kernel launch.\n"
 		"  -h, --help, -?   Show this help message.\n";
 
 	int i = 1;
@@ -481,7 +482,14 @@ int main(int argc, char** argv) {
 				{% if compact_hash_table %}
 				cudaMemcpy(q_i_test, d_q_i, internal_hash_table_size * sizeof(nodetype), cudaMemcpyDeviceToHost);
 				{% endif %}
-				print_content_hash_table(stdout, q_test{% if compact_hash_table %}, q_i_test{% endif %}, hash_table_size);
+				print_content_hash_table(stdout, q_test{% if compact_hash_table %}, q_i_test{% endif %}, hash_table_size{% if compact_hash_table %}, internal_hash_table_size, false{% endif %});
+			}
+			else if (verbosity == 3) {
+				cudaMemcpy(q_test, d_q, hash_table_size * sizeof(compressed_nodetype), cudaMemcpyDeviceToHost);
+				{% if compact_hash_table %}
+				cudaMemcpy(q_i_test, d_q_i, internal_hash_table_size * sizeof(nodetype), cudaMemcpyDeviceToHost);
+				{% endif %}
+				print_content_hash_table(stdout, q_test{% if compact_hash_table %}, q_i_test{% endif %}, hash_table_size{% if compact_hash_table %}, internal_hash_table_size, true{% endif %});
 			}
 		}
 		scan = 1;

@@ -618,11 +618,21 @@ inline __host__ indextype host_get_pointer_from_vectortree_node(nodetype node, b
 }
 
 // Host (CPU) version of direct_sv_step.
-inline __host__ nodetype host_direct_sv_step(compressed_nodetype *q{% if compact_hash_table %}, nodetype *q_i{% endif %}, nodetype node, bool goright) {
+inline __host__ nodetype host_direct_sv_step(compressed_nodetype *q{% if compact_hash_table %}, nodetype *q_i{% endif %}, nodetype node, bool goright{% if vectorsize > 62 %}, FILE* stream, bool print_pointers{% endif %}) {
 	indextype index = host_get_pointer_from_vectortree_node(node, goright);
 	{% if not compact_hash_table %}
+	{% if vectorsize > 62 %}
+	if (print_pointers) {
+		printf(stream, "Navigating from root to " + (goright ? "right" : "left") + " child located at %lu.\n", index);
+	}
+	{% endif %}
 	return q[index];
 	{% else %}
+	{% if vectorsize > 62 %}
+	if (print_pointers) {
+		printf(stream, "Navigating from root to " + (goright ? "right" : "left") + " child in internal hash table located at %lu.\n", index);
+	}
+	{% endif %}
 	return q_i[index];
 	{% endif %}
 }
@@ -648,14 +658,14 @@ inline __device__ nodetype direct_get_vectorpart_{{i}}(compressed_nodetype *d_q{
 {% endfor %}
 // Functions to retrieve vector parts from host memory.
 {% for i in range(0,vectorstructure|length) %}
-inline __host__ nodetype host_direct_get_vectorpart_{{i}}(compressed_nodetype *q{% if compact_hash_table %}, nodetype *q_i{% endif %}, nodetype node) {
+inline __host__ nodetype host_direct_get_vectorpart_{{i}}(compressed_nodetype *q{% if compact_hash_table %}, nodetype *q_i{% endif %}, nodetype node{% if vectorsize > 62 %}, FILE* stream, bool print_pointers{% endif %}) {
 	{% if vectorsize <= 30 %}
 	return node;
 	{% else %}
 	{% if i|get_vector_tree_to_part_navigation|length > 0 %}
 	nodetype tmp = node;
 	{% for b in i|get_vector_tree_to_part_navigation %}
-	tmp = host_direct_sv_step(q{% if compact_hash_table %}, q_i{% endif %}, tmp, {% if b %}true{% else %}false{% endif %});
+	tmp = host_direct_sv_step(q{% if compact_hash_table %}, q_i{% endif %}, tmp, {% if b %}true{% else %}false{% endif %}{% if vectorsize > 62 %}, stream, print_pointers{% endif %});
 	{% endfor %}
 	return tmp;
 	{% else %}
@@ -3310,7 +3320,7 @@ inline __device__ void GENERATE_SUCCESSORS() {
 
 // *** START PRINT FUNCTIONS ***
 
-void print_content_hash_table(FILE* stream, compressed_nodetype *q{% if compact_hash_table %}, nodetype *q_i, uint64_t q_size{% else %}indextype q_size{% endif %}) {
+void print_content_hash_table(FILE* stream, compressed_nodetype *q{% if compact_hash_table %}, nodetype *q_i, uint64_t q_size, uint64_t q_i_size{% else %}indextype q_size{% endif %}{% if vectorsize > 62 %}, bool print_pointers{% endif %}) {
 	fprintf(stream, "BEGIN HASH TABLE CONTENTS.\n");
 	for ({% if compact_hash_table %}uint64_t{% else %}indextype{% endif %} i = 0; i < q_size; i++) {
 		{% if not compact_hash_table and vectorsize > 63 %}
@@ -3322,7 +3332,7 @@ void print_content_hash_table(FILE* stream, compressed_nodetype *q{% if compact_
 			nodetype {% if vectorsize > 62 %}root{% else %}part0{% endif %} = HT_RETRIEVE(q{% if compact_hash_table %}, q_i{% endif %}, i{% if compact_hash_table %}, true{% endif %});
 			{% if vectorsize > 62 %}
 			{% for i in range(0,vectorstructure|length) %}
-			nodetype part{{i}} = host_direct_get_vectorpart_{{i}}(q{% if compact_hash_table %}, q_i{% endif %}, root);
+			nodetype part{{i}} = host_direct_get_vectorpart_{{i}}(q{% if compact_hash_table %}, q_i{% endif %}, root{% if vectorsize > 62 %}, stream, print_pointers{% else %}, false{% endif %});
 			{% endfor %}
 			{% endif %}
 			// Print the contents of the state.
@@ -3374,74 +3384,15 @@ void print_content_hash_table(FILE* stream, compressed_nodetype *q{% if compact_
 			fprintf(stream, "-----\n");
 		}
 	}
-	fprintf(stream, "END HASH TABLE CONTENTS.\n");
-}
-
-// Print method for state vector trees. Besides state content it also prints the tree structure, with pointer info.
-void print_content_hash_table_with_state_tree_structure(FILE* stream, compressed_nodetype *q{% if compact_hash_table %}, nodetype *q_i, uint64_t q_size{% else %}indextype q_size{% endif %}) {
-	fprintf(stream, "BEGIN HASH TABLE CONTENTS.\n");
-	for ({% if compact_hash_table %}uint64_t{% else %}indextype{% endif %} i = 0; i < q_size; i++) {
-		{% if not compact_hash_table and vectorsize > 63 %}
-		if (is_root(q[i])) {
-		{% else %}
-		if (q[i] != {% if compact_hash_table %}EMPTY_COMPRESSED_NODE{% else %}EMPTY_NODE{% endif %}) {
-		{% endif %}
-			// Retrieve state vector.
-			nodetype {% if vectorsize > 62 %}root{% else %}part0{% endif %} = HT_RETRIEVE(q{% if compact_hash_table %}, q_i{% endif %}, i{% if compact_hash_table %}, true{% endif %});
-			{% if vectorsize > 62 %}
-			{% for i in range(0,vectorstructure|length) %}
-			nodetype part{{i}} = host_direct_get_vectorpart_{{i}}(q{% if compact_hash_table %}, q_i{% endif %}, root);
-			{% endfor %}
-			{% endif %}
-			// Print the contents of the state.
-			nodetype *p1, *p2;
-			statetype e_st;
-			elem_booltype e_b;
-			elem_chartype e_c;
-			elem_inttype e_i;
-			fprintf(stream, "-----\n");
-			fprintf(stream, "At index %{% if vectorsize <= 30 or compact_hash_table %}l{% endif %}u:\n", i);
-			{% if vectorsize <= 62 %}
-			p1 = &part0;
-			p2 = &part0;
-			{% endif %}
-			{% for s in vectorelem_in_structure_map.keys() %}
-			{% if (s.split("["))[0] not in arraynames %}
-			{% set size = vectorelem_in_structure_map[s][0] %}
-			{% set PIDs = vectorelem_in_structure_map[s] %}
-			{% if vectorsize > 62 %}
-			p1 = &part{{PIDs[1][0]}};
-			{% if PIDs|length > 2 %}
-			p2 = &part{{PIDs[2][0]}};
-			{% else %}
-			p2 = p1;
-			{% endif %}
-			{% endif %}
-			host_get_{{s|replace("[","_")|replace("]","")|replace("'","_")}}({% if s|is_state %}&e_st{% elif size == 1 %}&e_b{% elif size < 32 %}&e_c{% else %}&e_i{% endif %}, *p1, *p2);
-			fprintf(stream, "{{s|vector_element_string_desc}} {{s}}: %u\n", (uint32_t) {% if s|is_state %}e_st{% elif size == 1 %}e_b{% elif size < 32 %}e_c{% else %}e_i{% endif %});
-			{% endif %}
-			{% endfor %}
-			{% for x in arraynames %}
-			{% set t = arraynames[x][0] %}
-			{% set asize = arraynames[x][1] %}
-			{% set size = t|gettypesize %}
-			{% for i in range(0,asize) %}
-			{% set PIDs = vectorelem_in_structure_map[x + "[" + i|string + "]"] %}
-			{% if vectorsize > 62 %}
-			p1 = &part{{PIDs[1][0]}};
-			{% if PIDs|length > 2 %}
-			p2 = &part{{PIDs[2][0]}};
-			{% else %}
-			p2 = p1;
-			{% endif %}
-			{% endif %}
-			host_get_{{x|replace("[","_")|replace("]","")|replace("'","_")}}({% if size == 1 %}&e_b{% elif size < 32 %}&e_c{% else %}&e_i{% endif %}, *p1, *p2, {{i}});
-			fprintf(stream, "array element {{x}}[{{i}}]: %u\n", (uint32_t) {% if size == 1 %}e_b{% elif size < 32 %}e_c{% else %}e_i{% endif %});
-			{% endfor %}
-			{% endfor %}
-			fprintf(stream, "-----\n");
+	{% if compact_hash_table %}
+	if (print_pointers) {
+		for (uint64_t i = 0; i < q_i_size; i++) {
+			if (q[i] != EMPTY_NODE) {
+				fprintf(stream, "internal node present at index %llu.\n", i);
+			}
 		}
 	}
+	{% endif %}
 	fprintf(stream, "END HASH TABLE CONTENTS.\n");
 }
 
