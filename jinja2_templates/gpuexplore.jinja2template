@@ -3393,7 +3393,7 @@ void print_content_hash_table(FILE* stream, compressed_nodetype *q{% if compact_
 	if (print_pointers) {
 		for (uint64_t i = 0; i < q_i_size; i++) {
 			if (q[i] != EMPTY_NODE) {
-				fprintf(stream, "internal node present at index %llu.\n", i);
+				fprintf(stream, "internal node present at index %lu.\n", i);
 			}
 		}
 	}
