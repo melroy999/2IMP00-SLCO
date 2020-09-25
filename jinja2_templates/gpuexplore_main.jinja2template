@@ -510,7 +510,7 @@ int main(int argc, char** argv) {
 	}
 
 	CUDA_CHECK_RETURN(cudaMemset(d_counted_states, 0, sizeof(uint64_t)));
-	count_states<<<((int) prop.multiProcessorCount)*8, 512, 1>>>(d_q, d_counted_states);
+	count_states<<<((int) prop.multiProcessorCount)*8, 512, sizeof(shared_inttype)>>>(d_q, d_counted_states);
 	CUDA_CHECK_RETURN(cudaDeviceSynchronize());
 	CUDA_CHECK_RETURN(cudaMemcpy(&counted_states, d_counted_states, sizeof(uint64_t), cudaMemcpyDeviceToHost));
 	fprintf(stdout, "Nr. of states in hash table: %lu\n", counted_states);
