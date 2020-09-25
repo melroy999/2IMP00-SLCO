@@ -2204,7 +2204,7 @@ inline __host__ __device__ nodetype get_uncompressed_node_root(compressed_nodety
 	printf("Intermediate value 4: %lu.\n", e);	
 	e = RHASH_INIT_INVERSE(e);
 	printf("Intermediate value 5: %lu.\n", e);		
-	return RHASH_INIT_INVERSE(e);
+	return e;
 }
 
 // Extract a global memory root hash table index from a given hash.
