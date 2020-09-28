@@ -78,6 +78,9 @@ vectortree_group_size = 0
 vectortree_size = 0
 # depth of a vectortree
 vectortree_depth = 0
+# dictionary to map node ids to part ids
+vectorpart_id_dict = {}
+
 # dictionary of bitmasks for smart vectortree fetching
 smart_vectortree_fetching_bitmask = {}
 
@@ -702,6 +705,10 @@ def vectorpart_id(pid):
 	"""For the given vectortree node with id pid, return its vectorpart id"""
 	"""Precondition: node pid is a vectorpart"""
 	global vectorstructure
+	# determine number of non-leaf nodes
+	nfnr = len(vectorstructure)-1
+	if vectorpart_is_combined_with_nonleaf_node(len(vectorstructure)-1):
+		nfnr -= 1
 	n = len(vectorstructure)
 	i = pid - (n-1)
 	if i < 0:
@@ -823,9 +830,11 @@ def cudastore_initial_vector():
 		current = Open.pop(0)
 		children = vectortree[current]
 		if is_vectorpart(current):
+			print("vp: ")
 			# set p_cpointers to NEW LEAF value (highest two bits set to 01)
 			p_cpointers = "CACHE_POINTERS_NEW_LEAF"
 			part_id = vectorpart_id(current)
+			print(part_id)
 			p = vectorparts[part_id]
 			if vectorpart_is_combined_with_nonleaf_node(part_id):
 				p_cpointers = 0x80000000
@@ -835,6 +844,7 @@ def cudastore_initial_vector():
 			nodes_cachepointers[current] = p_cpointers
 		else:
 			p_cpointers = 0x80000000
+			p = 0
 			p = reset_left_pointer(p)
 			p_cpointers = set_left_cache_pointer(p_cpointers, children[0])
 			if len(children) == 2:
@@ -852,9 +862,9 @@ def cudastore_initial_vector():
 	else:
 		# mark root node as such
 		nodes_cachepointers[0] = (nodes_cachepointers[0] & 0x3FFFFFFF) | 0x40000000;
-		if compact_hash_table:
-			nodes[0] = (nodes[0] | 0x8000000000000000)
-		else:
+		# if compact_hash_table:
+		# 	nodes[0] = (nodes[0] | 0x8000000000000000)
+		if not compact_hash_table:
 			nodes[0] = (nodes[0] | 0xC000000000000000)
 	# construct code
 	output = "\tif (GLOBAL_THREAD_ID < " + str(nrnodes) + ") {\n"
@@ -891,6 +901,8 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, ind
 	output = ""
 	if nav != []:
 		(p,f) = nav.pop(0)
+		# p is the ID of a vector node, f indicates for a vector part whether or not it also needs to update a (left) pointer (true), and for a non-part
+		# whether it needs to update one pointer (the left) (false) or two pointers (true).
 		if is_vectorpart(p):
 			refs = W.get(p,[])
 			if refs != []:
@@ -1068,7 +1080,7 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, ind
 				# node is also a non-leaf in the vectortree. update pointers.
 				if f:
 					ic += 1
-					output += "if (buf16_" + str(pointer_cnt) + " != EMPTY_CACHE_POINTERS) {\n" + indentspace(ic)
+					output += "if (buf16_" + str(pointer_cnt) + " != EMPTY_CACHE_POINTER) {\n" + indentspace(ic)
 					if refs == []:
 						output += "get_vectortree_node(&part1, &part_cachepointers, node_index, " + str(p) + ");\n" + indentspace(ic)
 						output += "part2 = part1;\n" + indentspace(ic)
@@ -1083,7 +1095,7 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, ind
 			elif refs != []:
 				ic += 1
 				output += "if (part2 != part1) {\n" + indentspace(ic)
-			if p == 0:
+			if p == 0 and not compact_hash_table:
 				output += "// Mark root node as new.\n" + indentspace(ic)
 				output += "part2 = mark_new(part2);\n" + indentspace(ic)
 			if is_non_leaf(p) or refs != []:
@@ -1110,16 +1122,18 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, ind
 				if nav != []:
 					output += "else {\n" + indentspace(ic)
 					ic -= 1
-					output += "buf16_" + str(pointer_cnt) + " = EMPTY_CACHE_POINTERS;\n" + indentspace(ic)
+					output += "buf16_" + str(pointer_cnt) + " = EMPTY_CACHE_POINTER;\n" + indentspace(ic)
 					output += "}\n"  + indentspace(ic)
 			if nav != [] and not is_non_leaf(nav[0][0]):
 				pointer_cnt += 1
+			print("1")
 			output += cudastore_new_vectortree_nodes(nodes_done + [p], nav, pointer_cnt, W, s, o, D, ic)
 		elif is_non_leaf(p):
 			if not f:
 				ic += 1
-				output += "if (buf16_" + str(pointer_cnt) + " != EMPTY_CACHE_POINTERS) {\n" + indentspace(ic)
+				output += "if (buf16_" + str(pointer_cnt) + " != EMPTY_CACHE_POINTER) {\n" + indentspace(ic)
 				output += "get_vectortree_node(&part1, &part_cachepointers, node_index, " + str(p) + ");\n" + indentspace(ic)
+				output += "part2 = part1;\n" + indentspace(ic)
 				children = vectortree[p]
 				if nodes_done[len(nodes_done)-1] == children[0]:
 					output += "set_left_cache_pointer(&part_cachepointers, buf16_" + str(pointer_cnt) + ");\n" + indentspace(ic)
@@ -1129,36 +1143,44 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, ind
 					output += "reset_right_in_vectortree_node(&part2);\n" + indentspace(ic)
 			else:
 				ic += 1
-				output += "if (buf16_" + str(pointer_cnt-1) + " != EMPTY_CACHE_POINTERS || buf16_" + str(pointer_cnt) + " != EMPTY_CACHE_POINTERS) {\n" + indentspace(ic)
-				ic -= 1
+				output += "if (buf16_" + str(pointer_cnt-1) + " != EMPTY_CACHE_POINTER || buf16_" + str(pointer_cnt) + " != EMPTY_CACHE_POINTER) {\n" + indentspace(ic)
 				output += "get_vectortree_node(&part1, &part_cachepointers, node_index, " + str(p) + ");\n" + indentspace(ic)
-				output += "}\n" + indentspace(ic)
+				output += "part2 = part1;\n" + indentspace(ic)
 				ic += 1
-				output += "if (buf16_" + str(pointer_cnt-1) + " != EMPTY_CACHE_POINTERS) {\n" + indentspace(ic)
-				output += "set_right_cache_pointer(&part_cachepointers, buf16_" + str(pointer_cnt-1) + ");\n" + indentspace(ic)
-				ic -= 1
-				output += "reset_right_in_vectortree_node(&part2);\n" + indentspace(ic)
-				output += "}\n" + indentspace(ic)
-				ic += 1
-				output += "if (buf16_" + str(pointer_cnt) + " != EMPTY_CACHE_POINTERS) {\n" + indentspace(ic)
-				output += "set_left_cache_pointer(&part_cachepointers, buf16_" + str(pointer_cnt) + ");\n" + indentspace(ic)
+				output += "if (buf16_" + str(pointer_cnt-1) + " != EMPTY_CACHE_POINTER) {\n" + indentspace(ic)
+				output += "set_left_cache_pointer(&part_cachepointers, buf16_" + str(pointer_cnt-1) + ");\n" + indentspace(ic)
 				ic -= 1
 				output += "reset_left_in_vectortree_node(&part2);\n" + indentspace(ic)
 				output += "}\n" + indentspace(ic)
+				ic += 1
+				output += "if (buf16_" + str(pointer_cnt) + " != EMPTY_CACHE_POINTER) {\n" + indentspace(ic)
+				output += "set_right_cache_pointer(&part_cachepointers, buf16_" + str(pointer_cnt) + ");\n" + indentspace(ic)
+				ic -= 1
+				output += "reset_right_in_vectortree_node(&part2);\n" + indentspace(ic)
+				output += "}\n" + indentspace(ic)
 				pointer_cnt -= 1
-				if is_non_leaf(p) or vectorsize < 64:
+			if p == 0:
+				if not compact_hash_table:
 					output += "part2 = mark_new(part2);\n" + indentspace(ic)
-			ic -= 1
+				else:
+					output += "mark_cached_node_new_root(&part_cachepointers);\n" + indentspace(ic)
 			output += "buf16_" + str(pointer_cnt) + " = STOREINCACHE(part2, part_cachepointers);\n" + indentspace(ic)
-			output += "}\n"  + indentspace(ic)
 			ic += 1
+			output += "if (buf16_" + str(pointer_cnt) + " == CACHE_FULL) {\n" + indentspace(ic)
+			ic -= 1
+			output += "// TODO: Plan B\n" + indentspace(ic)
+			ic -= 1
+			output += "}\n" + indentspace(ic)
+			output += "}\n"  + indentspace(ic)
 			if nav != []:
+				ic += 1
 				output += "else {\n" + indentspace(ic)
 				ic -= 1
-				output += "buf16_" + str(pointer_cnt) + " = EMPTY_CACHE_POINTERS;\n" + indentspace(ic)
+				output += "buf16_" + str(pointer_cnt) + " = EMPTY_CACHE_POINTER;\n" + indentspace(ic)
 				output += "}\n"  + indentspace(ic)
 			if nav != [] and not is_non_leaf(nav[0][0]):
 				pointer_cnt += 1
+			print("2")
 			output += cudastore_new_vectortree_nodes(nodes_done + [p], nav, pointer_cnt, W, s, o, D, ic)
 	# remove trailing tabs
 	while output[-1:] == '\t':
@@ -1208,8 +1230,8 @@ def cudastore_new_vector(s,indent,o,D, sender_o='', sender_sm='', lossy=False):
 		nav = []
 		if len(L) > 0:
 			current = L.pop(0)
-			nav.append((current,False))
 			while current != 0:
+				nav.append((current,False))
 				parent = vectortree_T[current]
 				navcounters[parent] -= 1
 				if navcounters[parent] == 0:
@@ -1228,6 +1250,7 @@ def cudastore_new_vector(s,indent,o,D, sender_o='', sender_sm='', lossy=False):
 		# list of processed nodes
 		nodes_done = []
 		# process the nav list of nodes
+		print("3")
 		output += cudastore_new_vectortree_nodes(nodes_done, nav, 0, Wnew, s, o, D, indent)
 	return output
 
@@ -2166,11 +2189,13 @@ def get_buffer_allocs(T):
 					ST.append((o3,st3))
 			for (o3,st3) in ST:
 				O = get_write_vectorparts_info(st3,o3)
+				print(vectorelem_in_structure_map)
 				O = list(O.keys())
 				n = len(vectorstructure)-1
 				Onew = []
 				extranode = -1
 				for v in O:
+					print(v)
 					if vectorpart_is_combined_with_nonleaf_node(v):
 						extranode = n-1
 					else:
@@ -2181,9 +2206,12 @@ def get_buffer_allocs(T):
 				# explore vectortree to find maximum number of required pointers to store (the delta of) a new state vector tree
 				navcounters = {}
 				waiting = set([])
+				print(O)
 				for v in O:
 					current = v
 					while current != 0:
+						print(current)
+						print(vectortree)
 						nextnode = vectortree_T[current]
 						C = navcounters.get(nextnode, 0)
 						navcounters[nextnode] = C+1
@@ -3304,23 +3332,29 @@ def preprocess():
 			statenodes.add(nextnode)
 			openlist.append(nextnode)
 			statecount += 1
-		elif current in datanodes and datacount < nrstatenodes:
+			nextnode += 1	
+		# the number of datanodes equals nrnodes - 1 - nrstatenodes.
+		# a node that cannot reach a leaf with states is a datanode.
+		# the root node is neither counted as a statenode nor as a datanode (therefore ... - 1 ...).
+		elif current in datanodes and datacount < (nrnodes - 1 - nrstatenodes):
 			children.append(nextnode)
 			datanodes.add(nextnode)
 			openlist.append(nextnode)
 			datacount += 1
+			nextnode += 1		
 		# child two
-		nextnode += 1		
 		if current in statenodes and statecount < nrstatenodes:
 			children.append(nextnode)
 			statenodes.add(nextnode)
 			openlist.append(nextnode)
 			statecount += 1
-		elif current in datanodes and datacount < nrstatenodes:
+			nextnode += 1		
+		elif current in datanodes and datacount < (nrnodes - 1 - nrstatenodes):
 			children.append(nextnode)
 			datanodes.add(nextnode)
 			openlist.append(nextnode)
 			datacount += 1
+			nextnode += 1		
 		vectortree[current] = children
 	# now transpose this tree
 	for v in vectortree.keys():
@@ -3380,13 +3414,14 @@ def preprocess():
 		if is_vectorpart(i):
 			pid = vectorpart_id(i)
 			bitmask += (1 << (31 - pid))
-		smart_vectortree_fetching_bitmask[i] = hex(bitmask)
+		smart_vectortree_fetching_bitmask[i] = bitmask
 	# in addition, add a bitmask for the fetching of the state machine states part(s) of a vector.
 	bitmask = 0
 	for i in range(0,len(vectorstructure)):
 		if vectorstructure[i][0][0] in smnames:
 			bitmask += (1 << (31 - i))
-	smart_vectortree_fetching_bitmask["smstates"] = hex(bitmask)
+#			bitmask += smart_vectortree_fetching_bitmask[i]
+	smart_vectortree_fetching_bitmask["smstates"] = bitmask
 	# create dictionary of array names
 	arraynames = {}
 	for o in model.objects:

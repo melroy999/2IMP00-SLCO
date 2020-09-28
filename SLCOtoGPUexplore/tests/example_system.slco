@@ -3,7 +3,7 @@ model Test {
   classes
   P {
     variables
-			Integer x y
+			Integer x y z q
 
     state machines
     REC1 {
@@ -12,7 +12,7 @@ model Test {
 
       transitions
       R0 -> R1 {
-        a
+        y := 3
       }
     }
   }

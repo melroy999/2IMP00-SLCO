@@ -119,9 +119,12 @@ static const int NR_BLOCKS = {{nrblocks}};
 {% endif %}
 #define EMPTYVECT16					0xFFFF
 {% if vectorsize > 62 %}
-#define EMPTY_CACHE_POINTERS		0x00000000
+// For the following constant, we exploit the fact that a cache never contains more than 2^16 elements.
+#define EMPTY_CACHE_POINTERS		0x1FFFFFFF
 #define CACHE_POINTERS_NEW_LEAF		0x3FFFFFFF
 {% endif %}
+// A cache never contains more than 2^16 elements, hence this value is available for the constant.
+#define EMPTY_CACHE_POINTER			0x3FFF
 
 // Retry constant to determine number of retries for element insertion.
 #define RETRYFREQ 7
@@ -185,7 +188,7 @@ extern __shared__ volatile shared_inttype shared[];
 {% if vectorsize > 62 and not no_smart_fetching %}
 
 // Bitmask to identify parts of the state vector that contain state machine states.
-#define VECTOR_SMPARTS				{{smart_vectortree_fetching_bitmask["smstates"]}}
+#define VECTOR_SMPARTS			{{smart_vectortree_fetching_bitmask["smstates"]|hexa}}
 {% endif %}
 
 // *** START MATH OPERATIONS ***
@@ -314,6 +317,11 @@ inline __host__ __device__ bool is_root(compressed_nodetype node) {
 // two bits of the cache pointers to the value '01'.
 inline __device__ void mark_cached_node_new_root(volatile shared_inttype *pointers) {
 	*pointers = (*pointers & 0x3FFFFFFF) | 0x40000000;
+}
+
+// Mark a node in the cache as an old root.
+inline __device__ void mark_cached_node_old_root(volatile shared_inttype *pointers) {
+	*pointers = *pointers & 0x3FFFFFFF;
 }
 
 inline __device__ bool cached_node_is_new_root(shared_inttype pointers) {
@@ -2418,7 +2426,7 @@ __device__ void FINDORPUT_MANY(compressed_nodetype *d_q{% if compact_hash_table 
 					}
 					else {
 						// New root. Reset the cache pointers to make it old.
-						shared[CACHEOFFSET+(i*3)+2] = EMPTY_CACHE_POINTERS;
+						mark_cached_node_old_root(&shared[CACHEOFFSET+(i*3)+2]);
 					}
 				}
 				else {
@@ -2469,11 +2477,11 @@ __device__ void FINDORPUT_MANY(compressed_nodetype *d_q{% if compact_hash_table 
 							// Ready now?
 							if (!vectortree_node_contains_left_gap(node) && !vectortree_node_contains_right_gap(node)) {
 								// Store node in hash table.
-								addr = FINDORPUT_SINGLE(d_q{% if compact_hash_table %}, d_q_i{% endif %}, node, d_newstate_flags{% if compact_hash_table %}, cached_node_is_new_root(node){% endif %}, true);
+								addr = FINDORPUT_SINGLE(d_q{% if compact_hash_table %}, d_q_i{% endif %}, node, d_newstate_flags{% if compact_hash_table %}, cached_node_is_new_root(node_pointers){% endif %}, true);
 								if (addr == HASHTABLE_FULL) {
 									CONTINUE = 2;
 								}
-								else if (!cached_node_is_new_root(node)) {
+								else if (!cached_node_is_new_root(node_pointers)) {
 									// Preserve original cache pointers for future successor generation iterations.
 									shared[CACHEOFFSET+(i*3)] = shared[CACHEOFFSET+(i*3)+2];
 									// Store global memory address in cache.
@@ -2595,7 +2603,7 @@ inline __device__ uint32_t get_part_reachability(vectornode_indextype nid) {
 	switch (nid) {
 		{% for i in range(0,vectortree|length) %}
 		case {{i}}:
-			return {{smart_vectortree_fetching_bitmask[i]}};
+			return {{smart_vectortree_fetching_bitmask[i]|hexa}};
 		{% endfor %}
 		default:
 			return 0;
@@ -2654,8 +2662,8 @@ inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> tr
 	indextype node_addr = 0;
 	shared_inttype cache_pointers = 0;
 	shared_inttype result;
-	shared_indextype cache_addr = 0;
-	shared_indextype cache_addr_child = 0;
+	shared_indextype cache_addr = EMPTY_CACHE_POINTER;
+	shared_indextype cache_addr_child = EMPTY_CACHE_POINTER;
 	uint8_t gid = treegroup.thread_rank();
 	uint8_t target_thread_id;
 	{% if not no_smart_fetching %}
@@ -2698,11 +2706,15 @@ inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> tr
 	node_tmp_2 = treegroup.shfl(node_tmp_1, target_thread_id);
 	// Process the received node, if applicable.
 	if (target_thread_id != {{vectortree.keys()|length}}) {
-		node_addr = get_pointer_from_vectortree_node(node_tmp_2, false{% for n in vectortree_level_ids[i] if (vectortree[vectortree_T[n]]|length == 2 and vectortree[vectortree_T[n]][vectortree[vectortree_T[n]]|length-1] == n) %} || gid == {% if vectortree[n] == [] %}{{get_vectortree_leaf_parent_thread[n]}}{% else %}{{n}}{% endif %}{% endfor %});	
+		node_addr = get_pointer_from_vectortree_node(node_tmp_2, false{% for n in vectortree_level_ids[i] if (vectortree[vectortree_T[n]]|length == 2 and vectortree[vectortree_T[n]][vectortree[vectortree_T[n]]|length-1] == n) %} || gid == {% if vectortree[n] == [] %}{{vectortree_leaf_thread[n]}}{% else %}{{n}}{% endif %}{% endfor %});	
 	{% if vectortree_level_nr_of_leaves[i] == lsize %}
 		{% if not no_smart_fetching %}
+		{% if j == 0 %}
 		// Smart fetching: first only fetch state vector parts containing statemachine states.
-		if (({% if j == 0 %}{{smart_vectortree_fetching_bitmask[0]}}{% else %}smart_fetching_bitmask{% endif %} & (1 << (31-gid))) != 0x0) {
+		{% else %}
+		// Smart fetching: only fetch vector parts that are required for successor generation.
+		{% endif %}
+		if (({% if j == 0 %}VECTOR_SMPARTS{% else %}smart_fetching_bitmask{% endif %} & (1 << (31-gid))) != 0x0) {
 			leaf_node = HT_RETRIEVE(d_q{% if compact_hash_table %}, d_q_i{% endif %}, node_addr{% if compact_hash_table %}, false{% endif %});
 			// Store the leaf node in the cache.
 			cache_pointers = 0;
@@ -2717,7 +2729,7 @@ inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> tr
 		{% else %}
 		leaf_node = HT_RETRIEVE(d_q{% if compact_hash_table %}, d_q_i{% endif %}, node_addr{% if compact_hash_table %}, false{% endif %});
 		// Store the leaf node in the cache.
-		cache_pointers = 0;
+		cache_pointers = EMPTY_CACHE_POINTERS;
 		result = STOREINCACHE(leaf_node, cache_pointers);
 		if (result == CACHE_FULL) {
 			return CACHE_FULL;
@@ -2729,10 +2741,10 @@ inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> tr
 	{% elif vectortree_level_nr_of_leaves[i] > 0 %}
 		if ({% for n in vectortree_level_ids[i] if vectortree[n]|length == 0 %}gid == {{vectortree_leaf_thread[n]}}{% if not loop.last %} || {% endif %}{% endfor %}) {
 			{% if not no_smart_fetching %}
-			if (({% if j == 0 %}{{smart_vectortree_fetching_bitmask[0]}}{% else %}smart_fetching_bitmask{% endif %} & (1 << (31-gid))) != 0x0) {
+			if (({% if j == 0 %}VECTOR_SMPARTS{% else %}smart_fetching_bitmask{% endif %} & (1 << (31-gid))) != 0x0) {
 				leaf_node = HT_RETRIEVE(d_q,{% if compact_hash_table %}, d_q_i{% endif %}, node_addr{% if compact_hash_table %}, false{% endif %});
 				// Store the leaf node in the cache.
-				cache_pointers = 0;
+				cache_pointers = EMPTY_CACHE_POINTERS;
 				result = STOREINCACHE(leaf_node, cache_pointers);
 				if (result == CACHE_FULL) {
 					return CACHE_FULL;
@@ -2744,7 +2756,7 @@ inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> tr
 			{% else %}
 			leaf_node = HT_RETRIEVE(d_q{% if compact_hash_table %}, d_q_i{% endif %}, node_addr{% if compact_hash_table %}, false{% endif %});
 			// Store the leaf node in the cache.
-			cache_pointers = 0;
+			cache_pointers = EMPTY_CACHE_POINTERS;
 			result = STOREINCACHE(leaf_node, cache_pointers);
 			if (result == CACHE_FULL) {
 				return CACHE_FULL;
@@ -2756,7 +2768,7 @@ inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> tr
 		}
 		else {
 			{% if not no_smart_fetching and j == 1 %}
-			if (node == 0 && ({% if j == 0 %}{{smart_vectortree_fetching_bitmask[0]}}{% else %}smart_fetching_bitmask{% endif %} & get_part_reachability(gid)) != 0x0) {
+			if (node == 0 && ({% if j == 0 %}VECTOR_SMPARTS{% else %}smart_fetching_bitmask{% endif %} & get_part_reachability(gid)) != 0x0) {
 				node = HT_RETRIEVE(d_q{% if compact_hash_table %}, d_q_i{% endif %}, node_addr{% if compact_hash_table %}, false{% endif %});
 				node_tmp_1 = node;
 			}
@@ -2767,7 +2779,7 @@ inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> tr
 		}
 	{% else %}
 		{% if not no_smart_fetching and j == 1 %}
-		if (node == 0 && ({% if j == 0 %}{{smart_vectortree_fetching_bitmask[0]}}{% else %}smart_fetching_bitmask{% endif %} & get_part_reachability(gid)) != 0x0) {
+		if (node == 0 && ({% if j == 0 %}VECTOR_SMPARTS{% else %}smart_fetching_bitmask{% endif %} & get_part_reachability(gid)) != 0x0) {
 			node = HT_RETRIEVE(d_q{% if compact_hash_table %}, d_q_i{% endif %}, node_addr{% if compact_hash_table %}, false{% endif %});
 			node_tmp_1 = node;
 		}
@@ -2779,12 +2791,11 @@ inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> tr
 	}
 	{% endfor %}
 	{% if not no_smart_fetching and j == 0 %}
-	// Fetch the vectorpart to the right.
+	// Fetch the vectorpart to the right for the construction of the smart fetching bitmask.
+	// This is needed to handle cases where state machine states are stored in multiple parts.
 	node_tmp_1 = leaf_node;
 	treegroup.sync();
-	if (cache_addr != 0) {
-		node_tmp_2 = treegroup.shfl(node_tmp_1, gid+1);
-	}
+	node_tmp_2 = treegroup.shfl(node_tmp_1, gid+1);
 	// Construct smart fetching bitmask.
 	smart_fetching_bitmask = get_part_bitmask_for_states_in_vectorpart(gid, leaf_node, node_tmp_2);
 	// Now merge all results of the different threads, resulting in the final bitmask.
@@ -2793,14 +2804,14 @@ inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> tr
 		smart_fetching_bitmask = smart_fetching_bitmask | treegroup.shfl_xor(smart_fetching_bitmask, target_thread_id);
 	}
 	// Finally discard the previously retrieved vectorpart ids from the bitmask.
-	smart_fetching_bitmask = smart_fetching_bitmask & ~({{smart_vectortree_fetching_bitmask[0]}});
+	smart_fetching_bitmask = smart_fetching_bitmask & ~(VECTOR_SMPARTS);
 	// Set node_tmp_1 back to retrieved node.
 	if (node != 0) {
 		node_tmp_1 = node;
 	}
 	{% elif not no_smart_fetching and j == 1 %}
 	// Add the initially retrieved vectorpart ids to the bitmask.
-	smart_fetching_bitmask = smart_fetching_bitmask | {{smart_vectortree_fetching_bitmask[0]}};
+	smart_fetching_bitmask = smart_fetching_bitmask | VECTOR_SMPARTS;
 	{% endif %}
 	{% endfor %}
 	cache_pointers = 0;
@@ -2838,16 +2849,23 @@ inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> tr
 	}
 	{% endif %}
 	treegroup.sync();
+	cache_addr_child = EMPTY_CACHE_POINTER;
 	cache_addr_child = treegroup.shfl(cache_addr, target_thread_id);
 	// Set the received cache pointer.
-	if (target_thread_id != {{vectortree.keys()|length}}) {
+	if (target_thread_id != {{vectortree.keys()|length}} && cache_addr_child != EMPTY_CACHE_POINTER) {
 		set_left_cache_pointer(&cache_pointers, cache_addr_child);
 	}
 	{% if vectortree_level_nr_of_nodes_with_two_children[i] > 0 %}
 	// Obtain cache address for right child.
 	target_thread_id = {{vectortree.keys()|length}};
 	{% if vectortree_level_nr_of_nodes_with_two_children[i] == lsize %}
+	{% if lfirst == llast %}
+	if (gid == {{lfirst}}) {
+	{% elif lfirst == 0 %}
+	if (gid <= {{llast}}) {
+	{% else %}
 	if (gid >= {{lfirst}} && gid <= {{llast}}) {
+	{% endif %}
 		{% if not no_smart_fetching %}
 		if ((smart_fetching_bitmask & get_part_reachability(gid)) != 0x0) {
 			target_thread_id = get_vectortree_nonleaf_right_child_thread(gid);
@@ -2868,9 +2886,10 @@ inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> tr
 	}
 	{% endif %}
 	treegroup.sync();
+	cache_addr_child = EMPTY_CACHE_POINTER;
 	cache_addr_child = treegroup.shfl(cache_addr, target_thread_id);
 	// Set the received cache pointer.
-	if (target_thread_id != {{vectortree.keys()|length}}) {
+	if (target_thread_id != {{vectortree.keys()|length}} && cache_addr_child != EMPTY_CACHE_POINTER) {
 		set_right_cache_pointer(&cache_pointers, cache_addr_child);
 	}
 	{% endif %}
