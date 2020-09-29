@@ -484,19 +484,23 @@ def get_compact_thread_condition(level):
 	prev = -2
 	rg = [-1,-1]
 	R = []
+	print(nodes)
 	for i in range(0, len(nodes)):
-		if nodes[i] == prev-1:
-			prev = nodes[i]
-		if nodes[i] != prev-1 or i == len(nodes)-1:
+		if nodes[i]-1 != prev or i == len(nodes)-1:
 			if prev != -2:
 				rg[1] = prev
 				R.append(rg)
 			rg = [nodes[i],-1]
+			if nodes[i]-1 != prev and i == len(nodes)-1:
+				rg[1] = nodes[i]
+				R.append(rg)
+		prev = nodes[i]
+	print(R)
 	# now construct the condition
 	first = True
 	for p in R:
 		if not first:
-			output += " && "
+			output += " || "
 		else:
 			first = False
 		if p[0] == p[1]:
@@ -523,18 +527,20 @@ def get_compact_leaf_thread_condition(level):
 	rg = [-1,-1]
 	R = []
 	for i in range(0, len(nodes)):
-		if nodes[i] == prev-1:
-			prev = nodes[i]
-		if nodes[i] != prev-1 or i == len(nodes)-1:
+		if nodes[i]-1 != prev or i == len(nodes)-1:
 			if prev != -2:
 				rg[1] = prev
 				R.append(rg)
 			rg = [nodes[i],-1]
+			if nodes[i]-1 != prev and i == len(nodes)-1:
+				rg[1] = nodes[i]
+				R.append(rg)
+		prev = nodes[i]
 	# now construct the condition
 	first = True
 	for p in R:
 		if not first:
-			output += " && "
+			output += " || "
 		else:
 			first = False
 		if p[0] == p[1]:
@@ -3768,7 +3774,10 @@ def preprocess():
 	children = [0]
 	while children != []:
 		vectortree_depth += 1
-		children = vectortree.get(children[0], [])
+		nextchildren = []
+		for c in children:
+			nextchildren += vectortree.get(c, [])
+		children = nextchildren
 	# determine the tile size.
 	if gpuexplore2_succdist:
 		# determine the tile size based on GPUexplore 2.0 successor work distribution.

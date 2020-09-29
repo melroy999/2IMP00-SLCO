@@ -2546,11 +2546,11 @@ __global__ void store_initial_state(compressed_nodetype *d_q{% if compact_hash_t
 // in a vectortree group, and their structural relations with each other, sometimes per tree level.
 inline __device__ uint8_t get_vectortree_node_parent_thread(uint8_t tid, uint8_t level) {
 	switch (level) {
-	{% for l in range(1, vectortree_level_ids|length) %}
+	{% for l in range(1, vectortree_depth) %}
 		case {{l}}:
 			switch (tid) {
 			{% for n in vectortree_level_ids[l] %}
-				case {{tid}}:
+				case {{vectortree_node_thread[n]}}:
 					return {{ vectortree_node_thread[vectortree_T[n]] }};
 					break;
 			{% endfor %}
@@ -2566,24 +2566,11 @@ inline __device__ uint8_t get_vectortree_node_parent_thread(uint8_t tid, uint8_t
 	}
 }
 
-inline __device__ uint8_t get_vectortree_nonleaf_parent_thread(uint8_t tid) {
-	switch (tid) {
-	{% for n in vectortree.keys() if vectortree[n] != [] and n > 0 %}
-		case {{n}}:
-			return {{vectortree_T[n]}};
-			break;
-	{% endfor %}
-		default:
-			return {{vectortree.keys()|length}};
-			break;
-	}
-}
-
 inline __device__ uint8_t get_vectortree_nonleaf_left_child_thread(uint8_t tid) {
 	switch (tid) {
 	{% for n in vectortree.keys() if vectortree[n] != [] %}
-		case {{n}}:
-			return {% if vectortree[vectortree[n][0]] != [] %}{{vectortree[n][0]}}{% else %}{{vectortree_leaf_thread[vectortree[n][0]]}}{% endif %};
+		case {{vectortree_node_thread[n]}}:
+			return {{ vectortree_node_thread[vectortree[n][0]] }};
 			break;
 	{% endfor %}
 		default:
@@ -2595,8 +2582,8 @@ inline __device__ uint8_t get_vectortree_nonleaf_left_child_thread(uint8_t tid) 
 inline __device__ uint8_t get_vectortree_nonleaf_right_child_thread(uint8_t tid) {
 	switch (tid) {
 	{% for n in vectortree.keys() if vectortree[n]|length == 2 %}
-		case {{n}}:
-			return {% if vectortree[vectortree[n][1]] != [] %}{{vectortree[n][1]}}{% else %}{{vectortree_leaf_thread[vectortree[n][1]]}}{% endif %};
+		case {{vectortree_node_thread[n]}}:
+			return {{ vectortree_node_thread[vectortree[n][1]] }};
 			break;
 	{% endfor %}
 		default:
@@ -2607,15 +2594,23 @@ inline __device__ uint8_t get_vectortree_nonleaf_right_child_thread(uint8_t tid)
 {% if not no_smart_fetching %}
 
 // Auxiliary functions to obtain bitmasks for smart vectortree fetching based on the states of the state machines.
-// Given a vector tree node id, return a bitmask expressing which vectorparts are reachable from the node.
-inline __device__ uint32_t get_part_reachability(vectornode_indextype nid) {
-	switch (nid) {
-		{% for i in range(0,vectortree|length) %}
-		case {{i}}:
-			return {{smart_vectortree_fetching_bitmask[i]|hexa}};
-		{% endfor %}
+// Given a vectorgroup thread id and a tree level, return a bitmask expressing which vectorparts are reachable from the node in that level
+// assigned to that thread.
+inline __device__ uint32_t get_part_reachability(uint8_t tid, uint8_t level) {
+	switch (level) {
+	{% for l in range(1, vectortree_depth) %}
+		case {{l}}:
+			switch (tid) {
+			{% for n in vectortree_level_ids[l] %}
+				case {{vectortree_node_thread[n]}}:
+					return {{smart_vectortree_fetching_bitmask[n]|hexa}};
+			{% endfor %}
+				default:
+					return 0x0;
+			}
+	{% endfor %}
 		default:
-			return 0;
+			return 0x0;
 	}
 }
 
@@ -2663,11 +2658,11 @@ inline __device__ uint32_t get_part_bitmask_for_states_in_vectorpart(uint8_t pid
 // Address addr points to the root of the requested vectortree. The function returns the address of the root of the vectortree in the cache,
 // or CACHE_FULL in the case the cache is full.
 inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> treegroup, compressed_nodetype *d_q{% if compact_hash_table %}, nodetype *d_q_i{% endif %}, indextype addr) {
-	nodetype node = 0;
+	nodetype node = EMPTY_NODE;
 	{% if vectorsize > 62 %}
-	nodetype leaf_node = 0;
-	nodetype node_tmp_1 = 0;
-	nodetype node_tmp_2 = 0;
+	nodetype leaf_node = EMPTY_NODE;
+	nodetype node_tmp_1 = EMPTY_NODE;
+	nodetype node_tmp_2 = EMPTY_NODE;
 	indextype node_addr = 0;
 	shared_inttype cache_pointers = 0;
 	shared_inttype result;
@@ -2681,21 +2676,21 @@ inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> tr
 	
 	if (gid == 0) {
 		node = HT_RETRIEVE(d_q{% if compact_hash_table %}, d_q_i{% endif %}, addr{% if compact_hash_table %}, true{% endif %});
-		node_tmp_1 = node;
 	}
 	{% set bound = 1 %}{% if not no_smart_fetching %}{% set bound = bound + 1 %}{% endif %}
 	{% for j in range(0, bound) %}
 	{% for i in range(1, vectortree_depth) %}
 	{% set lsize = vectortree_level_ids[i]|length %}
 	// Obtain node from vectortree parent.
+	node_tmp_1 = node;
 	target_thread_id = {{vectortree.keys()|length}};
-	if ({% i|get_compact_thread_condition %}) {
-		target_thread_id = get_vectortree_node_parent_thread(gid);
+	if ({{ i|get_compact_thread_condition }}) {
+		target_thread_id = get_vectortree_node_parent_thread(gid, {{i}});
 	}
 	treegroup.sync();
 	node_tmp_2 = treegroup.shfl(node_tmp_1, target_thread_id);
 	// Process the received node, if applicable.
-	if (target_thread_id != {{vectortree.keys()|length}}) {
+	if (target_thread_id != {{vectortree.keys()|length}} && node_tmp_2 != EMPTY_NODE) {
 		node_addr = get_pointer_from_vectortree_node(node_tmp_2, false{% for n in vectortree_level_ids[i] if (vectortree[vectortree_T[n]]|length == 2 and vectortree[vectortree_T[n]][vectortree[vectortree_T[n]]|length-1] == n) %} || gid == {{vectortree_node_thread[n]}}{% endfor %});	
 		{% if not no_smart_fetching %}
 		{% if j == 0 %}
@@ -2703,12 +2698,41 @@ inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> tr
 		{% else %}
 		// Smart fetching: only fetch vector nodes that are required for successor generation.
 		{% endif %}
-		if (({% if j == 0 %}VECTOR_SMPARTS{% else %}smart_fetching_bitmask{% endif %} & (1 << (31-gid))) != 0x0) {
+		if (({% if j == 0 %}VECTOR_SMPARTS{% else %}smart_fetching_bitmask{% endif %} & get_part_reachability(gid, {{i}})) {
 			leaf_node = HT_RETRIEVE(d_q{% if compact_hash_table %}, d_q_i{% endif %}, node_addr{% if compact_hash_table %}, false{% endif %});
+			{% if vectortree_level_nr_of_leaves[i] == lsize %}
+			// Store the leaf node in the cache.
+			cache_pointers = EMPTY_CACHE_POINTERS;
+			result = STOREINCACHE(leaf_node, cache_pointers);
+			if (result == CACHE_FULL) {
+				return CACHE_FULL;
+			}
+			else {
+				cache_addr = (shared_indextype) result;
+			}
+			{% elif vectortree_level_nr_of_leaves[i] > 0 %}
+			if ({{ i|get_compact_leaf_thread_condition }}) {
+				// Store the leaf node in the cache.
+				cache_pointers = EMPTY_CACHE_POINTERS;
+				result = STOREINCACHE(leaf_node, cache_pointers);
+				if (result == CACHE_FULL) {
+					return CACHE_FULL;
+				}
+				else {
+					cache_addr = (shared_indextype) result;
+				}
+			}
+			else {
+				node = leaf_node;
+				leaf_node = EMPTY_NODE;
+			}
+			{% else %}
+			node = leaf_node;
+			leaf_node = EMPTY_NODE;
+			{% endif %}
 		}
 		{% else %}
 		leaf_node = HT_RETRIEVE(d_q{% if compact_hash_table %}, d_q_i{% endif %}, node_addr{% if compact_hash_table %}, false{% endif %});
-		{% endif %}
 		{% if vectortree_level_nr_of_leaves[i] == lsize %}
 		// Store the leaf node in the cache.
 		cache_pointers = EMPTY_CACHE_POINTERS;
@@ -2720,7 +2744,7 @@ inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> tr
 			cache_addr = (shared_indextype) result;
 		}
 		{% elif vectortree_level_nr_of_leaves[i] > 0 %}
-		if ({% i|get_compact_leaf_thread_condition %}) {
+		if ({{ i|get_compact_leaf_thread_condition }}) {
 			// Store the leaf node in the cache.
 			cache_pointers = EMPTY_CACHE_POINTERS;
 			result = STOREINCACHE(leaf_node, cache_pointers);
@@ -2733,11 +2757,12 @@ inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> tr
 		}
 		else {
 			node = leaf_node;
-			leaf_node = 0;
+			leaf_node = EMPTY_NODE;
 		}
 		{% else %}
 		node = leaf_node;
-		leaf_node = 0;
+		leaf_node = EMPTY_NODE;
+		{% endif %}
 		{% endif %}
 	}
 	{% endfor %}
@@ -2748,7 +2773,9 @@ inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> tr
 	treegroup.sync();
 	node_tmp_2 = treegroup.shfl(node_tmp_1, gid+1);
 	// Construct smart fetching bitmask.
-	smart_fetching_bitmask = get_part_bitmask_for_states_in_vectorpart(gid, leaf_node, node_tmp_2);
+	if (leaf_node != EMPTY_NODE) {
+		smart_fetching_bitmask = get_part_bitmask_for_states_in_vectorpart(gid, leaf_node, node_tmp_2);
+	}
 	// Now merge all results of the different threads, resulting in the final bitmask.
 	treegroup.sync();
 	for (target_thread_id = treegroup.size()/2; target_thread_id > 0; target_thread_id /= 2) {
@@ -2756,10 +2783,6 @@ inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> tr
 	}
 	// Finally discard the previously retrieved vectorpart ids from the bitmask.
 	smart_fetching_bitmask = smart_fetching_bitmask & ~(VECTOR_SMPARTS);
-	// Set node_tmp_1 back to retrieved node.
-	if (node != 0) {
-		node_tmp_1 = node;
-	}
 	{% elif not no_smart_fetching and j == 1 %}
 	// Add the initially retrieved vectorpart ids to the bitmask.
 	smart_fetching_bitmask = smart_fetching_bitmask | VECTOR_SMPARTS;
