@@ -80,6 +80,8 @@ vectortree_size = 0
 vectortree_depth = 0
 # dictionary to map node ids to part ids
 vectorpart_id_dict = {}
+# dictionary in the other direction, i.e., from part id to node id
+vectornode_id_dict = {}
 
 # dictionary of bitmasks for smart vectortree fetching
 smart_vectortree_fetching_bitmask = {}
@@ -693,32 +695,33 @@ def cudaguard(s,D,o):
 
 def is_vectorpart(pid):
 	"""Return whether the given vectortree node with id pid is a vectorpart or not"""
-	global vectorstructure
+	global vectorstructure, vectortree
 	size = len(vectorstructure)
-	if pid >= size-1:
+	if len(vectortree[pid]) == 0:
 		return True
-	if pid == size-2 and vectorpart_is_combined_with_nonleaf_node(len(vectorstructure)-1):
+	if len(vectortree[pid]) == 1 and vectorpart_is_combined_with_nonleaf_node(len(vectorstructure)-1):
 		return True
 	return False
 
 def vectorpart_id(pid):
 	"""For the given vectortree node with id pid, return its vectorpart id"""
 	"""Precondition: node pid is a vectorpart"""
-	global vectorstructure
-	# determine number of non-leaf nodes
-	nfnr = len(vectorstructure)-1
-	if vectorpart_is_combined_with_nonleaf_node(len(vectorstructure)-1):
-		nfnr -= 1
-	n = len(vectorstructure)
-	i = pid - (n-1)
-	if i < 0:
-		i = n-1
-	return i
+	global vectorpart_id_dict
+	# # determine number of non-leaf nodes
+	# nfnr = len(vectorstructure)-1
+	# if vectorpart_is_combined_with_nonleaf_node(len(vectorstructure)-1):
+	# 	nfnr -= 1
+	# n = len(vectorstructure)
+	# i = pid - (n-1)
+	# if i < 0:
+	# 	i = n-1
+	# return i
+	return vectorpart_id_dict.get(pid, -1)
 
 def is_non_leaf(pid):
 	"""Return whether the given vectortree node with id pid is a non-leaf node"""
-	global vectorstructure
-	return (pid < len(vectorstructure)-1)
+	global vectortree
+	return len(vectortree[pid]) > 0
 
 def indentspace(i):
 	"""Provide a string consisting of i tabs"""
@@ -899,12 +902,15 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, ind
 	global vectortree, vectortree_T, connected_channel, dynamic_write_arrays, state_id, vectorsize, array_in_structure_map
 	ic = indent
 	output = ""
+	print(nav)
 	if nav != []:
 		(p,f) = nav.pop(0)
+		print("next: " + str(p) + " " + str(f))
 		# p is the ID of a vector node, f indicates for a vector part whether or not it also needs to update a (left) pointer (true), and for a non-part
 		# whether it needs to update one pointer (the left) (false) or two pointers (true).
 		if is_vectorpart(p):
 			refs = W.get(p,[])
+			print("W: " + str(refs))
 			if refs != []:
 				if vectorsize > 62:
 					output += "get_vectortree_node(&part1, &part_cachepointers, node_index, " + str(p) + ");\n" + indentspace(ic)
@@ -1095,9 +1101,6 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, ind
 			elif refs != []:
 				ic += 1
 				output += "if (part2 != part1) {\n" + indentspace(ic)
-			if p == 0 and not compact_hash_table:
-				output += "// Mark root node as new.\n" + indentspace(ic)
-				output += "part2 = mark_new(part2);\n" + indentspace(ic)
 			if is_non_leaf(p) or refs != []:
 				output += "// This part has been altered. Store it in shared memory and remember address of new part.\n" + indentspace(ic)
 				if vectorsize > 62:
@@ -1107,6 +1110,8 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, ind
 						output += "mark_cached_node_new_nonleaf(&part_cachepointers);\n" + indentspace(ic)
 					else:
 						output += "part_cachepointers = CACHE_POINTERS_NEW_LEAF;\n" + indentspace(ic)
+				elif not compact_hash_table:
+					output += "part2 = mark_new(part2);\n" + indentspace(ic)
 				if vectorsize <= 62:
 					output += "buf16_" + str(pointer_cnt) + " = STOREINCACHE(part2);\n" + indentspace(ic)
 				else:
@@ -1127,6 +1132,8 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, ind
 			if nav != [] and not is_non_leaf(nav[0][0]):
 				pointer_cnt += 1
 			print("1")
+			print(nodes_done)
+			print(nav)
 			output += cudastore_new_vectortree_nodes(nodes_done + [p], nav, pointer_cnt, W, s, o, D, ic)
 		elif is_non_leaf(p):
 			if not f:
@@ -1190,7 +1197,7 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, ind
 def cudastore_new_vector(s,indent,o,D, sender_o='', sender_sm='', lossy=False):
 	"""Return CUDA code to store new vector resulting from executing statement s. D is a dictionary mapping variable refs to variable names. o is Object owning s.
 	optional arguments involve an Object and Statemachine of a (synchronous) sender SM that needs to change state, lossy indicates lossy communication."""
-	global connected_channel, scopename, vectorstructure, vectortree, vectortree_T, vectorelem_in_structure_map
+	global connected_channel, scopename, vectorstructure, vectortree, vectortree_T, vectorelem_in_structure_map, vectornode_id_dict
 
 	indentspace = ""
 	for i in range(0,indent):
@@ -1202,20 +1209,27 @@ def cudastore_new_vector(s,indent,o,D, sender_o='', sender_sm='', lossy=False):
 		output += "// Store new state vector in shared memory.\n" + indentspace
 		# obtain list of nodes in the tree to update
 		L = list(W.keys())
-		n = len(vectorstructure)-1
 		Lnew = []
 		Wnew = {}
-		extranode = -1
 		for v in L:
-			if vectorpart_is_combined_with_nonleaf_node(v):
-				extranode = n-1
-				Wnew[n-1] = W[v]
-			else:
-				Lnew.append(v+n)
-				Wnew[v+n] = W[v]
+			nid = vectornode_id_dict[v]
+			Lnew.append(nid)
+			Wnew[nid] = W[v]
+		# print("update" + str(L))
+		# n = len(vectorstructure)-1
+		# Lnew = []
+		# Wnew = {}
+		# extranode = -1
+		# for v in L:
+		# 	if vectorpart_is_combined_with_nonleaf_node(v):
+		# 		extranode = n-1
+		# 		Wnew[n-1] = W[v]
+		# 	else:
+		# 		Lnew.append(v+n)
+		# 		Wnew[v+n] = W[v]
 		L = sorted(Lnew)
-		if extranode != -1:
-			L.append(extranode)
+		# if extranode != -1:
+		# 	L.append(extranode)
 		# explore vectortree to construct list of nodes to be updated
 		navcounters = {}
 		waiting = set([])
@@ -1230,8 +1244,8 @@ def cudastore_new_vector(s,indent,o,D, sender_o='', sender_sm='', lossy=False):
 		nav = []
 		if len(L) > 0:
 			current = L.pop(0)
-			while current != 0:
-				nav.append((current,False))
+			nav.append((current,False))
+			while True:
 				parent = vectortree_T[current]
 				navcounters[parent] -= 1
 				if navcounters[parent] == 0:
@@ -1244,9 +1258,12 @@ def cudastore_new_vector(s,indent,o,D, sender_o='', sender_sm='', lossy=False):
 						waiting.remove(parent)
 					else:
 						nav.append((parent,False))
+					if current == 0:
+						break
 				else:
 					waiting.add(parent)
 					current = L.pop(0)
+					nav.append((current,False))
 		# list of processed nodes
 		nodes_done = []
 		# process the nav list of nodes
@@ -3012,7 +3029,7 @@ def debug(text):
 
 def preprocess():
 	"""Preprocessing of model"""
-	global model, vectorsize, vectorstructure, vectortree, vectortree_T, vectortree_group_size, vectortree_level_ids, vectortree_leaf_thread, vectorstructure_string, smnames, vectorelem_in_structure_map, max_statesize, state_order, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, connected_channel, signalsize, signalnr, alphabet, syncactions, actiontargets, actions, syncreccomm, no_state_constant, no_prio_constant, dynamic_write_arrays, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth, vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children, tilesize, gpuexplore2_succdist, regsort_nr_el_per_thread, all_arrayindex_allocs_sizes, smart_vectortree_fetching_bitmask, nr_warps_per_tile, compact_hash_table, elements_strings, nrblocks, nrthreadsperblock, array_in_structure_map
+	global model, vectorsize, vectorstructure, vectortree, vectortree_T, vectortree_group_size, vectortree_level_ids, vectortree_leaf_thread, vectorstructure_string, smnames, vectorelem_in_structure_map, max_statesize, state_order, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, connected_channel, signalsize, signalnr, alphabet, syncactions, actiontargets, actions, syncreccomm, no_state_constant, no_prio_constant, dynamic_write_arrays, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth, vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children, tilesize, gpuexplore2_succdist, regsort_nr_el_per_thread, all_arrayindex_allocs_sizes, smart_vectortree_fetching_bitmask, nr_warps_per_tile, compact_hash_table, elements_strings, nrblocks, nrthreadsperblock, array_in_structure_map, vectorpart_id_dict, vectornode_id_dict
 
 	# construct set of statemachine names in the system
 	# also construct a map from names to objects
@@ -3393,6 +3410,33 @@ def preprocess():
 		curlevel = nextlevel
 		nextlevel = []
 		level += 1
+	# create dictionary mapping node ids to part ids
+	vectorpart_id_dict = {}
+	openstack = [0]
+	next_partid = 0
+	hybrid_node = -1
+	while len(openstack) > 0:
+		t = openstack.pop()
+		print(t)
+		if is_vectorpart(t):
+			if is_non_leaf(t):
+				hybrid_node = t
+				print("hybrid")
+			else:
+				vectorpart_id_dict[t] = next_partid
+				print("part " + str(next_partid))
+				next_partid += 1
+		for w in reversed(vectortree[t]):
+			openstack.append(w)
+	# create dictionary in the other direction
+	vectornode_id_dict = {}
+	for i in range(0, len(vectortree)):
+		pid = vectorpart_id_dict.get(i, -1)
+		if pid != -1:
+			vectornode_id_dict[pid] = i
+	# add info on extra, combined node
+	if hybrid_node != -1:
+		vectorpart_id_dict[hybrid_node] = next_partid
 	# construct smart_vectortree_fetching_bitmask dictionary, which provides bitmasks needed for smart fetching
 	# of vectortrees.
 	smart_vectortree_fetching_bitmask = {}
