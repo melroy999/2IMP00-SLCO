@@ -472,8 +472,49 @@ def get_vector_tree_to_node_navigation(p):
 
 def get_compact_thread_condition(level):
 	"""For the given tree level, produce a compact condition for the thread IDs (for use in the FETCH function)"""
-	global vectortree_level_ids
-	nodes = vectortree_level_ids.get(level, [])
+	global vectortree_level_ids, vectortree_node_thread
+	L = vectortree_level_ids.get(level, [])
+	nodes = []
+	for n in L:
+		nodes.append(vectortree_node_thread[n])
+	output = ""
+	# sort the nodes
+	nodes = sorted(nodes)
+	# group the node ids together in ranges
+	prev = -2
+	rg = [-1,-1]
+	R = []
+	for i in range(0, len(nodes)):
+		if nodes[i] == prev-1:
+			prev = nodes[i]
+		if nodes[i] != prev-1 or i == len(nodes)-1:
+			if prev != -2:
+				rg[1] = prev
+				R.append(rg)
+			rg = [nodes[i],-1]
+	# now construct the condition
+	first = True
+	for p in R:
+		if not first:
+			output += " && "
+		else:
+			first = False
+		if p[0] == p[1]:
+			output += "gid == " + str(p[0])
+		elif p[0] == 0:
+			output += "gid <= " + str(p[1])
+		else:
+			output += "(gid >= " + str(p[0]) + " && gid <= " + str(p[1]) + ")"
+	return output
+
+def get_compact_leaf_thread_condition(level):
+	"""For the given tree level, produce a compact condition for the thread IDs, restricted to leaf nodes (for use in the FETCH function)"""
+	global vectortree_level_ids, vectortree
+	L = vectortree_level_ids.get(level, [])
+	nodes = []
+	for n in L:
+		if vectortree[n] == []:
+			nodes.append(vectortree_node_thread[n])
 	output = ""
 	# sort the nodes
 	nodes = sorted(nodes)
@@ -3791,6 +3832,7 @@ def translate():
 	jinja_env.filters['get_smart_fetching_vectorparts_bitmask'] = get_smart_fetching_vectorparts_bitmask
 	jinja_env.filters['get_remaining_vectorparts'] = get_remaining_vectorparts
 	jinja_env.filters['get_compact_thread_condition'] = get_compact_thread_condition
+	jinja_env.filters['get_compact_leaf_thread_condition'] = get_compact_leaf_thread_condition
 	jinja_env.filters['scopename'] = scopename
 	jinja_env.filters['gettypesize'] = gettypesize
 	jinja_env.filters['getlogarraysize'] = getlogarraysize
