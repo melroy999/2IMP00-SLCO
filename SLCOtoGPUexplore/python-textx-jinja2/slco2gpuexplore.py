@@ -70,8 +70,8 @@ vectortree_level_ids = {}
 vectortree_level_nr_of_leaves = {}
 # dictionary indicating for each level how many nodes have two children
 vectortree_level_nr_of_nodes_with_two_children = {}
-# assign threads to vectortree leaves
-vectortree_leaf_thread = {}
+# assign threads to vectortree nodes
+vectortree_node_thread = {}
 # size of a vectortree group (groups of threads needed to fetch a vector tree from the global hash table)
 # vectortree_group_size is a power of two, sufficiently large to contain vectortree_size (the actually needed number of threads)
 vectortree_group_size = 0
@@ -470,6 +470,40 @@ def get_vector_tree_to_node_navigation(p):
 # 		bitmask = "(x << " + str(intsize - upperbound) + ")"
 # 	return str(bitmask)
 
+def get_compact_thread_condition(level):
+	"""For the given tree level, produce a compact condition for the thread IDs (for use in the FETCH function)"""
+	global vectortree_level_ids
+	nodes = vectortree_level_ids.get(level, [])
+	output = ""
+	# sort the nodes
+	nodes = sorted(nodes)
+	# group the node ids together in ranges
+	prev = -2
+	rg = [-1,-1]
+	R = []
+	for i in range(0, len(nodes)):
+		if nodes[i] == prev-1:
+			prev = nodes[i]
+		if nodes[i] != prev-1 or i == len(nodes)-1:
+			if prev != -2:
+				rg[1] = prev
+				R.append(rg)
+			rg = [nodes[i],-1]
+	# now construct the condition
+	first = True
+	for p in R:
+		if not first:
+			output += " && "
+		else:
+			first = False
+		if p[0] == p[1]:
+			output += "gid == " + str(p[0])
+		elif p[0] == 0:
+			output += "gid <= " + str(p[1])
+		else:
+			output += "(gid >= " + str(p[0]) + " && gid <= " + str(p[1]) + ")"
+	return output
+
 def get_startbit(o):
 	"""Return starting bit of object o tuple ((object, index) pair) in its corresponding part of the statevector"""
 	global vectorstructure, vectorsize
@@ -833,11 +867,9 @@ def cudastore_initial_vector():
 		current = Open.pop(0)
 		children = vectortree[current]
 		if is_vectorpart(current):
-			print("vp: ")
 			# set p_cpointers to NEW LEAF value (highest two bits set to 01)
 			p_cpointers = "CACHE_POINTERS_NEW_LEAF"
 			part_id = vectorpart_id(current)
-			print(part_id)
 			p = vectorparts[part_id]
 			if vectorpart_is_combined_with_nonleaf_node(part_id):
 				p_cpointers = 0x80000000
@@ -902,15 +934,12 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, ind
 	global vectortree, vectortree_T, connected_channel, dynamic_write_arrays, state_id, vectorsize, array_in_structure_map
 	ic = indent
 	output = ""
-	print(nav)
 	if nav != []:
 		(p,f) = nav.pop(0)
-		print("next: " + str(p) + " " + str(f))
 		# p is the ID of a vector node, f indicates for a vector part whether or not it also needs to update a (left) pointer (true), and for a non-part
 		# whether it needs to update one pointer (the left) (false) or two pointers (true).
 		if is_vectorpart(p):
 			refs = W.get(p,[])
-			print("W: " + str(refs))
 			if refs != []:
 				if vectorsize > 62:
 					output += "get_vectortree_node(&part1, &part_cachepointers, node_index, " + str(p) + ");\n" + indentspace(ic)
@@ -1131,9 +1160,6 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, ind
 					output += "}\n"  + indentspace(ic)
 			if nav != [] and not is_non_leaf(nav[0][0]):
 				pointer_cnt += 1
-			print("1")
-			print(nodes_done)
-			print(nav)
 			output += cudastore_new_vectortree_nodes(nodes_done + [p], nav, pointer_cnt, W, s, o, D, ic)
 		elif is_non_leaf(p):
 			if not f:
@@ -1187,7 +1213,6 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, ind
 				output += "}\n"  + indentspace(ic)
 			if nav != [] and not is_non_leaf(nav[0][0]):
 				pointer_cnt += 1
-			print("2")
 			output += cudastore_new_vectortree_nodes(nodes_done + [p], nav, pointer_cnt, W, s, o, D, ic)
 	# remove trailing tabs
 	while output[-1:] == '\t':
@@ -1209,12 +1234,14 @@ def cudastore_new_vector(s,indent,o,D, sender_o='', sender_sm='', lossy=False):
 		output += "// Store new state vector in shared memory.\n" + indentspace
 		# obtain list of nodes in the tree to update
 		L = list(W.keys())
+		L = sorted(L)
 		Lnew = []
 		Wnew = {}
 		for v in L:
 			nid = vectornode_id_dict[v]
 			Lnew.append(nid)
 			Wnew[nid] = W[v]
+		L = Lnew
 		# print("update" + str(L))
 		# n = len(vectorstructure)-1
 		# Lnew = []
@@ -1227,7 +1254,7 @@ def cudastore_new_vector(s,indent,o,D, sender_o='', sender_sm='', lossy=False):
 		# 	else:
 		# 		Lnew.append(v+n)
 		# 		Wnew[v+n] = W[v]
-		L = sorted(Lnew)
+		# L = sorted(Lnew)
 		# if extranode != -1:
 		# 	L.append(extranode)
 		# explore vectortree to construct list of nodes to be updated
@@ -1243,8 +1270,11 @@ def cudastore_new_vector(s,indent,o,D, sender_o='', sender_sm='', lossy=False):
 				current = nextnode
 		nav = []
 		if len(L) > 0:
+			added = set([])
 			current = L.pop(0)
-			nav.append((current,False))
+			if current not in added:
+				nav.append((current,False))
+				added.add(current)
 			while True:
 				parent = vectortree_T[current]
 				navcounters[parent] -= 1
@@ -1252,22 +1282,29 @@ def cudastore_new_vector(s,indent,o,D, sender_o='', sender_sm='', lossy=False):
 					current = parent
 					if is_non_leaf(parent) and is_vectorpart(parent):
 						# this is the tail vectorpart, and it is integrated into a non-leaf node
-						nav.append((parent,True))
+						if parent not in added:
+							nav.append((parent,True))
+							added.add(parent)
 					elif parent in waiting:
-						nav.append((parent,True))
+						if parent not in added:
+							nav.append((parent,True))
+							added.add(parent)
 						waiting.remove(parent)
 					else:
-						nav.append((parent,False))
+						if parent not in added:
+							nav.append((parent,False))
+							added.add(parent)
 					if current == 0:
 						break
 				else:
 					waiting.add(parent)
 					current = L.pop(0)
-					nav.append((current,False))
+					if current not in added:
+						nav.append((current,False))
+						added.add(current)
 		# list of processed nodes
 		nodes_done = []
 		# process the nav list of nodes
-		print("3")
 		output += cudastore_new_vectortree_nodes(nodes_done, nav, 0, Wnew, s, o, D, indent)
 	return output
 
@@ -2206,13 +2243,11 @@ def get_buffer_allocs(T):
 					ST.append((o3,st3))
 			for (o3,st3) in ST:
 				O = get_write_vectorparts_info(st3,o3)
-				print(vectorelem_in_structure_map)
 				O = list(O.keys())
 				n = len(vectorstructure)-1
 				Onew = []
 				extranode = -1
 				for v in O:
-					print(v)
 					if vectorpart_is_combined_with_nonleaf_node(v):
 						extranode = n-1
 					else:
@@ -2223,12 +2258,9 @@ def get_buffer_allocs(T):
 				# explore vectortree to find maximum number of required pointers to store (the delta of) a new state vector tree
 				navcounters = {}
 				waiting = set([])
-				print(O)
 				for v in O:
 					current = v
 					while current != 0:
-						print(current)
-						print(vectortree)
 						nextnode = vectortree_T[current]
 						C = navcounters.get(nextnode, 0)
 						navcounters[nextnode] = C+1
@@ -3029,7 +3061,7 @@ def debug(text):
 
 def preprocess():
 	"""Preprocessing of model"""
-	global model, vectorsize, vectorstructure, vectortree, vectortree_T, vectortree_group_size, vectortree_level_ids, vectortree_leaf_thread, vectorstructure_string, smnames, vectorelem_in_structure_map, max_statesize, state_order, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, connected_channel, signalsize, signalnr, alphabet, syncactions, actiontargets, actions, syncreccomm, no_state_constant, no_prio_constant, dynamic_write_arrays, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth, vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children, tilesize, gpuexplore2_succdist, regsort_nr_el_per_thread, all_arrayindex_allocs_sizes, smart_vectortree_fetching_bitmask, nr_warps_per_tile, compact_hash_table, elements_strings, nrblocks, nrthreadsperblock, array_in_structure_map, vectorpart_id_dict, vectornode_id_dict
+	global model, vectorsize, vectorstructure, vectortree, vectortree_T, vectortree_group_size, vectortree_level_ids, vectortree_node_thread, vectorstructure_string, smnames, vectorelem_in_structure_map, max_statesize, state_order, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, connected_channel, signalsize, signalnr, alphabet, syncactions, actiontargets, actions, syncreccomm, no_state_constant, no_prio_constant, dynamic_write_arrays, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth, vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children, tilesize, gpuexplore2_succdist, regsort_nr_el_per_thread, all_arrayindex_allocs_sizes, smart_vectortree_fetching_bitmask, nr_warps_per_tile, compact_hash_table, elements_strings, nrblocks, nrthreadsperblock, array_in_structure_map, vectorpart_id_dict, vectornode_id_dict
 
 	# construct set of statemachine names in the system
 	# also construct a map from names to objects
@@ -3385,11 +3417,13 @@ def preprocess():
 	vectortree_level_ids = {}
 	vectortree_level_nr_of_leaves = {}
 	vectortree_level_nr_of_nodes_with_two_children = {}
-	vectortree_leaf_thread = {}
 	curlevel = [0]
+	# map nodes to threads.
+	vectortree_node_thread = {}
 	nextlevel = []
 	level = 0
 	leaf_counter = 0
+	nonleaf_counter = 0
 	while len(curlevel) > 0:
 		vectortree_level_ids[level] = curlevel
 		vectortree_level_nr_of_leaves[level] = 0
@@ -3400,10 +3434,14 @@ def preprocess():
 			if len(children) == 0:
 				vectortree_level_nr_of_leaves[level] += 1
 				# assign the node to a GPU thread
-				vectortree_leaf_thread[curlevel[i]] = leaf_counter
+				vectortree_node_thread[curlevel[i]] = leaf_counter
 				leaf_counter += 1
+			else:
+				# assign the node to a GPU thread
+				vectortree_node_thread[curlevel[i]] = nonleaf_counter
+				nonleaf_counter += 1
 			# does the node have two children?
-			elif len(children) == 2:
+			if len(children) == 2:
 				vectortree_level_nr_of_nodes_with_two_children[level] += 1
 			# add children to the next level
 			nextlevel += children
@@ -3417,26 +3455,23 @@ def preprocess():
 	hybrid_node = -1
 	while len(openstack) > 0:
 		t = openstack.pop()
-		print(t)
 		if is_vectorpart(t):
 			if is_non_leaf(t):
 				hybrid_node = t
-				print("hybrid")
 			else:
 				vectorpart_id_dict[t] = next_partid
-				print("part " + str(next_partid))
 				next_partid += 1
 		for w in reversed(vectortree[t]):
 			openstack.append(w)
+	# add info on extra, combined node
+	if hybrid_node != -1:
+		vectorpart_id_dict[hybrid_node] = next_partid
 	# create dictionary in the other direction
 	vectornode_id_dict = {}
 	for i in range(0, len(vectortree)):
 		pid = vectorpart_id_dict.get(i, -1)
 		if pid != -1:
 			vectornode_id_dict[pid] = i
-	# add info on extra, combined node
-	if hybrid_node != -1:
-		vectorpart_id_dict[hybrid_node] = next_partid
 	# construct smart_vectortree_fetching_bitmask dictionary, which provides bitmasks needed for smart fetching
 	# of vectortrees.
 	smart_vectortree_fetching_bitmask = {}
@@ -3715,7 +3750,7 @@ def preprocess():
 
 def translate():
 	"""The translation function"""
-	global modelname, model, vectorstructure, vectorstructure_string, vectortree, vectortree_T, vectortree_group_size, vectortree_level_ids, vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children, vectorelem_in_structure_map, vectortree_leaf_thread, state_order, max_statesize, smnames, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, signalsize, connected_channel, alphabet, syncactions, actiontargets, no_state_constant, no_prio_constant, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth, gpuexplore2_succdist, no_regsort, tilesize, regsort_nr_el_per_thread, warpsize, all_arrayindex_allocs_sizes, no_smart_fetching, compact_hash_table, nrblocks, nrthreadsperblock, array_in_structure_map
+	global modelname, model, vectorstructure, vectorstructure_string, vectortree, vectortree_T, vectortree_group_size, vectortree_level_ids, vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children, vectorelem_in_structure_map, vectortree_node_thread, state_order, max_statesize, smnames, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, signalsize, connected_channel, alphabet, syncactions, actiontargets, no_state_constant, no_prio_constant, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth, gpuexplore2_succdist, no_regsort, tilesize, regsort_nr_el_per_thread, warpsize, all_arrayindex_allocs_sizes, no_smart_fetching, compact_hash_table, nrblocks, nrthreadsperblock, array_in_structure_map
 	
 	path, name = split(modelname)
 	if name.endswith('.slco'):
@@ -3755,6 +3790,7 @@ def translate():
 	jinja_env.filters['vectorpart_is_combined_with_nonleaf_node'] = vectorpart_is_combined_with_nonleaf_node
 	jinja_env.filters['get_smart_fetching_vectorparts_bitmask'] = get_smart_fetching_vectorparts_bitmask
 	jinja_env.filters['get_remaining_vectorparts'] = get_remaining_vectorparts
+	jinja_env.filters['get_compact_thread_condition'] = get_compact_thread_condition
 	jinja_env.filters['scopename'] = scopename
 	jinja_env.filters['gettypesize'] = gettypesize
 	jinja_env.filters['getlogarraysize'] = getlogarraysize
@@ -3788,7 +3824,7 @@ def translate():
 
 	# load the GPUexplore template
 	template = jinja_env.get_template('gpuexplore.jinja2template')
-	out = template.render(model=model, vectorsize=vectorsize, vectortree_group_size=vectortree_group_size, vectorstructure=vectorstructure, vectorstructure_string=vectorstructure_string, vectortree=vectortree, vectortree_T=vectortree_T, max_statesize=max_statesize, vectorelem_in_structure_map=vectorelem_in_structure_map, array_in_structure_map=array_in_structure_map, state_order=state_order, smnames=smnames, smname_to_object=smname_to_object, state_id=state_id, arraynames=arraynames, max_arrayindexsize=max_arrayindexsize, max_buffer_allocs=max_buffer_allocs, connected_channel=connected_channel, alphabet=alphabet, syncactions=syncactions, actiontargets=actiontargets, syncreccomm=syncreccomm, no_state_constant=no_state_constant, no_prio_constant=no_prio_constant, dynamic_write_arrays=dynamic_write_arrays, signalsize=signalsize, async_channel_vectorpart_buffer_range=async_channel_vectorpart_buffer_range, vectortree_depth=vectortree_depth, vectortree_level_ids=vectortree_level_ids, vectortree_level_nr_of_leaves=vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children=vectortree_level_nr_of_nodes_with_two_children, vectortree_leaf_thread=vectortree_leaf_thread, gpuexplore2_succdist=gpuexplore2_succdist, no_regsort=no_regsort, tilesize=tilesize, regsort_nr_el_per_thread=regsort_nr_el_per_thread, nr_warps_per_tile=nr_warps_per_tile, warpsize=warpsize, all_arrayindex_allocs_sizes=all_arrayindex_allocs_sizes, smart_vectortree_fetching_bitmask=smart_vectortree_fetching_bitmask, no_smart_fetching=no_smart_fetching, compact_hash_table=compact_hash_table, nr_bits_address_root=nr_bits_address_root(), nr_bits_address_internal=nr_bits_address_internal(), cuda_initial_vector=cudastore_initial_vector(), nrblocks=nrblocks, nrthreadsperblock=nrthreadsperblock)
+	out = template.render(model=model, vectorsize=vectorsize, vectortree_group_size=vectortree_group_size, vectorstructure=vectorstructure, vectorstructure_string=vectorstructure_string, vectortree=vectortree, vectortree_T=vectortree_T, max_statesize=max_statesize, vectorelem_in_structure_map=vectorelem_in_structure_map, array_in_structure_map=array_in_structure_map, state_order=state_order, smnames=smnames, smname_to_object=smname_to_object, state_id=state_id, arraynames=arraynames, max_arrayindexsize=max_arrayindexsize, max_buffer_allocs=max_buffer_allocs, connected_channel=connected_channel, alphabet=alphabet, syncactions=syncactions, actiontargets=actiontargets, syncreccomm=syncreccomm, no_state_constant=no_state_constant, no_prio_constant=no_prio_constant, dynamic_write_arrays=dynamic_write_arrays, signalsize=signalsize, async_channel_vectorpart_buffer_range=async_channel_vectorpart_buffer_range, vectortree_depth=vectortree_depth, vectortree_level_ids=vectortree_level_ids, vectortree_level_nr_of_leaves=vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children=vectortree_level_nr_of_nodes_with_two_children, vectortree_node_thread=vectortree_node_thread, gpuexplore2_succdist=gpuexplore2_succdist, no_regsort=no_regsort, tilesize=tilesize, regsort_nr_el_per_thread=regsort_nr_el_per_thread, nr_warps_per_tile=nr_warps_per_tile, warpsize=warpsize, all_arrayindex_allocs_sizes=all_arrayindex_allocs_sizes, smart_vectortree_fetching_bitmask=smart_vectortree_fetching_bitmask, no_smart_fetching=no_smart_fetching, compact_hash_table=compact_hash_table, nr_bits_address_root=nr_bits_address_root(), nr_bits_address_internal=nr_bits_address_internal(), cuda_initial_vector=cudastore_initial_vector(), nrblocks=nrblocks, nrthreadsperblock=nrthreadsperblock)
 	# write new SLCO model
 	outFile.write(out)
 	outFile.close()
