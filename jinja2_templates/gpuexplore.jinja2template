@@ -2598,7 +2598,7 @@ inline __device__ uint8_t get_vectortree_nonleaf_right_child_thread(uint8_t tid)
 // assigned to that thread.
 inline __device__ uint32_t get_part_reachability(uint8_t tid, uint8_t level) {
 	switch (level) {
-	{% for l in range(1, vectortree_depth) %}
+	{% for l in range(0, vectortree_depth) %}
 		case {{l}}:
 			switch (tid) {
 			{% for n in vectortree_level_ids[l] %}
@@ -2698,7 +2698,7 @@ inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> tr
 		{% else %}
 		// Smart fetching: only fetch vector nodes that are required for successor generation.
 		{% endif %}
-		if (({% if j == 0 %}VECTOR_SMPARTS{% else %}smart_fetching_bitmask{% endif %} & get_part_reachability(gid, {{i}})) {
+		if (({% if j == 0 %}VECTOR_SMPARTS{% else %}smart_fetching_bitmask{% endif %} & get_part_reachability(gid, {{i}})) != 0x0) {
 			leaf_node = HT_RETRIEVE(d_q{% if compact_hash_table %}, d_q_i{% endif %}, node_addr{% if compact_hash_table %}, false{% endif %});
 			{% if vectortree_level_nr_of_leaves[i] == lsize %}
 			// Store the leaf node in the cache.
