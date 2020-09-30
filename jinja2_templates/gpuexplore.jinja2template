@@ -2659,7 +2659,6 @@ inline __device__ uint32_t get_part_bitmask_for_states_in_vectorpart(uint8_t pid
 // or CACHE_FULL in the case the cache is full.
 inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> treegroup, compressed_nodetype *d_q{% if compact_hash_table %}, nodetype *d_q_i{% endif %}, indextype addr) {
 	nodetype node = EMPTY_NODE;
-	{% if vectorsize > 62 %}
 	nodetype leaf_node = EMPTY_NODE;
 	nodetype node_tmp_1 = EMPTY_NODE;
 	nodetype node_tmp_2 = EMPTY_NODE;
@@ -2680,6 +2679,7 @@ inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> tr
 	{% set bound = 1 %}{% if not no_smart_fetching %}{% set bound = bound + 1 %}{% endif %}
 	{% for j in range(0, bound) %}
 	{% for i in range(1, vectortree_depth) %}
+	{% if j == 1 or vectortree_nr_reachable_state_parts[i] > 0 %}
 	{% set lsize = vectortree_level_ids[i]|length %}
 	// Obtain node from vectortree parent.
 	node_tmp_1 = node;
@@ -2765,6 +2765,7 @@ inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> tr
 		{% endif %}
 		{% endif %}
 	}
+	{% endif %}
 	{% endfor %}
 	{% if not no_smart_fetching and j == 0 %}
 	// Fetch the vectorpart to the right for the construction of the smart fetching bitmask.
@@ -2793,33 +2794,15 @@ inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> tr
 	{% set lsize = vectortree_level_ids[i]|length %}
 	// Obtain cache address for left child.
 	target_thread_id = {{vectortree.keys()|length}};
-	{% if vectortree_level_nr_of_leaves[i] == 0 %}
-	{% if lfirst == llast %}
-	if (gid == {{lfirst}}) {
-	{% elif lfirst == 0 %}
-	if (gid <= {{llast}}) {
-	{% else %}
-	if (gid >= {{lfirst}} && gid <= {{llast}}) {
-	{% endif %}
+	if ({{i|get_compact_nonleaf_thread_condition}}) {
 		{% if not no_smart_fetching %}
-		if ((smart_fetching_bitmask & get_part_reachability(gid)) != 0x0) {
+		if ((smart_fetching_bitmask & get_part_reachability(gid, {{i}})) != 0x0) {
 			target_thread_id = get_vectortree_nonleaf_left_child_thread(gid);
 		}
 		{% else %}
 		target_thread_id = get_vectortree_nonleaf_left_child_thread(gid);
 		{% endif %}
 	}
-	{% elif vectortree_level_nr_of_leaves[i] < lsize %}
-	if ({% for n in vectortree_level_ids[i] if vectortree[n]|length > 0 %}gid == {{n}}{% if not loop.last %} || {% endif %}{% endfor %}) {
-		{% if not no_smart_fetching %}
-		if ((smart_fetching_bitmask & get_part_reachability(gid)) != 0x0) {
-			target_thread_id = get_vectortree_nonleaf_left_child_thread(gid);
-		}
-		{% else %}
-		target_thread_id = get_vectortree_nonleaf_left_child_thread(gid);
-		{% endif %}
-	}
-	{% endif %}
 	treegroup.sync();
 	cache_addr_child = EMPTY_CACHE_POINTER;
 	cache_addr_child = treegroup.shfl(cache_addr, target_thread_id);
@@ -2830,33 +2813,15 @@ inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> tr
 	{% if vectortree_level_nr_of_nodes_with_two_children[i] > 0 %}
 	// Obtain cache address for right child.
 	target_thread_id = {{vectortree.keys()|length}};
-	{% if vectortree_level_nr_of_nodes_with_two_children[i] == lsize %}
-	{% if lfirst == llast %}
-	if (gid == {{lfirst}}) {
-	{% elif lfirst == 0 %}
-	if (gid <= {{llast}}) {
-	{% else %}
-	if (gid >= {{lfirst}} && gid <= {{llast}}) {
-	{% endif %}
+	if ({{i|get_compact_nonleaf_thread_condition}}) {
 		{% if not no_smart_fetching %}
-		if ((smart_fetching_bitmask & get_part_reachability(gid)) != 0x0) {
+		if ((smart_fetching_bitmask & get_part_reachability(gid, {{i}})) != 0x0) {
 			target_thread_id = get_vectortree_nonleaf_right_child_thread(gid);
 		}
 		{% else %}
 		target_thread_id = get_vectortree_nonleaf_right_child_thread(gid);
 		{% endif %}
 	}
-	{% else %}
-	if ({% for n in vectortree_level_ids[i] if vectortree[n]|length == 2 %}gid == {{n}}{% if not loop.last %} || {% endif %}{% endfor %}) {
-		{% if not no_smart_fetching %}
-		if ((smart_fetching_bitmask & get_part_reachability(gid)) != 0x0) {
-			target_thread_id = get_vectortree_nonleaf_left_child_thread(gid);
-		}
-		{% else %}
-		target_thread_id = get_vectortree_nonleaf_left_child_thread(gid);
-		{% endif %}
-	}
-	{% endif %}
 	treegroup.sync();
 	cache_addr_child = EMPTY_CACHE_POINTER;
 	cache_addr_child = treegroup.shfl(cache_addr, target_thread_id);
@@ -2865,20 +2830,11 @@ inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> tr
 		set_right_cache_pointer(&cache_pointers, cache_addr_child);
 	}
 	{% endif %}
+	{% if vectortree_level_nr_of_leaves[i] < lsize %}
 	// Store the non-leaf node in the cache.
-	{% if vectortree_level_nr_of_leaves[i] == 0 %}
-	{% if lfirst == llast %}
-	if (gid == {{lfirst}}) {
-	{% elif lfirst == 0 %}
-	if (gid <= {{llast}}) {
-	{% else %}
-	if (gid >= {{lfirst}} && gid <= {{llast}}) {
-	{% endif %}
-	{% else %}
-	if ({% for n in vectortree_level_ids[i] if vectortree[n]|length > 0 %}gid == {{n}}{% if not loop.last %} || {% endif %}{% endfor %}) {
-	{% endif %}
+	if ({{i|get_compact_nonleaf_thread_condition}}) {
 		{% if not no_smart_fetching %}
-		if ((smart_fetching_bitmask & get_part_reachability(gid)) != 0x0) {
+		if ((smart_fetching_bitmask & get_part_reachability(gid, {{i}})) != 0x0) {
 			result = STOREINCACHE(node, cache_pointers);
 			if (result == CACHE_FULL) {
 				return CACHE_FULL;
@@ -2888,11 +2844,6 @@ inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> tr
 			}
 		}
 		{% else %}
-		{% if compact_hash_table %}
-		node = mark_non_root_old(node);
-		{% else %}
-		node = mark_old(node);
-		{% endif %}
 		result = STOREINCACHE(node, cache_pointers);
 		if (result == CACHE_FULL) {
 			return CACHE_FULL;
@@ -2902,18 +2853,9 @@ inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> tr
 		}
 		{% endif %}
 	}
+	{% endif %}
 	treegroup.sync();
 	{% endfor %}
-	{% else %}
-	node = HT_RETRIEVE(d_q{% if compact_hash_table %}d_q_i{% endif %}, node_addr{% if compact_hash_table %}, true{% endif %});
-	result = STOREINCACHE(leaf_node, cache_pointers);
-	if (result == CACHE_FULL) {
-		return CACHE_FULL;
-	}
-	else {
-		cache_addr = (shared_indextype) result;
-	}
-	{% endif %}
 	// Obtain cache address of the root and return it.
 	cache_addr_child = treegroup.shfl(cache_addr, 0);
 	return cache_addr_child;

@@ -70,6 +70,8 @@ vectortree_level_ids = {}
 vectortree_level_nr_of_leaves = {}
 # dictionary indicating for each level how many nodes have two children
 vectortree_level_nr_of_nodes_with_two_children = {}
+# dictionary indicating for each level how many state parts are reachable
+vectortree_nr_reachable_state_parts = {}
 # assign threads to vectortree nodes
 vectortree_node_thread = {}
 # size of a vectortree group (groups of threads needed to fetch a vector tree from the global hash table)
@@ -486,15 +488,15 @@ def get_compact_thread_condition(level):
 	R = []
 	print(nodes)
 	for i in range(0, len(nodes)):
-		if nodes[i]-1 != prev or i == len(nodes)-1:
+		if nodes[i]-1 != prev:
 			if prev != -2:
 				rg[1] = prev
 				R.append(rg)
 			rg = [nodes[i],-1]
-			if nodes[i]-1 != prev and i == len(nodes)-1:
-				rg[1] = nodes[i]
-				R.append(rg)
 		prev = nodes[i]
+	# prepare the final range
+	rg[1] = nodes[len(nodes)-1]
+	R.append(rg)
 	print(R)
 	# now construct the condition
 	first = True
@@ -518,6 +520,46 @@ def get_compact_leaf_thread_condition(level):
 	nodes = []
 	for n in L:
 		if vectortree[n] == []:
+			nodes.append(vectortree_node_thread[n])
+	output = ""
+	# sort the nodes
+	nodes = sorted(nodes)
+	# group the node ids together in ranges
+	prev = -2
+	rg = [-1,-1]
+	R = []
+	for i in range(0, len(nodes)):
+		if nodes[i]-1 != prev or i == len(nodes)-1:
+			if prev != -2:
+				rg[1] = prev
+				R.append(rg)
+			rg = [nodes[i],-1]
+			if nodes[i]-1 != prev and i == len(nodes)-1:
+				rg[1] = nodes[i]
+				R.append(rg)
+		prev = nodes[i]
+	# now construct the condition
+	first = True
+	for p in R:
+		if not first:
+			output += " || "
+		else:
+			first = False
+		if p[0] == p[1]:
+			output += "gid == " + str(p[0])
+		elif p[0] == 0:
+			output += "gid <= " + str(p[1])
+		else:
+			output += "(gid >= " + str(p[0]) + " && gid <= " + str(p[1]) + ")"
+	return output
+
+def get_compact_nonleaf_thread_condition(level):
+	"""For the given tree level, produce a compact condition for the thread IDs, restricted to non-leaf nodes (for use in the FETCH function)"""
+	global vectortree_level_ids, vectortree
+	L = vectortree_level_ids.get(level, [])
+	nodes = []
+	for n in L:
+		if vectortree[n] != []:
 			nodes.append(vectortree_node_thread[n])
 	output = ""
 	# sort the nodes
@@ -3108,7 +3150,7 @@ def debug(text):
 
 def preprocess():
 	"""Preprocessing of model"""
-	global model, vectorsize, vectorstructure, vectortree, vectortree_T, vectortree_group_size, vectortree_level_ids, vectortree_node_thread, vectorstructure_string, smnames, vectorelem_in_structure_map, max_statesize, state_order, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, connected_channel, signalsize, signalnr, alphabet, syncactions, actiontargets, actions, syncreccomm, no_state_constant, no_prio_constant, dynamic_write_arrays, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth, vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children, tilesize, gpuexplore2_succdist, regsort_nr_el_per_thread, all_arrayindex_allocs_sizes, smart_vectortree_fetching_bitmask, nr_warps_per_tile, compact_hash_table, elements_strings, nrblocks, nrthreadsperblock, array_in_structure_map, vectorpart_id_dict, vectornode_id_dict
+	global model, vectorsize, vectorstructure, vectortree, vectortree_T, vectortree_group_size, vectortree_level_ids, vectortree_nr_reachable_state_parts, vectortree_node_thread, vectorstructure_string, smnames, vectorelem_in_structure_map, max_statesize, state_order, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, connected_channel, signalsize, signalnr, alphabet, syncactions, actiontargets, actions, syncreccomm, no_state_constant, no_prio_constant, dynamic_write_arrays, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth, vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children, tilesize, gpuexplore2_succdist, regsort_nr_el_per_thread, all_arrayindex_allocs_sizes, smart_vectortree_fetching_bitmask, nr_warps_per_tile, compact_hash_table, elements_strings, nrblocks, nrthreadsperblock, array_in_structure_map, vectorpart_id_dict, vectornode_id_dict
 
 	# construct set of statemachine names in the system
 	# also construct a map from names to objects
@@ -3461,9 +3503,12 @@ def preprocess():
 	# vectortree_level_nr_of_leaves indicates for each level how many leaves it contains.
 	# vectortree_level_nr_of_nodes_with_two_children indicates for each level how many nodes
 	# have two children.
+	# vectortree_nr_reachable_state_parts provides per tree level how many parts containing state info
+	# are reachable
 	vectortree_level_ids = {}
 	vectortree_level_nr_of_leaves = {}
 	vectortree_level_nr_of_nodes_with_two_children = {}
+	vectortree_nr_reachable_state_parts = {}
 	curlevel = [0]
 	# map nodes to threads.
 	vectortree_node_thread = {}
@@ -3519,6 +3564,19 @@ def preprocess():
 		pid = vectorpart_id_dict.get(i, -1)
 		if pid != -1:
 			vectornode_id_dict[pid] = i
+	# construct vectortree_nr_reachable_state_parts by iterating over the leaves, and moving up the tree
+	prevcount = 0
+	for i in reversed(range(0, len(vectortree_level_ids))):
+		count = 0
+		for n in vectortree_level_ids[i]:
+			if is_vectorpart(n):
+				pid = vectorpart_id(n)
+				if vectorstructure[pid][0][0] in smnames:
+					# a state part
+					count += 1
+		# update count
+		vectortree_nr_reachable_state_parts[i] = prevcount + count
+		prevcount += count
 	# construct smart_vectortree_fetching_bitmask dictionary, which provides bitmasks needed for smart fetching
 	# of vectortrees.
 	smart_vectortree_fetching_bitmask = {}
@@ -3800,7 +3858,7 @@ def preprocess():
 
 def translate():
 	"""The translation function"""
-	global modelname, model, vectorstructure, vectorstructure_string, vectortree, vectortree_T, vectortree_group_size, vectortree_level_ids, vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children, vectorelem_in_structure_map, vectortree_node_thread, state_order, max_statesize, smnames, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, signalsize, connected_channel, alphabet, syncactions, actiontargets, no_state_constant, no_prio_constant, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth, gpuexplore2_succdist, no_regsort, tilesize, regsort_nr_el_per_thread, warpsize, all_arrayindex_allocs_sizes, no_smart_fetching, compact_hash_table, nrblocks, nrthreadsperblock, array_in_structure_map
+	global modelname, model, vectorstructure, vectorstructure_string, vectortree, vectortree_T, vectortree_group_size, vectortree_level_ids, vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children, vectortree_nr_reachable_state_parts, vectorelem_in_structure_map, vectortree_node_thread, state_order, max_statesize, smnames, smname_to_object, state_id, arraynames, max_arrayindexsize, max_buffer_allocs, signalsize, connected_channel, alphabet, syncactions, actiontargets, no_state_constant, no_prio_constant, async_channel_vectorpart_buffer_range, vectortree_size, vectortree_depth, gpuexplore2_succdist, no_regsort, tilesize, regsort_nr_el_per_thread, warpsize, all_arrayindex_allocs_sizes, no_smart_fetching, compact_hash_table, nrblocks, nrthreadsperblock, array_in_structure_map
 	
 	path, name = split(modelname)
 	if name.endswith('.slco'):
@@ -3842,6 +3900,7 @@ def translate():
 	jinja_env.filters['get_remaining_vectorparts'] = get_remaining_vectorparts
 	jinja_env.filters['get_compact_thread_condition'] = get_compact_thread_condition
 	jinja_env.filters['get_compact_leaf_thread_condition'] = get_compact_leaf_thread_condition
+	jinja_env.filters['get_compact_nonleaf_thread_condition'] = get_compact_nonleaf_thread_condition
 	jinja_env.filters['scopename'] = scopename
 	jinja_env.filters['gettypesize'] = gettypesize
 	jinja_env.filters['getlogarraysize'] = getlogarraysize
@@ -3875,7 +3934,7 @@ def translate():
 
 	# load the GPUexplore template
 	template = jinja_env.get_template('gpuexplore.jinja2template')
-	out = template.render(model=model, vectorsize=vectorsize, vectortree_group_size=vectortree_group_size, vectorstructure=vectorstructure, vectorstructure_string=vectorstructure_string, vectortree=vectortree, vectortree_T=vectortree_T, max_statesize=max_statesize, vectorelem_in_structure_map=vectorelem_in_structure_map, array_in_structure_map=array_in_structure_map, state_order=state_order, smnames=smnames, smname_to_object=smname_to_object, state_id=state_id, arraynames=arraynames, max_arrayindexsize=max_arrayindexsize, max_buffer_allocs=max_buffer_allocs, connected_channel=connected_channel, alphabet=alphabet, syncactions=syncactions, actiontargets=actiontargets, syncreccomm=syncreccomm, no_state_constant=no_state_constant, no_prio_constant=no_prio_constant, dynamic_write_arrays=dynamic_write_arrays, signalsize=signalsize, async_channel_vectorpart_buffer_range=async_channel_vectorpart_buffer_range, vectortree_depth=vectortree_depth, vectortree_level_ids=vectortree_level_ids, vectortree_level_nr_of_leaves=vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children=vectortree_level_nr_of_nodes_with_two_children, vectortree_node_thread=vectortree_node_thread, gpuexplore2_succdist=gpuexplore2_succdist, no_regsort=no_regsort, tilesize=tilesize, regsort_nr_el_per_thread=regsort_nr_el_per_thread, nr_warps_per_tile=nr_warps_per_tile, warpsize=warpsize, all_arrayindex_allocs_sizes=all_arrayindex_allocs_sizes, smart_vectortree_fetching_bitmask=smart_vectortree_fetching_bitmask, no_smart_fetching=no_smart_fetching, compact_hash_table=compact_hash_table, nr_bits_address_root=nr_bits_address_root(), nr_bits_address_internal=nr_bits_address_internal(), cuda_initial_vector=cudastore_initial_vector(), nrblocks=nrblocks, nrthreadsperblock=nrthreadsperblock)
+	out = template.render(model=model, vectorsize=vectorsize, vectortree_group_size=vectortree_group_size, vectorstructure=vectorstructure, vectorstructure_string=vectorstructure_string, vectortree=vectortree, vectortree_T=vectortree_T, max_statesize=max_statesize, vectorelem_in_structure_map=vectorelem_in_structure_map, array_in_structure_map=array_in_structure_map, state_order=state_order, smnames=smnames, smname_to_object=smname_to_object, state_id=state_id, arraynames=arraynames, max_arrayindexsize=max_arrayindexsize, max_buffer_allocs=max_buffer_allocs, connected_channel=connected_channel, alphabet=alphabet, syncactions=syncactions, actiontargets=actiontargets, syncreccomm=syncreccomm, no_state_constant=no_state_constant, no_prio_constant=no_prio_constant, dynamic_write_arrays=dynamic_write_arrays, signalsize=signalsize, async_channel_vectorpart_buffer_range=async_channel_vectorpart_buffer_range, vectortree_depth=vectortree_depth, vectortree_level_ids=vectortree_level_ids, vectortree_level_nr_of_leaves=vectortree_level_nr_of_leaves, vectortree_level_nr_of_nodes_with_two_children=vectortree_level_nr_of_nodes_with_two_children, vectortree_nr_reachable_state_parts=vectortree_nr_reachable_state_parts, vectortree_node_thread=vectortree_node_thread, gpuexplore2_succdist=gpuexplore2_succdist, no_regsort=no_regsort, tilesize=tilesize, regsort_nr_el_per_thread=regsort_nr_el_per_thread, nr_warps_per_tile=nr_warps_per_tile, warpsize=warpsize, all_arrayindex_allocs_sizes=all_arrayindex_allocs_sizes, smart_vectortree_fetching_bitmask=smart_vectortree_fetching_bitmask, no_smart_fetching=no_smart_fetching, compact_hash_table=compact_hash_table, nr_bits_address_root=nr_bits_address_root(), nr_bits_address_internal=nr_bits_address_internal(), cuda_initial_vector=cudastore_initial_vector(), nrblocks=nrblocks, nrthreadsperblock=nrthreadsperblock)
 	# write new SLCO model
 	outFile.write(out)
 	outFile.close()
