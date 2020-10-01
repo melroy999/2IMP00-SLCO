@@ -404,9 +404,9 @@ int main(int argc, char** argv) {
 		}
 	}
 	{% else %}
-	// We create a hash table for (non-compact) state vector trees. Its size is limited to 2^31 elements, as a 64-bit element needs to be able to store two pointers, plus two admin bits.
-	if (hash_table_size == 0 || hash_table_size > 2147483648) {
-		hash_table_size = 2147483648;
+	// We create a hash table for (non-compact) state vector trees. Its size is limited to 2^30 elements, as a cache_pointers entry in the caches must be able to store a global hash table index, plus two admin bits.
+	if (hash_table_size == 0 || hash_table_size > 1073741824) {
+		hash_table_size = 1073741824;
 	}
 	cudaMalloc((void **)&d_q, hash_table_size * sizeof(compressed_nodetype));
 	{% endif %}
