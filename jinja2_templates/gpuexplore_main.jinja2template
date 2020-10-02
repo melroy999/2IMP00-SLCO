@@ -104,6 +104,44 @@ __global__ void count_states(compressed_nodetype *d_q, uint64_t *result) {
 	}
 }
 
+/**
+ * CUDA kernel function to prepare the cache for a new successor generation iteration.
+ */
+ inline __device__ void PREPARE_CACHE() {
+	// Traverse the new state vector trees, and reconstruct the nodes, i.e., put the cache pointers back in place and reconstruct the non-leaf nodes
+	// by inspecting their children.
+	shared_inttype pointers;
+	shared_indextype addr;
+	inttype node;
+	indextype global_addr;
+
+	#pragma unroll
+	for (i = THREAD_ID; (i*3)+2 < d_shared_cache_size - CACHEOFFSET; i += BLOCK_SIZE) {
+		if (cached_node_is_new_root(shared[CACHEOFFSET+(i*3)+2])) {
+			// Mark its children for reconstruction.
+			addr = sv_step(i, false);
+			mark_cached_node_as_next_in_preparation(&shared[CACHEOFFSET+(addr*3)+2]);
+			addr = sv_step(i, true);
+			mark_cached_node_as_next_in_preparation(&shared[CACHEOFFSET+(addr*3)+2]);
+			// Make the root node as old.
+			mark_cached_node_old(&shared[CACHEOFFSET+(i*3)+2]);
+			// A next iteration is required.
+			CONTINUE = 1;
+		}
+	}
+	while (CONTINUE == 1) {
+		__syncthreads();
+		for (i = THREAD_ID; (i*3)+2 < d_shared_cache_size - CACHEOFFSET; i += BLOCK_SIZE {
+			
+		}
+	}
+			// The original cache pointers.
+			l = shared[CACHEOFFSET+(i*3)];
+			// Reconstruct the node.
+			shared[CACHEOFFSET+(i*3)] = get_left({% if compact_hash_table %}d_q_i{% else %}d_q{% endif %}[global_address(shared[CACHEOFFSET+(i*3)+2])]);
+			shared[CACHEOFFSET+(i*3)+2] = l;
+ }
+
 __global__ void __launch_bounds__(512, 2) gather(compressed_nodetype *d_q{% if compact_hash_table %}, nodetype *d_q_i{% endif %}, uint8_t *d_contBFS, uint8_t *d_property_violation, volatile uint8_t *d_newstate_flags, shared_inttype *d_worktiles, const uint8_t scan) {
 	uint32_t i;
 	shared_inttype l;
