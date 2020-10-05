@@ -111,11 +111,15 @@ static const int NR_BLOCKS = {{nrblocks}};
 #define EMPTY_INDEX -1
 // Constant used to initialise state variables.
 #define NO_STATE {{no_state_constant}}
+{% if vectorsize <= 62 %}
 // Empty local cache element (exploits that a vectornode cannot be marked 'new' without being marked 'root')
-{% if vectorsize <= 30 or vectorsize > 62 %}
+{% endif %}
+{% if vectorsize <= 30 %}
 #define EMPTYVECT32 				0xBFFFFFFF
-{% else %}
+{% elif vectorsize <= 62 %}
 #define EMPTYVECT64					0xBFFFFFFFFFFFFFFF
+{% else %}
+#define EMPTYVECT32					0x0
 {% endif %}
 #define EMPTYVECT16					0xFFFF
 {% if vectorsize > 62 %}
@@ -301,7 +305,6 @@ inline __device__ bool is_new(compressed_nodetype node) {
 }
 
 {% if vectorsize > 62 %}
-{% if not compact_hash_table %}
 // Mark a node as root.
 inline __device__ compressed_nodetype mark_root(compressed_nodetype node) {
 	return node | 0x4000000000000000;
@@ -312,20 +315,9 @@ inline __host__ __device__ bool is_root(compressed_nodetype node) {
 	return (node & 0x4000000000000000) != 0;
 }
 
-{% endif %}
-// Mark a node in the cache as a new root. This can be done by setting the highest
-// two bits of the cache pointers to the value '01'.
-inline __device__ void mark_cached_node_new_root(volatile shared_inttype *pointers) {
-	*pointers = (*pointers & 0x3FFFFFFF) | 0x40000000;
-}
-
 // Mark a node in the cache as old.
-inline __device__ void mark_cached_node_old(volatile shared_inttype *pointers) {
+inline __device__ void mark_cached_node_as_old(volatile shared_inttype *pointers) {
 	*pointers = *pointers & 0x3FFFFFFF;
-}
-
-inline __device__ bool cached_node_is_new_root(shared_inttype pointers) {
-	return (pointers & 0xC0000000) == 0x40000000;
 }
 
 // A cached node is marked new non-leaf (non-root) by setting the highest two bits
@@ -343,16 +335,27 @@ inline __device__ bool cached_node_is_new_leaf(shared_inttype pointers) {
 }
 
 // The cache pointers of a node are assigned a global hash table address by setting the highest two bits
-// of the cache pointers to '11' and setting the remaining bits to the address. After this function is called,
+// of the cache pointers either to '01' or '11', and setting the remaining bits to the address.
+// The use of both '01' and '11' is to be able to distinguish a leaf with a global address ('01') from a
+// non-leaf with a global address ('11'). After this function is called,
 // when storing non-leaf nodes in the global hash table, the original cache pointers are stored in the first half of the
-// node itself, to allow efficient follow-up iterations in the successor generation procedure. Looking up the original
-// node is faster than reconstructing cache pointers.
-inline __device__ void set_cache_pointers_to_global_address(volatile shared_inttype *pointers, nodetype addr) {
+// node itself, to allow efficient follow-up iterations in the successor generation procedure. Reconstructing the node
+// by means of cache pointers (see PREPARE_CACHE()) is faster than having to reconstruct cache pointers.
+inline __device__ void set_cache_pointers_to_global_address(volatile shared_inttype *pointers, nodetype addr, bool is_leaf) {
 	// The highest two bits in pointers are set to indicate that it now stores a global memory address.
-	*pointers = addr | 0xC0000000;
+	if (is_leaf) {
+		*pointers = (addr & 0x3FFFFFFF) | 0x40000000;
+	}
+	else {
+		*pointers = addr | 0xC0000000;
+	}
 }
 
-inline __device__ bool cached_node_contains_global_address(shared_inttype pointers) {
+inline __device__ bool cached_node_is_leaf_with_global_address(shared_inttype pointers) {
+	return (pointers & 0xC0000000) == 0x40000000;
+}
+
+inline __device__ bool cached_node_is_nonleaf_with_global_address(shared_inttype pointers) {
 	return (pointers & 0xC0000000) == 0xC0000000;
 }
 
@@ -362,28 +365,45 @@ inline __device__ nodetype global_address(shared_inttype pointers) {
 }
 
 inline __device__ bool cached_node_is_new(shared_inttype pointers) {
-	return (cached_node_is_new_root(pointers) || cached_node_is_new_nonleaf(pointers) || cached_node_is_new_leaf(pointers));
+	return (cached_node_is_new_nonleaf(pointers) || cached_node_is_new_leaf(pointers));
 }
 
 // To prepare the cache for another successor generation iteration, we use the highest two bits of the cache pointers of nodes
 // again. The two bits set to 1 again indicate a global hash table address is stored in the remaining bits. '00' again indicates
-// an old non-leaf element. '01' is now used to indicate that the node can update, i.e., reconstruct itself by checking its children,
-// and '10' indicates that a node has reconstructed itself.
+// an old non-leaf element. '10' is now used to indicate that the node can update, i.e., reconstruct itself by checking its children,
+// and '01' indicates that a node has reconstructed itself. Note that the latter code coincides with a leaf having a global address.
+// This is intentional, as such leaves do not require reconstruction.
 
 inline __device__ bool cached_node_is_next_in_preparation(shared_inttype pointers) {
-	return (pointers & 0xC0000000) == 0x40000000;
-}
-
-inline __device__ void mark_cached_node_as_next_in_preparation(volatile shared_inttype *pointers) {
-	*pointers = (*pointers & 0x3FFFFFFF) | 0x40000000;
-}
-
-inline __device__ bool cached_node_is_prepared(shared_inttype pointers) {
 	return (pointers & 0xC0000000) == 0x80000000;
 }
 
-inline __device__ void mark_cached_node_as_prepared(volatile shared_inttype *pointers) {
+inline __device__ void mark_cached_node_as_next_in_preparation(volatile shared_inttype *pointers) {
 	*pointers = (*pointers & 0x3FFFFFFF) | 0x80000000;
+}
+
+inline __device__ bool cached_node_is_prepared(shared_inttype pointers) {
+	return (pointers & 0xC0000000) == 0x40000000;
+}
+
+inline __device__ void mark_cached_node_as_prepared(volatile shared_inttype *pointers) {
+	*pointers = (*pointers & 0x3FFFFFFF) | 0x40000000;
+}
+
+// In part 1 of a cached node, we set the highest bit in case the node is old, but needs to be kept in the cache for future successor generation.
+// (This is used when preparing the cache to distinguish old nodes that are still needed from old nodes that are not).
+inline __device__ void mark_cached_node_as_old_required(volatile shared_inttype *part1) {
+	*part1 = (*part1) | 0x80000000;
+}
+
+// In part 1 of a cached node, we set the highest bit in case the node is old, but needs to be kept in the cache for future successor generation.
+// (This is used when preparing the cache to distinguish old nodes that are still needed from old nodes that are not).
+inline __device__ void reset_cached_node_old_required(volatile shared_inttype *part1) {
+	*part1 = (*part1) & 0x7FFFFFFF;
+}
+
+inline __device__ bool cached_node_is_old_required(shared_inttype pointers) {
+	return (pointers & 0x80000000) == 0x80000000;
 }
 
 {% endif %}
@@ -2285,6 +2305,11 @@ inline __device__ {% if nr_bits_address_root < 32 %}indextype{% else %}uint64_t{
 	nodetype element;
 	shared_inttype shared_addr;
 	e1 = HASH_INIT(filter_bookkeeping(node{% if compact_hash_table %}, is_root{% endif %}){% if compact_hash_table %}, is_root{% endif %});
+	{% if vectorsize > 62 and not compact_hash_table %}
+	if (is_root(node)) {
+		node = mark_new(node);
+	}
+	{% endif %}
 	#pragma unroll
 	for (int i = 0; i < NR_HASH_FUNCTIONS; i++) {
 		{% if compact_hash_table %}
@@ -2401,7 +2426,7 @@ __device__ void FINDORPUT_MANY(compressed_nodetype *d_q{% if compact_hash_table 
 			}
 			else {
 				// Store global memory address in cache.
-				set_cache_pointers_to_global_address(&shared[CACHEOFFSET+(i*3)+2], addr);
+				set_cache_pointers_to_global_address(&shared[CACHEOFFSET+(i*3)+2], addr, true);
 			}
 		}
 		// Node is not ready yet. Check if it can be updated.
@@ -2433,22 +2458,23 @@ __device__ void FINDORPUT_MANY(compressed_nodetype *d_q{% if compact_hash_table 
 				// Ready now?
 				if (!vectortree_node_contains_left_gap(node) && !vectortree_node_contains_right_gap(node)) {
 					// Store node in hash table.
-					addr = FINDORPUT_SINGLE(d_q{% if compact_hash_table %}, d_q_i{% endif %}, node, d_newstate_flags{% if compact_hash_table %}, cached_node_is_new_root(node_pointers){% endif %}, true);
+					addr = FINDORPUT_SINGLE(d_q{% if compact_hash_table %}, d_q_i{% endif %}, node, d_newstate_flags{% if compact_hash_table %}, is_root(node){% endif %}, true);
 					if (addr == HASHTABLE_FULL) {
 						CONTINUE = 2;
 					}
-					else if (!cached_node_is_new_root(node_pointers)) {
+					else if (!is_root(node)) {
 						// Preserve original cache pointers for future successor generation iterations.
 						shared[CACHEOFFSET+(i*3)] = shared[CACHEOFFSET+(i*3)+2];
+						// Mark the node in the (preserved) pointers as old, to distinguish it from already older nodes that are required later for successor generation.
+						// when executing PREPARE_CACHE(). The latter type of node has its highest bit set to 1 in that procedure, and we must make sure that the current
+						// node is not seen as such a node.
+						mark_cached_node_as_old(&shared[CACHEOFFSET+(i*3)]);
 						// Store global memory address in cache.
-						set_cache_pointers_to_global_address(&shared[CACHEOFFSET+(i*3)+2], addr);
+						set_cache_pointers_to_global_address(&shared[CACHEOFFSET+(i*3)+2], addr, false);
 					}
 					else {
-						// New root. Reset the cache pointers to make it old, unless a next successor generation iteration is coming up, in which case the 'new root'
-						// marker is essential to prepare the cache for the next iteration.
-						if (ITERATIONS == d_kernel_iters-1) {
-							mark_cached_node_old(&shared[CACHEOFFSET+(i*3)+2]);
-						}
+						// New root. Mark the pointers to prepare the cache for the next iteration (if there is one. If not, the cache will be wiped anyway).
+						mark_cached_node_as_next_in_preparation(&shared[CACHEOFFSET+(i*3)+2]);
 					}
 				}
 				else {
@@ -2499,19 +2525,19 @@ __device__ void FINDORPUT_MANY(compressed_nodetype *d_q{% if compact_hash_table 
 							// Ready now?
 							if (!vectortree_node_contains_left_gap(node) && !vectortree_node_contains_right_gap(node)) {
 								// Store node in hash table.
-								addr = FINDORPUT_SINGLE(d_q{% if compact_hash_table %}, d_q_i{% endif %}, node, d_newstate_flags{% if compact_hash_table %}, cached_node_is_new_root(node_pointers){% endif %}, true);
+								addr = FINDORPUT_SINGLE(d_q{% if compact_hash_table %}, d_q_i{% endif %}, node, d_newstate_flags{% if compact_hash_table %}, is_root(node){% endif %}, true);
 								if (addr == HASHTABLE_FULL) {
 									CONTINUE = 2;
 								}
-								else if (!cached_node_is_new_root(node_pointers)) {
+								else if (!is_root(node)) {
 									// Preserve original cache pointers for future successor generation iterations.
 									shared[CACHEOFFSET+(i*3)] = shared[CACHEOFFSET+(i*3)+2];
 									// Store global memory address in cache.
-									set_cache_pointers_to_global_address(&shared[CACHEOFFSET+(i*3)+2], addr);
+									set_cache_pointers_to_global_address(&shared[CACHEOFFSET+(i*3)+2], addr, false);
 								}
 								else {
-									// New root. Reset the cache pointers to make it old.
-									shared[CACHEOFFSET+(i*3)+2] = 0;
+									// New root. Set the cache pointers for cache preparation.
+									mark_cached_node_as_next_in_preparation(shared[CACHEOFFSET+(i*3)+2]);
 								}
 							}
 							else {
@@ -2728,7 +2754,7 @@ inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> tr
 			{% if vectortree_level_nr_of_leaves[i] == lsize %}
 			// Store the leaf node in the cache. Link the global memory address to it such that it can be retrieved in case of collisions
 			// when generating successors.
-			set_cache_pointers_to_global_address(&cache_pointers, node_addr);
+			set_cache_pointers_to_global_address(&cache_pointers, node_addr, true);
 			result = STOREINCACHE(leaf_node, cache_pointers);
 			if (result == CACHE_FULL) {
 				return CACHE_FULL;
@@ -2762,7 +2788,7 @@ inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> tr
 		{% if vectortree_level_nr_of_leaves[i] == lsize %}
 		// Store the leaf node in the cache. Link the global memory address to it such that it can be retrieved in case of collisions
 		// when generating successors.
-		set_cache_pointers_to_global_address(&cache_pointers, node_addr);
+		set_cache_pointers_to_global_address(&cache_pointers, node_addr, true);
 		result = STOREINCACHE(leaf_node, cache_pointers);
 		if (result == CACHE_FULL) {
 			return CACHE_FULL;
@@ -2774,7 +2800,7 @@ inline __device__ shared_indextype FETCH(thread_block_tile<VECTOR_GROUP_SIZE> tr
 		if ({{ i|get_compact_leaf_thread_condition }}) {
 			// Store the leaf node in the cache. Link the global memory address to it such that it can be retrieved in case of collisions
 			// when generating successors.
-			set_cache_pointers_to_global_address(&cache_pointers, node_addr);
+			set_cache_pointers_to_global_address(&cache_pointers, node_addr, true);
 			result = STOREINCACHE(leaf_node, cache_pointers);
 			if (result == CACHE_FULL) {
 				return CACHE_FULL;

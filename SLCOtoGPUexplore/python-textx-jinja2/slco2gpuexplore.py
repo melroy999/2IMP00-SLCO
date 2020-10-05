@@ -1223,12 +1223,12 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, ind
 				output += "// This part has been altered. Store it in shared memory and remember address of new part.\n" + indentspace(ic)
 				if vectorsize > 62:
 					if p == 0:
-						output += "mark_cached_node_new_root(&part_cachepointers);\n" + indentspace(ic)
-					elif is_non_leaf(p):
+						output += "mark_root(&part2);\n" + indentspace(ic)
+					if is_non_leaf(p):
 						output += "mark_cached_node_new_nonleaf(&part_cachepointers);\n" + indentspace(ic)
 					else:
 						output += "part_cachepointers = CACHE_POINTERS_NEW_LEAF;\n" + indentspace(ic)
-				elif not compact_hash_table:
+				else:
 					output += "part2 = mark_new(part2);\n" + indentspace(ic)
 				if vectorsize <= 62:
 					output += "buf16_" + str(pointer_cnt) + " = STOREINCACHE(part2);\n" + indentspace(ic)
@@ -1281,11 +1281,10 @@ def cudastore_new_vectortree_nodes(nodes_done, nav, pointer_cnt, W, s, o, D, ind
 				output += "reset_right_in_vectortree_node(&part2);\n" + indentspace(ic)
 				output += "}\n" + indentspace(ic)
 				pointer_cnt -= 1
+				output += "// This part has been altered. Store it in shared memory and remember address of new part.\n" + indentspace(ic)
 			if p == 0:
-				if not compact_hash_table:
-					output += "part2 = mark_new(part2);\n" + indentspace(ic)
-				else:
-					output += "mark_cached_node_new_root(&part_cachepointers);\n" + indentspace(ic)
+				output += "mark_root(&part2);\n" + indentspace(ic)
+			output += "mark_cached_node_new_nonleaf(&part_cachepointers);\n" + indentspace(ic)
 			output += "buf16_" + str(pointer_cnt) + " = STOREINCACHE(part2, part_cachepointers);\n" + indentspace(ic)
 			ic += 1
 			output += "if (buf16_" + str(pointer_cnt) + " == CACHE_FULL) {\n" + indentspace(ic)

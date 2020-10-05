@@ -112,34 +112,114 @@ __global__ void count_states(compressed_nodetype *d_q, uint64_t *result) {
 	// by inspecting their children.
 	shared_inttype pointers;
 	shared_indextype addr;
-	inttype node;
+	nodetype node;
 	indextype global_addr;
+	bool next_it, is_old;
 
+	// In the first iteration, we know that only root nodes are marked for preparation.
 	#pragma unroll
 	for (i = THREAD_ID; (i*3)+2 < d_shared_cache_size - CACHEOFFSET; i += BLOCK_SIZE) {
-		if (cached_node_is_new_root(shared[CACHEOFFSET+(i*3)+2])) {
+		if (cached_node_is_next_in_preparation(shared[CACHEOFFSET+(i*3)+2])) {
 			// Mark its children for reconstruction.
+			next_it = false;
 			addr = sv_step(i, false);
-			mark_cached_node_as_next_in_preparation(&shared[CACHEOFFSET+(addr*3)+2]);
+			pointers = shared[CACHEOFFSET+(addr*3)+2];
+			if (!cached_node_is_prepared(pointers)) {
+				if (!cached_node_is_new(pointers)) {
+					mark_cached_node_as_keep_old(&shared[CACHEOFFSET+(addr*3)]);
+				}
+				mark_cached_node_as_next_in_preparation(&shared[CACHEOFFSET+(addr*3)+2]);
+				next_it = true;
+			}
 			addr = sv_step(i, true);
-			mark_cached_node_as_next_in_preparation(&shared[CACHEOFFSET+(addr*3)+2]);
-			// Make the root node as old.
-			mark_cached_node_old(&shared[CACHEOFFSET+(i*3)+2]);
-			// A next iteration is required.
-			CONTINUE = 1;
+			pointers = shared[CACHEOFFSET+(addr*3)+2];
+			if (!cached_node_is_prepared(pointers)) {
+				if (!cached_node_is_new(pointers)) {
+					mark_cached_node_as_keep_old(&shared[CACHEOFFSET+(addr*3)]);
+				}
+				mark_cached_node_as_next_in_preparation(&shared[CACHEOFFSET+(addr*3)+2]);
+				next_it = true;
+			}
+			// Mark the root node as an old required node.
+			mark_cached_node_as_old(&shared[CACHEOFFSET+(i*3)+2]);
+			mark_cached_node_as_old_required(&shared[CACHEOFFSET+(i*3)]);
+			if (next_it) {
+				// A next iteration is required.
+				CONTINUE = 1;
+			}
 		}
 	}
 	while (CONTINUE == 1) {
 		__syncthreads();
+		if (THREAD_ID == 0) {
+			CONTINUE = 0;
+		}
+		__syncthreads();
+		#pragma unroll
 		for (i = THREAD_ID; (i*3)+2 < d_shared_cache_size - CACHEOFFSET; i += BLOCK_SIZE {
-			
+			if (cached_node_is_next_in_preparation(shared[CACHEOFFSET+(i*3)+2])) {
+				is_old = cached_node_is_old_required(shared[CACHEOFFSET+(i*3)]);
+				// Put the original cache pointers back if the node is new.
+				if (!is_old) {
+					shared[CACHEOFFSET+(i*3)+2] = shared[CACHEOFFSET+(i*3)];
+				}
+				// Mark its children for reconstruction and reconstruct the node, if needed.
+				next_it = false;
+				node = 0;
+				addr = sv_step(i, false);
+				pointers = shared[CACHEOFFSET+(addr*3)+2];
+				if (!cached_node_is_prepared(pointers)) {
+					if (!cached_node_is_new(pointers)) {
+						mark_cached_node_as_old_required(&shared[CACHEOFFSET+(addr*3)]);
+					}
+					mark_cached_node_as_next_in_preparation(&shared[CACHEOFFSET+(addr*3)+2]);
+					next_it = true;
+				}
+				if (!is_old) {
+					set_left_in_vectortree_node(&node, global_address(pointers));
+				}
+				addr = sv_step(i, true);
+				pointers = shared[CACHEOFFSET+(addr*3)+2];
+				if (!cached_node_is_prepared(pointers)) {
+					if (!cached_node_is_new(pointers)) {
+						mark_cached_node_as_old_required(&shared[CACHEOFFSET+(addr*3)]);
+					}
+					mark_cached_node_as_next_in_preparation(&shared[CACHEOFFSET+(addr*3)+2]);
+					next_it = true;
+				}
+				if (!is_old) {
+					set_right_in_vectortree_node(&node, global_address(pointers));
+					// Store the node.
+					shared[CACHEOFFSET+(i*3)] = get_left(node);
+					shared[CACHEOFFSET+(i*3)+1] = get_right(node);
+					// Set the node as an old node to be kept.
+					mark_cached_node_as_old(&shared[CACHEOFFSET+(i*3)+2]);
+					mark_cached_node_as_old_required(&shared[CACHEOFFSET+(i*3)]);
+				}
+				if (next_it) {
+					// A next iteration is required.
+					CONTINUE = 1;
+				}
+			}
 		}
 	}
-			// The original cache pointers.
-			l = shared[CACHEOFFSET+(i*3)];
-			// Reconstruct the node.
-			shared[CACHEOFFSET+(i*3)] = get_left({% if compact_hash_table %}d_q_i{% else %}d_q{% endif %}[global_address(shared[CACHEOFFSET+(i*3)+2])]);
-			shared[CACHEOFFSET+(i*3)+2] = l;
+	__syncthreads();
+	// Scan the cache one more time, remove non-leaf nodes that are no longer required (alternative: keep them with their global memory addresses)
+	// and reset the 'old' bit of required non-leaf nodes.
+	#pragma unroll
+	for (i = THREAD_ID; (i*3)+2 < d_shared_cache_size; i += BLOCK_SIZE) {
+		if (!cached_node_is_new(shared[CACHEOFFSET+(i*3)+2])) {
+			if (cached_node_is_old_required(shared[CACHEOFFSET+(i*3)])) {
+				reset_node_old_required(shared[CACHEOFFSET+(i*3)+2]);
+			}
+			else {
+				// Delete node.
+				shared[CACHEOFFSET+(i*3)] = EMPTYVECT32;
+				shared[CACHEOFFSET+(i*3)+1] = EMPTYVECT32;
+				shared[CACHEOFFSET+(i*3)+2] = EMPTYVECT32;
+			}
+		}
+	}
  }
 
 __global__ void __launch_bounds__(512, 2) gather(compressed_nodetype *d_q{% if compact_hash_table %}, nodetype *d_q_i{% endif %}, uint8_t *d_contBFS, uint8_t *d_property_violation, volatile uint8_t *d_newstate_flags, shared_inttype *d_worktiles, const uint8_t scan) {
@@ -254,17 +334,8 @@ __global__ void __launch_bounds__(512, 2) gather(compressed_nodetype *d_q{% if c
 			}
 		}
 		else {
-			// Remove global hash table addresses from the cache to prepare the cache for the next iteration.
-			#pragma unroll
-			for (i = THREAD_ID; (i*3)+2 < d_shared_cache_size - CACHEOFFSET; i += BLOCK_SIZE) {
-				if (cached_node_contains_global_address(shared[CACHEOFFSET+(i*3)+2])) {
-					// The original cache pointers.
-					l = shared[CACHEOFFSET+(i*3)];
-					// Reconstruct the node.
-					shared[CACHEOFFSET+(i*3)] = get_left({% if compact_hash_table %}d_q_i{% else %}d_q{% endif %}[global_address(shared[CACHEOFFSET+(i*3)+2])]);
-					shared[CACHEOFFSET+(i*3)+2] = l;
-				}
-			}
+			// Prepare the cache for the next iteration.
+			PREPARE_CACHE();
 		}
 		__syncthreads();
 		{% endif %}
