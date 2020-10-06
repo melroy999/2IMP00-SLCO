@@ -2294,7 +2294,7 @@ inline __host__ __device__ nodetype HT_RETRIEVE(compressed_nodetype *d_q{% if co
 }
 
 // Find or put a given vectortree node in the global hash table.
-inline __device__ {% if nr_bits_address_root < 32 %}indextype{% else %}uint64_t{% endif %} FINDORPUT_SINGLE(compressed_nodetype *d_q{% if compact_hash_table %}, nodetype *d_q_i{% endif %}, nodetype node, volatile uint8_t *d_newstate_flags{% if compact_hash_table %}, bool is_root{% endif %}, bool claim_work) {
+inline __device__ {% if nr_bits_address_root < 32 %}indextype{% else %}uint64_t{% endif %} FINDORPUT_SINGLE(compressed_nodetype *d_q{% if compact_hash_table %}, nodetype *d_q_i{% endif %}, nodetype node, volatile uint8_t *d_newstate_flags{% if vectorsize > 62 %}, shared_indextype node_index{% endif %}{% if compact_hash_table %}, bool is_root{% endif %}, bool claim_work) {
 	nodetype e1;
 	{% if compact_hash_table %}
 	nodetype e2;
@@ -2317,7 +2317,7 @@ inline __device__ {% if nr_bits_address_root < 32 %}indextype{% else %}uint64_t{
 			e2 = HASH(i, e1, true);
 			compressed_node = get_compressed_node_root(e2, i);
 			compressed_node = mark_new(compressed_node);
-			// Special case: if the compressed node coincides with the value for an empty compressed node, continue
+			// Special case: if the compressed node coincides with the value for an empty compressed node, continue.
 			if (compressed_node == EMPTY_COMPRESSED_NODE) {
 				continue;
 			}
@@ -2368,8 +2368,14 @@ inline __device__ {% if nr_bits_address_root < 32 %}indextype{% else %}uint64_t{
 						// Try to claim the vector for future work. For this, try to increment the OPENTILECOUNT counter.
 						if (claim_work && (shared_addr = atomicAdd((unsigned int*) &OPENTILECOUNT, 1)) < OPENTILELEN) {
 							{% if vectorsize > 62 %}
-							// Store pointer to root in the work tile.
-							shared[OPENTILEOFFSET+shared_addr] = (shared_inttype) addr;
+							// Store pointer to the root in the work tile. Either a pointer to the root in the global hash table or in the local cache,
+							// depending on whether there is still a next successor generation iteration.
+							if (ITERATIONS < d_kernel_iters-1) {
+								shared[OPENTILEOFFSET+shared_addr] = node_index;
+							}
+							else {
+								shared[OPENTILEOFFSET+shared_addr] = (shared_inttype) addr;
+							}
 							{% else %}
 							// Store the node in the work tile.
 							shared[OPENTILEOFFSET+shared_addr] = node;
@@ -2420,7 +2426,7 @@ __device__ void FINDORPUT_MANY(compressed_nodetype *d_q{% if compact_hash_table 
 		if (cached_node_is_new_leaf(node_pointers)) {
 			node = combine_halfs(shared[CACHEOFFSET+(i*3)], shared[CACHEOFFSET+(i*3)+1]);
 			// Store node in hash table.
-			addr = FINDORPUT_SINGLE(d_q{% if compact_hash_table %}, d_q_i{% endif %}, node, d_newstate_flags{% if compact_hash_table %}, false{% endif %}, true);
+			addr = FINDORPUT_SINGLE(d_q{% if compact_hash_table %}, d_q_i{% endif %}, node, d_newstate_flags{% if vectorsize > 62 %}, i{% endif %}{% if compact_hash_table %}, false{% endif %}, true);
 			if (addr == HASHTABLE_FULL) {
 				CONTINUE = 2;
 			}
@@ -2458,7 +2464,7 @@ __device__ void FINDORPUT_MANY(compressed_nodetype *d_q{% if compact_hash_table 
 				// Ready now?
 				if (!vectortree_node_contains_left_gap(node) && !vectortree_node_contains_right_gap(node)) {
 					// Store node in hash table.
-					addr = FINDORPUT_SINGLE(d_q{% if compact_hash_table %}, d_q_i{% endif %}, node, d_newstate_flags{% if compact_hash_table %}, is_root(node){% endif %}, true);
+					addr = FINDORPUT_SINGLE(d_q{% if compact_hash_table %}, d_q_i{% endif %}, node, d_newstate_flags{% if vectorsize > 62 %}, i{% endif %}{% if compact_hash_table %}, is_root(node){% endif %}, true);
 					if (addr == HASHTABLE_FULL) {
 						CONTINUE = 2;
 					}
@@ -2525,7 +2531,7 @@ __device__ void FINDORPUT_MANY(compressed_nodetype *d_q{% if compact_hash_table 
 							// Ready now?
 							if (!vectortree_node_contains_left_gap(node) && !vectortree_node_contains_right_gap(node)) {
 								// Store node in hash table.
-								addr = FINDORPUT_SINGLE(d_q{% if compact_hash_table %}, d_q_i{% endif %}, node, d_newstate_flags{% if compact_hash_table %}, is_root(node){% endif %}, true);
+								addr = FINDORPUT_SINGLE(d_q{% if compact_hash_table %}, d_q_i{% endif %}, node, d_newstate_flags{% if vectorsize > 62 %}, i{% endif %}{% if compact_hash_table %}, is_root(node){% endif %}, true);
 								if (addr == HASHTABLE_FULL) {
 									CONTINUE = 2;
 								}
