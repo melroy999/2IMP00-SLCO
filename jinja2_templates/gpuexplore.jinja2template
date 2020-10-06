@@ -2569,6 +2569,8 @@ __device__ void FINDORPUT_MANY(compressed_nodetype *d_q{% if compact_hash_table 
 			else {
 				shared[CACHEOFFSET+i] = mark_old(node);
 			}
+			// Mark the node as old.
+			shared[CACHEOFFSET+i] = mark_old(node);
 		}
 	}
 	{% endif %}
