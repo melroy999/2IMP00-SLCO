@@ -1,3 +1,12 @@
 .metadata/
+.cache/
+.idea/
+.coverage/
+__pycache__/
+*/__pycache__/
+*/.idea/
+*/out/
+*.iml
+*.java
 
 .idea/workspace.xml
