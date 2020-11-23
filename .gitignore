@@ -10,3 +10,4 @@ __pycache__/
 *.java
 
 .idea/workspace.xml
+/SLCOtoJAVA3.0/tests/out/

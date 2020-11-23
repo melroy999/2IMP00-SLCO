@@ -1,29 +1,33 @@
-# import libraries
+# Import the necessary libraries.
 import os
 
-from components import settings
+import settings
 from libraries.slcolib import *
+from preprocessing.model_annotations import annotate_model
+from preprocessing.model_simplification import remove_unused_variables
+from rendering.model_rendering import render_model
 
 
 def preprocess(model):
     """"Gather additional data about the model"""
-    # Extend and transform the model to one fitting our purpose.
-    # TODO transform_model(model)
+    # Cleanup the model and remove superfluous objects.
+    remove_unused_variables(model)
+
+    # Extend and annotate the model to one fitting our purpose.
+    annotate_model(model)
 
     # Find which transitions can be executed with determinism and add the required information to the model.
     # TODO add_determinism_annotations(model)
 
-    return model
 
-
-def slco_to_java(model, model_folder):
+def render(model, model_folder):
     """The translation function"""
     out_file = open(os.path.join(model_folder, model.name + ".java"), 'w')
 
-    # write the program
-    # TODO out_file.write(
-    #    render_model(model)
-    # )
+    # Write the program to the desired output file.
+    out_file.write(
+        render_model(model)
+    )
     out_file.close()
 
 
@@ -58,11 +62,11 @@ def main(_args):
     settings.init(add_counter)
 
     # Read the model and preprocess it.
-    raw_model = read_SLCO_model(os.path.join(model_folder, model_name))
-    model = preprocess(raw_model)
+    model = read_SLCO_model(os.path.join(model_folder, model_name))
+    preprocess(model)
 
     # Translate the model to Java code.
-    slco_to_java(model, model_folder)
+    render(model, model_folder)
 
 
 if __name__ == '__main__':

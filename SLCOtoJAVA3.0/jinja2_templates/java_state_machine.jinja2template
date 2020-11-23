@@ -1,0 +1,84 @@
+// Define the states fot the state machine {{model.name}}
+interface {{_c.name}}_{{model.name}}Thread_States {
+    enum States {
+        {{model.states | comma_separated_list}}
+    }
+}
+
+// Representation of the SLCO state machine {{model.name}}
+class {{model.name}}Thread extends Thread implements {{_c.name}}_{{model.name}}Thread_States {
+    // Current state
+    private {{model.name}}Thread.States currentState;
+
+    // Random number generator to handle non-determinism
+    private final Random random;
+
+    {% if add_counter %}
+    // Counter of main while-loop iterations
+    long transitionCounter;
+
+    {% endif %}
+    {% if model.variables | length > 0 %}
+    // Thread local variables
+    {% for v in model.variables %}
+    private {{v.type | get_java_type(False)}} {{v.name}};
+    {% endfor %}
+
+    {% endif %}
+    // The lock manager
+    private final LockManager lockManager;
+
+    {{model.name}}Thread (LockManager lockManagerInstance) {
+        random = new Random();
+        lockManager = lockManagerInstance;
+        {% if add_counter %}
+        transitionCounter = 0;
+        {% endif %}
+        currentState = {{model.name}}Thread.States.{{model.initial_state}};
+        {% for v in model.variables %}
+        {{v.name}} ={% if v.type.size > 1 %} new {{v.type | get_java_type(False)}} {% endif %} {{v | get_initial_value}};
+        {% endfor %}
+    }
+
+    {# Separate execution methods for each state. #}
+    {% for s in model.states %}
+    private void exec_{{s}}() {
+        {% for statement in model.adjacency_list[s] %}
+        // {{statement.comment_string}}
+        {% endfor %}
+    }
+
+    {% endfor %}
+    // Execute method
+    private void exec() {
+        {% if add_counter %}
+        while(transitionCounter < COUNTER_BOUND) {
+        {% else %}
+        while(true) {
+        {% endif %}
+            {% if model.states | length > 0 %}
+            switch(currentState) {
+                {% for s in model.states %}
+                case {{s}}:
+                    exec_{{s}}();
+                    break;
+                {% endfor %}
+                default:
+                    return;
+            }
+            {% else %}
+            exec_{{model.states[0]}}();
+            {% endif %}
+            {% if add_counter %}
+
+            // Increment counter
+            transitionCounter++;
+            {% endif %}
+        }
+    }
+
+    // Run method
+    public void run() {
+        exec();
+    }
+}
