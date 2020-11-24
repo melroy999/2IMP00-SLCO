@@ -2,6 +2,8 @@
 import jinja2
 
 import settings
+from rendering.view_models import get_view_model
+from util.smt import z3_truth_check
 
 
 class TransitDict(dict):
@@ -132,6 +134,141 @@ def get_guard_statement(model):
         return " || ".join([get_instruction(e) for e in model.encapsulating_guard_expression])
 
 
+def construct_decision_code(model, sm, include_guard=True, include_comment=True):
+    """Convert the decision structure to Java code"""
+    model_class = model.__class__.__name__
+    if model_class == "TransitionBlock":
+        statements = [construct_decision_code(s, sm) for s in model.statements]
+        if not model.starts_with_composite:
+            composite_assignments = None
+        else:
+            composite_assignments = [construct_decision_code(s, sm, False) for s in model.composite_assignments]
+
+        return java_transition_template.render(
+            starts_with_composite=model.starts_with_composite,
+            composite_assignments=composite_assignments,
+            statements=statements,
+            target=model.target,
+            state_machine_name=sm.name,
+            always_fails=model.always_fails,
+            comment=model.comment if include_comment else None,
+            _c=sm.parent_class,
+            transition_identifier=model.comment
+        )
+    elif model_class == "Composite":
+        guard = model.guard if not model.guard.is_trivially_satisfiable and include_guard else None
+        return java_composite_template.render(
+            guard=guard,
+            assignments=model.assignments,
+            _c=sm.parent_class
+        )
+    elif model_class == "Assignment":
+        return java_assignment_template.render(
+            assignment=model,
+            _c=sm.parent_class
+        )
+    elif model_class == "Expression":
+        return java_expression_template.render(
+            expression=model,
+            _c=sm.parent_class
+        )
+    elif model_class == "ActionRef":
+        return "// Execute action [%s]\n" % model.act.name
+    elif model_class == "NonDeterministicBlock":
+        # Several of the choices may have the same conversion string. Filter these out and merge.
+        choices = [(
+            construct_decision_code(choice, sm),
+            choice.comment if choice.__class__.__name__ == "TransitionBlock" else None
+        ) for choice in model.choice_blocks]
+        choices.sort(key=lambda v: v[0])
+
+        for i in range(0, len(choices) - 1):
+            # Check if the next execution code is equivalent to the current one.
+            # If so, set the current execution code to empty string, to avoid duplicates.
+            # Note that there is a comment that will likely differ--filter the comment out if appropriate.
+            current_choice = choices[i][0]
+            if choices[i][1] is not None:
+                current_choice = current_choice.replace(choices[i][1], "")
+
+            next_choice = choices[i + 1][0]
+            if choices[i + 1][1] is not None:
+                next_choice = next_choice.replace(choices[i + 1][1], "")
+
+            if current_choice == next_choice:
+                # We still want the traceability comment if applicable.
+                choices[i] = ("// %s (functional duplicate of case below)" % choices[i][1], choices[i][1])
+
+        # Remove the choice comment from every choice.
+        choices = [choice[0] for choice in choices]
+
+        # If only one choice remains, there is no reason to include an entire block.
+        if len(choices) == 1:
+            return choices[0]
+
+        return java_pick_randomly_template.render(
+            choices=choices,
+            _c=sm.parent_class
+        )
+    elif model_class == "DeterministicIfThenElseBlock":
+        # Order the choices such that the generated code is always the same.
+        choices = [
+            (
+                construct_decision_code(choice, sm, include_comment=False),
+                get_guard_statement(choice),
+                choice.comment if choice.__class__.__name__ == "TransitionBlock" else None
+            ) for choice in model.choice_blocks
+        ]
+        choices.sort(key=lambda v: v[0])
+
+        # Does the combination of all the guards always evaluate to true?
+        else_choice = None
+        if len(model.encapsulating_guard_expression) > 1 and len(model.choice_blocks) > 1:
+            encapsulating_guard_expression = list(model.encapsulating_guard_expression)
+            smt = encapsulating_guard_expression[0].smt
+            for expression in encapsulating_guard_expression[1:]:
+                smt = ("or", smt, expression.smt)
+            variables = {**sm.parent_class.name_to_variable, **sm.name_to_variable}
+            if z3_truth_check(smt, variables):
+                else_choice = choices[-1]
+                choices = choices[:-1]
+
+        return java_if_then_else_template.render(
+            choices=choices,
+            else_choice=else_choice,
+            _c=sm.parent_class
+        )
+    elif model_class == "DeterministicCaseDistinctionBlock":
+        # Several of the choices may have the same conversion string. Filter these out and merge.
+        choices = [
+            (
+                target,
+                construct_decision_code(choice, sm, include_comment=False),
+                choice.comment if choice.__class__.__name__ == "TransitionBlock" else None
+            ) for (target, choice) in model.choice_blocks
+        ]
+        choices.sort(key=lambda v: v[1])
+
+        for i in range(0, len(choices) - 1):
+            # Check if the next execution code is equivalent to the current one.
+            # If so, set the current execution code to empty string, to avoid duplicates.
+            if choices[i][1] == choices[i + 1][1]:
+                choices[i] = (choices[i][0], "", "%s (functional duplicate of case below)" % choices[i][2])
+
+        subject_expression = get_instruction(model.subject_expression)
+        default_decision_tree = construct_decision_code(model.default_decision_tree, sm)
+        return java_case_distinction_template.render(
+            subject_expression=subject_expression,
+            default_decision_tree=default_decision_tree,
+            choices=choices,
+            _c=sm.parent_class
+        )
+
+
+def get_decision_structure(groupings, sm):
+    view_model = get_view_model(groupings, sm.parent_class)
+    return construct_decision_code(view_model, sm)
+
+
 def render_model(model):
     """Convert the SLCO model to Java code"""
     return java_model_template.render(
@@ -176,7 +313,7 @@ env.filters['get_guard_statement'] = get_guard_statement
 env.filters['get_variable_list'] = get_variable_list
 env.filters['get_variable_instantiation_list'] = get_variable_instantiation_list
 
-# env.filters['get_decision_structure'] = get_decision_structure
+env.filters['get_decision_structure'] = get_decision_structure
 # env.filters['to_comma_separated_lock_name_list'] = to_comma_separated_lock_name_list
 # env.filters['to_comma_separated_lock_id_list'] = to_comma_separated_lock_id_list
 

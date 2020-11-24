@@ -1,0 +1,3 @@
+if(!({{expression | get_instruction}})) {
+    return false;
+}

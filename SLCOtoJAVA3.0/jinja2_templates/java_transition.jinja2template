@@ -1,0 +1,19 @@
+{% if comment %}
+// {{comment}}
+{% endif %}
+{% if starts_with_composite and composite_assignments | length > 0 %}
+{% for statement in composite_assignments %}
+{{statement | trim}}
+{% endfor %}
+{% endif %}
+{% if statements | length > 0 %}
+{% for statement in statements %}
+{{statement | trim}}
+{% endfor %}
+{% endif %}
+{% if always_fails %}
+return;
+{%- else %}
+currentState = {{state_machine_name}}Thread.States.{{target}};
+return;
+{%- endif %}

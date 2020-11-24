@@ -41,7 +41,7 @@ def remove_unused_variables(model):
         for sm in c.statemachines:
             used_variables = set([])
             get_used_variables(sm, used_variables)
-            variables_used_in_class = variables_used_in_class.union(used_variables)
+            variables_used_in_class.update(used_variables)
 
             # Check if there are unused local variables. If there are, remove them from the model.
             sm.variables = [v for v in sm.variables if v.name in used_variables]

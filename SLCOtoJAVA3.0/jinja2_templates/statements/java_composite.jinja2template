@@ -1,0 +1,10 @@
+// [
+{% if guard %}
+if({{guard | get_instruction | trim}}) {
+    return;
+}
+{% endif %}
+{% for statement in assignments %}
+{{statement | get_instruction | trim}};
+{% endfor %}
+// ]

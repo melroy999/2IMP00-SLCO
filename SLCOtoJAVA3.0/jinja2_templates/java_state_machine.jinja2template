@@ -40,12 +40,13 @@ class {{model.name}}Thread extends Thread implements {{_c.name}}_{{model.name}}T
         {% endfor %}
     }
 
-    {# Separate execution methods for each state. #}
     {% for s in model.states %}
     private void exec_{{s}}() {
-        {% for statement in model.adjacency_list[s] %}
-        // {{statement.comment_string}}
-        {% endfor %}
+        {% if model.groupings[s] %}
+        {{ model.groupings[s] | get_decision_structure(model) | indent(8, False)}}
+        {% else %}
+        // There are no transitions to be made.
+        {% endif %}
     }
 
     {% endfor %}

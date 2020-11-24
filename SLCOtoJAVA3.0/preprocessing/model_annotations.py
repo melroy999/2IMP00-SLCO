@@ -1,5 +1,5 @@
 from rendering.model_rendering import get_instruction
-from util.smt import to_simple_ast
+from util.smt import to_simple_ast, z3_truth_check
 
 
 def get_comment(m):
@@ -13,7 +13,7 @@ def get_comment(m):
         exp_str = get_comment(m.right)
         return "%s := %s" % (var_str, exp_str)
     elif model_class == "Composite":
-        statement_strings = [get_comment(m.guard)]
+        statement_strings = [get_comment(m.guard)] if m.guard else []
         statement_strings += [get_comment(s) for s in m.assignments]
         return "[%s]" % "; ".join(statement_strings)
     elif model_class in ["Expression", "ExprPrec1", "ExprPrec2", "ExprPrec3", "ExprPrec4"]:
@@ -37,14 +37,64 @@ def get_comment(m):
         return "[c]NYI"
 
 
-def add_variable_name_mapping(o):
-    """"Map the variable name to the variable instance"""
-    o.name_to_variable = {v.name: v for v in o.variables}
-    # Give the variables a readable representation.
-    for v in o.variables:
-        type(v).__repr__ = lambda v: "%s (%s)" % (
-            v.name, (v.type.base if v.type.size == 0 else "%s[%s]" % (v.type.base, v.type.size))
-        )
+def propagate_supportive_annotations(model, variables=None):
+    """Make simplifications where possible in the model, including the detection of trivially (un)satisfiability"""
+    class_name = model.__class__.__name__
+    if class_name == "Class":
+        for sm in model.statemachines:
+            if len(set(model.name_to_variable).intersection(set(sm.name_to_variable))) > 0:
+                raise Exception("The class and state machine have variable names in common.")
+            variables = {**model.name_to_variable, **sm.name_to_variable}
+            for t in sm.transitions:
+                propagate_supportive_annotations(t, variables)
+    elif class_name == "Transition":
+        propagate_supportive_annotations(model.guard, variables)
+        for s in model.statements:
+            propagate_supportive_annotations(s, variables)
+
+        # Check if the guard is trivially satisfiable.
+        model.is_trivially_satisfiable = model.guard.is_trivially_satisfiable
+        model.is_trivially_unsatisfiable = model.guard.is_trivially_unsatisfiable
+
+        if model.is_trivially_satisfiable:
+            model.comment_string += " (trivially satisfiable)"
+        if model.is_trivially_unsatisfiable:
+            model.comment_string += " (trivially unsatisfiable)"
+
+        # If the guard is a composite, and it is trivially satisfiable, split.
+        if model.guard.__class__.__name__ == "Composite" and model.is_trivially_satisfiable:
+            model.statements = [model.guard] + model.statements
+            model.guard = true_expression
+
+        # Are any of the expressions trivial? Remove the appropriate statements.
+        trivially_satisfiable_expression_ids = []
+        for i in range(0, len(model.statements)):
+            statement = model.statements[i]
+            if statement.__class__.__name__ == "Expression":
+                if statement.is_trivially_satisfiable:
+                    # Append to the start so that we don't delete the wrong items.
+                    trivially_satisfiable_expression_ids.insert(0, i)
+                elif statement.is_trivially_unsatisfiable:
+                    # Forget about everything after the statement--it is unreachable code.
+                    model.always_fails = True
+                    model.statements = model.statements[:i]
+                    break
+
+        # Remove the expressions that are always true.
+        for i in trivially_satisfiable_expression_ids:
+            model.statements.pop(i)
+    elif class_name == "Composite":
+        propagate_supportive_annotations(model.guard, variables)
+        for a in model.assignments:
+            propagate_supportive_annotations(a, variables)
+
+        # Check if the guard is trivially satisfiable.
+        model.is_trivially_satisfiable = model.guard.is_trivially_satisfiable
+        model.is_trivially_unsatisfiable = model.guard.is_trivially_unsatisfiable
+    elif class_name == "Expression":
+        # Use SMT do determine whether the formula is trivially (un)satisfiable.
+        model.is_trivially_satisfiable = z3_truth_check(model.smt, variables)
+        model.is_trivially_unsatisfiable = not z3_truth_check(model.smt, variables, False)
 
 
 # An expression that represents an object that is always true, used as replacement for empty guards.
@@ -82,14 +132,14 @@ def annotate_transition(t):
     """Annotate the transition such that it provides all the data required for the code conversion"""
     t.source = t.source.name
     t.target = t.target.name
-    # TODO t.always_fails = False
+    t.always_fails = False
     t.comment_string = get_comment(t)
 
     # We determine whether a transition is guarded by looking whether the first statement is an expression.
     t.statements = [annotate_statement(_s) for _s in t.statements]
     first_statement = t.statements[0]
 
-    # Convert a tau ActionRef to a true statement.
+    # Internally convert a tau ActionRef (empty transition) to a true statement.
     class_name = first_statement.__class__.__name__
     if class_name == "ActionRef":
         if first_statement.act.name == "tau":
@@ -112,6 +162,17 @@ def annotate_transition(t):
     type(t).__repr__ = lambda self: self.comment_string
 
     return t
+
+
+def add_variable_name_mapping(o):
+    """"Map the variable name to the variable instance"""
+    o.name_to_variable = {v.name: v for v in o.variables}
+
+    # Give the variables a readable representation.
+    for v in o.variables:
+        type(v).__repr__ = lambda v: "%s (%s)" % (
+            v.name, (v.type.base if v.type.size == 0 else "%s[%s]" % (v.type.base, v.type.size))
+        )
 
 
 def annotate_state_machine(sm, c):
@@ -139,10 +200,12 @@ def annotate_model(model):
         # Create an easily accessible list of class variables.
         add_variable_name_mapping(c)
 
+        # Propagate some of the annotations upwards to simplify the templating code.
+        propagate_supportive_annotations(c)
+
     # TODO Check which variables have been used in the model and find all variables that need to be locked.
     # for c in model.classes:
     #     assign_lock_ids_to_class_variables(c)
-    #     propagate_simplification(c)
     #     propagate_used_variables(c)
     #     propagate_lock_variables(c, c.name_to_variable.keys())
     #     construct_valid_lock_order(c)
