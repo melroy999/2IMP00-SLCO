@@ -139,14 +139,7 @@ def construct_decision_code(model, sm, include_guard=True, include_comment=True)
     model_class = model.__class__.__name__
     if model_class == "TransitionBlock":
         statements = [construct_decision_code(s, sm) for s in model.statements]
-        if not model.starts_with_composite:
-            composite_assignments = None
-        else:
-            composite_assignments = [construct_decision_code(s, sm, False) for s in model.composite_assignments]
-
         return java_transition_template.render(
-            starts_with_composite=model.starts_with_composite,
-            composite_assignments=composite_assignments,
             statements=statements,
             target=model.target,
             state_machine_name=sm.name,

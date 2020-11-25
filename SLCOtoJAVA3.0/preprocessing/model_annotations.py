@@ -48,13 +48,12 @@ def propagate_supportive_annotations(model, variables=None):
             for t in sm.transitions:
                 propagate_supportive_annotations(t, variables)
     elif class_name == "Transition":
-        propagate_supportive_annotations(model.guard, variables)
         for s in model.statements:
             propagate_supportive_annotations(s, variables)
 
         # Check if the guard is trivially satisfiable.
-        model.is_trivially_satisfiable = model.guard.is_trivially_satisfiable
-        model.is_trivially_unsatisfiable = model.guard.is_trivially_unsatisfiable
+        model.is_trivially_satisfiable = model.guard_expression.is_trivially_satisfiable
+        model.is_trivially_unsatisfiable = model.guard_expression.is_trivially_unsatisfiable
 
         if model.is_trivially_satisfiable:
             model.comment_string += " (trivially satisfiable)"
@@ -62,9 +61,8 @@ def propagate_supportive_annotations(model, variables=None):
             model.comment_string += " (trivially unsatisfiable)"
 
         # If the guard is a composite, and it is trivially satisfiable, split.
-        if model.guard.__class__.__name__ == "Composite" and model.is_trivially_satisfiable:
-            model.statements = [model.guard] + model.statements
-            model.guard = true_expression
+        if model.guard_expression.__class__.__name__ == "Composite" and model.is_trivially_satisfiable:
+            model.guard_expression = true_expression
 
         # Are any of the expressions trivial? Remove the appropriate statements.
         trivially_satisfiable_expression_ids = []
@@ -147,16 +145,15 @@ def annotate_transition(t):
             class_name = "Expression"
 
     # Find the guard expression of the transition.
-    if class_name in ["Expression", "Composite"]:
-        # Cut off the first statement, since it is part of the guard now.
-        t.guard = first_statement
-        t.statements = t.statements[1:]
+    if class_name == "Expression":
+        t.guard_expression = first_statement
+        pass
+    elif class_name == "Composite":
+        t.guard_expression = first_statement.guard
+        pass
     else:
         # No guard is present. Set the true expression as the guard.
-        t.guard = true_expression
-
-    # Make a function that easily gets the transition expression.
-    t.guard_expression = t.guard.guard if class_name == "Composite" else t.guard
+        t.guard_expression = true_expression
 
     # Make a human readable format of the transition.
     type(t).__repr__ = lambda self: self.comment_string

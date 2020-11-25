@@ -7,16 +7,11 @@ class NonDeterministicBlock:
         # What is the encapsulating guard expression?
         self.encapsulating_guard_expression = set([])
 
-        # Which statements are used as guards?
-        self.encapsulating_guard_statements = set([])
-
         for block in choice_blocks:
             if block.__class__.__name__ == "TransitionBlock":
                 self.encapsulating_guard_expression.add(block.guard_expression)
-                self.encapsulating_guard_statements.add(block.guard)
             else:
                 self.encapsulating_guard_expression |= block.encapsulating_guard_expression
-                self.encapsulating_guard_statements |= block.encapsulating_guard_statements
 
 
 class DeterministicIfThenElseBlock:
@@ -28,16 +23,11 @@ class DeterministicIfThenElseBlock:
         # What is the encapsulating guard expression?
         self.encapsulating_guard_expression = set([])
 
-        # Which statements are used as guards?
-        self.encapsulating_guard_statements = set([])
-
         for block in choice_blocks:
             if block.__class__.__name__ == "TransitionBlock":
                 self.encapsulating_guard_expression.add(block.guard_expression)
-                self.encapsulating_guard_statements.add(block.guard)
             else:
                 self.encapsulating_guard_expression |= block.encapsulating_guard_expression
-                self.encapsulating_guard_statements |= block.encapsulating_guard_statements
 
 
 class DeterministicCaseDistinctionBlock:
@@ -51,34 +41,24 @@ class DeterministicCaseDistinctionBlock:
         # What is the encapsulating guard expression?
         self.encapsulating_guard_expression = set([])
 
-        # Which statements are used as guards?
-        self.encapsulating_guard_statements = set([])
-
         for target, block in choice_blocks:
             if block.__class__.__name__ == "TransitionBlock":
                 self.encapsulating_guard_expression.add(block.guard_expression)
-                self.encapsulating_guard_statements.add(block.guard)
             else:
                 self.encapsulating_guard_expression |= block.encapsulating_guard_expression
-                self.encapsulating_guard_statements |= block.encapsulating_guard_statements
 
         if default_decision_tree is not None:
             if default_decision_tree.__class__.__name__ == "TransitionBlock":
                 self.encapsulating_guard_expression.add(default_decision_tree.guard_expression)
-                self.encapsulating_guard_statements.add(default_decision_tree.guard)
             else:
                 self.encapsulating_guard_expression |= default_decision_tree.encapsulating_guard_expression
-                self.encapsulating_guard_statements |= default_decision_tree.encapsulating_guard_statements
 
 
 class TransitionBlock:
     """A wrapper for a transition leaf in the decision tree"""
     def __init__(self, t):
-        self.guard = t.guard
         self.guard_expression = t.guard_expression
         self.statements = t.statements
-        self.starts_with_composite = t.guard.__class__.__name__ == "Composite"
-        self.composite_assignments = t.guard.assignments if self.starts_with_composite else None
         self.target = t.target
         self.always_fails = t.always_fails
 

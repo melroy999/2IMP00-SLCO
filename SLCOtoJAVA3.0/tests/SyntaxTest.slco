@@ -3,7 +3,7 @@ model SyntaxTest {
 
     classes
     P {
-        variables Integer i Integer[3] A Boolean b
+        variables Integer i Integer[3] A Boolean b Boolean[3] B
         state machines
         SM1 {
             variables Integer v
@@ -13,18 +13,21 @@ model SyntaxTest {
                     b;
                     [i = 0; v := A[0]; A[0] := A[1]; A[1] := v];
                     v := 0;
+                    B[i] := not B[i];
                     b := False;
                 }
                 from SMC0 to SMC0 {
                     b;
                     [i = 1; v := A[1]; A[1] := A[2]; A[2] := v];
                     v := 0;
+                    B[i] := not B[i];
                     b := False;
                 }
                 from SMC0 to SMC0 {
                     b;
                     [i = 2; v := A[2]; A[2] := A[0]; A[0] := v];
                     v := 0;
+                    B[i] := not B[i];
                     b := False;
                 }
         }

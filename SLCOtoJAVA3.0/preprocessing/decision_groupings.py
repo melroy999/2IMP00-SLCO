@@ -54,14 +54,9 @@ def print_determinism_report(state, sm, transitions, trivially_satisfiable, triv
 
 
 def format_decision_group_tree(tree):
-    """Compress the decision group tree such that the decision type alternates per level.
-    Moreover, all transitions with guards should be part of a deterministic group"""
+    """Compress the decision group tree such that the decision type alternates per level"""
     if tree.__class__.__name__ == "Transition":
-        # A transition should always be wrapped by a deterministic choice, unless trivially satisfiable.
-        if tree.is_trivially_satisfiable:
-            return tree
-        else:
-            return Decision.DET, [tree]
+        return tree
     else:
         choice_type, members = tree
         compressed_members = []
