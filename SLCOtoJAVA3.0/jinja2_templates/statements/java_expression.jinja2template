@@ -1,3 +1,6 @@
-if(!({{expression | get_instruction}})) {
+// To lock: {{global_variables | comma_separated_list }}
+if({{("!(" ~ (expression | get_instruction) ~ ")") | remove_double_negation | trim}}) {
+    // To unlock: {{global_variables | comma_separated_list }}
     return;
 }
+// To unlock: {{global_variables | comma_separated_list }}

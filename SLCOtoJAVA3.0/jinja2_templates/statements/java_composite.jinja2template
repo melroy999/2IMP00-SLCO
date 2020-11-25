@@ -1,10 +1,13 @@
-// [
+// [ ===============================================================
+// To lock: {{global_variables | comma_separated_list }}
 {% if guard %}
-if({{guard | get_instruction | trim}}) {
+if({{("!(" ~ (guard | get_instruction) ~ ")") | remove_double_negation | trim}}) {
+    // To unlock: {{global_variables | comma_separated_list }}
     return;
 }
 {% endif %}
 {% for statement in assignments %}
 {{statement | get_instruction | trim}};
 {% endfor %}
-// ]
+// To unlock: {{global_variables | comma_separated_list }}
+// =============================================================== ]

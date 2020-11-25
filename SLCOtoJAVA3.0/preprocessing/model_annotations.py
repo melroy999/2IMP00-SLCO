@@ -60,7 +60,7 @@ def propagate_supportive_annotations(model, variables=None):
         if model.is_trivially_unsatisfiable:
             model.comment_string += " (trivially unsatisfiable)"
 
-        # If the guard is a composite, and it is trivially satisfiable, split.
+        # If the guard is a composite, and it is trivially satisfiable, remove the guard.
         if model.guard_expression.__class__.__name__ == "Composite" and model.is_trivially_satisfiable:
             model.guard_expression = true_expression
 
@@ -105,6 +105,59 @@ true_expression = type("Expression", (object,), {
     "is_trivially_unsatisfiable": False,
     "__repr__": lambda self: get_instruction(self),
 })()
+
+
+def gather_used_variables(model, variables):
+    """Gather the variables that are used within the statements"""
+    class_name = model.__class__.__name__
+    if class_name in ["Assignment", "Expression", "ExprPrec1", "ExprPrec2", "ExprPrec3", "ExprPrec4"]:
+        gather_used_variables(model.left, variables)
+        if model.right is not None:
+            gather_used_variables(model.right, variables)
+    elif class_name == "ExpressionRef":
+        if model.index is None:
+            variables.update({(model.ref, None)})
+        else:
+            # The index might hide a variable within it.
+            variables.update({(model.ref, get_instruction(model.index))})
+            gather_used_variables(model.index, variables)
+    elif class_name == "VariableRef":
+        if model.index is None:
+            variables.update({(model.var.name, None)})
+        else:
+            # The index might hide a variable within it.
+            variables.update({(model.var.name, get_instruction(model.index))})
+            gather_used_variables(model.index, variables)
+    elif class_name == "Primary" and model.ref is not None:
+        return gather_used_variables(model.ref, variables)
+    else:
+        return set([])
+
+
+def annotate_used_variables(o, global_variables):
+    """"Add the used variables to Composites, Expressions and Assignments."""
+    class_name = o.__class__.__name__
+    if class_name == "StateMachine":
+        for transition in o.transitions:
+            annotate_used_variables(transition, global_variables)
+    elif class_name == "Transition":
+        o.variables = set([])
+        o.global_variables = set([])
+        for statement in o.statements:
+            annotate_used_variables(statement, global_variables)
+            o.variables.update(statement.variables)
+            o.global_variables.update(statement.global_variables)
+    elif class_name == "Composite":
+        o.variables = set([])
+        o.global_variables = set([])
+        for statement in [o.guard] + o.assignments:
+            annotate_used_variables(statement, global_variables)
+            o.variables.update(statement.variables)
+            o.global_variables.update(statement.global_variables)
+    elif class_name in ["Expression", "Assignment"]:
+        o.variables = set([])
+        gather_used_variables(o, o.variables)
+        o.global_variables = set([(name, sub) for name, sub in o.variables if name in global_variables])
 
 
 def annotate_statement(s):
@@ -174,6 +227,10 @@ def add_variable_name_mapping(o):
 
 def annotate_state_machine(sm, c):
     """Annotate the state machine such that it provides all the data required for the code conversion"""
+    # Create an easily accessible list of local variables.
+    add_variable_name_mapping(sm)
+
+    # Add some useful metadata.
     sm.initial_state = sm.initialstate.name
     sm.states = [s.name for s in sm.states]
     sm.parent_class = c
@@ -184,18 +241,16 @@ def annotate_state_machine(sm, c):
         ] for s in sm.states
     }
 
-    # Create an easily accessible list of local variables.
-    add_variable_name_mapping(sm)
-
 
 def annotate_model(model):
     """Annotate the model such that it provides all the data required for the code conversion"""
     for c in model.classes:
-        for sm in c.statemachines:
-            annotate_state_machine(sm, c)
-
         # Create an easily accessible list of class variables.
         add_variable_name_mapping(c)
+
+        # Annotate all the state machines.
+        for sm in c.statemachines:
+            annotate_state_machine(sm, c)
 
         # Propagate some of the annotations upwards to simplify the templating code.
         propagate_supportive_annotations(c)
@@ -206,6 +261,12 @@ def annotate_model(model):
     #     propagate_used_variables(c)
     #     propagate_lock_variables(c, c.name_to_variable.keys())
     #     construct_valid_lock_order(c)
+
+    # Delay certain second phase annotations, given that the supportive annotation propagation may alter statements.
+    for c in model.classes:
+        for sm in c.statemachines:
+            # Add variables that show which (global) variables are used by the statements.
+            annotate_used_variables(sm, c.name_to_variable)
 
     # Ensure that each class has references to its objects/instantiations.
     for c in model.classes:

@@ -62,6 +62,13 @@ def comma_separated_list(model):
     return ", ".join(model)
 
 
+def remove_double_negation(text):
+    """Remove a double negation in the given text, if present"""
+    if text.startswith("!(!("):
+        text = text[4:-2]
+    return text
+
+
 def get_java_type(model, ignore_size):
     """Maps type names from SLCO to Java"""
     if model.base == "Boolean":
@@ -150,18 +157,24 @@ def construct_decision_code(model, sm, include_guard=True, include_comment=True)
         )
     elif model_class == "Composite":
         guard = model.guard if not model.guard.is_trivially_satisfiable and include_guard else None
+        global_variables = [(n if i is None else n + "[" + i + "]") for n, i in model.global_variables]
         return java_composite_template.render(
+            global_variables=global_variables,
             guard=guard,
             assignments=model.assignments,
             _c=sm.parent_class
         )
     elif model_class == "Assignment":
+        global_variables = [(n if i is None else n + "[" + i + "]") for n, i in model.global_variables]
         return java_assignment_template.render(
+            global_variables=global_variables,
             assignment=model,
             _c=sm.parent_class
         )
     elif model_class == "Expression":
+        global_variables = [(n if i is None else n + "[" + i + "]") for n, i in model.global_variables]
         return java_expression_template.render(
+            global_variables=global_variables,
             expression=model,
             _c=sm.parent_class
         )
@@ -305,6 +318,7 @@ env.filters['get_instruction'] = get_instruction
 env.filters['get_guard_statement'] = get_guard_statement
 env.filters['get_variable_list'] = get_variable_list
 env.filters['get_variable_instantiation_list'] = get_variable_instantiation_list
+env.filters['remove_double_negation'] = remove_double_negation
 
 env.filters['get_decision_structure'] = get_decision_structure
 # env.filters['to_comma_separated_lock_name_list'] = to_comma_separated_lock_name_list

@@ -1,1 +1,3 @@
-{{assignment | get_instruction}};
+// To lock: {{global_variables | comma_separated_list }}
+{{assignment | get_instruction | trim}};
+// To unlock: {{global_variables | comma_separated_list }}
