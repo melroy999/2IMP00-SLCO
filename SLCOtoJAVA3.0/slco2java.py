@@ -12,7 +12,7 @@ from rendering.model_rendering import render_model
 def preprocess(model):
     """"Gather additional data about the model"""
     # Cleanup the model and remove superfluous objects.
-    # remove_unused_variables(model)
+    remove_unused_variables(model)
 
     # Extend and annotate the model to one fitting our purpose.
     annotate_model(model)

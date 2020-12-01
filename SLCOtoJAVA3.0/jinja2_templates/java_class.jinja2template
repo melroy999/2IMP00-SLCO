@@ -21,8 +21,7 @@ private static class {{model.name}} implements SLCO_Class {
     {% endfor %}
     {{model.name}}({{model.variables | get_variable_list}}) {
         // Create a lock manager.
-        // TODO LockManager lockManager = new LockManager({{model.number_of_class_variables}});
-        LockManager lockManager = new LockManager(0);
+        LockManager lockManager = new LockManager({{model.number_of_locks}});
 
         // Instantiate global variables
         {% for v in model.variables %}

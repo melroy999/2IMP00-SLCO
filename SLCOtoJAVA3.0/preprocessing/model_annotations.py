@@ -1,3 +1,4 @@
+from preprocessing.locking_annotations import annotate_used_variables, assign_lock_ids_to_class_variables
 from rendering.model_rendering import get_instruction
 from util.smt import to_simple_ast, z3_truth_check
 
@@ -107,59 +108,6 @@ true_expression = type("Expression", (object,), {
 })()
 
 
-def gather_used_variables(model, variables):
-    """Gather the variables that are used within the statements"""
-    class_name = model.__class__.__name__
-    if class_name in ["Assignment", "Expression", "ExprPrec1", "ExprPrec2", "ExprPrec3", "ExprPrec4"]:
-        gather_used_variables(model.left, variables)
-        if model.right is not None:
-            gather_used_variables(model.right, variables)
-    elif class_name == "ExpressionRef":
-        if model.index is None:
-            variables.update({(model.ref, None)})
-        else:
-            # The index might hide a variable within it.
-            variables.update({(model.ref, get_instruction(model.index))})
-            gather_used_variables(model.index, variables)
-    elif class_name == "VariableRef":
-        if model.index is None:
-            variables.update({(model.var.name, None)})
-        else:
-            # The index might hide a variable within it.
-            variables.update({(model.var.name, get_instruction(model.index))})
-            gather_used_variables(model.index, variables)
-    elif class_name == "Primary" and model.ref is not None:
-        return gather_used_variables(model.ref, variables)
-    else:
-        return set([])
-
-
-def annotate_used_variables(o, global_variables):
-    """"Add the used variables to Composites, Expressions and Assignments."""
-    class_name = o.__class__.__name__
-    if class_name == "StateMachine":
-        for transition in o.transitions:
-            annotate_used_variables(transition, global_variables)
-    elif class_name == "Transition":
-        o.variables = set([])
-        o.global_variables = set([])
-        for statement in o.statements:
-            annotate_used_variables(statement, global_variables)
-            o.variables.update(statement.variables)
-            o.global_variables.update(statement.global_variables)
-    elif class_name == "Composite":
-        o.variables = set([])
-        o.global_variables = set([])
-        for statement in [o.guard] + o.assignments:
-            annotate_used_variables(statement, global_variables)
-            o.variables.update(statement.variables)
-            o.global_variables.update(statement.global_variables)
-    elif class_name in ["Expression", "Assignment"]:
-        o.variables = set([])
-        gather_used_variables(o, o.variables)
-        o.global_variables = set([(name, sub) for name, sub in o.variables if name in global_variables])
-
-
 def annotate_statement(s):
     """Transform the statement such that it provides all the data required for the code conversion"""
     class_name = s.__class__.__name__
@@ -264,9 +212,9 @@ def annotate_model(model):
 
     # Delay certain second phase annotations, given that the supportive annotation propagation may alter statements.
     for c in model.classes:
-        for sm in c.statemachines:
-            # Add variables that show which (global) variables are used by the statements.
-            annotate_used_variables(sm, c.name_to_variable)
+        # Add variables that show which (global) variables are used by the statements.
+        annotate_used_variables(c, c.name_to_variable)
+        assign_lock_ids_to_class_variables(c)
 
     # Ensure that each class has references to its objects/instantiations.
     for c in model.classes:

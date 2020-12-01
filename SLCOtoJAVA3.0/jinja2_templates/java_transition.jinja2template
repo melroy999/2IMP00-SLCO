@@ -6,9 +6,6 @@
 {{statement | trim}}
 {% endfor %}
 {% endif %}
-{% if always_fails %}
-return;
-{%- else %}
+{% if not always_fails %}
 currentState = {{state_machine_name}}Thread.States.{{target}};
-return;
 {%- endif %}
