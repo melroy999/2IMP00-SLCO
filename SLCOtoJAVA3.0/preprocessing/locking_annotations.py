@@ -39,22 +39,22 @@ def annotate_used_variables(o, global_variables=None):
             annotate_used_variables(transition, global_variables)
     elif class_name == "Transition":
         o.variables = set([])
-        o.global_variables = set([])
+        o.lock_requests = set([])
         for statement in o.statements:
             annotate_used_variables(statement, global_variables)
             o.variables.update(statement.variables)
-            o.global_variables.update(statement.global_variables)
+            o.lock_requests.update(statement.lock_requests)
     elif class_name == "Composite":
         o.variables = set([])
-        o.global_variables = set([])
+        o.lock_requests = set([])
         for statement in [o.guard] + o.assignments:
             annotate_used_variables(statement, global_variables)
             o.variables.update(statement.variables)
-            o.global_variables.update(statement.global_variables)
+            o.lock_requests.update(statement.lock_requests)
     elif class_name in ["Expression", "Assignment"]:
         o.variables = set([])
         gather_used_variables(o, o.variables)
-        o.global_variables = set([(name, sub) for name, sub in o.variables if name in global_variables])
+        o.lock_requests = set([(name, sub) for name, sub in o.variables if name in global_variables])
 
 
 class Node:
@@ -195,16 +195,91 @@ def assign_lock_ids_to_class_variables(c):
     print_locking_report(c)
 
 
-def order_lock_ids(v, name_to_variable):
+def get_lock_id_ordering(o, name_to_variable):
     """Get the lock id of the given variable, used for sorting purposes"""
-    variable, index = v
+    v, i = o
     try:
         # Check if the index is a simple string or a variable.
-        offset = int(index)
+        offset = int(i)
     except (ValueError, TypeError):
         # If it is a variable, fall back to no offset.
         offset = 0
-    return name_to_variable[variable].lock_id + offset
+    return name_to_variable[v].lock_id + offset
+
+
+def correct_dependency_graph(variable_dependency_graph, name_to_variable, lock_requests):
+    """Remove all dependencies that violate the lock id ordering, and decompose array lock requests when appropriate."""
+    # If a node has a dependency on a higher id node, remove all dependencies of the node.
+    # Remove superfluous lock id statements--all original lock id statements starting with the variable are superfluous.
+    for node in variable_dependency_graph.values():
+        target_variable = name_to_variable[node.key]
+
+        # Check if the lock id of one of the dependants is higher than the current target node.
+        if any(name_to_variable[v.key].lock_id >= target_variable.lock_id for v in node.successors):
+            # Remove all lock id requests for the currently targeted variable.
+            lock_requests.symmetric_difference_update(set((v, i) for v, i in lock_requests if v == node.key))
+
+            # Create lock ids for all values of the variable associated to the node.
+            lock_requests.update((node.key, i) for i in range(0, target_variable.type.size))
+
+        # Remove all dependencies of the node after having made the corrections.
+        for successor_node in list(node.successors):
+            node.remove_successor(successor_node)
+
+
+def get_locking_phases(variable_dependency_graph, name_to_variable, lock_requests):
+    """Convert the list of lock ids to locking phases, adhering to the given dependency graph"""
+    # The assumption here is that the dependency graph has been preprocessed to no longer have circular dependencies.
+    lock_id_ordering = sorted(lock_requests, key=lambda _v: get_lock_id_ordering(_v, name_to_variable))
+    lock_phases = []
+    current_phase = []
+    encountered_nodes = set([])
+
+    # Iterate over all locking requests found in the lock id list and procedurally add them to phases.
+    for v, i in lock_id_ordering:
+        # Find the node associated with the variable.
+        target_node = variable_dependency_graph[v]
+
+        # If the node has any successors, we need to move on to the next phase.
+        if len(target_node.successors) > 0:
+            # Flush the current phase.
+            lock_phases.append(current_phase)
+            current_phase = []
+
+            # Remove all nodes in the flushed phase from the graph.
+            for node in encountered_nodes:
+                for predecessor_node in list(node.predecessors):
+                    node.remove_predecessor(predecessor_node)
+
+        # Add the variable and index to the current phase.
+        current_phase.append((v, i))
+        encountered_nodes.add(target_node)
+
+    # Flush the last phase, if it is non-empty.
+    if len(current_phase) > 0:
+        lock_phases.append(current_phase)
+    return lock_phases
+
+
+def annotate_lock_phases(o, name_to_variable):
+    """Create locking phases for the given statement"""
+    # Construct a variable dependency graph for the statement.
+    variable_dependency_graph = {}
+    construct_variable_dependency_graph(o, variable_dependency_graph, set(name_to_variable.keys()), [])
+
+    # Correct the dependency graph by expanding nodes that will violate the lock identity ordering.
+    correct_dependency_graph(variable_dependency_graph, name_to_variable, o.lock_requests)
+
+    # Break the lock id list into different phases, following the dependency graph.
+    o.lock_request_phases = get_locking_phases(variable_dependency_graph, name_to_variable, o.lock_requests)
+
+
+def annotate_lock_list(c):
+    """Construct a phased lock ordering for all transitions in the given class"""
+    for sm in c.statemachines:
+        for t in sm.transitions:
+            for s in t.statements:
+                annotate_lock_phases(s, c.name_to_variable)
 
 
 def print_locking_report(c):

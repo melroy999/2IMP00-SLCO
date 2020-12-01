@@ -1,4 +1,5 @@
-from preprocessing.locking_annotations import annotate_used_variables, assign_lock_ids_to_class_variables
+from preprocessing.locking_annotations import annotate_used_variables, assign_lock_ids_to_class_variables, \
+    annotate_lock_list
 from rendering.model_rendering import get_instruction
 from util.smt import to_simple_ast, z3_truth_check
 
@@ -203,18 +204,12 @@ def annotate_model(model):
         # Propagate some of the annotations upwards to simplify the templating code.
         propagate_supportive_annotations(c)
 
-    # TODO Check which variables have been used in the model and find all variables that need to be locked.
-    # for c in model.classes:
-    #     assign_lock_ids_to_class_variables(c)
-    #     propagate_used_variables(c)
-    #     propagate_lock_variables(c, c.name_to_variable.keys())
-    #     construct_valid_lock_order(c)
-
     # Delay certain second phase annotations, given that the supportive annotation propagation may alter statements.
     for c in model.classes:
         # Add variables that show which (global) variables are used by the statements.
         annotate_used_variables(c, c.name_to_variable)
         assign_lock_ids_to_class_variables(c)
+        annotate_lock_list(c)
 
     # Ensure that each class has references to its objects/instantiations.
     for c in model.classes:

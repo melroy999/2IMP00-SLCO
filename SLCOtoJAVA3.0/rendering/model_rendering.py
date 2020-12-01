@@ -62,6 +62,29 @@ def comma_separated_list(model):
     return ", ".join(model)
 
 
+def to_comma_separated_lock_name_list(model):
+    """Construct a comma separated list containing all the lock names for cross verification, sorted on variable name"""
+    lock_names = [v[0] + ("" if v[1] is None else "[%s]" % v[1]) for v in sorted(model)]
+    return comma_separated_list(lock_names)
+
+
+def to_comma_separated_lock_id_list(model, c):
+    """Construct a comma separated list of all the targeted lock ids, sorted on variable name"""
+    lock_ids = []
+    for v, i in sorted(model):
+        base = c.name_to_variable[v].lock_id
+        index = 0 if i is None else i
+        try:
+            index = int(index)
+            lock_ids.append(str(base + index))
+        except (ValueError, TypeError):
+            if base == 0:
+                lock_ids.append(index)
+            else:
+                lock_ids.append("%s + %s" % (base, index))
+    return comma_separated_list(lock_ids)
+
+
 def remove_double_negation(text):
     """Remove a double negation in the given text, if present"""
     if text.startswith("!(!("):
@@ -157,25 +180,25 @@ def construct_decision_code(model, sm, include_guard=True, include_comment=True)
         )
     elif model_class == "Composite":
         guard = model.guard if not model.guard.is_trivially_satisfiable and include_guard else None
-        global_variables = [(n if i is None else n + "[" + i + "]") for n, i in model.global_variables]
         return java_composite_template.render(
-            global_variables=global_variables,
             guard=guard,
             assignments=model.assignments,
+            lock_request_phases=model.lock_request_phases,
+            lock_requests=model.lock_requests,
             _c=sm.parent_class
         )
     elif model_class == "Assignment":
-        global_variables = [(n if i is None else n + "[" + i + "]") for n, i in model.global_variables]
         return java_assignment_template.render(
-            global_variables=global_variables,
             assignment=model,
+            lock_request_phases=model.lock_request_phases,
+            lock_requests=model.lock_requests,
             _c=sm.parent_class
         )
     elif model_class == "Expression":
-        global_variables = [(n if i is None else n + "[" + i + "]") for n, i in model.global_variables]
         return java_expression_template.render(
-            global_variables=global_variables,
             expression=model,
+            lock_request_phases=model.lock_request_phases,
+            lock_requests=model.lock_requests,
             _c=sm.parent_class
         )
     elif model_class == "ActionRef":
@@ -321,8 +344,8 @@ env.filters['get_variable_instantiation_list'] = get_variable_instantiation_list
 env.filters['remove_double_negation'] = remove_double_negation
 
 env.filters['get_decision_structure'] = get_decision_structure
-# env.filters['to_comma_separated_lock_name_list'] = to_comma_separated_lock_name_list
-# env.filters['to_comma_separated_lock_id_list'] = to_comma_separated_lock_id_list
+env.filters['to_comma_separated_lock_name_list'] = to_comma_separated_lock_name_list
+env.filters['to_comma_separated_lock_id_list'] = to_comma_separated_lock_id_list
 
 # Load the Java templates.
 java_model_template = env.get_template('java_model.jinja2template')

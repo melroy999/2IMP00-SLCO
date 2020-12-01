@@ -1,6 +1,14 @@
-// To lock: {{global_variables | comma_separated_list }}
+{% if lock_request_phases %}
+{% for phase in lock_request_phases %}
+lockManager.lock({{phase | to_comma_separated_lock_id_list(_c)}}); // Request [{{phase | to_comma_separated_lock_name_list}}]
+{% endfor %}
+{% endif %}
 if({{("!(" ~ (expression | get_instruction) ~ ")") | remove_double_negation | trim}}) {
-    // To unlock: {{global_variables | comma_separated_list }}
+    {% if lock_requests %}
+    lockManager.unlock({{lock_requests | to_comma_separated_lock_id_list(_c)}}); // Release [{{lock_requests | to_comma_separated_lock_name_list}}]
+    {% endif %}
     return;
 }
-// To unlock: {{global_variables | comma_separated_list }}
+{% if lock_requests %}
+lockManager.unlock({{lock_requests | to_comma_separated_lock_id_list(_c)}}); // Release [{{lock_requests | to_comma_separated_lock_name_list}}]
+{% endif %}
