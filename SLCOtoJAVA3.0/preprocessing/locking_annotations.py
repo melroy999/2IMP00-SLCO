@@ -222,9 +222,9 @@ def correct_dependency_graph(variable_dependency_graph, name_to_variable, lock_r
             # Create lock ids for all values of the variable associated to the node.
             lock_requests.update((node.key, i) for i in range(0, target_variable.type.size))
 
-        # Remove all dependencies of the node after having made the corrections.
-        for successor_node in list(node.successors):
-            node.remove_successor(successor_node)
+            # Remove all dependencies of the node after having made the corrections.
+            for successor_node in list(node.successors):
+                node.remove_successor(successor_node)
 
 
 def get_locking_phases(variable_dependency_graph, name_to_variable, lock_requests):
