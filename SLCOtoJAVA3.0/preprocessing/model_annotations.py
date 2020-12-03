@@ -57,7 +57,7 @@ def propagate_supportive_annotations(model, variables=None):
         model.is_trivially_satisfiable = model.guard_expression.is_trivially_satisfiable
         model.is_trivially_unsatisfiable = model.guard_expression.is_trivially_unsatisfiable
 
-        if model.is_trivially_satisfiable:
+        if model.is_trivially_satisfiable and model.guard_expression.smt is not True:
             model.comment_string += " (trivially satisfiable)"
         if model.is_trivially_unsatisfiable:
             model.comment_string += " (trivially unsatisfiable)"

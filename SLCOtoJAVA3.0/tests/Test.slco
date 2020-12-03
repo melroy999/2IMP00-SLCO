@@ -3,7 +3,7 @@ model Test {
 
     classes
     P {
-        variables Boolean[2] x Integer i Integer[2] A Integer[2] B
+        variables Boolean[2] x Integer i Integer[2] A Integer[2] B Integer a
         state machines
         SM1 {
             variables Integer y
@@ -30,6 +30,13 @@ model Test {
                     A[B[u]] := B[u];
                     u := (u + 1) % 2;
                     B[A[u]] := A[u];
+                }
+        }
+        SM3 {
+            initial SMC0
+            transitions
+                from SMC0 to SMC0 {
+                    [x[i]:=True; a:=a+1; i:=i+a; x[i]:=False; a:=a+1; i:=i+a; x[i]:=True]
                 }
         }
     }

@@ -1,59 +1,80 @@
 from rendering.model_rendering import get_instruction
 
 
-def gather_used_variables(model, variables):
+def gather_used_variables(model, variables, rewrite_table):
     """Gather the variables that are used within the statements"""
     class_name = model.__class__.__name__
     if class_name in ["Assignment", "Expression", "ExprPrec1", "ExprPrec2", "ExprPrec3", "ExprPrec4"]:
-        gather_used_variables(model.left, variables)
+        gather_used_variables(model.left, variables, rewrite_table)
         if model.right is not None:
-            gather_used_variables(model.right, variables)
+            gather_used_variables(model.right, variables, rewrite_table)
     elif class_name == "ExpressionRef":
         if model.index is None:
             variables.update({(model.ref, None)})
         else:
             # The index might hide a variable within it.
-            variables.update({(model.ref, get_instruction(model.index))})
-            gather_used_variables(model.index, variables)
+            variables.update({(model.ref, get_instruction(model.index, rewrite_table))})
+            gather_used_variables(model.index, variables, rewrite_table)
     elif class_name == "VariableRef":
         if model.index is None:
             variables.update({(model.var.name, None)})
         else:
             # The index might hide a variable within it.
-            variables.update({(model.var.name, get_instruction(model.index))})
-            gather_used_variables(model.index, variables)
+            variables.update({(model.var.name, get_instruction(model.index, rewrite_table))})
+            gather_used_variables(model.index, variables, rewrite_table)
     elif class_name == "Primary" and model.ref is not None:
-        return gather_used_variables(model.ref, variables)
+        return gather_used_variables(model.ref, variables, rewrite_table)
     else:
         return set([])
 
 
-def annotate_used_variables(o, global_variables=None):
-    """"Add the used variables to Composites, Expressions and Assignments."""
+def annotate_used_variables(o, global_variables, rewrite_table=None):
+    """Add the used variables to Composites, Expressions and Assignments.
+       The rewrite table is used to compensate for variable changes in composite statements."""
     class_name = o.__class__.__name__
     if class_name == "Class":
         for sm in o.statemachines:
-            annotate_used_variables(sm, global_variables)
+            annotate_used_variables(sm, global_variables, rewrite_table)
     if class_name == "StateMachine":
         for transition in o.transitions:
-            annotate_used_variables(transition, global_variables)
+            annotate_used_variables(transition, global_variables, rewrite_table)
     elif class_name == "Transition":
         o.variables = set([])
         o.lock_requests = set([])
         for statement in o.statements:
-            annotate_used_variables(statement, global_variables)
+            annotate_used_variables(statement, global_variables, rewrite_table)
             o.variables.update(statement.variables)
             o.lock_requests.update(statement.lock_requests)
     elif class_name == "Composite":
         o.variables = set([])
         o.lock_requests = set([])
-        for statement in [o.guard] + o.assignments:
-            annotate_used_variables(statement, global_variables)
-            o.variables.update(statement.variables)
-            o.lock_requests.update(statement.lock_requests)
+        rewrite_table = {}
+
+        # Annotate the guard variable first.
+        annotate_used_variables(o.guard, global_variables, rewrite_table)
+        o.variables.update(o.guard.variables)
+        o.lock_requests.update(o.guard.lock_requests)
+
+        # Annotate the assignments and update the rewrite table.
+        for assignment in o.assignments:
+            annotate_used_variables(assignment, global_variables, rewrite_table)
+            o.variables.update(assignment.variables)
+            o.lock_requests.update(assignment.lock_requests)
+
+            # Add a rewrite rule, changing the left-hand side into the right-hand side.
+            # Note that in the left hand side, we only rewrite the index, if available.
+            target_variable = assignment.left.var.name
+            if assignment.left.index is not None:
+                target_variable += "[" + get_instruction(assignment.left.index, rewrite_table) + "]"
+            target_rewrite = get_instruction(assignment.right, rewrite_table)
+
+            if ' ' in target_rewrite:
+                rewrite_table[target_variable] = "(%s)" % target_rewrite
+            else:
+                rewrite_table[target_variable] = "%s" % target_rewrite
     elif class_name in ["Expression", "Assignment"]:
         o.variables = set([])
-        gather_used_variables(o, o.variables)
+        gather_used_variables(o, o.variables, rewrite_table)
         o.lock_requests = set([(name, sub) for name, sub in o.variables if name in global_variables])
 
 
