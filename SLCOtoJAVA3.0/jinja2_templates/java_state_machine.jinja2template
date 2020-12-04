@@ -28,9 +28,13 @@ class {{model.name}}Thread extends Thread implements {{_c.name}}_{{model.name}}T
     // The lock manager
     private final LockManager lockManager;
 
+    // A list of lock ids that can be reused
+    private final int[] lock_ids;
+
     {{model.name}}Thread (LockManager lockManagerInstance) {
         random = new Random();
         lockManager = lockManagerInstance;
+        lock_ids = new int[{{model.total_nr_of_unique_locks}}];
         {% if add_counter %}
         transitionCounter = 0;
         {% endif %}
@@ -42,7 +46,6 @@ class {{model.name}}Thread extends Thread implements {{_c.name}}_{{model.name}}T
 
     {% for s in model.states %}
     private void exec_{{s}}() {
-        int[][] lock_ids;
         {% if model.groupings[s] %}
         {{ model.groupings[s] | get_decision_structure(model) | indent(8, False)}}
         {% else %}

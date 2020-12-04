@@ -294,6 +294,13 @@ def annotate_lock_phases(o, name_to_variable):
     # Break the lock id list into different phases, following the dependency graph.
     o.lock_request_phases = get_locking_phases(variable_dependency_graph, name_to_variable, o.lock_requests)
 
+    # Add some useful meta-data for the rendering.
+    o.lock_ranges = []
+    index = 0
+    for phase in o.lock_request_phases:
+        o.lock_ranges.append((index, index + len(phase)))
+        index += len(phase)
+
 
 def annotate_lock_list(c):
     """Construct a phased lock ordering for all transitions in the given class"""
@@ -301,6 +308,16 @@ def annotate_lock_list(c):
         for t in sm.transitions:
             for s in t.statements:
                 annotate_lock_phases(s, c.name_to_variable)
+
+
+def annotate_locks_used_per_state_machine(c):
+    """Add the full list of unique locks that are requested by the transitions in the state machine"""
+    for sm in c.statemachines:
+        sm.lock_requests = set([])
+        for t in sm.transitions:
+            for s in t.statements:
+                sm.lock_requests.update(s.lock_requests)
+        sm.total_nr_of_unique_locks = len(sm.lock_requests)
 
 
 def print_locking_report(c):

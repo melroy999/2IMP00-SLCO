@@ -1,15 +1,16 @@
 {% if lock_request_phases %}
-lock_ids = new int[{{lock_request_phases | length}}][];
 {% for phase in lock_request_phases %}
-// Request [{{phase | to_comma_separated_lock_name_list}}]
-lock_ids[{{loop.index - 1}}] = new int[] {{"{" + phase | to_comma_separated_lock_id_list(_c) + "}"}};
-lockManager.lock(lock_ids[{{loop.index - 1}}]);
+{% set start, end = lock_ranges[loop.index0] %}
+{% for lock in phase | get_lock_id_list(_c) %}
+lock_ids[{{start + loop.index0}}] = {{lock}};
+{% endfor %}
+lockManager.lock(lock_ids, {{start}}, {{end}});
 {% endfor %}
 {% endif %}
 {% if guard %}
 if({{("!(" ~ (guard | get_instruction) ~ ")") | remove_double_negation | trim}}) {
-    {% if lock_requests %}
-    lockManager.unlock(lock_ids);
+    {% if lock_request_phases %}
+    lockManager.unlock(lock_ids, {{number_of_locks}});
     {% endif %}
     return;
 }
@@ -17,6 +18,6 @@ if({{("!(" ~ (guard | get_instruction) ~ ")") | remove_double_negation | trim}})
 {% for statement in assignments %}
 {{statement | get_instruction | trim}};
 {% endfor %}
-{% if lock_requests %}
-lockManager.unlock(lock_ids);
+{% if lock_request_phases %}
+lockManager.unlock(lock_ids, {{number_of_locks}});
 {% endif %}

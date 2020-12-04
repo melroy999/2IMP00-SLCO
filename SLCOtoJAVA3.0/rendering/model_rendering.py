@@ -77,27 +77,23 @@ def comma_separated_list(model):
     return ", ".join(model)
 
 
-def to_comma_separated_lock_name_list(model):
-    """Construct a comma separated list containing all the lock names for cross verification, sorted on variable name"""
-    lock_names = [v[0] + ("" if v[1] is None else "[%s]" % v[1]) for v in sorted(model)]
-    return comma_separated_list(lock_names)
-
-
-def to_comma_separated_lock_id_list(model, c):
-    """Construct a comma separated list of all the targeted lock ids, sorted on variable name"""
+def get_lock_id_list(model, c):
+    """Construct a list of all the targeted lock ids, sorted on variable/primary lock id name"""
     lock_ids = []
-    for v, i in sorted(model):
+    for v, i in sorted(model, key=lambda _o: (c.name_to_variable[_o[0]].lock_id, _o)):
         base = c.name_to_variable[v].lock_id
         index = 0 if i is None else i
         try:
             index = int(index)
-            lock_ids.append(str(base + index))
+            lock = str(base + index)
         except (ValueError, TypeError):
             if base == 0:
-                lock_ids.append(index)
+                lock = index
             else:
-                lock_ids.append("%s + %s" % (base, index))
-    return comma_separated_list(lock_ids)
+                lock = "%s + %s" % (base, index)
+        lock += "; // " + v + ("" if i is None else "[%s]" % i)
+        lock_ids.append(lock)
+    return lock_ids
 
 
 def remove_double_negation(text):
@@ -199,21 +195,24 @@ def construct_decision_code(model, sm, include_guard=True, include_comment=True)
             guard=guard,
             assignments=model.assignments,
             lock_request_phases=model.lock_request_phases,
-            lock_requests=model.lock_requests,
+            number_of_locks=len(model.lock_requests),
+            lock_ranges=model.lock_ranges,
             _c=sm.parent_class
         )
     elif model_class == "Assignment":
         return java_assignment_template.render(
             assignment=model,
             lock_request_phases=model.lock_request_phases,
-            lock_requests=model.lock_requests,
+            number_of_locks=len(model.lock_requests),
+            lock_ranges=model.lock_ranges,
             _c=sm.parent_class
         )
     elif model_class == "Expression":
         return java_expression_template.render(
             expression=model,
             lock_request_phases=model.lock_request_phases,
-            lock_requests=model.lock_requests,
+            number_of_locks=len(model.lock_requests),
+            lock_ranges=model.lock_ranges,
             _c=sm.parent_class
         )
     elif model_class == "ActionRef":
@@ -333,7 +332,7 @@ def render_state_machine(sm, c):
     return java_state_machine_template.render(
         model=sm,
         add_counter=settings.add_counter,
-        _c=c
+        _c=c,
     )
 
 
@@ -359,8 +358,7 @@ env.filters['get_variable_instantiation_list'] = get_variable_instantiation_list
 env.filters['remove_double_negation'] = remove_double_negation
 
 env.filters['get_decision_structure'] = get_decision_structure
-env.filters['to_comma_separated_lock_name_list'] = to_comma_separated_lock_name_list
-env.filters['to_comma_separated_lock_id_list'] = to_comma_separated_lock_id_list
+env.filters['get_lock_id_list'] = get_lock_id_list
 
 # Load the Java templates.
 java_model_template = env.get_template('java_model.jinja2template')

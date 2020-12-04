@@ -1,5 +1,5 @@
 from preprocessing.locking_annotations import annotate_used_variables, assign_lock_ids_to_class_variables, \
-    annotate_lock_list
+    annotate_lock_list, annotate_locks_used_per_state_machine
 from rendering.model_rendering import get_instruction
 from util.smt import to_simple_ast, z3_truth_check
 
@@ -210,6 +210,7 @@ def annotate_model(model):
         annotate_used_variables(c, c.name_to_variable)
         assign_lock_ids_to_class_variables(c)
         annotate_lock_list(c)
+        annotate_locks_used_per_state_machine(c)
 
     # Ensure that each class has references to its objects/instantiations.
     for c in model.classes:

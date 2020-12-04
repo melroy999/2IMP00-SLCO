@@ -24,19 +24,17 @@ public class {{model.name}} {
         }
 
         // Lock method
-        void lock(int[] locking_phase) {
-            Arrays.sort(locking_phase);
-            for (int lock_id : locking_phase) {
-                locks[lock_id].lock();
+        void lock(int[] lock_ids, int start, int end) {
+            Arrays.sort(lock_ids, start, end);
+            for (int i = start; i < end; i++) {
+                locks[lock_ids[i]].lock();
             }
         }
 
         // Unlock method
-        void unlock(int[]... locking_phases) {
-            for(int[] locking_phase : locking_phases) {
-                for (int lock_id : locking_phase) {
-                    locks[lock_id].unlock();
-                }
+        void unlock(int[] lock_ids, int end) {
+            for (int i = 0; i < end; i++) {
+                locks[lock_ids[i]].unlock();
             }
         }
     }
