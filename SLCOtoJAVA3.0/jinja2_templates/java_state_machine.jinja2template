@@ -42,6 +42,7 @@ class {{model.name}}Thread extends Thread implements {{_c.name}}_{{model.name}}T
 
     {% for s in model.states %}
     private void exec_{{s}}() {
+        int[][] lock_ids;
         {% if model.groupings[s] %}
         {{ model.groupings[s] | get_decision_structure(model) | indent(8, False)}}
         {% else %}

@@ -1,9 +1,12 @@
 {% if lock_request_phases %}
+lock_ids = new int[{{lock_request_phases | length}}][];
 {% for phase in lock_request_phases %}
-lockManager.lock({{phase | to_comma_separated_lock_id_list(_c)}}); // Request [{{phase | to_comma_separated_lock_name_list}}]
+// Request [{{phase | to_comma_separated_lock_name_list}}]
+lock_ids[{{loop.index - 1}}] = new int[] {{"{" + phase | to_comma_separated_lock_id_list(_c) + "}"}};
+lockManager.lock(lock_ids[{{loop.index - 1}}]);
 {% endfor %}
 {% endif %}
 {{assignment | get_instruction | trim}};
 {% if lock_requests %}
-lockManager.unlock({{lock_requests | to_comma_separated_lock_id_list(_c)}}); // Release [{{lock_requests | to_comma_separated_lock_name_list}}]
+lockManager.unlock(lock_ids);
 {% endif %}
