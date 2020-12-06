@@ -6,18 +6,26 @@ lock_ids[{{start + loop.index0}}] = {{lock}};
 {% endfor %}
 lockManager.lock(lock_ids, {{start}}, {{end}});
 {% endfor %}
-{% endif %}
+try {
+    {% if guard %}
+    if({{("!(" ~ (guard | get_instruction) ~ ")") | remove_double_negation | trim}}) {
+        lockManager.unlock(lock_ids, {{number_of_locks}});
+        return;
+    }
+    {% endif %}
+    {% for statement in assignments %}
+    {{statement | get_instruction | trim}};
+    {% endfor %}
+} finally {
+    lockManager.unlock(lock_ids, {{number_of_locks}});
+}
+{% else %}
 {% if guard %}
 if({{("!(" ~ (guard | get_instruction) ~ ")") | remove_double_negation | trim}}) {
-    {% if lock_request_phases %}
-    lockManager.unlock(lock_ids, {{number_of_locks}});
-    {% endif %}
     return;
 }
 {% endif %}
 {% for statement in assignments %}
 {{statement | get_instruction | trim}};
 {% endfor %}
-{% if lock_request_phases %}
-lockManager.unlock(lock_ids, {{number_of_locks}});
 {% endif %}

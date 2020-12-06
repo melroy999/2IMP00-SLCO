@@ -30,6 +30,7 @@ model Test {
                     A[B[u]] := B[u];
                     u := (u + 1) % 2;
                     B[A[u]] := A[u];
+                    x[0];
                 }
         }
         SM3 {

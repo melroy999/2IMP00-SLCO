@@ -113,6 +113,11 @@ def get_java_type(model, ignore_size):
         return "byte" if model.size < 1 or ignore_size else "byte[]"
 
 
+def get_sync_type(model):
+    """Returns final or volatile when applicable"""
+    return "volatile" if model.size < 1 else "final"
+
+
 def get_default_value(model):
     """Return a default value for the given variable"""
     if model.type.base in ["Integer", "Byte"]:
@@ -350,6 +355,7 @@ env.filters['render_state_machine'] = render_state_machine
 
 env.filters['comma_separated_list'] = comma_separated_list
 env.filters['get_java_type'] = get_java_type
+env.filters['get_sync_type'] = get_sync_type
 env.filters['get_initial_value'] = get_initial_value
 env.filters['get_instruction'] = get_instruction
 env.filters['get_guard_statement'] = get_guard_statement

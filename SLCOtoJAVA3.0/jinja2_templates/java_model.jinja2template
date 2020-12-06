@@ -4,6 +4,7 @@ import java.util.Arrays;
 
 // Main class
 // @SuppressWarnings({"NonAtomicOperationOnVolatileField", "FieldCanBeLocal", "InnerClassMayBeStatic", "DuplicatedCode", "MismatchedReadAndWriteOfArray", "unused", "SpellCheckingInspection"})
+@SuppressWarnings({"NonAtomicOperationOnVolatileField", "SpellCheckingInspection"})
 public class {{model.name}} {
     // The objects in the model
     private final SLCO_Class[] objects;
@@ -20,14 +21,23 @@ public class {{model.name}} {
 
         LockManager(int noVariables) {
             locks = new ReentrantLock[noVariables];
-            Arrays.fill(locks, new ReentrantLock(true));
+            for(int i = 0; i < locks.length; i++) {
+                locks[i] = new ReentrantLock(true);
+            }
         }
 
         // Lock method
         void lock(int[] lock_ids, int start, int end) {
-            Arrays.sort(lock_ids, start, end);
-            for (int i = start; i < end; i++) {
-                locks[lock_ids[i]].lock();
+            int i = start;
+            try {
+                Arrays.sort(lock_ids, start, end);
+                for (; i < end; i++) {
+                    locks[lock_ids[i]].lock();
+                }
+            } catch (Exception e) {
+                // Unlock all locks that have been requested and re-throw the exception.
+                unlock(lock_ids, i);
+                throw e;
             }
         }
 
