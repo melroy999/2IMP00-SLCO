@@ -80,7 +80,7 @@ def comma_separated_list(model):
 def get_lock_id_list(model, c):
     """Construct a list of all the targeted lock ids, sorted on variable/primary lock id name"""
     lock_ids = []
-    for v, i in sorted(model, key=lambda _o: (c.name_to_variable[_o[0]].lock_id, _o)):
+    for v, i in sorted(model, key=lambda _o: (c.name_to_variable[_o[0]].lock_id, str(_o[1]).strip("()"))):
         base = c.name_to_variable[v].lock_id
         index = 0 if i is None else i
         try:
