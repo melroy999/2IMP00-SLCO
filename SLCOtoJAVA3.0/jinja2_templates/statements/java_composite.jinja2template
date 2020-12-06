@@ -9,7 +9,6 @@ lockManager.lock(lock_ids, {{start}}, {{end}});
 try {
     {% if guard %}
     if({{("!(" ~ (guard | get_instruction) ~ ")") | remove_double_negation | trim}}) {
-        lockManager.unlock(lock_ids, {{number_of_locks}});
         return;
     }
     {% endif %}

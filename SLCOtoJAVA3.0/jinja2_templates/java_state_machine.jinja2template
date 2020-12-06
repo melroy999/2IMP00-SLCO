@@ -78,6 +78,7 @@ class {{model.name}}Thread extends Thread implements {{_c.name}}_{{model.name}}T
 
             // Increment counter
             transitionCounter++;
+            // System.out.println("{{model.name}} " + transitionCounter);
             {% endif %}
         }
     }
