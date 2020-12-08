@@ -9,7 +9,7 @@ private static class {{model.name}} implements SLCO_Class {
     {% endif %}
     {% if model.variables | length > 0 %}
     // Global variables
-    {% for v in model.variables %}
+    {% for v in model.variables | sort(attribute='lock_id') %}
     private {{v.type | get_sync_type}} {{v.type | get_java_type(False)}} {{v.name}};{% if v.lock_id is not none %} // Lock id {{v.lock_id}}{% endif %}
 
     {% endfor %}

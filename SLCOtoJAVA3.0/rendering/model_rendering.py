@@ -144,7 +144,7 @@ def get_variable_list(model):
     return comma_separated_list(variables)
 
 
-def get_variable_instantiation_list(model, variables):
+def get_variable_instantiation_list(model, variables, use_newline):
     """Construct a comma separated list of variable initializations sorted on by name"""
     # The initialization of class variables are processed per initialization.
     instantiated_variables = {
@@ -165,7 +165,11 @@ def get_variable_instantiation_list(model, variables):
             variable_instantiations.append("(byte) %s" % value)
         else:
             variable_instantiations.append("%s" % value)
-    return comma_separated_list(variable_instantiations)
+
+    if use_newline:
+        return ",\n".join(variable_instantiations)
+    else:
+        return comma_separated_list(variable_instantiations)
 
 
 def get_guard_statement(model):
