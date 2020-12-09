@@ -2,6 +2,10 @@ import operator
 import z3
 
 
+# Keep a global instance of the z3 solver.
+s = z3.Solver()
+
+
 operator_mapping = {
     ">": operator.gt,
     "<": operator.lt,
@@ -97,49 +101,27 @@ def textx_to_z3py_model(ast, variables):
         raise Exception("No implementation exists for the simple ast conversion of class [%s]" % class_name)
 
 
+def add_z3py_annotations(model):
+    for c in model.classes:
+        c.z3_variables = {v.name: get_z3py_variable(v) for v in c.variables}
+        for sm in c.statemachines:
+            sm.z3_variables = {**{v.name: get_z3py_variable(v) for v in sm.variables}, **c.z3_variables}
+
+            # Annotate all expressions with z3 expressions.
+            for t in sm.transitions:
+                for s in t.statements:
+                    if s.__class__.__name__ == "Expression":
+                        s.z3py_representation = z3.simplify(textx_to_z3py_model(s, sm.z3_variables))
+                        print(textx_to_z3py_model(s, sm.z3_variables), "->", s.z3py_representation)
+                        eval_statement(s.z3py_representation)
+                    elif s.__class__.__name__ == "Composite":
+                        s.guard.z3py_representation = z3.simplify(textx_to_z3py_model(s.guard, sm.z3_variables))
+                        print(textx_to_z3py_model(s.guard, sm.z3_variables), "->", s.guard.z3py_representation)
+                        eval_statement(s.guard.z3py_representation)
 
 
-"""def textx_to_z3py_model(ast):
-    class_name = ast.__class__.__name__
-    if class_name in ["Expression", "ExprPrec1", "ExprPrec2", "ExprPrec3", "ExprPrec4"]:
-        if ast.right is None:
-            return textx_to_z3py_model(ast.left)
-        else:
-            return smt_operator_mappings[ast.op], textx_to_z3py_model(ast.left), textx_to_z3py_model(ast.right)
-    elif class_name == "Primary":
-        if ast.value is not None:
-            if ast.sign == "-":
-                return -1 * ast.value
-            elif ast.sign == "not":
-                return not ast.value
-            else:
-                return ast.value
-        elif ast.ref is not None:
-            if ast.sign == "-":
-                return "-", 0, to_simple_ast(ast.ref)
-            if ast.sign == "not":
-                return "not", to_simple_ast(ast.ref)
-            return to_simple_ast(ast.ref)
-        else:
-            if ast.sign == "-":
-                return "-", 0, to_simple_ast(ast.body)
-            if ast.sign == "not":
-                return "not", to_simple_ast(ast.body)
-            else:
-                return to_simple_ast(ast.body)
-    elif class_name == "ExpressionRef":
-        if ast.index is None:
-            return "var", ast.ref
-        else:
-            return "var[]", ast.ref, to_simple_ast(ast.index)
-    elif class_name == "VariableRef":
-        if ast.index is None:
-            return "var", ast.var.name
-        else:
-            return "var[]", ast.var.name, to_simple_ast(ast.index)
-    else:
-        raise Exception("No implementation exists for the simple ast conversion of class [%s]" % class_name)
-
-
-def annotate_z3py_model(c):
-    pass"""
+def eval_statement(statement):
+    s.push()
+    s.add(statement)
+    print(s.check(), s.model())
+    s.pop()

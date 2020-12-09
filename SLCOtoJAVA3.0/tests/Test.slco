@@ -13,6 +13,15 @@ model Test {
                     [not x[i] || x[i]; i := i+1; x[i]:=i=2; i:= 3; x[0]:= False]
                 }
                 from SMC0 to SMC1 {
+                    [i <> 3; i := i+1; x[i]:=i=2; i:= 3; x[0]:= False]
+                }
+                from SMC0 to SMC1 {
+                    [i = 3; i := i+1; x[i]:=i=2; i:= 3; x[0]:= False]
+                }
+                from SMC0 to SMC1 {
+                    [not x[i] || x[i+1]; i := i+1; x[i]:=i=2; i:= 3; x[0]:= False]
+                }
+                from SMC0 to SMC1 {
                     [i := i+1; x[i]:=i=2; i:= 3; x[0]:= False]
                 }
                 from SMC0 to SMC1 {

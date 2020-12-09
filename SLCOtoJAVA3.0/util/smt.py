@@ -79,6 +79,9 @@ def to_z3_format_rec(ast, variables):
             return "(* %s)" % value
         else:
             raise Exception("Non-constant power operations are not supported", ast)
+    if operator == "!=":
+        negation = "(%s %s %s)" % ("=", to_z3_format_rec(ops[0], variables), to_z3_format_rec(ops[1], variables))
+        return "(not %s)" % negation
 
     # Leaf nodes.
     elif operator == "var":
@@ -180,59 +183,3 @@ def __z3_check_truth(for_all, parsed, variable_declarations):
         result = s.check().r != z3.Z3_L_FALSE
     s.pop()
     return result
-
-
-print(eval("X[i]", {}, {"X": z3.Array('X', z3.IntSort(), z3.IntSort()), "i": z3.Int('i')}))
-eval_value = eval("X[i]**2 == 1", {}, {"X": z3.Array('X', z3.IntSort(), z3.IntSort()), "i": z3.Int('i')})
-s.push()
-s.add(eval_value)
-print(s.check())
-print(s.model())
-s.pop()
-eval_value = eval("True", {}, {"X": z3.Array('X', z3.IntSort(), z3.IntSort()), "i": z3.Int('i')})
-s.push()
-s.add(eval_value)
-print(s.check())
-print(s.model())
-s.pop()
-
-"""
-# X = z3.IntVector('x', 3)
-X = z3.Array('X', z3.IntSort(), z3.IntSort())
-i = z3.Int('i')
-# s = z3.Solver()
-s.push()
-s.add(z3.Or(X[i] > 4, X[i] <= 4))
-print(s.check())
-s.pop()
-s.push()
-s.add(z3.Or(X[i+1] > 4, X[i] <= 4))
-print(s.check())
-s.pop()
-s.push()
-s.add(z3.Not(z3.Or(X[i] > 4, X[i] <= 4)))
-print(s.check())
-s.pop()
-s.push()
-s.add(z3.Not(z3.Or(X[i+1] > 4, X[i+1] <= 4)))
-print(s.check())
-print(z3.Not(z3.Or(X[i+1] > 4, X[i+1] <= 4)))
-s.pop()
-
-
-def ast_to_z3(ast, variables):
-    # Base types can be returned as-is.
-    if type(ast) in (str, int, float, bool):
-        return str(ast).lower()
-    operator, ops = ast[0], ast[1:]
-
-
-# print(X[i] >= 0)
-# print(z3.Sum(X) >= 0)
-# z3.solve(X[i] > 0)
-
-# z3.solve(z3.Or(X[i] > 4, X[i] <= 4))
-# z3.solve(z3.Not(z3.Or(X[i] > 4, X[i] <= 4)))
-
-# z3.solve(z3.is_true(X[i] > 0) or z3.is_true(X[i] <= 0))
-"""
