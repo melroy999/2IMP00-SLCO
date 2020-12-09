@@ -218,4 +218,22 @@ def annotate_model(model):
     for _o in model.objects:
         _o.type.objects.append(_o)
 
+    from preprocessing.smt_annotations import get_z3py_variable, textx_to_z3py_model
+    import z3
+
+    for c in model.classes:
+        c.z3_variables = {v.name: get_z3py_variable(v) for v in c.variables}
+        for sm in c.statemachines:
+            sm.z3_variables = {**{v.name: get_z3py_variable(v) for v in sm.variables}, **c.z3_variables}
+
+            # Annotate all expressions with z3 expressions.
+            for t in sm.transitions:
+                for s in t.statements:
+                    if s.__class__.__name__ == "Expression":
+                        s.z3py_representation = z3.simplify(textx_to_z3py_model(s, sm.z3_variables))
+                        print(textx_to_z3py_model(s, sm.z3_variables), "->", s.z3py_representation)
+                    elif s.__class__.__name__ == "Composite":
+                        s.guard.z3py_representation = z3.simplify(textx_to_z3py_model(s.guard, sm.z3_variables))
+                        print(textx_to_z3py_model(s.guard, sm.z3_variables), "->", s.guard.z3py_representation)
+
     return model
