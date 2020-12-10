@@ -1,0 +1,59 @@
+model TestDet {
+    classes
+    P {
+        variables Integer i
+        state machines
+        SM1 {
+            initial SMC0 states SMC1
+            transitions
+                from SMC0 to SMC1 {
+                    i <> 3;
+                }
+                from SMC0 to SMC1 {
+                    i >= 5;
+                }
+                from SMC0 to SMC1 {
+                    i < 1;
+                }
+                from SMC0 to SMC1 {
+                    i = 2;
+                }
+        }
+        SM2 {
+            initial SMC0 states SMC1
+            transitions
+                from SMC0 to SMC1 {
+                    i = 0;
+                }
+                from SMC0 to SMC1 {
+                    i = 1;
+                }
+                from SMC0 to SMC1 {
+                    i = 2;
+                }
+                from SMC0 to SMC1 {
+                    i = 3;
+                }
+        }
+        SM3 {
+            initial SMC0 states SMC1
+            transitions
+                from SMC0 to SMC1 {
+                    i >= 5;
+                }
+                from SMC0 to SMC1 {
+                    i = 5;
+                }
+                from SMC0 to SMC1 {
+                    i = 3;
+                }
+                from SMC0 to SMC1 {
+                    i <= 2;
+                }
+                from SMC0 to SMC1 {
+                    i = 2;
+                }
+        }
+    }
+    objects p: P(i:=0)
+}

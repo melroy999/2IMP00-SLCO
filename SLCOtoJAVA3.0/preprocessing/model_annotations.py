@@ -2,7 +2,6 @@ from preprocessing.locking_annotations import annotate_used_variables, assign_lo
     annotate_lock_list, annotate_locks_used_per_state_machine
 from preprocessing.smt_annotations import add_z3py_annotations
 from rendering.model_rendering import get_instruction
-from util.smt import to_simple_ast, z3_truth_check
 
 
 def get_comment(m):
@@ -58,7 +57,7 @@ def propagate_supportive_annotations(model, variables=None):
         model.is_trivially_satisfiable = model.guard_expression.is_trivially_satisfiable
         model.is_trivially_unsatisfiable = model.guard_expression.is_trivially_unsatisfiable
 
-        if model.is_trivially_satisfiable and model.guard_expression.smt is not True:
+        if model.is_trivially_satisfiable and model.guard_expression.string_expression != "true":
             model.comment_string += " (trivially satisfiable)"
         if model.is_trivially_unsatisfiable:
             model.comment_string += " (trivially unsatisfiable)"
@@ -92,10 +91,6 @@ def propagate_supportive_annotations(model, variables=None):
         # Check if the guard is trivially satisfiable.
         model.is_trivially_satisfiable = model.guard.is_trivially_satisfiable
         model.is_trivially_unsatisfiable = model.guard.is_trivially_unsatisfiable
-    elif class_name == "Expression":
-        # Use SMT do determine whether the formula is trivially (un)satisfiable.
-        model.is_trivially_satisfiable = z3_truth_check(model.smt, variables)
-        model.is_trivially_unsatisfiable = not z3_truth_check(model.smt, variables, False)
 
 
 # An expression that represents an object that is always true, used as replacement for empty guards.
@@ -103,7 +98,7 @@ true_expression = type("Expression", (object,), {
     "left": type("Primary", (object,), {"value": True, "sign": "", "body": None, "ref": None})(),
     "op": "",
     "right": None,
-    "smt": True,
+    "string_expression": "true",
     "is_trivially_satisfiable": True,
     "is_trivially_unsatisfiable": False,
     "__repr__": lambda self: get_instruction(self),
@@ -118,9 +113,9 @@ def annotate_statement(s):
         s.guard = true_expression if s.guard is None else annotate_statement(s.guard)
         s.assignments = [annotate_statement(a) for a in s.assignments]
     elif class_name == "Expression":
-        s.smt = to_simple_ast(s)
+        s.string_expression = get_instruction(s)
         # Provide equality and hash functions such that the expressions can be added to a set.
-        type(s).__eq__ = lambda self, other: self.smt == other.smt
+        type(s).__eq__ = lambda self, other: self.string_expression == other.string_expression
         type(s).__hash__ = lambda self: hash(self.__repr__())
 
     # Give all statements a readable string representation corresponding to the associated java code.
@@ -202,7 +197,11 @@ def annotate_model(model):
         for sm in c.statemachines:
             annotate_state_machine(sm, c)
 
-        # Propagate some of the annotations upwards to simplify the templating code.
+    # Add z3py annotations for variables and expressions in transitions.
+    add_z3py_annotations(model)
+
+    # Propagate some of the annotations upwards to simplify the templating code.
+    for c in model.classes:
         propagate_supportive_annotations(c)
 
     # Delay certain second phase annotations, given that the supportive annotation propagation may alter statements.
@@ -219,7 +218,11 @@ def annotate_model(model):
     for _o in model.objects:
         _o.type.objects.append(_o)
 
-    # Add z3py annotations for variables and expressions in transitions.
-    add_z3py_annotations(model)
+    # TODO testing
+    for c in model.classes:
+        for sm in c.statemachines:
+            from util.z3py import z3_do_magic
+            z3_do_magic(sm.transitions, sm.z3_variables)
+
 
     return model

@@ -3,9 +3,9 @@ import z3
 
 
 # Keep a global instance of the z3 solver.
-s = z3.Solver()
+from util.z3py import z3_check_trivially_satisfiable, z3_check_trivially_unsatisfiable
 
-
+# Map every operator to its implementation to avoid calling eval.
 operator_mapping = {
     ">": operator.gt,
     "<": operator.lt,
@@ -31,6 +31,7 @@ operator_mapping = {
 
 
 def get_z3py_variable(v):
+    """Convert the given variable object to a z3py variable"""
     if v.type.base == "Boolean":
         if v.type.size < 1:
             return z3.Bool(v.name)
@@ -52,6 +53,7 @@ def get_z3_operator_representation(op, *values):
 
 
 def textx_to_z3py_model(ast, variables):
+    """Translate the given textx AST to z z3py model"""
     class_name = ast.__class__.__name__
     if class_name in ["Expression", "ExprPrec1", "ExprPrec2", "ExprPrec3", "ExprPrec4"]:
         if ast.right is None:
@@ -102,6 +104,7 @@ def textx_to_z3py_model(ast, variables):
 
 
 def add_z3py_annotations(model):
+    """Add references to the z3py variables/expressions to the classes/state machines/expressions."""
     for c in model.classes:
         c.z3_variables = {v.name: get_z3py_variable(v) for v in c.variables}
         for sm in c.statemachines:
@@ -111,17 +114,11 @@ def add_z3py_annotations(model):
             for t in sm.transitions:
                 for s in t.statements:
                     if s.__class__.__name__ == "Expression":
-                        s.z3py_representation = z3.simplify(textx_to_z3py_model(s, sm.z3_variables))
-                        print(textx_to_z3py_model(s, sm.z3_variables), "->", s.z3py_representation)
-                        eval_statement(s.z3py_representation)
+                        s.z3py_expression = z3.simplify(textx_to_z3py_model(s, sm.z3_variables))
+                        s.is_trivially_satisfiable = z3_check_trivially_satisfiable(s.z3py_expression)
+                        s.is_trivially_unsatisfiable = z3_check_trivially_unsatisfiable(s.z3py_expression)
+
                     elif s.__class__.__name__ == "Composite":
-                        s.guard.z3py_representation = z3.simplify(textx_to_z3py_model(s.guard, sm.z3_variables))
-                        print(textx_to_z3py_model(s.guard, sm.z3_variables), "->", s.guard.z3py_representation)
-                        eval_statement(s.guard.z3py_representation)
-
-
-def eval_statement(statement):
-    s.push()
-    s.add(statement)
-    print(s.check(), s.model())
-    s.pop()
+                        s.guard.z3py_expression = z3.simplify(textx_to_z3py_model(s.guard, sm.z3_variables))
+                        s.guard.is_trivially_satisfiable = z3_check_trivially_satisfiable(s.guard.z3py_expression)
+                        s.guard.is_trivially_unsatisfiable = z3_check_trivially_unsatisfiable(s.guard.z3py_expression)
