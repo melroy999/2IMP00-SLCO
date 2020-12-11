@@ -3,7 +3,7 @@ import os
 
 import settings
 from libraries.slcolib import *
-from preprocessing.decision_groupings import annotate_decision_groupings
+from preprocessing.smt_annotations import annotate_decision_groupings
 from preprocessing.model_annotations import annotate_model
 from preprocessing.model_simplification import remove_unused_variables
 from rendering.model_rendering import render_model
@@ -39,6 +39,7 @@ def main(_args):
 
     # Set defaults for the modifier parameters.
     add_counter = False
+    add_deterministic_structures = True
 
     # Parse the parameters.
     if any([arg in ["-h", "-help"] for arg in _args]):
@@ -46,12 +47,15 @@ def main(_args):
         print("")
         print("Transform an SLCO 2.0 model to a Java program.")
         print("-c                 produce a transition counter in the code, to make program executions finite")
+        print("-nds               disable deterministic structures")
         sys.exit(0)
     else:
         _i = 0
         while _i < len(_args):
             if _args[_i] == '-c':
                 add_counter = True
+            elif _args[_i] == '-nds':
+                add_deterministic_structures = False
             else:
                 model_folder, model_name = os.path.split(_args[_i])
             _i += 1
@@ -61,7 +65,7 @@ def main(_args):
             sys.exit(1)
 
     # Store the settings for this run.
-    settings.init(add_counter)
+    settings.init(add_counter, add_deterministic_structures)
 
     # Read the model and preprocess it.
     model = read_SLCO_model(os.path.join(model_folder, model_name))

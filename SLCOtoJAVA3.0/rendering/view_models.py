@@ -1,17 +1,19 @@
+from z3 import z3
+
+
 class NonDeterministicBlock:
     """A wrapper for a non-deterministic choice"""
     def __init__(self, choice_blocks):
         # Define the choice blocks contained by this construct.
         self.choice_blocks = choice_blocks
 
-        # What is the encapsulating guard expression?
-        self.encapsulating_guard_expression = set([])
-
+        # What is the resulting encapsulating guard expression?
+        self.guard_expressions = set([])
         for block in choice_blocks:
             if block.__class__.__name__ == "TransitionBlock":
-                self.encapsulating_guard_expression.add(block.guard_expression)
+                self.guard_expressions.add(block.guard_expression)
             else:
-                self.encapsulating_guard_expression |= block.encapsulating_guard_expression
+                self.guard_expressions |= block.guard_expressions
 
 
 class DeterministicIfThenElseBlock:
@@ -20,14 +22,13 @@ class DeterministicIfThenElseBlock:
         # Define the choice blocks contained by this construct.
         self.choice_blocks = choice_blocks
 
-        # What is the encapsulating guard expression?
-        self.encapsulating_guard_expression = set([])
-
+        # What is the resulting encapsulating guard expression?
+        self.guard_expressions = set([])
         for block in choice_blocks:
             if block.__class__.__name__ == "TransitionBlock":
-                self.encapsulating_guard_expression.add(block.guard_expression)
+                self.guard_expressions.add(block.guard_expression)
             else:
-                self.encapsulating_guard_expression |= block.encapsulating_guard_expression
+                self.guard_expressions |= block.guard_expressions
 
 
 class DeterministicCaseDistinctionBlock:
@@ -39,19 +40,17 @@ class DeterministicCaseDistinctionBlock:
         self.default_decision_tree = default_decision_tree
 
         # What is the encapsulating guard expression?
-        self.encapsulating_guard_expression = set([])
-
-        for target, block in choice_blocks:
+        self.guard_expressions = set([])
+        for block in choice_blocks:
             if block.__class__.__name__ == "TransitionBlock":
-                self.encapsulating_guard_expression.add(block.guard_expression)
+                self.guard_expressions.add(block.guard_expression)
             else:
-                self.encapsulating_guard_expression |= block.encapsulating_guard_expression
-
+                self.guard_expressions |= block.guard_expressions
         if default_decision_tree is not None:
             if default_decision_tree.__class__.__name__ == "TransitionBlock":
-                self.encapsulating_guard_expression.add(default_decision_tree.guard_expression)
+                self.guard_expressions.add(default_decision_tree.guard_expression)
             else:
-                self.encapsulating_guard_expression |= default_decision_tree.encapsulating_guard_expression
+                self.guard_expressions |= default_decision_tree.guard_expressions
 
 
 class TransitionBlock:

@@ -1,9 +1,10 @@
 # Import the necessary libraries.
 import jinja2
+from z3 import z3
 
 import settings
 from rendering.view_models import get_view_model
-from util.smt import z3_truth_check
+from util.z3py import z3_check_trivially_satisfiable
 
 
 class TransitDict(dict):
@@ -181,7 +182,7 @@ def get_guard_statement(model):
         # TODO simplify using SMT.
         #   - Remove formulas that are equivalent to an already encountered formula.
         #   - Use implication to check whether one formula is contained in another?
-        return " || ".join([get_instruction(e) for e in model.encapsulating_guard_expression])
+        return " || ".join([get_instruction(e) for e in model.guard_expressions])
 
 
 def construct_decision_code(model, sm, include_guard=True, include_comment=True):
@@ -228,30 +229,8 @@ def construct_decision_code(model, sm, include_guard=True, include_comment=True)
         return "// Execute action [%s]\n" % model.act.name
     elif model_class == "NonDeterministicBlock":
         # Several of the choices may have the same conversion string. Filter these out and merge.
-        choices = [(
-            construct_decision_code(choice, sm),
-            choice.comment if choice.__class__.__name__ == "TransitionBlock" else None
-        ) for choice in model.choice_blocks]
+        choices = [construct_decision_code(choice, sm) for choice in model.choice_blocks]
         choices.sort(key=lambda v: v[0])
-
-        for i in range(0, len(choices) - 1):
-            # Check if the next execution code is equivalent to the current one.
-            # If so, set the current execution code to empty string, to avoid duplicates.
-            # Note that there is a comment that will likely differ--filter the comment out if appropriate.
-            current_choice = choices[i][0]
-            if choices[i][1] is not None:
-                current_choice = current_choice.replace(choices[i][1], "")
-
-            next_choice = choices[i + 1][0]
-            if choices[i + 1][1] is not None:
-                next_choice = next_choice.replace(choices[i + 1][1], "")
-
-            if current_choice == next_choice:
-                # We still want the traceability comment if applicable.
-                choices[i] = ("// %s (functional duplicate of case below)" % choices[i][1], choices[i][1])
-
-        # Remove the choice comment from every choice.
-        choices = [choice[0] for choice in choices]
 
         # If only one choice remains, there is no reason to include an entire block.
         if len(choices) == 1:
@@ -264,25 +243,16 @@ def construct_decision_code(model, sm, include_guard=True, include_comment=True)
     elif model_class == "DeterministicIfThenElseBlock":
         # Order the choices such that the generated code is always the same.
         choices = [
-            (
-                construct_decision_code(choice, sm, include_comment=False),
-                get_guard_statement(choice),
-                choice.comment if choice.__class__.__name__ == "TransitionBlock" else None
-            ) for choice in model.choice_blocks
+            (construct_decision_code(choice, sm), get_guard_statement(choice)) for choice in model.choice_blocks
         ]
         choices.sort(key=lambda v: v[0])
 
         # Does the combination of all the guards always evaluate to true?
         else_choice = None
-        if len(model.encapsulating_guard_expression) > 1 and len(model.choice_blocks) > 1:
-            encapsulating_guard_expression = list(model.encapsulating_guard_expression)
-            smt = encapsulating_guard_expression[0].smt
-            for expression in encapsulating_guard_expression[1:]:
-                smt = ("or", smt, expression.smt)
-            variables = {**sm.parent_class.name_to_variable, **sm.name_to_variable}
-            if z3_truth_check(smt, variables):
-                else_choice = choices[-1]
-                choices = choices[:-1]
+        encapsulating_guard_expression = z3.Or([e.z3py_expression for e in model.guard_expressions])
+        if len(model.guard_expressions) > 0 and z3_check_trivially_satisfiable(encapsulating_guard_expression):
+            else_choice = choices[-1]
+            choices = choices[:-1]
 
         return java_if_then_else_template.render(
             choices=choices,
@@ -299,12 +269,6 @@ def construct_decision_code(model, sm, include_guard=True, include_comment=True)
             ) for (target, choice) in model.choice_blocks
         ]
         choices.sort(key=lambda v: v[1])
-
-        for i in range(0, len(choices) - 1):
-            # Check if the next execution code is equivalent to the current one.
-            # If so, set the current execution code to empty string, to avoid duplicates.
-            if choices[i][1] == choices[i + 1][1]:
-                choices[i] = (choices[i][0], "", "%s (functional duplicate of case below)" % choices[i][2])
 
         subject_expression = get_instruction(model.subject_expression)
         default_decision_tree = construct_decision_code(model.default_decision_tree, sm)

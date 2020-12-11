@@ -26,11 +26,19 @@ def z3_check_trivially_unsatisfiable(expression):
     return result.r == z3.Z3_L_FALSE
 
 
-def z3_do_magic(transitions, variables):
+def z3_check_and(e1, e2):
+    """Check whether the given expression always holds true"""
     s.push()
+    s.add(z3.And(e1, e2))
+    result = s.check()
+    s.pop()
 
-    # Create a truth matrix for AND.
-    alias_variables = {}
+    # The two expressions have an intersection if the model is satisfiable.
+    return result.r == z3.Z3_L_TRUE
+
+
+def z3_create_and_truth_table(transitions, variables, alias_variables):
+    """Create a truth table for the AND operation between the given list of transitions"""
     for i_2 in range(len(transitions)):
         for i_1 in range(len(transitions)):
             alias_variables["and%s_%s" % (i_1, i_2)] = z3.Bool("and%s_%s" % (i_1, i_2))
@@ -49,25 +57,16 @@ def z3_do_magic(transitions, variables):
             if i_2 < i_1:
                 s.add(alias_variables["and%s_%s" % (i_2, i_1)] == alias_variables["and%s_%s" % (i_1, i_2)])
 
-    result, model = s.check(), s.model()
-    for ev in ["and"]:
-        print(ev.upper())
-        for i_1 in range(len(transitions)):
-            for i_2 in range(len(transitions)):
-                evaluation = model.evaluate(alias_variables["%s%s_%s" % (ev, i_1, i_2)], model_completion=True)
-                print("%s %s %s: %s" % (
-                    transitions[i_1].guard_expression,
-                    ev.upper(),
-                    transitions[i_2].guard_expression,
-                    evaluation
-                ))
-            print()
-        print()
 
-    # Assign every transition to a group and assure the groups are in a reasonable range.
+def z3_assign_transitions_to_disjoint_groups(transitions, alias_variables):
+    """Assign every transition to a disjoint group, based on the solution space of the transition's guard expression"""
+    # Save the solver's state on the stack.
+    s.push()
+
+    # Assign every transition to a group and assure the group ids are within a reasonable range (0 <= n < #T).
     for i in range(len(transitions)):
         v = alias_variables["g%s" % i] = z3.Int("g%s" % i)
-        s.add([z3.And(v >= 0, v < len(transitions)) for i in range(len(transitions))])
+        s.add(z3.And(v >= 0, v < len(transitions)))
 
     # Transitions need to be in the same group if they overlap in the solution space.
     for i_1 in range(len(transitions)):
@@ -106,4 +105,24 @@ def z3_do_magic(transitions, variables):
         print("%s in group %s" % (transitions[i].guard_expression, evaluation))
     print()
 
+    # Restore the solver to its earlier state.
+    s.pop()
+
+    pass
+
+
+def z3_do_magic(transitions, variables):
+    # Save the solver's state on the stack.
+    s.push()
+
+    # Create a dictionary that will hold intermediate variables that are used to attain the solution.
+    alias_variables = {}
+
+    # First, we need to create a and truth table for the given set of transitions.
+    z3_create_and_truth_table(transitions, variables, alias_variables)
+
+    # Create groupings.
+    z3_assign_transitions_to_disjoint_groups(transitions, alias_variables)
+
+    # Restore the solver to its earlier state.
     s.pop()
