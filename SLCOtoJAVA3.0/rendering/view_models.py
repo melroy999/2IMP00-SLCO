@@ -7,9 +7,13 @@ class NonDeterministicBlock:
         # Define the choice blocks contained by this construct.
         self.choice_blocks = choice_blocks
 
+        # Which lock requests are present within the child blocks?
+        self.lock_requests = set([])
+
         # What is the resulting encapsulating guard expression?
         self.guard_expressions = set([])
         for block in choice_blocks:
+            self.lock_requests.update(block.lock_requests)
             if block.__class__.__name__ == "TransitionBlock":
                 self.guard_expressions.add(block.guard_expression)
             else:
@@ -22,9 +26,13 @@ class DeterministicIfThenElseBlock:
         # Define the choice blocks contained by this construct.
         self.choice_blocks = choice_blocks
 
+        # Which lock requests are present within the child blocks?
+        self.lock_requests = set([])
+
         # What is the resulting encapsulating guard expression?
         self.guard_expressions = set([])
         for block in choice_blocks:
+            self.lock_requests.update(block.lock_requests)
             if block.__class__.__name__ == "TransitionBlock":
                 self.guard_expressions.add(block.guard_expression)
             else:
@@ -39,14 +47,19 @@ class DeterministicCaseDistinctionBlock:
         self.subject_expression = subject_expression
         self.default_decision_tree = default_decision_tree
 
+        # Which lock requests are present within the child blocks?
+        self.lock_requests = set([])
+
         # What is the encapsulating guard expression?
         self.guard_expressions = set([])
         for block in choice_blocks:
+            self.lock_requests.update(block.lock_requests)
             if block.__class__.__name__ == "TransitionBlock":
                 self.guard_expressions.add(block.guard_expression)
             else:
                 self.guard_expressions |= block.guard_expressions
         if default_decision_tree is not None:
+            self.lock_requests.update(default_decision_tree.lock_requests)
             if default_decision_tree.__class__.__name__ == "TransitionBlock":
                 self.guard_expressions.add(default_decision_tree.guard_expression)
             else:
@@ -57,12 +70,25 @@ class TransitionBlock:
     """A wrapper for a transition leaf in the decision tree"""
     def __init__(self, t):
         self.guard_expression = t.guard_expression
-        self.statements = t.statements
         self.target = t.target
         self.always_fails = t.always_fails
 
+        # Remove expressions that are always true and remove statements that are unreachable.
+        self.statements = [
+            s for s in t.statements if s.__class__.__name__ != "Expression" or not s.is_trivially_satisfiable
+        ]
+        for i in range(0, len(self.statements)):
+            statement = self.statements[i]
+            if statement.__class__.__name__ == "Expression" and statement.is_trivially_unsatisfiable:
+                self.always_fails = True
+                self.statements = self.statements[:i]
+                break
+
         # Which traceability comment would we like to add?
         self.comment = t.comment_string
+
+        # Which locks do we aim to acquire?
+        self.lock_requests = t.guard.lock_requests
 
     def __repr__(self):
         return self.guard_expression.__repr__()

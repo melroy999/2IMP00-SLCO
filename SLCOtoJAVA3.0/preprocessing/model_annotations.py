@@ -61,28 +61,6 @@ def propagate_supportive_annotations(model, variables=None):
             model.comment_string += " (trivially satisfiable)"
         if model.is_trivially_unsatisfiable:
             model.comment_string += " (trivially unsatisfiable)"
-
-        # If the guard is a composite, and it is trivially satisfiable, remove the guard.
-        if model.guard_expression.__class__.__name__ == "Composite" and model.is_trivially_satisfiable:
-            model.guard_expression = true_expression
-
-        # Are any of the expressions trivial? Remove the appropriate statements.
-        trivially_satisfiable_expression_ids = []
-        for i in range(0, len(model.statements)):
-            statement = model.statements[i]
-            if statement.__class__.__name__ == "Expression":
-                if statement.is_trivially_satisfiable:
-                    # Append to the start so that we don't delete the wrong items.
-                    trivially_satisfiable_expression_ids.insert(0, i)
-                elif statement.is_trivially_unsatisfiable:
-                    # Forget about everything after the statement--it is unreachable code.
-                    model.always_fails = True
-                    model.statements = model.statements[:i]
-                    break
-
-        # Remove the expressions that are always true.
-        for i in trivially_satisfiable_expression_ids:
-            model.statements.pop(i)
     elif class_name == "Composite":
         propagate_supportive_annotations(model.guard, variables)
         for a in model.assignments:
@@ -93,16 +71,18 @@ def propagate_supportive_annotations(model, variables=None):
         model.is_trivially_unsatisfiable = model.guard.is_trivially_unsatisfiable
 
 
-# An expression that represents an object that is always true, used as replacement for empty guards.
-true_expression = type("Expression", (object,), {
-    "left": type("Primary", (object,), {"value": True, "sign": "", "body": None, "ref": None})(),
-    "op": "",
-    "right": None,
-    "string_expression": "true",
-    "is_trivially_satisfiable": True,
-    "is_trivially_unsatisfiable": False,
-    "__repr__": lambda self: get_instruction(self),
-})()
+def get_true_expression():
+    """An expression that represents an object that is always true, used as replacement for empty guards"""
+    return type("Expression", (object,), {
+        "left": type("Primary", (object,), {"value": True, "sign": "", "body": None, "ref": None})(),
+        "op": "",
+        "right": None,
+        "string_expression": "true",
+        "is_trivially_satisfiable": True,
+        "is_trivially_unsatisfiable": False,
+        "lock_requests": set([]),
+        "__repr__": lambda self: get_instruction(self),
+    })()
 
 
 def annotate_statement(s):
@@ -110,7 +90,7 @@ def annotate_statement(s):
     class_name = s.__class__.__name__
     if class_name == "Composite":
         # Always make sure that a guard expression exists, defaulting to a "True" expression.
-        s.guard = true_expression if s.guard is None else annotate_statement(s.guard)
+        s.guard = get_true_expression() if s.guard is None else annotate_statement(s.guard)
         s.assignments = [annotate_statement(a) for a in s.assignments]
     elif class_name == "Expression":
         s.string_expression = get_instruction(s)
@@ -139,19 +119,21 @@ def annotate_transition(t):
     class_name = first_statement.__class__.__name__
     if class_name == "ActionRef":
         if first_statement.act.name == "tau":
-            t.statements[0] = first_statement = true_expression
+            t.statements[0] = first_statement = get_true_expression()
             class_name = "Expression"
 
     # Find the guard expression of the transition.
     if class_name == "Expression":
         t.guard_expression = first_statement
-        pass
+        t.guard = first_statement
     elif class_name == "Composite":
         t.guard_expression = first_statement.guard
-        pass
+        t.guard = first_statement
     else:
         # No guard is present. Set the true expression as the guard.
-        t.guard_expression = true_expression
+        t.guard_expression = first_statement = get_true_expression()
+        t.guard = first_statement
+        t.statements = [first_statement] + t.statements
 
     # Make a human readable format of the transition.
     type(t).__repr__ = lambda self: self.comment_string
