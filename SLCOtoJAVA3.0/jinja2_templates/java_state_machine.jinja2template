@@ -64,12 +64,8 @@ class {{model.name}}Thread extends Thread implements {{_c.name}}_{{model.name}}T
             {% if model.states | length > 1 %}
             switch(currentState) {
                 {% for s in model.states %}
-                case {{s}}:
-                    exec_{{s}}();
-                    break;
+                case {{s}} -> exec_{{s}}();
                 {% endfor %}
-                default:
-                    return;
             }
             {% else %}
             exec_{{model.states[0]}}();

@@ -6,5 +6,5 @@ if ({{choices[0][1]}}) {
 }{% endfor %} {% if else_choice %} else {
     {{else_choice[0] | indent(4, False) | trim}}
 } {% else %}
-{%- endif %}
-{%- endif %}
+{% endif %}
+{% endif %}

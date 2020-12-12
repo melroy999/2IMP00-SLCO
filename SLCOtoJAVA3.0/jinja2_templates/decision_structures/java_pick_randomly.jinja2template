@@ -2,14 +2,13 @@
 switch(random.nextInt({{choices | length}})) {
 {% for i in range(0, choices | length) %}
 {% set choice = choices[i] %}
-    case {{i}}:
+    case {{i}} -> {
         {% if choice != "" %}
-        {{choice | indent(8, False)}}
-        {%- endif %}
-        return;
+        {{choice | indent(8, False) | trim}}
+        {% endif %}
+    }
 {% endfor %}
-    default:
-        {# No locks need to be released, since the return statement is unreachable. #}
-        throw new RuntimeException("The default statement in a non-deterministic block should be unreachable!");
+    {# No locks need to be released, since the return statement is unreachable. #}
+    default -> throw new RuntimeException("The default statement in a non-deterministic block should be unreachable!");
 }
 {%- endif %}

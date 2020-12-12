@@ -1,16 +1,17 @@
 {% if choices | length > 0 %}
 switch({{subject_expression}}) {
     {% for choice in choices %}
-    case {{choice[0]}}: {% if choice[2] %}// {{choice[2]}} {% endif %}
+    case {{choice[0]}} -> { {% if choice[2] %}// {{choice[2]}} {% endif %}
         {% if choice[1] != "" %}
         {{choice[1] | indent(8, False)}}
         return;
         {% endif %}
+    }
     {% endfor %}
-    default:
-        {% if default_decision_tree %}
+    {% if default_decision_tree %}
+    default -> {
         {{default_decision_tree | indent(8, False)}}
-        {% endif %}
-        return;
+    }
+    {% endif %}
 }
 {% endif %}
