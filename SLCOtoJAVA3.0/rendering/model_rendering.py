@@ -4,7 +4,7 @@ from z3 import z3
 
 import settings
 from rendering.view_models import get_view_model
-from util.z3py import z3_check_trivially_satisfiable
+from util.z3py import z3_check_trivially_satisfiable, z3_check_implies, z3_check_equality
 
 
 class TransitDict(dict):
@@ -97,13 +97,6 @@ def get_lock_id_list(model, c):
     return lock_ids
 
 
-def remove_double_negation(text):
-    """Remove a double negation in the given text, if present"""
-    if text.startswith("!(!("):
-        text = text[4:-2]
-    return text
-
-
 def get_java_type(model, ignore_size):
     """Maps type names from SLCO to Java"""
     if model.base == "Boolean":
@@ -178,11 +171,34 @@ def get_guard_statement(model):
     if model.__class__.__name__ == "TransitionBlock":
         return get_instruction(model.guard_expression)
     else:
+        # Remove statements that have the same solution space.
+        duplicate_expressions = set([])
+        for e_1 in model.guard_expressions:
+            for e_2 in model.guard_expressions:
+                if e_1 == e_2:
+                    break
+                if z3_check_equality(e_1.z3py_expression, e_2.z3py_expression, True):
+                    duplicate_expressions.add(e_1)
+        guard_expressions = [e for e in model.guard_expressions if e not in duplicate_expressions]
+
+        # Check if expressions are superfluous, i.e., contained within another statement.
+        implies_truth_matrix = {}
+        for e_1 in guard_expressions:
+            implies_truth_matrix[e_1] = {}
+            for e_2 in guard_expressions:
+                if e_1 == e_2 or e_1:
+                    implies_truth_matrix[e_1][e_2] = False
+                else:
+                    implies_truth_matrix[e_1][e_2] = z3_check_implies(e_1.z3py_expression, e_2.z3py_expression, True)
+
+        # If any of the values is true, remove the guard expression from the result, since it is included in another.
+        target_expressions = []
+        for e_1 in guard_expressions:
+            if e_1 not in duplicate_expressions and not any(implies_truth_matrix[e_1].values()):
+                target_expressions.append(e_1)
+
         # Construct a disjunction of statements. Brackets are not needed because of the precedence order.
-        # TODO simplify using SMT.
-        #   - Remove formulas that are equivalent to an already encountered formula.
-        #   - Use implication to check whether one formula is contained in another?
-        return " || ".join([get_instruction(e) for e in model.guard_expressions])
+        return " || ".join([get_instruction(e) for e in target_expressions])
 
 
 def construct_decision_code(model, sm, include_guard=True, include_comment=True):
@@ -329,7 +345,6 @@ env.filters['get_instruction'] = get_instruction
 env.filters['get_guard_statement'] = get_guard_statement
 env.filters['get_variable_list'] = get_variable_list
 env.filters['get_variable_instantiation_list'] = get_variable_instantiation_list
-env.filters['remove_double_negation'] = remove_double_negation
 
 env.filters['get_decision_structure'] = get_decision_structure
 env.filters['get_lock_id_list'] = get_lock_id_list

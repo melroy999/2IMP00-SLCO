@@ -26,15 +26,52 @@ def z3_check_trivially_unsatisfiable(expression):
     return result.r == z3.Z3_L_FALSE
 
 
-def z3_check_and(e1, e2):
-    """Check whether the given expression always holds true"""
+def z3_check_and(e1, e2, for_all=False):
+    """Check whether there is a solution to the conjunction of the two expressions"""
     s.push()
-    s.add(z3.And(e1, e2))
+    if for_all:
+        s.add(z3.Not(z3.And(e1, e2)))
+    else:
+        s.add(z3.And(e1, e2))
     result = s.check()
     s.pop()
 
-    # The two expressions have an intersection if the model is satisfiable.
-    return result.r == z3.Z3_L_TRUE
+    if for_all:
+        return result.r == z3.Z3_L_FALSE
+    else:
+        return result.r == z3.Z3_L_TRUE
+
+
+def z3_check_implies(e1, e2, for_all=False):
+    """Check whether there is a solution to the implication of the two expressions"""
+    s.push()
+    if for_all:
+        s.add(z3.Not(z3.Implies(e1, e2)))
+    else:
+        s.add(z3.Implies(e1, e2))
+    result = s.check()
+    s.pop()
+
+    if for_all:
+        return result.r == z3.Z3_L_FALSE
+    else:
+        return result.r == z3.Z3_L_TRUE
+
+
+def z3_check_equality(e1, e2, for_all=False):
+    """Check whether there is a solution to the equality of the two expressions"""
+    s.push()
+    if for_all:
+        s.add(z3.Not(e1 == e2))
+    else:
+        s.add(e1 == e2)
+    result = s.check()
+    s.pop()
+
+    if for_all:
+        return result.r == z3.Z3_L_FALSE
+    else:
+        return result.r == z3.Z3_L_TRUE
 
 
 def z3_create_and_truth_table(transitions, variables, alias_variables):

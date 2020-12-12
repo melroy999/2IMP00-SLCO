@@ -8,8 +8,10 @@ lockManager.lock(lock_ids, {{start}}, {{end}});
 {% endfor %}
 try {
     {{assignment | get_instruction | trim}};
-} finally {
     lockManager.unlock(lock_ids, {{number_of_locks}});
+} catch(Exception e) {
+    lockManager.exception_unlock();
+    throw e;
 }
 {% else %}
 {{assignment | get_instruction | trim}};

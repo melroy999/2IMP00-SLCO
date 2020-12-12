@@ -36,7 +36,7 @@ public class {{model.name}} {
                 }
             } catch (Exception e) {
                 // Unlock all locks that have been requested and re-throw the exception.
-                unlock(lock_ids, i);
+                exception_unlock();
                 throw e;
             }
         }
@@ -45,6 +45,18 @@ public class {{model.name}} {
         void unlock(int[] lock_ids, int end) {
             for (int i = 0; i < end; i++) {
                 locks[lock_ids[i]].unlock();
+            }
+        }
+
+        // Unlock method during exceptions
+        void exception_unlock() {
+            System.err.println(
+                "Exception encountered. Releasing all locks owned by " + Thread.currentThread().getName() + "."
+            );
+            for(ReentrantLock lock: locks) {
+                while(lock.isHeldByCurrentThread()) {
+                    lock.unlock();
+                }
             }
         }
     }

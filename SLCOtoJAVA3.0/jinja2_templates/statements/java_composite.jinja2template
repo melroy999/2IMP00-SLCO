@@ -8,19 +8,22 @@ lockManager.lock(lock_ids, {{start}}, {{end}});
 {% endfor %}
 try {
     {% if guard %}
-    if({{("!(" ~ (guard | get_instruction) ~ ")") | remove_double_negation | trim}}) {
+    if({{("!(" ~ (guard | get_instruction) ~ ")") | trim}}) {
+        lockManager.unlock(lock_ids, {{number_of_locks}});
         return;
     }
     {% endif %}
     {% for statement in assignments %}
     {{statement | get_instruction | trim}};
     {% endfor %}
-} finally {
     lockManager.unlock(lock_ids, {{number_of_locks}});
+} catch(Exception e) {
+    lockManager.exception_unlock();
+    throw e;
 }
 {% else %}
 {% if guard %}
-if({{("!(" ~ (guard | get_instruction) ~ ")") | remove_double_negation | trim}}) {
+if({{("!(" ~ (guard | get_instruction) ~ ")") | trim}}) {
     return;
 }
 {% endif %}

@@ -7,14 +7,17 @@ lock_ids[{{start + loop.index0}}] = {{lock}};
 lockManager.lock(lock_ids, {{start}}, {{end}});
 {% endfor %}
 try {
-    if({{("!(" ~ (expression | get_instruction) ~ ")") | remove_double_negation | trim}}) {
+    if({{("!(" ~ (expression | get_instruction) ~ ")") | trim}}) {
+        lockManager.unlock(lock_ids, {{number_of_locks}});
         return;
     }
-} finally {
     lockManager.unlock(lock_ids, {{number_of_locks}});
+} catch(Exception e) {
+    lockManager.exception_unlock();
+    throw e;
 }
 {% else %}
-if({{("!(" ~ (expression | get_instruction) ~ ")") | remove_double_negation | trim}}) {
+if({{("!(" ~ (expression | get_instruction) ~ ")") | trim}}) {
     return;
 }
 {% endif %}

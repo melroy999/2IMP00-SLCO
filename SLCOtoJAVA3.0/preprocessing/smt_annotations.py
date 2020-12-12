@@ -290,11 +290,7 @@ def calculate_and_truth_matrix(transitions):
     for t in transitions:
         truth_matrix[t] = {}
         for t2 in transitions:
-            truth_evaluation = z3_check_and(t.guard_expression.z3py_expression, t2.guard_expression.z3py_expression)
-            truth_matrix[t][t2] = truth_evaluation
-            if t == t2:
-                break
-            truth_matrix[t2][t] = truth_evaluation
+            truth_matrix[t][t2] = z3_check_and(t.guard_expression.z3py_expression, t2.guard_expression.z3py_expression)
     return truth_matrix
 
 
