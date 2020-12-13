@@ -2,17 +2,12 @@
 {% for phase in lock_request_phases %}
 {% set start, end = lock_ranges[loop.index0] %}
 {% for lock in phase | get_lock_id_list(_c) %}
-lock_ids[{{start + loop.index0}}] = {{lock}};
+lock_ids[{{start + loop.index0}}] = {{lock}}
 {% endfor %}
 lockManager.lock(lock_ids, {{start}}, {{end}});
 {% endfor %}
-try {
-    {{assignment | get_instruction | trim}};
-    lockManager.unlock(lock_ids, {{number_of_locks}});
-} catch(Exception e) {
-    lockManager.exception_unlock();
-    throw e;
-}
-{% else %}
+{% endif %}
 {{assignment | get_instruction | trim}};
+{% if lock_request_phases %}
+lockManager.unlock(lock_ids, {{number_of_locks}});
 {% endif %}

@@ -92,7 +92,7 @@ def get_lock_id_list(model, c):
                 lock = index
             else:
                 lock = "%s + %s" % (base, index)
-        lock += "; // " + v + ("" if i is None else "[%s]" % i)
+        lock += "; // Acquire " + v + ("" if i is None else "[%s]" % i)
         lock_ids.append(lock)
     return lock_ids
 
@@ -186,7 +186,7 @@ def get_guard_statement(model):
         for e_1 in guard_expressions:
             implies_truth_matrix[e_1] = {}
             for e_2 in guard_expressions:
-                if e_1 == e_2 or e_1:
+                if e_1 == e_2:
                     implies_truth_matrix[e_1][e_2] = False
                 else:
                     implies_truth_matrix[e_1][e_2] = z3_check_implies(e_1.z3py_expression, e_2.z3py_expression, True)

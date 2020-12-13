@@ -81,6 +81,11 @@ class {{model.name}}Thread extends Thread implements {{_c.name}}_{{model.name}}T
 
     // Run method
     public void run() {
-        exec();
+        try {
+            exec();
+        } catch(Exception e) {
+            lockManager.exception_unlock();
+            throw e;
+        }
     }
 }

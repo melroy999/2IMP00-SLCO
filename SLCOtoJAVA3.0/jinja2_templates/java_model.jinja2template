@@ -29,15 +29,9 @@ public class {{model.name}} {
         // Lock method
         void lock(int[] lock_ids, int start, int end) {
             int i = start;
-            try {
-                Arrays.sort(lock_ids, start, end);
-                for (; i < end; i++) {
-                    locks[lock_ids[i]].lock();
-                }
-            } catch (Exception e) {
-                // Unlock all locks that have been requested and re-throw the exception.
-                exception_unlock();
-                throw e;
+            Arrays.sort(lock_ids, start, end);
+            for (; i < end; i++) {
+                locks[lock_ids[i]].lock();
             }
         }
 
@@ -50,9 +44,7 @@ public class {{model.name}} {
 
         // Unlock method during exceptions
         void exception_unlock() {
-            System.err.println(
-                "Exception encountered. Releasing all locks owned by " + Thread.currentThread().getName() + "."
-            );
+            System.err.println("Exception encountered. Releasing all locks currently owned by " + Thread.currentThread().getName() + ".");
             for(ReentrantLock lock: locks) {
                 while(lock.isHeldByCurrentThread()) {
                     lock.unlock();

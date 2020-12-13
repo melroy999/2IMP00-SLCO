@@ -1,6 +1,3 @@
-from z3 import z3
-
-
 class NonDeterministicBlock:
     """A wrapper for a non-deterministic choice"""
     def __init__(self, choice_blocks):

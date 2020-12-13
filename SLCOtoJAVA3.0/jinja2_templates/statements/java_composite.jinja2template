@@ -2,32 +2,22 @@
 {% for phase in lock_request_phases %}
 {% set start, end = lock_ranges[loop.index0] %}
 {% for lock in phase | get_lock_id_list(_c) %}
-lock_ids[{{start + loop.index0}}] = {{lock}};
+lock_ids[{{start + loop.index0}}] = {{lock}}
 {% endfor %}
 lockManager.lock(lock_ids, {{start}}, {{end}});
 {% endfor %}
-try {
-    {% if guard %}
-    if({{("!(" ~ (guard | get_instruction) ~ ")") | trim}}) {
-        lockManager.unlock(lock_ids, {{number_of_locks}});
-        return;
-    }
-    {% endif %}
-    {% for statement in assignments %}
-    {{statement | get_instruction | trim}};
-    {% endfor %}
-    lockManager.unlock(lock_ids, {{number_of_locks}});
-} catch(Exception e) {
-    lockManager.exception_unlock();
-    throw e;
-}
-{% else %}
+{% endif %}
 {% if guard %}
 if({{("!(" ~ (guard | get_instruction) ~ ")") | trim}}) {
+    {% if lock_request_phases %}
+    lockManager.unlock(lock_ids, {{number_of_locks}});
+    {% endif %}
     return;
 }
 {% endif %}
 {% for statement in assignments %}
 {{statement | get_instruction | trim}};
 {% endfor %}
+{% if lock_request_phases %}
+lockManager.unlock(lock_ids, {{number_of_locks}});
 {% endif %}
