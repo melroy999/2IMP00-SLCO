@@ -8,4 +8,4 @@
 {% endif %}
 {% if not always_fails %}
 currentState = {{state_machine_name}}Thread.States.{{target}};
-{% endif -%}
+{% endif %}

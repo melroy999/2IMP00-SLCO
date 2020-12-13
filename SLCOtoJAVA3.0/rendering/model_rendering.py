@@ -201,7 +201,7 @@ def get_guard_statement(model):
         return " || ".join([get_instruction(e) for e in target_expressions])
 
 
-def construct_decision_code(model, sm, include_guard=True, include_comment=True):
+def construct_decision_code(model, sm):
     """Convert the decision structure to Java code"""
     model_class = model.__class__.__name__
     if model_class == "TransitionBlock":
@@ -211,34 +211,23 @@ def construct_decision_code(model, sm, include_guard=True, include_comment=True)
             target=model.target,
             state_machine_name=sm.name,
             always_fails=model.always_fails,
-            comment=model.comment if include_comment else None,
+            comment=model.comment,
             _c=sm.parent_class,
             transition_identifier=model.comment
         )
-    elif model_class == "Composite":
-        guard = model.guard if not model.guard.is_trivially_satisfiable and include_guard else None
+    elif model_class == "CompositeBlock":
         return java_composite_template.render(
-            guard=guard,
-            assignments=model.assignments,
-            lock_request_phases=model.lock_request_phases,
-            number_of_locks=len(model.lock_requests),
-            lock_ranges=model.lock_ranges,
+            model=model,
             _c=sm.parent_class
         )
-    elif model_class == "Assignment":
+    elif model_class == "AssignmentBlock":
         return java_assignment_template.render(
-            assignment=model,
-            lock_request_phases=model.lock_request_phases,
-            number_of_locks=len(model.lock_requests),
-            lock_ranges=model.lock_ranges,
+            model=model,
             _c=sm.parent_class
         )
-    elif model_class == "Expression":
+    elif model_class == "ExpressionBlock":
         return java_expression_template.render(
-            expression=model,
-            lock_request_phases=model.lock_request_phases,
-            number_of_locks=len(model.lock_requests),
-            lock_ranges=model.lock_ranges,
+            model=model,
             _c=sm.parent_class
         )
     elif model_class == "ActionRef":
@@ -265,8 +254,7 @@ def construct_decision_code(model, sm, include_guard=True, include_comment=True)
 
         # Does the combination of all the guards always evaluate to true?
         else_choice = None
-        encapsulating_guard_expression = z3.Or([e.z3py_expression for e in model.guard_expressions])
-        if len(model.guard_expressions) > 0 and z3_check_trivially_satisfiable(encapsulating_guard_expression):
+        if model.close_with_else:
             else_choice = choices[-1]
             choices = choices[:-1]
 
@@ -280,7 +268,7 @@ def construct_decision_code(model, sm, include_guard=True, include_comment=True)
         choices = [
             (
                 target,
-                construct_decision_code(choice, sm, include_comment=False),
+                construct_decision_code(choice, sm),
                 choice.comment if choice.__class__.__name__ == "TransitionBlock" else None
             ) for (target, choice) in model.choice_blocks
         ]

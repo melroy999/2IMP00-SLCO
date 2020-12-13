@@ -108,7 +108,6 @@ def annotate_transition(t):
     """Annotate the transition such that it provides all the data required for the code conversion"""
     t.source = t.source.name
     t.target = t.target.name
-    t.always_fails = False
     t.comment_string = get_comment(t)
 
     # We determine whether a transition is guarded by looking whether the first statement is an expression.
