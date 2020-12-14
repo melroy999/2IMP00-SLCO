@@ -14,6 +14,8 @@ if ({{choices[0][1]}}) {
     {{choices[i][0] | indent(4, False) | trim}}
 }{% endfor %} {% if else_choice %} else {
     {{else_choice[0] | indent(4, False) | trim}}
-} {% else %}
+} {% elif model.render_release_locks %} else {
+    lockManager.unlock(lock_ids, {{model.release_up_to_lock}});
+}
 {% endif %}
 {% endif %}

@@ -52,6 +52,12 @@ class DeterministicIfThenElseBlock:
         self.lock_request_phases = []
         self.lock_ranges = []
 
+        # In case of no else, locks have to be released.
+        self.render_release_locks = False
+
+        # Up to which lock entry in the lock list do we need to release?
+        self.release_up_to_lock = 0
+
         # What is the resulting encapsulating guard expression?
         self.guard_expressions = set([])
         self.guard_statements = set([])
@@ -76,7 +82,7 @@ class DeterministicIfThenElseBlock:
                 block.encompass_transition_guard(False)
             elif block.__class__.__name__ == "NonDeterministicBlock":
                 # Note that we might have multiple statements with the same guard in a nested non deterministic block.
-                # TODO ensure that this is only done when safe!
+                # TODO ensure that guard expressions are only removed when safe!
                 for nested_block in block.choice_blocks:
                     if nested_block.__class__.__name__ == "TransitionBlock":
                         nested_block.encompass_transition_guard(True)
@@ -99,6 +105,12 @@ class DeterministicCaseDistinctionBlock:
         # If so, which lock request phases do we have, and what are the lock ranges that need to be acquired?
         self.lock_request_phases = []
         self.lock_ranges = []
+
+        # In case of no else, locks have to be released.
+        self.render_release_locks = False
+
+        # Up to which lock entry in the lock list do we need to release?
+        self.release_up_to_lock = 0
 
         # What is the encapsulating guard expression?
         self.guard_expressions = set([])
@@ -320,6 +332,12 @@ def propagate_acquire_locks(model, name_to_variable):
         model.lock_request_phases = get_locking_phases(dependency_graph, name_to_variable, model.lock_requests)
         model.lock_ranges = get_lock_request_ranges(model)
         model.render_acquire_locks = True
+
+        # Ensure that locks are released in empty branches.
+        model.release_up_to_lock = len(model.lock_requests)
+        model.render_release_locks = True
+
+
 
 
 def propagate_release_locks(model, parent_lock_requests=None):
