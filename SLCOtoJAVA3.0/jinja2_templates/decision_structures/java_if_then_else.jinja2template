@@ -1,3 +1,12 @@
+{% if model.render_acquire_locks %}
+{% for phase in model.lock_request_phases %}
+{% set start, end = model.lock_ranges[loop.index0] %}
+{% for lock in phase | get_lock_id_list(_c) %}
+lock_ids[{{start + loop.index0}}] = {{lock}}
+{% endfor %}
+lockManager.lock(lock_ids, {{start}}, {{end}});
+{% endfor %}
+{% endif %}
 {% if choices | length > 0 %}
 if ({{choices[0][1]}}) {
     {{choices[0][0] | indent(4, False) | trim}}

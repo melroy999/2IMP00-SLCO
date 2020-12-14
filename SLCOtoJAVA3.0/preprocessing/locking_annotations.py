@@ -1,4 +1,4 @@
-from rendering.model_rendering import get_instruction
+from util.to_java import get_instruction
 
 
 def gather_used_variables(model, variables, rewrite_table):
@@ -282,6 +282,16 @@ def get_locking_phases(variable_dependency_graph, name_to_variable, lock_request
     return lock_phases
 
 
+def get_lock_request_ranges(o):
+    """Get the index ranges of the locks that need to be acquired"""
+    lock_ranges = []
+    index = 0
+    for phase in o.lock_request_phases:
+        lock_ranges.append((index, index + len(phase)))
+        index += len(phase)
+    return lock_ranges
+
+
 def annotate_lock_phases(o, name_to_variable):
     """Create locking phases for the given statement"""
     # Construct a variable dependency graph for the statement.
@@ -295,11 +305,7 @@ def annotate_lock_phases(o, name_to_variable):
     o.lock_request_phases = get_locking_phases(variable_dependency_graph, name_to_variable, o.lock_requests)
 
     # Add some useful meta-data for the rendering.
-    o.lock_ranges = []
-    index = 0
-    for phase in o.lock_request_phases:
-        o.lock_ranges.append((index, index + len(phase)))
-        index += len(phase)
+    o.lock_ranges = get_lock_request_ranges(o)
 
 
 def annotate_lock_list(c):

@@ -1,7 +1,7 @@
 from preprocessing.locking_annotations import annotate_used_variables, assign_lock_ids_to_class_variables, \
     annotate_lock_list, annotate_locks_used_per_state_machine
 from preprocessing.smt_annotations import add_z3py_annotations
-from rendering.model_rendering import get_instruction
+from util.to_java import get_instruction
 
 
 def get_comment(m):

@@ -8,7 +8,7 @@ lockManager.lock(lock_ids, {{start}}, {{end}});
 {% endfor %}
 {% endif %}
 {% if model.render_expression %}
-if({{("!(" ~ (model.expression | get_instruction) ~ ")") | trim}}) {
+if({{model.expression_negation | get_instruction | trim}}) {
     {% if model.render_release_locks %}
     lockManager.unlock(lock_ids, {{model.release_up_to_lock}});
     {% endif %}
