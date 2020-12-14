@@ -1,3 +1,5 @@
+import copy
+
 from z3 import z3
 
 from preprocessing.locking_annotations import correct_dependency_graph, construct_variable_dependency_graph, \
@@ -5,13 +7,64 @@ from preprocessing.locking_annotations import correct_dependency_graph, construc
 from util.z3py import z3_check_trivially_satisfiable
 
 
-def wrap_in_not_expression(expression):
+# Operators that can be negated.
+operator_to_negation = {
+    ">": "<=",
+    ">=": "<",
+    "<": ">=",
+    "<=": ">",
+    "=": "!=",
+    "!=": "=",
+    "<>": "=",
+}
+
+
+def recursively_negate_expression(o):
+    class_name = o.__class__.__name__
+    if class_name in ["Expression", "ExprPrec1", "ExprPrec2", "ExprPrec3", "ExprPrec4"]:
+        if o.op == "":
+            result, expression = recursively_negate_expression(o.left)
+            if result:
+                c = copy.copy(o)
+                c.left = expression
+                return result, c
+            else:
+                return result, expression
+        else:
+            if o.op in operator_to_negation:
+                # Negate by changing the operator to its complement.
+                c = copy.copy(o)
+                c.op = operator_to_negation[o.op]
+                return True, c
+            else:
+                # Can't negate.
+                return False, None
+    elif class_name == "Primary":
+        if o.sign == "Not":
+            return False, o.body
+        else:
+            return False, None
+    else:
+        return False, None
+
+
+def negate_expression(expression):
     """Wrap the given expression with a not statement"""
-    return type("Expression", (object,), {
-        "left": type("Primary", (object,), {"value": None, "sign": "not", "body": expression, "ref": None})(),
-        "op": "",
-        "right": None
-    })()
+    result, negation = recursively_negate_expression(expression)
+    if result:
+        # An altered version of the original formula is given.
+        return negation
+    else:
+        if negation:
+            # A subtree of the AST is given as a negation.
+            return negation
+        else:
+            # Could not negate, so add a not.
+            return type("Expression", (object,), {
+                "left": type("Primary", (object,), {"value": None, "sign": "not", "body": expression, "ref": None})(),
+                "op": "",
+                "right": None
+            })()
 
 
 class NonDeterministicBlock:
@@ -180,7 +233,7 @@ class ExpressionBlock:
 
         # What is the expression that needs to be rendered?
         # TODO negate the formula prematurely and simplify using tree manipulations.
-        self.expression_negation = wrap_in_not_expression(expression)
+        self.expression_negation = negate_expression(expression)
 
         # Do we require to lock certain variables?
         self.render_acquire_locks = len(expression.lock_request_phases) > 0
@@ -254,7 +307,7 @@ class CompositeBlock:
 
         # What is the guard that needs to be rendered?
         # TODO negate the formula prematurely and simplify using tree manipulations.
-        self.guard_negation = wrap_in_not_expression(composite.guard)
+        self.guard_negation = negate_expression(composite.guard)
 
         # What are the statements that need to be rendered?
         self.assignments = composite.assignments
@@ -336,8 +389,6 @@ def propagate_acquire_locks(model, name_to_variable):
         # Ensure that locks are released in empty branches.
         model.release_up_to_lock = len(model.lock_requests)
         model.render_release_locks = True
-
-
 
 
 def propagate_release_locks(model, parent_lock_requests=None):

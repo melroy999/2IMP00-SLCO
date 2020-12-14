@@ -3,7 +3,6 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.Arrays;
 
 // Main class
-// @SuppressWarnings({"NonAtomicOperationOnVolatileField", "FieldCanBeLocal", "InnerClassMayBeStatic", "DuplicatedCode", "MismatchedReadAndWriteOfArray", "unused", "SpellCheckingInspection"})
 @SuppressWarnings({"NonAtomicOperationOnVolatileField", "SpellCheckingInspection"})
 public class {{model.name}} {
     // The objects in the model
