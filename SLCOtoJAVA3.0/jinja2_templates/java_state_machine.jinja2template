@@ -21,7 +21,7 @@ class {{model.name}}Thread extends Thread implements {{_c.name}}_{{model.name}}T
     {% if model.variables | length > 0 %}
     // Thread local variables
     {% for v in model.variables %}
-    private {{v.type | get_java_type(False)}} {{v.name}};
+    private{{v.type | get_finality}}{{v.type | get_java_type(False)}} {{v.name}} ={% if v.type.size > 1 %} new {{v.type | get_java_type(False)}} {% endif %} {{v | get_initial_value}};
     {% endfor %}
 
     {% endif %}
@@ -39,9 +39,6 @@ class {{model.name}}Thread extends Thread implements {{_c.name}}_{{model.name}}T
         transitionCounter = 0;
         {% endif %}
         currentState = {{model.name}}Thread.States.{{model.initial_state}};
-        {% for v in model.variables %}
-        {{v.name}} ={% if v.type.size > 1 %} new {{v.type | get_java_type(False)}} {% endif %} {{v | get_initial_value}};
-        {% endfor %}
     }
 
     {% for s in model.states %}

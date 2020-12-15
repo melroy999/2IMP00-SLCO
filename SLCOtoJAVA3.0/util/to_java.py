@@ -62,3 +62,33 @@ def get_instruction(m, rewrite_table=None):
         return rewrite_table.get(var_str, var_str)
     else:
         return "// NYI [%s]" % model_class
+
+
+def get_java_type(model, ignore_size=False):
+    """Maps type names from SLCO to Java"""
+    if model.base == "Boolean":
+        return "boolean" if model.size < 1 or ignore_size else "boolean[]"
+    elif model.base == "Integer":
+        return "int" if model.size < 1 or ignore_size else "int[]"
+    elif model.base == "Byte":
+        return "byte" if model.size < 1 or ignore_size else "byte[]"
+
+
+def get_initial_value(model):
+    """Return the initial value of the given variable"""
+    if model.defvalue is not None:
+        value = model.defvalue
+    elif len(model.defvalues) > 0:
+        value = [v for v in model.defvalues]
+    else:
+        value = get_default_value(model)
+
+    return "{%s}" % ", ".join(str(v).lower() for v in value) if isinstance(value, list) else str(value).lower()
+
+
+def get_default_value(model):
+    """Return a default value for the given variable"""
+    if model.type.base in ["Integer", "Byte"]:
+        return 0 if model.type.size < 1 else [0 for _ in range(0, model.type.size)]
+    else:
+        return True if model.type.size < 1 else [True for _ in range(0, model.type.size)]

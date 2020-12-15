@@ -1,0 +1,90 @@
+model TestDeterminism {
+    classes
+    SimpleIfThenWithElse {
+        variables Integer i Integer[10] X
+        state machines
+        SM0 {
+            initial SM0S0
+            transitions
+                from SM0S0 to SM0S0 {
+                    [i < 9; i := i + 1];
+                }
+                from SM0S0 to SM0S0 {
+                    [i >= 9; i := 0];
+                }
+        }
+        SM1 {
+            initial SM1S0
+            transitions
+                from SM1S0 to SM1S0 {
+                    [X[i] < 9; X[i] := X[i] + 1];
+                }
+                from SM1S0 to SM1S0 {
+                    [X[i] >= 9; X[i] := 0];
+                }
+        }
+    }
+    SimpleCaseDistinction {
+        variables Integer i Integer[5] X
+        state machines
+        SM0 {
+            variables Integer j
+            initial SM0S0
+            transitions
+                from SM0S0 to SM0S0 {
+                    [j = 0; j := j + 1; X[0] := X[1] + 1];
+                }
+                from SM0S0 to SM0S0 {
+                    [j = 1; j := j + 1; X[1] := X[2] + 1];
+                }
+                from SM0S0 to SM0S0 {
+                    [j = 2; j := j + 1; X[2] := X[3] + 1];
+                }
+                from SM0S0 to SM0S0 {
+                    [j = 3; j := j + 1; X[3] := X[4] + 1];
+                }
+                from SM0S0 to SM0S0 {
+                    [j = 4; j := 0; X[4] := X[0] + 1];
+                }
+        }
+        SM1 {
+            variables Integer j
+            initial SM1S0
+            transitions
+                from SM1S0 to SM1S0 {
+                    [j + i = 0; X[0] := X[1] + 1];
+                }
+                from SM1S0 to SM1S0 {
+                    [j + i = 1; X[0] := X[1] + 1];
+                }
+                from SM1S0 to SM1S0 {
+                    [j + i = 2; X[0] := X[1] + 1];
+                }
+                from SM1S0 to SM1S0 {
+                    [j + i = 3; X[0] := X[1] + 1];
+                }
+                from SM1S0 to SM1S0 {
+                    [j + i = 4; X[0] := X[1] + 1];
+                }
+        }
+    }
+    RandomAndIfThenElseWithMixingVariables {
+        variables Integer i Integer j
+        state machines
+        SM0 {
+            variables Integer k Integer n
+            initial SM0S0
+            transitions
+                from SM0S0 to SM0S0 {
+                    [j = 0; k := k + 1];
+                }
+                from SM0S0 to SM0S0 {
+                    [i < 9; i := i + 1; n := n + 1];
+                }
+                from SM0S0 to SM0S0 {
+                    [i >= 9; i := 0; n := n + 1];
+                }
+        }
+    }
+    objects p: SimpleIfThenWithElse(), q: SimpleCaseDistinction(), r: RandomAndIfThenElseWithMixingVariables()
+}

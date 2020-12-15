@@ -2,7 +2,7 @@
 import jinja2
 
 import settings
-from rendering.view_models import get_view_model
+from rendering.view_models import get_view_model, construct_view_model, ModelBlock
 from util.to_java import get_instruction
 from util.z3py import z3_check_implies, z3_check_equality
 
@@ -44,6 +44,11 @@ def get_java_type(model, ignore_size):
 def get_sync_type(model):
     """Returns final or volatile when applicable"""
     return "volatile" if model.size < 1 else "final"
+
+
+def get_finality(model):
+    """Returns final if the variable is a list"""
+    return " " if model.size < 1 else " final "
 
 
 def get_default_value(model):
@@ -227,6 +232,8 @@ def get_decision_structure(groupings, sm):
 
 
 def render_model(model):
+    view_model = ModelBlock(model)
+
     """Convert the SLCO model to Java code"""
     return java_model_template.render(
         model=model,
@@ -265,6 +272,8 @@ env.filters['render_state_machine'] = render_state_machine
 env.filters['comma_separated_list'] = comma_separated_list
 env.filters['get_java_type'] = get_java_type
 env.filters['get_sync_type'] = get_sync_type
+env.filters['get_finality'] = get_finality
+
 env.filters['get_initial_value'] = get_initial_value
 env.filters['get_instruction'] = get_instruction
 env.filters['get_guard_statement'] = get_guard_statement
