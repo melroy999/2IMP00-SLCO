@@ -31,80 +31,6 @@ def get_lock_id_list(model, c):
     return lock_ids
 
 
-def get_java_type(model, ignore_size):
-    """Maps type names from SLCO to Java"""
-    if model.base == "Boolean":
-        return "boolean" if model.size < 1 or ignore_size else "boolean[]"
-    elif model.base == "Integer":
-        return "int" if model.size < 1 or ignore_size else "int[]"
-    elif model.base == "Byte":
-        return "byte" if model.size < 1 or ignore_size else "byte[]"
-
-
-def get_sync_type(model):
-    """Returns final or volatile when applicable"""
-    return "volatile" if model.size < 1 else "final"
-
-
-def get_finality(model):
-    """Returns final if the variable is a list"""
-    return " " if model.size < 1 else " final "
-
-
-def get_default_value(model):
-    """Return a default value for the given variable"""
-    if model.type.base in ["Integer", "Byte"]:
-        return 0 if model.type.size < 1 else [0 for _ in range(0, model.type.size)]
-    else:
-        return True if model.type.size < 1 else [True for _ in range(0, model.type.size)]
-
-
-def get_initial_value(model):
-    """Return the initial value of the given variable"""
-    if model.defvalue is not None:
-        value = model.defvalue
-    elif len(model.defvalues) > 0:
-        value = [v for v in model.defvalues]
-    else:
-        value = get_default_value(model)
-
-    return "{%s}" % ", ".join(str(v).lower() for v in value) if isinstance(value, list) else str(value).lower()
-
-
-def get_variable_list(model):
-    """Construct a comma separated list of variables, sorted on by name and prefixed with their type"""
-    variables = ["%s %s" % (get_java_type(_v.type, False), _v.name) for _v in sorted(model, key=lambda v: v.name)]
-    return comma_separated_list(variables)
-
-
-def get_variable_instantiation_list(model, variables, use_newline):
-    """Construct a comma separated list of variable initializations sorted on by name"""
-    # The initialization of class variables are processed per initialization.
-    instantiated_variables = {
-        _v.left.name: _v.rights if _v.right is None else _v.right for _v in model
-    }
-
-    variable_instantiations = []
-    for v in sorted(variables, key=lambda o: o.name):
-        # Is a value assigned to the variable? If so, use it, otherwise, fall back to the default.
-        value = instantiated_variables[v.name] if v.name in instantiated_variables else get_default_value(v)
-
-        # Convert the variable to the Java representation.
-        value = "{%s}" % ", ".join(str(v).lower() for v in value) if isinstance(value, list) else str(value).lower()
-
-        if v.type.size > 1:
-            variable_instantiations.append("new %s %s" % (get_java_type(v.type, False), value))
-        elif v.type.base == "Byte":
-            variable_instantiations.append("(byte) %s" % value)
-        else:
-            variable_instantiations.append("%s" % value)
-
-    if use_newline:
-        return ",\n".join(variable_instantiations)
-    else:
-        return comma_separated_list(variable_instantiations)
-
-
 def get_guard_statement(model):
     """Construct an or-code-clause encapsulating all guard expressions for the target decision block"""
     if model.__class__.__name__ == "TransitionBlock":
@@ -140,11 +66,11 @@ def get_guard_statement(model):
         return " || ".join([get_instruction(e) for e in target_expressions])
 
 
-def construct_decision_code(model, sm):
+def construct_decision_code(model, sm, no_current_state):
     """Convert the decision structure to Java code"""
     model_class = model.__class__.__name__
     if model_class == "TransitionBlock":
-        statements = [construct_decision_code(s, sm) for s in model.statements]
+        statements = [construct_decision_code(s, sm, no_current_state) for s in model.statements]
         statements = [s for s in statements if s != ""]
         return java_transition_template.render(
             statements=statements,
@@ -152,8 +78,7 @@ def construct_decision_code(model, sm):
             state_machine_name=sm.name,
             always_fails=model.always_fails,
             comment=model.comment,
-            _c=sm.parent_class,
-            transition_identifier=model.comment
+            render_current_state_variable=no_current_state
         )
     elif model_class == "CompositeBlock":
         return java_composite_template.render(
@@ -174,7 +99,7 @@ def construct_decision_code(model, sm):
         return "// Execute action [%s]\n" % model.act.name
     elif model_class == "NonDeterministicBlock":
         # Several of the choices may have the same conversion string. Filter these out and merge.
-        choices = [construct_decision_code(choice, sm) for choice in model.choice_blocks]
+        choices = [construct_decision_code(choice, sm, no_current_state) for choice in model.choice_blocks]
         choices.sort(key=lambda v: v[0])
 
         # If only one choice remains, there is no reason to include an entire block.
@@ -188,7 +113,9 @@ def construct_decision_code(model, sm):
     elif model_class == "DeterministicIfThenElseBlock":
         # Order the choices such that the generated code is always the same.
         choices = [
-            (construct_decision_code(choice, sm), get_guard_statement(choice)) for choice in model.choice_blocks
+            (
+                construct_decision_code(choice, sm, no_current_state), get_guard_statement(choice)
+            ) for choice in model.choice_blocks
         ]
         choices.sort(key=lambda v: v[0])
 
@@ -209,14 +136,14 @@ def construct_decision_code(model, sm):
         choices = [
             (
                 target,
-                construct_decision_code(choice, sm),
+                construct_decision_code(choice, sm, no_current_state),
                 choice.comment if choice.__class__.__name__ == "TransitionBlock" else None
             ) for (target, choice) in model.choice_blocks
         ]
         choices.sort(key=lambda v: v[1])
 
         subject_expression = get_instruction(model.subject_expression)
-        default_decision_tree = construct_decision_code(model.default_decision_tree, sm)
+        default_decision_tree = construct_decision_code(model.default_decision_tree, sm, no_current_state)
         return java_case_distinction_template.render(
             subject_expression=subject_expression,
             default_decision_tree=default_decision_tree,
@@ -226,9 +153,8 @@ def construct_decision_code(model, sm):
         )
 
 
-def get_decision_structure(groupings, sm):
-    view_model = get_view_model(groupings, sm.parent_class)
-    return construct_decision_code(view_model, sm)
+def get_decision_structure(view_model, sm):
+    return construct_decision_code(view_model, sm, sm.render_current_state_variable)
 
 
 def render_model(model):
@@ -236,8 +162,7 @@ def render_model(model):
 
     """Convert the SLCO model to Java code"""
     return java_model_template.render(
-        model=model,
-        add_counter=settings.add_counter,
+        model=view_model
     )
 
 
@@ -248,12 +173,10 @@ def render_class(c):
     )
 
 
-def render_state_machine(sm, c):
+def render_state_machine(sm):
     """Convert the SLCO state machine to Java code"""
     return java_state_machine_template.render(
         model=sm,
-        add_counter=settings.add_counter,
-        _c=c,
     )
 
 
@@ -268,18 +191,9 @@ env = jinja2.Environment(
 # Register the filters
 env.filters['render_class'] = render_class
 env.filters['render_state_machine'] = render_state_machine
-
 env.filters['comma_separated_list'] = comma_separated_list
-env.filters['get_java_type'] = get_java_type
-env.filters['get_sync_type'] = get_sync_type
-env.filters['get_finality'] = get_finality
-
-env.filters['get_initial_value'] = get_initial_value
 env.filters['get_instruction'] = get_instruction
 env.filters['get_guard_statement'] = get_guard_statement
-env.filters['get_variable_list'] = get_variable_list
-env.filters['get_variable_instantiation_list'] = get_variable_instantiation_list
-
 env.filters['get_decision_structure'] = get_decision_structure
 env.filters['get_lock_id_list'] = get_lock_id_list
 

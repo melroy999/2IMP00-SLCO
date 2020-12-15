@@ -70,18 +70,18 @@ class ClassBlock:
 
         # Which variable declarations need to be rendered?
         self.variable_declarations = []
-        for v in c.variables:
+        for v in sorted(c.variables, key=lambda _v: _v.lock_id):
             self.variable_declarations.append(
                 "private %s %s %s;%s" % (
-                    get_java_type(v.type),
                     "volatile" if v.type.size < 1 else "final",
+                    get_java_type(v.type),
                     v.name,
                     " // Lock id %s" % v.lock_id if v.lock_id is not None else ""
                 )
             )
 
         # Which variable instantiations need to be rendered?
-        self.variable_declarations = ["this.%s = %s;" % (v.name, v.name) for v in c.variables]
+        self.variable_instantiations = ["this.%s = %s;" % (v.name, v.name) for v in c.variables]
 
         # The list of variables that needs to be included in the constructor.
         self.constructor_variable_list = get_variable_list(c.variables)
@@ -116,7 +116,7 @@ class ClassBlock:
 def has_non_deterministic_block(tree):
     """Check whether the given tree object has a non-deterministic block within it"""
     class_name = tree.__class__.__name__
-    if class_name == "TransitionBlock":
+    if class_name in ["TransitionBlock", "NoneType"]:
         return False
     elif class_name == "NonDeterministicBlock":
         return True
@@ -140,6 +140,9 @@ class StateMachineBlock:
         self.name = sm.name
         self.class_name = sm.parent_class.name
 
+        # A reference to the parent class for variable resolving.
+        self.parent_class = sm.parent_class
+
         # Is the number of transitions the state machine can make limited?
         self.add_transition_limit = settings.add_counter
 
@@ -149,7 +152,7 @@ class StateMachineBlock:
             if v.type.size < 1:
                 # Normal variable.
                 self.variable_instantiations.append(
-                    "private %s %s = %s" % (
+                    "private %s %s = %s;" % (
                         get_java_type(v.type),
                         v.name,
                         get_initial_value(v)
@@ -158,7 +161,7 @@ class StateMachineBlock:
             else:
                 # Array variable.
                 self.variable_instantiations.append(
-                    "private final %s %s = new %s%s" % (
+                    "private final %s %s = new %s%s;" % (
                         get_java_type(v.type),
                         v.name,
                         get_java_type(v.type),
@@ -174,6 +177,9 @@ class StateMachineBlock:
 
         # Does the state machine use class variables?
         self.uses_class_variables = len(sm.lock_requests) > 0
+
+        # The number of locks ids to reserve.
+        self.total_nr_of_unique_locks = sm.total_nr_of_unique_locks
 
 
 class NonDeterministicBlock:
@@ -583,6 +589,9 @@ def propagate_release_locks(model, parent_lock_requests=None):
 
 
 def get_view_model(node, c):
+    if node is None:
+        return
+
     """Get a view model for the given decision structure and add the appropriate locking tags"""
     decision_tree = construct_view_model(node)
 

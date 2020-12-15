@@ -8,11 +8,12 @@ public class {{model.name}} {
     // The objects in the model
     private final SLCO_Class[] objects;
 
-    {% if add_counter %}
+    {% if model.add_transition_limit %}
     // Upperbound for transition counter
     private static final long COUNTER_BOUND = 10000000L;
 
     {% endif %}
+    {% if model.include_lock_manager %}
     // Lock class to handle locks of global variables
     private static class LockManager {
         // The locks
@@ -52,6 +53,7 @@ public class {{model.name}} {
         }
     }
 
+    {% endif %}
     // Template for SLCO classes
     interface SLCO_Class {
         void startThreads();
@@ -66,12 +68,14 @@ public class {{model.name}} {
         //Instantiate the objects
         objects = new SLCO_Class[] {
             {% for c in model.classes %}
-            {% for o in c.objects %}
+            {% for variable_list in c.variable_lists_for_class_instantiations %}
             {% if c.variables | length < 2 %}
-            new {{c.name}}({{o.assignments | get_variable_instantiation_list(c.variables, False)}}),
+            new {{c.name}}({{variable_list | join(", ")}}),
             {% else %}
             new {{c.name}}(
-                {{o.assignments | get_variable_instantiation_list(c.variables, True) | indent(16, False)}}
+                {% for v in variable_list %}
+                {{v}}{{"," if not loop.last}}
+                {% endfor %}
             ),
             {% endif %}
             {% endfor %}

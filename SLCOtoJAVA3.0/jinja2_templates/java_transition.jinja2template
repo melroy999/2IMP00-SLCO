@@ -6,6 +6,6 @@
 {{statement | trim}}
 {% endfor %}
 {% endif %}
-{% if not always_fails %}
+{% if not always_fails and render_current_state_variable %}
 currentState = {{state_machine_name}}Thread.States.{{target}};
 {% endif %}
