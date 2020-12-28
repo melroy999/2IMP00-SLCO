@@ -1,15 +1,40 @@
+import operator
 import z3
 
 # Keep a global instance of the z3 solver and cache solutions when possible.
-s = z3.Solver()
+solver = z3.Solver()
+
+# Map every operator to its implementation to avoid calling eval.
+operator_mapping = {
+    ">": operator.gt,
+    "<": operator.lt,
+    ">=": operator.ge,
+    "<=": operator.le,
+    "=": operator.eq,
+    "!=": operator.ne,
+    "<>": operator.ne,
+    "not": z3.Not,
+    "+": operator.add,
+    "-": operator.sub,
+    "*": operator.mul,
+    "**": operator.pow,
+    "neg": operator.neg,
+    "%": operator.mod,
+    "/": operator.floordiv,
+    "or": z3.Or,
+    "||": z3.Or,
+    "and": z3.And,
+    "&&": z3.And,
+    "xor": z3.Xor,
+}
 
 
 def z3_check_trivially_satisfiable(expression):
     """Check whether the given expression always holds true"""
-    s.push()
-    s.add(z3.Not(expression))
-    result = s.check()
-    s.pop()
+    solver.push()
+    solver.add(z3.Not(expression))
+    result = solver.check()
+    solver.pop()
 
     # The expression always holds true if the negation is satisfiable.
     return result.r == z3.Z3_L_FALSE
@@ -17,10 +42,10 @@ def z3_check_trivially_satisfiable(expression):
 
 def z3_check_trivially_unsatisfiable(expression):
     """Check whether the given expression has no solutions"""
-    s.push()
-    s.add(expression)
-    result = s.check()
-    s.pop()
+    solver.push()
+    solver.add(expression)
+    result = solver.check()
+    solver.pop()
 
     # The expression has no solutions if the model is unsatisfiable.
     return result.r == z3.Z3_L_FALSE
@@ -28,13 +53,13 @@ def z3_check_trivially_unsatisfiable(expression):
 
 def z3_check_and(e1, e2, for_all=False):
     """Check whether there is a solution to the conjunction of the two expressions"""
-    s.push()
+    solver.push()
     if for_all:
-        s.add(z3.Not(z3.And(e1, e2)))
+        solver.add(z3.Not(z3.And(e1, e2)))
     else:
-        s.add(z3.And(e1, e2))
-    result = s.check()
-    s.pop()
+        solver.add(z3.And(e1, e2))
+    result = solver.check()
+    solver.pop()
 
     if for_all:
         return result.r == z3.Z3_L_FALSE
@@ -44,13 +69,13 @@ def z3_check_and(e1, e2, for_all=False):
 
 def z3_check_implies(e1, e2, for_all=False):
     """Check whether there is a solution to the implication of the two expressions"""
-    s.push()
+    solver.push()
     if for_all:
-        s.add(z3.Not(z3.Implies(e1, e2)))
+        solver.add(z3.Not(z3.Implies(e1, e2)))
     else:
-        s.add(z3.Implies(e1, e2))
-    result = s.check()
-    s.pop()
+        solver.add(z3.Implies(e1, e2))
+    result = solver.check()
+    solver.pop()
 
     if for_all:
         return result.r == z3.Z3_L_FALSE
@@ -60,13 +85,13 @@ def z3_check_implies(e1, e2, for_all=False):
 
 def z3_check_equality(e1, e2, for_all=False):
     """Check whether there is a solution to the equality of the two expressions"""
-    s.push()
+    solver.push()
     if for_all:
-        s.add(z3.Not(e1 == e2))
+        solver.add(z3.Not(e1 == e2))
     else:
-        s.add(e1 == e2)
-    result = s.check()
-    s.pop()
+        solver.add(e1 == e2)
+    result = solver.check()
+    solver.pop()
 
     if for_all:
         return result.r == z3.Z3_L_FALSE
@@ -74,92 +99,74 @@ def z3_check_equality(e1, e2, for_all=False):
         return result.r == z3.Z3_L_TRUE
 
 
-def z3_create_and_truth_table(transitions, variables, alias_variables):
-    """Create a truth table for the AND operation between the given list of transitions"""
-    for i_2 in range(len(transitions)):
-        for i_1 in range(len(transitions)):
-            alias_variables["and%s_%s" % (i_1, i_2)] = z3.Bool("and%s_%s" % (i_1, i_2))
-
-    variables = [v for v in variables.values()]
-    for i_1 in range(len(transitions)):
-        for i_2 in range(len(transitions)):
-            if i_2 > i_1:
-                break
-
-            # Add a new AND relation to the solver.
-            e_1 = transitions[i_1].guard_expression.z3py_expression
-            e_2 = transitions[i_2].guard_expression.z3py_expression
-            and_1_2 = z3.simplify(z3.And(e_1, e_2))
-            s.add(alias_variables["and%s_%s" % (i_1, i_2)] == z3.Exists(variables, and_1_2))
-            if i_2 < i_1:
-                s.add(alias_variables["and%s_%s" % (i_2, i_1)] == alias_variables["and%s_%s" % (i_1, i_2)])
+def get_z3py_variable(v):
+    """Convert the given variable object to a z3py variable"""
+    if v.type.base == "Boolean":
+        if v.type.size < 1:
+            return z3.Bool(v.name)
+        else:
+            return z3.Array(v.name, z3.IntSort(), z3.BoolSort())
+    else:
+        if v.type.size < 1:
+            return z3.Int(v.name)
+        else:
+            return z3.Array(v.name, z3.IntSort(), z3.IntSort())
 
 
-def z3_assign_transitions_to_disjoint_groups(transitions, alias_variables):
-    """Assign every transition to a disjoint group, based on the solution space of the transition's guard expression"""
-    # Save the solver's state on the stack.
-    s.push()
-
-    # Assign every transition to a group and assure the group ids are within a reasonable range (0 <= n < #T).
-    for i in range(len(transitions)):
-        v = alias_variables["g%s" % i] = z3.Int("g%s" % i)
-        s.add(z3.And(v >= 0, v < len(transitions)))
-
-    # Transitions need to be in the same group if they overlap in the solution space.
-    for i_1 in range(len(transitions)):
-        for i_2 in range(len(transitions)):
-            if i_2 > i_1:
-                break
-
-            g_1 = alias_variables["g%s" % i_1]
-            g_2 = alias_variables["g%s" % i_2]
-            s.add(z3.Implies(alias_variables["and%s_%s" % (i_2, i_1)], g_1 == g_2))
-
-    # Ensure that transitions that are not in the same group get assigned different groups ids.
-    for i_1 in range(len(transitions)):
-        for i_2 in range(len(transitions)):
-            if i_2 >= i_1:
-                break
-
-            if i_2 < i_1:
-                g_1 = alias_variables["g%s" % i_1]
-                g_2 = alias_variables["g%s" % i_2]
-                and_1_2 = alias_variables["and%s_%s" % (i_1, i_2)]
-
-                others = []
-                for i in range(len(transitions)):
-                    if i not in [i_1, i_2]:
-                        g_i = alias_variables["g%s" % i]
-                        and_1_i = alias_variables["and%s_%s" % (i_1, i)]
-                        and_2_i = alias_variables["and%s_%s" % (i_2, i)]
-                        others.append(z3.Or(z3.And(g_1 == g_i, and_1_i), z3.And(g_2 == g_i, and_2_i)))
-
-                s.add(z3.Implies(z3.And(g_1 == g_2, z3.Not(and_1_2)), z3.Or(others)))
-
-    result, model = s.check(), s.model()
-    for i in range(len(transitions)):
-        evaluation = model.evaluate(alias_variables["g%s" % i], model_completion=True)
-        print("%s in group %s" % (transitions[i].guard_expression, evaluation))
-    print()
-
-    # Restore the solver to its earlier state.
-    s.pop()
-
-    pass
+def get_z3_operator_representation(op, *values):
+    """Translate the given operator and the values to an evaluable object"""
+    if len(values) == 1:
+        return operator_mapping[op](values[0])
+    else:
+        return operator_mapping[op](values[0], values[1])
 
 
-def z3_do_magic(transitions, variables):
-    # Save the solver's state on the stack.
-    s.push()
-
-    # Create a dictionary that will hold intermediate variables that are used to attain the solution.
-    alias_variables = {}
-
-    # First, we need to create a and truth table for the given set of transitions.
-    z3_create_and_truth_table(transitions, variables, alias_variables)
-
-    # Create groupings.
-    z3_assign_transitions_to_disjoint_groups(transitions, alias_variables)
-
-    # Restore the solver to its earlier state.
-    s.pop()
+def textx_to_z3py_model(ast, variables):
+    """Translate the given textx AST to z z3py model"""
+    class_name = ast.__class__.__name__
+    if class_name in ["Expression", "ExprPrec1", "ExprPrec2", "ExprPrec3", "ExprPrec4"]:
+        if ast.right is None:
+            return textx_to_z3py_model(ast.left, variables)
+        else:
+            return get_z3_operator_representation(
+                ast.op, textx_to_z3py_model(ast.left, variables), textx_to_z3py_model(ast.right, variables)
+            )
+    elif class_name == "Primary":
+        if ast.value is not None:
+            if ast.sign == "-":
+                return get_z3_operator_representation("neg", ast.value)
+            elif ast.sign == "not":
+                return get_z3_operator_representation("not", ast.value)
+            else:
+                if isinstance(ast.value, bool):
+                    return z3.BoolSort().cast(ast.value)
+                elif isinstance(ast.value, int):
+                    return z3.IntSort().cast(ast.value)
+                else:
+                    return ast.value
+        elif ast.ref is not None:
+            if ast.sign == "-":
+                return get_z3_operator_representation("neg", textx_to_z3py_model(ast.ref, variables))
+            if ast.sign == "not":
+                return get_z3_operator_representation("not", textx_to_z3py_model(ast.ref, variables))
+            else:
+                return textx_to_z3py_model(ast.ref, variables)
+        else:
+            if ast.sign == "-":
+                return get_z3_operator_representation("neg", textx_to_z3py_model(ast.body, variables))
+            if ast.sign == "not":
+                return get_z3_operator_representation("not", textx_to_z3py_model(ast.body, variables))
+            else:
+                return textx_to_z3py_model(ast.body, variables)
+    elif class_name == "ExpressionRef":
+        if ast.index is None:
+            return variables[ast.ref]
+        else:
+            return operator.itemgetter(textx_to_z3py_model(ast.index, variables))(variables[ast.ref])
+    elif class_name == "VariableRef":
+        if ast.index is None:
+            return variables[ast.var.name]
+        else:
+            return operator.itemgetter(textx_to_z3py_model(ast.index, variables))(variables[ast.var.name])
+    else:
+        raise Exception("No implementation exists for the simple ast conversion of class [%s]" % class_name)

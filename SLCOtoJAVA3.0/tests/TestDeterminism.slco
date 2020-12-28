@@ -1,5 +1,25 @@
 model TestDeterminism {
     classes
+    SimpleRandom {
+        variables Integer i Integer[10] X
+        state machines
+        SM0 {
+            initial SM0S0
+            transitions
+                from SM0S0 to SM0S0 {
+                    [i := (i + 1) % 10];
+                }
+                from SM0S0 to SM0S0 {
+                    [i := 0];
+                }
+                from SM0S0 to SM0S0 {
+                    X[i] := i + 1;
+                }
+                from SM0S0 to SM0S0 {
+                    X[i] := 0;
+                }
+        }
+    }
     SimpleIfThenWithElse {
         variables Integer i Integer[10] X
         state machines
@@ -85,6 +105,75 @@ model TestDeterminism {
                     [i >= 9; i := 0; n := n + 1];
                 }
         }
+        SM1 {
+            variables Integer k Integer n
+            initial SM1S0
+            transitions
+                from SM1S0 to SM1S0 {
+                    [j = 0; k := k + 1];
+                }
+                from SM1S0 to SM1S0 {
+                    [j > 0; k := 0];
+                }
+                from SM1S0 to SM1S0 {
+                    [i = 0; n := n + k];
+                }
+                from SM1S0 to SM1S0 {
+                    [i > 0; k := 0; n := 0];
+                }
+                from SM1S0 to SM1S0 {
+                    [i + j < 9; i := i + 1; n := n + 1];
+                }
+                from SM1S0 to SM1S0 {
+                    [i + j >= 9; i := 0; n := n + 1];
+                }
+        }
     }
-    objects p: SimpleIfThenWithElse(), q: SimpleCaseDistinction(), r: RandomAndIfThenElseWithMixingVariables()
+    DuplicateStatements {
+        variables Integer i Integer j
+        state machines
+        SM0 {
+            variables Integer k Integer n
+            initial SM0S0
+            transitions
+                from SM0S0 to SM0S0 {
+                    [j = 0; k := k + 1];
+                }
+                from SM0S0 to SM0S0 {
+                    [j = 0; j := j + 1];
+                }
+                from SM0S0 to SM0S0 {
+                    [j > 0; k := k + 2];
+                }
+                from SM0S0 to SM0S0 {
+                    [j > 0; j := j + 2];
+                }
+        }
+    }
+    NonContinuousOverlap {
+        variables Integer j
+        state machines
+        SM0 {
+            variables Integer n
+            initial SM0S0
+            transitions
+                from SM0S0 to SM0S0 {
+                    [j >= 0 && j <= 2; n := n + 1];
+                }
+                from SM0S0 to SM0S0 {
+                    [j >= 3 && j <= 5; n := n + 1];
+                }
+                from SM0S0 to SM0S0 {
+                    [j >= 6 && j <= 7; n := n + 1];
+                }
+                from SM0S0 to SM0S0 {
+                    [j >= 1 && j <= 4; n := n + 1];
+                }
+                from SM0S0 to SM0S0 {
+                    [j > 4 && j <= 6; n := n + 1];
+                }
+        }
+    }
+
+    objects p: SimpleIfThenWithElse(), q: SimpleCaseDistinction(), r: RandomAndIfThenElseWithMixingVariables(), s: SimpleRandom(), k: DuplicateStatements(), l: NonContinuousOverlap()
 }

@@ -2,32 +2,9 @@ import operator
 import z3
 
 import settings
-from util.z3py import z3_check_trivially_satisfiable, z3_check_trivially_unsatisfiable, z3_check_and
+from util.z3py import z3_check_trivially_satisfiable, z3_check_trivially_unsatisfiable, z3_check_and, \
+    get_z3py_variable, textx_to_z3py_model
 from enum import Enum
-
-# Map every operator to its implementation to avoid calling eval.
-operator_mapping = {
-    ">": operator.gt,
-    "<": operator.lt,
-    ">=": operator.ge,
-    "<=": operator.le,
-    "=": operator.eq,
-    "!=": operator.ne,
-    "<>": operator.ne,
-    "not": z3.Not,
-    "+": operator.add,
-    "-": operator.sub,
-    "*": operator.mul,
-    "**": operator.pow,
-    "neg": operator.neg,
-    "%": operator.mod,
-    "/": operator.floordiv,
-    "or": z3.Or,
-    "||": z3.Or,
-    "and": z3.And,
-    "&&": z3.And,
-    "xor": z3.Xor,
-}
 
 
 class Decision(Enum):
@@ -37,79 +14,6 @@ class Decision(Enum):
 
     def __repr__(self):
         return self.__str__()
-
-
-def get_z3py_variable(v):
-    """Convert the given variable object to a z3py variable"""
-    if v.type.base == "Boolean":
-        if v.type.size < 1:
-            return z3.Bool(v.name)
-        else:
-            return z3.Array(v.name, z3.IntSort(), z3.BoolSort())
-    else:
-        if v.type.size < 1:
-            return z3.Int(v.name)
-        else:
-            return z3.Array(v.name, z3.IntSort(), z3.IntSort())
-
-
-def get_z3_operator_representation(op, *values):
-    """Translate the given operator and the values to an evaluable object"""
-    if len(values) == 1:
-        return operator_mapping[op](values[0])
-    else:
-        return operator_mapping[op](values[0], values[1])
-
-
-def textx_to_z3py_model(ast, variables):
-    """Translate the given textx AST to z z3py model"""
-    class_name = ast.__class__.__name__
-    if class_name in ["Expression", "ExprPrec1", "ExprPrec2", "ExprPrec3", "ExprPrec4"]:
-        if ast.right is None:
-            return textx_to_z3py_model(ast.left, variables)
-        else:
-            return get_z3_operator_representation(
-                ast.op, textx_to_z3py_model(ast.left, variables), textx_to_z3py_model(ast.right, variables)
-            )
-    elif class_name == "Primary":
-        if ast.value is not None:
-            if ast.sign == "-":
-                return get_z3_operator_representation("neg", ast.value)
-            elif ast.sign == "not":
-                return get_z3_operator_representation("not", ast.value)
-            else:
-                if isinstance(ast.value, bool):
-                    return z3.BoolSort().cast(ast.value)
-                elif isinstance(ast.value, int):
-                    return z3.IntSort().cast(ast.value)
-                else:
-                    return ast.value
-        elif ast.ref is not None:
-            if ast.sign == "-":
-                return get_z3_operator_representation("neg", textx_to_z3py_model(ast.ref, variables))
-            if ast.sign == "not":
-                return get_z3_operator_representation("not", textx_to_z3py_model(ast.ref, variables))
-            else:
-                return textx_to_z3py_model(ast.ref, variables)
-        else:
-            if ast.sign == "-":
-                return get_z3_operator_representation("neg", textx_to_z3py_model(ast.body, variables))
-            if ast.sign == "not":
-                return get_z3_operator_representation("not", textx_to_z3py_model(ast.body, variables))
-            else:
-                return textx_to_z3py_model(ast.body, variables)
-    elif class_name == "ExpressionRef":
-        if ast.index is None:
-            return variables[ast.ref]
-        else:
-            return operator.itemgetter(textx_to_z3py_model(ast.index, variables))(variables[ast.ref])
-    elif class_name == "VariableRef":
-        if ast.index is None:
-            return variables[ast.var.name]
-        else:
-            return operator.itemgetter(textx_to_z3py_model(ast.index, variables))(variables[ast.var.name])
-    else:
-        raise Exception("No implementation exists for the simple ast conversion of class [%s]" % class_name)
 
 
 def add_z3py_annotations(model):
@@ -200,11 +104,10 @@ def format_decision_group_tree(tree):
             return choice_type, compressed_members
 
 
-def dissect_overlapping_transition_chain(transitions, truth_matrices):
-    """Dissect a list of transitions with a non-interrupted chain of overlap"""
-    # Example input:                # Not allowed:
-    # x -------    --------         # x -------
-    # y     --------                # y            -------
+def split_on_used_variables(transitions, truth_matrices, stop_recursion=False):
+    """Dissect a list of transitions based on the variables used"""
+    if stop_recursion:
+        return Decision.N_DET, transitions
 
     # Find the variables that are used in the transitions and group based on the chosen variables.
     variables_to_transitions = {}
@@ -213,13 +116,13 @@ def dissect_overlapping_transition_chain(transitions, truth_matrices):
         variables_to_transitions.setdefault(frozenset(used_variables), []).append(t)
 
     # Check if the groups can be split up more.
-    groupings = [find_deterministic_groups(v, truth_matrices) for v in variables_to_transitions.values()]
+    groupings = [find_deterministic_groups(v, truth_matrices, True) for v in variables_to_transitions.values()]
 
     # The split needs to be resolved non-deterministically.
     return Decision.N_DET, groupings
 
 
-def group_overlapping_transitions(transitions, and_truth_matrix):
+def group_overlapping_transitions(transitions, and_truth_matrix, stop_recursion=False):
     """Divide the transitions into groups, based on the equality measure"""
     # Transitions are in the same group if they have an equality relation with one another.
     groupings = []
@@ -247,7 +150,7 @@ def group_overlapping_transitions(transitions, and_truth_matrix):
                     processed_transitions.add(t2)
 
             # Can the found list of groupings be dissected further?
-            sub_groupings = dissect_overlapping_transition_chain(current_group_transitions, and_truth_matrix)
+            sub_groupings = split_on_used_variables(current_group_transitions, and_truth_matrix, stop_recursion)
 
             # Add the group to the list of groupings.
             groupings += [sub_groupings]
@@ -256,7 +159,7 @@ def group_overlapping_transitions(transitions, and_truth_matrix):
     return Decision.DET, groupings
 
 
-def find_deterministic_groups(transitions, and_truth_matrix):
+def find_deterministic_groups(transitions, and_truth_matrix, stop_recursion=False):
     """Find groups that are deterministic in regards to one another"""
     # Check whether we have a list of transitions to dissect.
     if len(transitions) == 1:
@@ -265,9 +168,7 @@ def find_deterministic_groups(transitions, and_truth_matrix):
     # Do any of the transitions always possibly overlap with the others transitions?
     # Keep in mind that the truth table has all transitions--only select those that we are examining.
     invariably_overlapping_transitions = [
-        t for t in transitions if all(
-            and_truth_matrix[t][t2] for t2 in transitions
-        )
+        t for t in transitions if all(and_truth_matrix[t][t2] for t2 in transitions)
     ]
 
     # Find the transitions that are not invariably active.
@@ -275,7 +176,7 @@ def find_deterministic_groups(transitions, and_truth_matrix):
 
     # Recursively solve for the non invariably overlapping transitions.
     if len(remaining_transitions) > 0:
-        remaining_groupings = [group_overlapping_transitions(remaining_transitions, and_truth_matrix)]
+        remaining_groupings = [group_overlapping_transitions(remaining_transitions, and_truth_matrix, stop_recursion)]
     else:
         remaining_groupings = []
 
@@ -308,7 +209,6 @@ def annotate_decision_groupings(model):
                         sm.groupings[state] = format_decision_group_tree(groupings)
                     else:
                         # Are there transitions that are trivially (un)satisfiable?
-                        trivially_satisfiable = [t for t in transitions if t.is_trivially_satisfiable]
                         trivially_unsatisfiable = [t for t in transitions if t.is_trivially_unsatisfiable]
 
                         # All transitions may be unsatisfiable and as such, the choices array can be empty.
@@ -316,17 +216,12 @@ def annotate_decision_groupings(model):
                             continue
 
                         # Find the transitions that remain.
-                        solved_transitions = trivially_satisfiable + trivially_unsatisfiable
+                        solved_transitions = trivially_unsatisfiable # + trivially_satisfiable
                         remaining_transitions = [t for t in transitions if t not in solved_transitions]
 
                         # Create a truth matrix for the and operation.
                         and_truth_matrix = calculate_and_truth_matrix(remaining_transitions)
-                        choices = list(trivially_satisfiable)
-                        if len(remaining_transitions) > 0:
-                            choices += [find_deterministic_groups(remaining_transitions, and_truth_matrix)]
-
-                        # If no transitions are trivially satisfiable, we do not need a N_DET wrapper.
-                        groupings = (Decision.N_DET, choices) if len(choices) > 1 else choices[0]
+                        groupings = find_deterministic_groups(remaining_transitions, and_truth_matrix)
                         sm.groupings[state] = format_decision_group_tree(groupings)
 
                 print_determinism_report(state, sm, transitions, [], [])

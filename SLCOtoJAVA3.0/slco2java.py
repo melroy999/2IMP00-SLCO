@@ -3,7 +3,8 @@ import os
 
 import settings
 from libraries.slcolib import *
-from preprocessing.smt_annotations import annotate_decision_groupings
+from preprocessing.grouping_annotations import annotate_decision_groupings as annotate_decision_groupings
+from preprocessing.grouping_annotations_smt import annotate_decision_groupings as annotate_decision_groupings_smt
 from preprocessing.model_annotations import annotate_model
 from preprocessing.model_simplification import remove_unused_variables
 from rendering.model_rendering import render_model
@@ -17,6 +18,7 @@ def preprocess(model):
     # Extend and annotate the model to one fitting our purpose.
     annotate_model(model)
     annotate_decision_groupings(model)
+    # annotate_decision_groupings_smt(model)
 
     # Find which transitions can be executed with determinism and add the required information to the model.
     # TODO add_determinism_annotations(model)

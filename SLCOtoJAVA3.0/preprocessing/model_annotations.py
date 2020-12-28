@@ -1,6 +1,6 @@
 from preprocessing.locking_annotations import annotate_used_variables, assign_lock_ids_to_class_variables, \
     annotate_lock_list, annotate_locks_used_per_state_machine
-from preprocessing.smt_annotations import add_z3py_annotations
+from preprocessing.grouping_annotations import add_z3py_annotations
 from util.to_java import get_instruction
 
 
@@ -198,12 +198,5 @@ def annotate_model(model):
         c.objects = []
     for _o in model.objects:
         _o.type.objects.append(_o)
-
-    # TODO testing
-    for c in model.classes:
-        for sm in c.statemachines:
-            from util.z3py import z3_do_magic
-            z3_do_magic(sm.transitions, sm.z3_variables)
-
 
     return model
