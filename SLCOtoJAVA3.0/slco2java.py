@@ -17,11 +17,12 @@ def preprocess(model):
 
     # Extend and annotate the model to one fitting our purpose.
     annotate_model(model)
-    annotate_decision_groupings(model)
-    # annotate_decision_groupings_smt(model)
 
     # Find which transitions can be executed with determinism and add the required information to the model.
-    # TODO add_determinism_annotations(model)
+    if settings.use_smt_solution:
+        annotate_decision_groupings_smt(model)
+    else:
+        annotate_decision_groupings(model)
 
 
 def render(model, model_folder):
@@ -42,6 +43,7 @@ def main(_args):
     # Set defaults for the modifier parameters.
     add_counter = False
     add_deterministic_structures = True
+    use_smt_solution = False
 
     # Parse the parameters.
     if any([arg in ["-h", "-help"] for arg in _args]):
@@ -50,6 +52,7 @@ def main(_args):
         print("Transform an SLCO 2.0 model to a Java program.")
         print("-c                 produce a transition counter in the code, to make program executions finite")
         print("-nds               disable deterministic structures")
+        print("-smt               use the procedure for deterministic structures that uses smt exclusively")
         sys.exit(0)
     else:
         _i = 0
@@ -58,6 +61,8 @@ def main(_args):
                 add_counter = True
             elif _args[_i] == '-nds':
                 add_deterministic_structures = False
+            elif _args[_i] == '-smt':
+                use_smt_solution = True
             else:
                 model_folder, model_name = os.path.split(_args[_i])
             _i += 1
@@ -67,7 +72,7 @@ def main(_args):
             sys.exit(1)
 
     # Store the settings for this run.
-    settings.init(add_counter, add_deterministic_structures)
+    settings.init(add_counter, add_deterministic_structures, use_smt_solution)
 
     # Read the model and preprocess it.
     model = read_SLCO_model(os.path.join(model_folder, model_name))

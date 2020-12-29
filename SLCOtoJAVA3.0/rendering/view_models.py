@@ -253,52 +253,8 @@ class DeterministicIfThenElseBlock:
                 # TODO ensure that guard expressions are only removed when safe!
                 for nested_block in block.choice_blocks:
                     if nested_block.__class__.__name__ == "TransitionBlock":
-                        nested_block.encompass_transition_guard(True)
-
-
-class DeterministicCaseDistinctionBlock:
-    """A wrapper for a deterministic case distinction block"""
-    def __init__(self, subject_expression, choice_blocks, default_decision_tree):
-        # Define the choice blocks contained by this construct.
-        self.choice_blocks = choice_blocks
-        self.subject_expression = subject_expression
-        self.default_decision_tree = default_decision_tree
-
-        # Which lock requests are present within the child blocks?
-        self.lock_requests = set([])
-
-        # Do we require to lock certain variables?
-        self.render_acquire_locks = False
-
-        # If so, which lock request phases do we have, and what are the lock ranges that need to be acquired?
-        self.lock_request_phases = []
-        self.lock_ranges = []
-
-        # In case of no else, locks have to be released.
-        self.render_release_locks = False
-
-        # Up to which lock entry in the lock list do we need to release?
-        self.release_up_to_lock = 0
-
-        # What is the encapsulating guard expression?
-        self.guard_expressions = set([])
-        self.guard_statements = set([])
-        for block in choice_blocks:
-            self.lock_requests.update(block.lock_requests)
-            if block.__class__.__name__ == "TransitionBlock":
-                self.guard_expressions.add(block.guard_expression)
-                self.guard_statements.add(block.guard_statement)
-            else:
-                self.guard_expressions |= block.guard_expressions
-                self.guard_statements |= block.guard_statements
-        if default_decision_tree is not None:
-            self.lock_requests.update(default_decision_tree.lock_requests)
-            if default_decision_tree.__class__.__name__ == "TransitionBlock":
-                self.guard_expressions.add(default_decision_tree.guard_expression)
-                self.guard_statements.add(default_decision_tree.guard_statement)
-            else:
-                self.guard_expressions |= default_decision_tree.guard_expressions
-                self.guard_statements |= default_decision_tree.guard_statements
+                        # The transition doesn't need a guard if the encompassing guard only contains one element.
+                        nested_block.encompass_transition_guard(len(block.guard_expressions) > 1)
 
 
 class TransitionBlock:

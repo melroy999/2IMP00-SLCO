@@ -7,7 +7,7 @@ from preprocessing.grouping_annotations import format_decision_group_tree, print
 s = z3.Optimize()
 
 
-def z3_create_and_truth_table(transitions, variables, alias_variables):
+def z3_create_and_truth_table(transitions, alias_variables):
     """Create a truth table for the AND operation between the given list of transitions"""
     # Assign all transitions a unique id.
     for i, t in enumerate(transitions):
@@ -18,7 +18,6 @@ def z3_create_and_truth_table(transitions, variables, alias_variables):
         for t_1 in transitions:
             alias_variables["and%s_%s" % (t_1.i, t_2.i)] = z3.Bool("and%s_%s" % (t_1.i, t_2.i))
 
-    variables = [v for v in variables.values()]
     for t_1 in transitions:
         for t_2 in transitions:
             if t_2.i > t_1.i:
@@ -40,7 +39,49 @@ def z3_create_and_truth_table(transitions, variables, alias_variables):
                 s.add(alias_variables["and%s_%s" % (t_2.i, t_1.i)] == alias_variables["and%s_%s" % (t_1.i, t_2.i)])
 
 
+def merge_equal_solution_spaces(transitions):
+    unique_solution_spaces = {}
+    for t_1 in transitions:
+        used_break = False
+        for t_2 in unique_solution_spaces.keys():
+            s.push()
+            e_1 = t_1.guard_expression.z3py_expression
+            e_2 = t_2.guard_expression.z3py_expression
+            s.add(z3.Not(e_1 == e_2))
+            result = s.check()
+            s.pop()
+
+            if result.r == z3.Z3_L_FALSE:
+                # A duplicate has been found. Add to the duplicate.
+                unique_solution_spaces[t_2].append(t_1)
+                used_break = True
+                break
+
+        if not used_break:
+            unique_solution_spaces[t_1] = []
+    return unique_solution_spaces
+
+
+def unpack_equal_solution_spaces(decision_node, unique_solution_spaces):
+    if isinstance(decision_node, tuple):
+        # Unpack the node and alter the appropriate values.
+        decision_type, groups = decision_node
+        groups = [unpack_equal_solution_spaces(option, unique_solution_spaces) for option in groups]
+        return decision_type, groups
+    else:
+        # A transition node has been found.
+        if decision_node in unique_solution_spaces:
+            # Replace the node with a non-deterministic decision.
+            return Decision.N_DET, [decision_node] + unique_solution_spaces[decision_node]
+        else:
+            return decision_node
+
+
 def extract_largest_deterministic_group(transitions, alias_variables):
+    # Single transitions cannot be extracted.
+    if len(transitions) == 1:
+        return list(transitions)
+
     # Save the current state of the solver.
     s.push()
 
@@ -65,6 +106,9 @@ def extract_largest_deterministic_group(transitions, alias_variables):
     if result.r == z3.Z3_L_UNDEF:
         print(result, model)
         raise Exception("Unknown result")
+    if result.r == z3.Z3_L_FALSE:
+        print(result, model)
+        raise Exception("Unsatisfiable result")
 
     grouping = []
     for t in transitions:
@@ -77,19 +121,23 @@ def extract_largest_deterministic_group(transitions, alias_variables):
     return grouping
 
 
-def create_decision_groupings(transitions, variables):
+def create_decision_groupings(transitions):
     # Create a dictionary that will hold intermediate variables that are used to attain the solution.
     alias_variables = {}
+
+    # Merge transitions with duplicate solution spaces.
+    unique_solution_spaces = merge_equal_solution_spaces(transitions)
+    target_transitions = unique_solution_spaces.keys()
 
     # Save the current state of the solver.
     s.push()
 
     # Create a truth table for the given transitions.
-    z3_create_and_truth_table(transitions, variables, alias_variables)
+    z3_create_and_truth_table(target_transitions, alias_variables)
 
     # Keep extracting deterministic groups until no more unprocessed transitions remain.
     groupings = []
-    remaining_transitions = set(transitions)
+    remaining_transitions = set(target_transitions)
     while len(remaining_transitions) > 0:
         # Extract the largest group we can find.
         grouping = extract_largest_deterministic_group(remaining_transitions, alias_variables)
@@ -103,8 +151,11 @@ def create_decision_groupings(transitions, variables):
     # Restore the state of the solver.
     s.pop()
 
-    # Return the found groupings in a non-deterministic wrapper.
-    return Decision.N_DET, groupings
+    # Create the top level decision structure.
+    top_decision_node = Decision.N_DET, groupings
+
+    # Unpack transitions with duplicate solution spaces and alter the groupings accordingly.
+    return unpack_equal_solution_spaces(top_decision_node, unique_solution_spaces)
 
 
 def annotate_decision_groupings(model):
@@ -129,7 +180,7 @@ def annotate_decision_groupings(model):
 
                         # Find the transitions that remain and create groupings.
                         remaining_transitions = [t for t in transitions if t not in trivially_unsatisfiable]
-                        groupings = create_decision_groupings(remaining_transitions, sm.z3_variables)
+                        groupings = create_decision_groupings(remaining_transitions)
                         sm.groupings[state] = format_decision_group_tree(groupings)
 
                 print_determinism_report(state, sm, transitions, [], [])
