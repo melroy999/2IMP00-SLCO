@@ -40,6 +40,7 @@ def z3_create_and_truth_table(transitions, alias_variables):
 
 
 def merge_equal_solution_spaces(transitions):
+    """Merge transitions that have the same solution space for the guard expression"""
     unique_solution_spaces = {}
     for t_1 in transitions:
         used_break = False
@@ -63,6 +64,7 @@ def merge_equal_solution_spaces(transitions):
 
 
 def unpack_equal_solution_spaces(decision_node, unique_solution_spaces):
+    """Unpack the unique solution spaces and add additional non-deterministic groups where necessary"""
     if isinstance(decision_node, tuple):
         # Unpack the node and alter the appropriate values.
         decision_type, groups = decision_node
@@ -78,6 +80,7 @@ def unpack_equal_solution_spaces(decision_node, unique_solution_spaces):
 
 
 def extract_largest_deterministic_group(transitions, alias_variables):
+    """Extract the largest combination of transitions that do not have an overlapping guard expression solution space"""
     # Single transitions cannot be extracted.
     if len(transitions) == 1:
         return list(transitions)
@@ -121,7 +124,9 @@ def extract_largest_deterministic_group(transitions, alias_variables):
     return grouping
 
 
+
 def create_decision_groupings(transitions):
+    """Convert the given list of transitions to a decision structure"""
     # Create a dictionary that will hold intermediate variables that are used to attain the solution.
     alias_variables = {}
 
