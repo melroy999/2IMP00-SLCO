@@ -68,7 +68,10 @@ class {{model.name}}Thread extends Thread{% if model.states | length > 1 %} impl
     // Execute method
     private void exec() {
         {% if model.add_transition_limit %}
-        while(transitionCounter < COUNTER_BOUND) {
+        while(transitionCounter < {{ model.max_nr_of_iterations }}L) {
+        {% elif model.add_time_limit %}
+        long stopTime = System.currentTimeMillis() + 1000L * {{ model.max_running_time }};
+        while(stopTime > System.currentTimeMillis()) {
         {% else %}
         while(true) {
         {% endif %}

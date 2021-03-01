@@ -8,11 +8,6 @@ public class {{model.name}} {
     // The objects in the model
     private final SLCO_Class[] objects;
 
-    {% if model.add_transition_limit %}
-    // Upperbound for transition counter
-    private static final long COUNTER_BOUND = 10000000L;
-
-    {% endif %}
     {% if model.include_lock_manager %}
     // Lock class to handle locks of global variables
     private static class LockManager {

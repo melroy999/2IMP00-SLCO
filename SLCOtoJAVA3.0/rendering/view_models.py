@@ -43,9 +43,6 @@ class ModelBlock:
         # The name of the model.
         self.name = model.name
 
-        # Is the number of transitions the state machines can make limited?
-        self.add_transition_limit = settings.add_counter
-
         # Do any of the state machines require locking functionality?
         self.include_lock_manager = any(c.has_class_variables for c in self.classes)
 
@@ -145,6 +142,9 @@ class StateMachineBlock:
 
         # Is the number of transitions the state machine can make limited?
         self.add_transition_limit = settings.add_counter
+        self.max_nr_of_iterations = settings.max_nr_of_iterations
+        self.add_time_limit = settings.add_timer
+        self.max_running_time = settings.max_running_time
 
         # Which variable declarations need to be rendered?
         self.variable_instantiations = []

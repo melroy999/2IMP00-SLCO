@@ -1,9 +1,9 @@
 # Import the necessary libraries.
+import argparse
 import os
 
 import settings
 from libraries.slcolib import *
-from preprocessing.grouping_annotations import annotate_decision_groupings as annotate_decision_groupings
 from preprocessing.grouping_annotations_smt import annotate_decision_groupings as annotate_decision_groupings_smt
 from preprocessing.model_annotations import annotate_model
 from preprocessing.model_simplification import remove_unused_variables
@@ -19,10 +19,7 @@ def preprocess(model):
     annotate_model(model)
 
     # Find which transitions can be executed with determinism and add the required information to the model.
-    if settings.use_smt_solution:
-        annotate_decision_groupings_smt(model)
-    else:
-        annotate_decision_groupings(model)
+    annotate_decision_groupings_smt(model)
 
 
 def render(model, model_folder):
@@ -38,48 +35,30 @@ def render(model, model_folder):
 
 def main(_args):
     """The main function"""
-    model_folder, model_name = None, None
+    # Define the arguments that the program supports.
+    parser = argparse.ArgumentParser(description="Transform an SLCO 2.0 model to a Java program")
+    parser.add_argument("-c", nargs="?", type=int, const=10000, default=0, required=False,
+                        help="produce a transition counter in the code, to make program executions finite")
+    parser.add_argument("-t", nargs="?", type=int, const=60, default=0, required=False,
+                        help="add a timer to the code, to make program executions finite (in seconds, default: 60s)")
+    parser.add_argument("-nds", action='store_true',
+                        help="disable deterministic structures")
+    parser.add_argument("-v", action='store_true',
+                        help="enable verbose debug prints")
+    parser.add_argument("-pc", action='store_true',
+                        help="add the performance counters")
+    parser.add_argument("model",
+                        help="The SLCO 2.0 model to be converted to a Java program.")
 
-    # Set defaults for the modifier parameters.
-    add_counter = False
-    add_deterministic_structures = True
-    use_smt_solution = False
-
-    # Parse the parameters.
-    if any([arg in ["-h", "-help"] for arg in _args]):
-        print("Usage: pypy/python3 slco2java")
-        print("")
-        print("Transform an SLCO 2.0 model to a Java program.")
-        print("-c                 produce a transition counter in the code, to make program executions finite")
-        print("-nds               disable deterministic structures")
-        print("-smt               use the procedure for deterministic structures that uses smt exclusively")
-        sys.exit(0)
-    else:
-        _i = 0
-        while _i < len(_args):
-            if _args[_i] == '-c':
-                add_counter = True
-            elif _args[_i] == '-nds':
-                add_deterministic_structures = False
-            elif _args[_i] == '-smt':
-                use_smt_solution = True
-            else:
-                model_folder, model_name = os.path.split(_args[_i])
-            _i += 1
-
-        if model_folder is None:
-            print("Missing argument: SLCO model")
-            sys.exit(1)
-
-    # Store the settings for this run.
-    settings.init(add_counter, add_deterministic_structures, use_smt_solution)
+    # Parse the parameters and save the settings.
+    settings.init(parser.parse_args(_args))
 
     # Read the model and preprocess it.
-    model = read_SLCO_model(os.path.join(model_folder, model_name))
+    model = read_SLCO_model(os.path.join(settings.model_folder, settings.model_name))
     preprocess(model)
 
     # Translate the model to Java code.
-    render(model, model_folder)
+    render(model, settings.model_folder)
 
 
 if __name__ == '__main__':

@@ -1,3 +1,4 @@
+import settings
 from util.to_java import get_instruction
 
 
@@ -213,7 +214,8 @@ def assign_lock_ids_to_class_variables(c):
     c.number_of_locks = current_lock_id
 
     # Print a report.
-    print_locking_report(c)
+    if settings.add_debug_prints:
+        print_locking_report(c)
 
 
 def get_lock_id_ordering(o, name_to_variable):

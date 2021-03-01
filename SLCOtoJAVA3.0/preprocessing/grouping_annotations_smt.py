@@ -124,7 +124,6 @@ def extract_largest_deterministic_group(transitions, alias_variables):
     return grouping
 
 
-
 def create_decision_groupings(transitions):
     """Convert the given list of transitions to a decision structure"""
     # Create a dictionary that will hold intermediate variables that are used to attain the solution.
@@ -188,4 +187,6 @@ def annotate_decision_groupings(model):
                         groupings = create_decision_groupings(remaining_transitions)
                         sm.groupings[state] = format_decision_group_tree(groupings)
 
-                print_determinism_report(state, sm, transitions, [], [])
+                # Print a debug report.
+                if settings.add_debug_prints:
+                    print_determinism_report(state, sm, transitions, [], [])
