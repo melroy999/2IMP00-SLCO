@@ -19,9 +19,12 @@ class {{model.name}}Thread extends Thread{% if model.states | length > 1 %} impl
     private final Random random;
 
     {% endif %}
-    {% if model.add_transition_limit %}
+    {% if model.add_transition_limit or model.add_performance_counters %}
     // Counter of main while-loop iterations
     long transitionCounter;
+    {% if model.add_performance_counters %}
+    long successfulTransitionCounter;
+    {% endif %}
 
     {% endif %}
     {% if model.variable_instantiations | length > 0 %}
@@ -67,6 +70,9 @@ class {{model.name}}Thread extends Thread{% if model.states | length > 1 %} impl
     {% endfor %}
     // Execute method
     private void exec() {
+        {% if model.add_performance_counters %}
+        long startTime = System.nanoTime();
+        {% endif %}
         {% if model.add_transition_limit %}
         while(transitionCounter < {{ model.max_nr_of_iterations }}L) {
         {% elif model.add_time_limit %}
@@ -84,13 +90,21 @@ class {{model.name}}Thread extends Thread{% if model.states | length > 1 %} impl
             {% else %}
             exec_{{model.states[0]}}();
             {% endif %}
-            {% if model.add_transition_limit %}
+            {% if model.add_transition_limit or model.add_performance_counters %}
 
             // Increment counter
             transitionCounter++;
-            // System.out.println("{{model.name}} " + transitionCounter);
             {% endif %}
         }
+        {% if model.add_performance_counters %}
+        System.out.println(
+            "{{model.class_name}}.{{model.name}};" +
+            successfulTransitionCounter + ";" +
+            transitionCounter + ";" +
+            (double)successfulTransitionCounter/transitionCounter + ";" +
+            (System.nanoTime() - startTime) + ";"
+        );
+        {% endif %}
     }
 
     // Run method

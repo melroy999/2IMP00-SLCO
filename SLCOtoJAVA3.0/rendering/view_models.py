@@ -146,6 +146,9 @@ class StateMachineBlock:
         self.add_time_limit = settings.add_timer
         self.max_running_time = settings.max_running_time
 
+        # Are we measuring performance?
+        self.add_performance_counters = settings.add_performance_counter
+
         # Which variable declarations need to be rendered?
         self.variable_instantiations = []
         for v in sm.variables:

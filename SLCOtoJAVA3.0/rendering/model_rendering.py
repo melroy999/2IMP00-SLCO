@@ -78,6 +78,7 @@ def construct_decision_code(model, sm, no_current_state):
             state_machine_name=sm.name,
             always_fails=model.always_fails,
             comment=model.comment,
+            add_performance_counters=settings.add_performance_counter,
             render_current_state_variable=no_current_state
         )
     elif model_class == "CompositeBlock":

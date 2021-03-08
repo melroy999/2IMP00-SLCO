@@ -9,3 +9,6 @@
 {% if not always_fails and render_current_state_variable %}
 currentState = {{state_machine_name}}Thread.States.{{target}};
 {% endif %}
+{% if not always_fails and add_performance_counters %}
+successfulTransitionCounter++;
+{% endif %}
