@@ -22,18 +22,22 @@ public class {{model.name}} {
         }
 
         // Lock method
-        void lock(int[] lock_ids, int start, int end) {
+        void lock(LockRequest[] lock_ids, int start, int end) {
             int i = start;
             Arrays.sort(lock_ids, start, end);
             for (; i < end; i++) {
-                locks[lock_ids[i]].lock();
+                if(lock_ids[i].isValid()) {
+                    locks[lock_ids[i].getIdentity()].lock();
+                }
             }
         }
 
         // Unlock method
-        void unlock(int[] lock_ids, int end) {
+        void unlock(LockRequest[] lock_ids, int end) {
             for (int i = 0; i < end; i++) {
-                locks[lock_ids[i]].unlock();
+                if(lock_ids[i].isValid()) {
+                    locks[lock_ids[i].getIdentity()].unlock();
+                }
             }
         }
 
@@ -45,6 +49,30 @@ public class {{model.name}} {
                     lock.unlock();
                 }
             }
+        }
+    }
+
+    // A representation of a lock request that can be used to validate the validity thereof.
+    private static class LockRequest implements Comparable<LockRequest> {
+        private int identity;
+        private boolean validity;
+
+        boolean isValid() {
+            return validity;
+        }
+
+        int getIdentity() {
+            return identity;
+        }
+
+        void set(int identity, int offset, int length) {
+            this.identity = identity + offset;
+            this.validity = offset >= 0 && offset < length;
+        }
+
+        @Override
+        public int compareTo(LockRequest request) {
+            return this.identity - request.identity;
         }
     }
 

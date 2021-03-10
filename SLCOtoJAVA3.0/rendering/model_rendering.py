@@ -18,14 +18,8 @@ def get_lock_id_list(model, c):
     for v, i in sorted(model, key=lambda _o: (c.name_to_variable[_o[0]].lock_id, str(_o[1]).strip("()"))):
         base = c.name_to_variable[v].lock_id
         index = 0 if i is None else i
-        try:
-            index = int(index)
-            lock = str(base + index)
-        except (ValueError, TypeError):
-            if base == 0:
-                lock = index
-            else:
-                lock = "%s + %s" % (base, index)
+        length = max(1, c.name_to_variable[v].type.size)
+        lock = ".set(%s, %s, %s)" % (base, index, length)
         lock += "; // Acquire " + v + ("" if i is None else "[%s]" % i)
         lock_ids.append(lock)
     return lock_ids

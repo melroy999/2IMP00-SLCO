@@ -39,7 +39,7 @@ class {{model.name}}Thread extends Thread{% if model.states | length > 1 %} impl
     private final LockManager lockManager;
 
     // A list of lock ids that can be reused
-    private final int[] lock_ids;
+    private final LockRequest[] lock_ids;
 
     {% endif %}
     {{model.name}}Thread ({% if model.uses_class_variables %}LockManager lockManagerInstance{% endif %}) {
@@ -48,7 +48,10 @@ class {{model.name}}Thread extends Thread{% if model.states | length > 1 %} impl
         {% endif %}
         {% if model.uses_class_variables %}
         lockManager = lockManagerInstance;
-        lock_ids = new int[{{model.total_nr_of_unique_locks}}];
+        lock_ids = new LockRequest[{{model.total_nr_of_unique_locks}}];
+        for (int i = 0; i < lock_ids.length; i++) {
+            lock_ids[i] = new LockRequest();
+        }
         {% endif %}
         {% if model.add_transition_limit %}
         transitionCounter = 0;

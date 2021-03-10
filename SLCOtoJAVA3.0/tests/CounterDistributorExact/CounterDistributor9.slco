@@ -43,42 +43,42 @@ model CounterDistributor8 {
                 from S1 to P {
                 }
                 from P to S2 {
-                    x != 0;
+                    x = 1;
                 }
                 from S2 to P {
                 }
                 from P to S3 {
-                    x != 0;
+                    x = 2;
                 }
                 from S3 to P {
                 }
                 from P to S4 {
-                    x != 0;
+                    x = 3;
                 }
                 from S4 to P {
                 }
                 from P to S5 {
-                    x != 0;
+                    x = 4;
                 }
                 from S5 to P {
                 }
                 from P to S6 {
-                    x != 0;
+                    x = 5;
                 }
                 from S6 to P {
                 }
                 from P to S7 {
-                    x != 0;
+                    x = 6;
                 }
                 from S7 to P {
                 }
                 from P to S8 {
-                    x != 0;
+                    x = 7;
                 }
                 from S8 to P {
                 }
                 from P to S9 {
-                    x != 0;
+                    x = 8;
                 }
                 from S9 to P {
                 }
