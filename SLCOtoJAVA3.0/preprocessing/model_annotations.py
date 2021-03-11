@@ -95,11 +95,11 @@ def annotate_statement(s):
     elif class_name == "Expression":
         s.string_expression = get_instruction(s)
         # Provide equality and hash functions such that the expressions can be added to a set.
-        type(s).__eq__ = lambda self, other: self.string_expression == other.string_expression
-        type(s).__hash__ = lambda self: hash(self.__repr__())
+        s.__eq__ = lambda self, other: self.string_expression == other.string_expression
+        s.__hash__ = lambda self: hash(self.__repr__())
 
     # Give all statements a readable string representation corresponding to the associated java code.
-    type(s).__repr__ = lambda self: get_instruction(self)
+    s.__repr__ = lambda self: get_instruction(self)
 
     return s
 

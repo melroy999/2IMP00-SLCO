@@ -20,7 +20,7 @@ operator_mapping = {
     "**": operator.pow,
     "neg": operator.neg,
     "%": operator.mod,
-    "/": operator.floordiv,
+    "/": operator.truediv,
     "or": z3.Or,
     "||": z3.Or,
     "and": z3.And,

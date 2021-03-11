@@ -1,4 +1,4 @@
-model CounterDistributor8 {
+model CounterDistributor9 {
     classes
     CounterDistributor {
         variables Integer x
