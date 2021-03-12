@@ -1,6 +1,6 @@
-model CounterDistributor1 {
+model CounterDistributorUnequal1 {
     classes
-    CounterDistributor {
+    CounterDistributorUnequal {
         variables Integer x
         state machines
         Counter {
@@ -20,5 +20,5 @@ model CounterDistributor1 {
                 }
         }
     }
-    objects p: CounterDistributor()
+    objects p: CounterDistributorUnequal()
 }

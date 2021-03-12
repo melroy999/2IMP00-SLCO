@@ -1,10 +1,10 @@
-model CounterDistributor5 {
+model CounterDistributorUnequal9 {
     classes
-    CounterDistributor {
+    CounterDistributorUnequal {
         variables Integer x
         state machines
         Counter {
-            initial C1 states C2 C3 C4 C5
+            initial C1 states C2 C3 C4 C5 C6 C7 C8 C9
             transitions
                 from C1 to C2 {
                     x := 0;
@@ -18,12 +18,24 @@ model CounterDistributor5 {
                 from C4 to C5 {
                     x := 3;
                 }
-                from C5 to C1 {
+                from C5 to C6 {
                     x := 4;
+                }
+                from C6 to C7 {
+                    x := 5;
+                }
+                from C7 to C8 {
+                    x := 6;
+                }
+                from C8 to C9 {
+                    x := 7;
+                }
+                from C9 to C1 {
+                    x := 8;
                 }
         }
         Distributor {
-            initial P states S1 S2 S3 S4 S5
+            initial P states S1 S2 S3 S4 S5 S6 S7 S8 S9
             transitions
                 from P to S1 {
                     x = 0;
@@ -50,7 +62,27 @@ model CounterDistributor5 {
                 }
                 from S5 to P {
                 }
+                from P to S6 {
+                    x != 0;
+                }
+                from S6 to P {
+                }
+                from P to S7 {
+                    x != 0;
+                }
+                from S7 to P {
+                }
+                from P to S8 {
+                    x != 0;
+                }
+                from S8 to P {
+                }
+                from P to S9 {
+                    x != 0;
+                }
+                from S9 to P {
+                }
         }
     }
-    objects p: CounterDistributor()
+    objects p: CounterDistributorUnequal()
 }

@@ -1,10 +1,10 @@
-model CounterDistributor10 {
+model CounterDistributorExact9 {
     classes
-    CounterDistributor {
+    CounterDistributorExact {
         variables Integer x
         state machines
         Counter {
-            initial C1 states C2 C3 C4 C5 C6 C7 C8 C9 C10
+            initial C1 states C2 C3 C4 C5 C6 C7 C8 C9
             transitions
                 from C1 to C2 {
                     x := 0;
@@ -30,15 +30,12 @@ model CounterDistributor10 {
                 from C8 to C9 {
                     x := 7;
                 }
-                from C9 to C10 {
+                from C9 to C1 {
                     x := 8;
-                }
-                from C10 to C1 {
-                    x := 9;
                 }
         }
         Distributor {
-            initial P states S1 S2 S3 S4 S5 S6 S7 S8 S9 S10
+            initial P states S1 S2 S3 S4 S5 S6 S7 S8 S9
             transitions
                 from P to S1 {
                     x = 0;
@@ -85,12 +82,7 @@ model CounterDistributor10 {
                 }
                 from S9 to P {
                 }
-                from P to S10 {
-                    x = 9;
-                }
-                from S10 to P {
-                }
         }
     }
-    objects p: CounterDistributor()
+    objects p: CounterDistributorExact()
 }

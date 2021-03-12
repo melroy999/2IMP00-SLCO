@@ -1,6 +1,6 @@
-model CounterDistributor5 {
+model CounterDistributorExact5 {
     classes
-    CounterDistributor {
+    CounterDistributorExact {
         variables Integer x
         state machines
         Counter {
@@ -52,5 +52,5 @@ model CounterDistributor5 {
                 }
         }
     }
-    objects p: CounterDistributor()
+    objects p: CounterDistributorExact()
 }
