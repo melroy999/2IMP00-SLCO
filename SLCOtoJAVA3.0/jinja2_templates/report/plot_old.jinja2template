@@ -1,0 +1,45 @@
+\begin{tikzpicture}
+\begin{axis} [
+        ybar,
+        width=0.8\textwidth,
+        height=0.5\textwidth,
+        symbolic x coords={ {{ model.names_csl }} },
+        xtick=data,
+        {% if model.title %}
+        title={\textbf{ {{ model.title }} } },
+        {% endif %}
+        {% if model.xlabel %}
+        xlabel={ {{ model.xlabel }} },
+        {% endif %}
+        {% if model.ylabel %}
+        ylabel={ {{ model.ylabel }} },
+        {% endif %}
+        x tick label style={rotate=90,anchor=east},
+        yticklabel style={
+            /pgf/number format/fixed,
+        },
+        scaled y ticks=false,
+        legend pos=north east,
+        legend cell align=left,
+        typeset ticklabels with strut,
+        ymin=0.0,
+    ]
+    \addplot+ [
+        error bars/.cd,
+            y dir=both, y explicit,
+    ] coordinates {
+        {% for line in model.DET %}
+        {{line}}
+        {% endfor %}
+    };
+    \addplot+ [
+        error bars/.cd,
+            y dir=both, y explicit,
+    ] coordinates {
+        {% for line in model.N_DET %}
+        {{line}}
+        {% endfor %}
+    };
+    \legend{Deterministic Structures, Non-Determinism}
+\end{axis}
+\end{tikzpicture}

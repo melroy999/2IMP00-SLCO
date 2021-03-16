@@ -4,27 +4,20 @@ model CounterDistributorExact2 {
         variables Integer x
         state machines
         Counter {
-            initial C1 states C2
+            initial C states C
             transitions
-                from C1 to C2 {
-                    x := 0;
-                }
-                from C2 to C1 {
-                    x := 1;
+                from C to C {
+                    x := (x + 1) % 2;
                 }
         }
         Distributor {
-            initial P states S1 S2
+            initial P
             transitions
-                from P to S1 {
+                from P to P {
                     x = 0;
                 }
-                from S1 to P {
-                }
-                from P to S2 {
+                from P to P {
                     x = 1;
-                }
-                from S2 to P {
                 }
         }
     }

@@ -21,11 +21,14 @@ add_performance_counter = False
 # Add debug prints to the generator such as the assigned lock identities and decision structures.
 add_debug_prints = False
 
+# Whether locks should be fair or not.
+lock_fairness = False
+
 
 def init(parameters):
     """Initialize the global variables, defining the settings of the program"""
     global add_counter, max_nr_of_iterations, add_timer, max_running_time, add_deterministic_structures, \
-        add_deterministic_structures, model_folder, model_name, add_performance_counter, add_debug_prints
+        add_deterministic_structures, model_folder, model_name, add_performance_counter, add_debug_prints, lock_fairness
 
     # Print the input parameters for debug purposes.
     if parameters.v:
@@ -49,6 +52,9 @@ def init(parameters):
 
     # Add debug prints to the generator such as the assigned lock identities and decision structures.
     add_debug_prints = parameters.v
+
+    # Make Reentrant locks fair/unfair.
+    lock_fairness = parameters.lock_fairness
 
     # Add the name of the model and the location.
     model_folder, model_name = os.path.split(parameters.model)

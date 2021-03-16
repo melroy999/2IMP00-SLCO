@@ -46,6 +46,9 @@ class ModelBlock:
         # Do any of the state machines require locking functionality?
         self.include_lock_manager = any(c.has_class_variables for c in self.classes)
 
+        # Are locks supposed to be fair?
+        self.lock_fairness = settings.lock_fairness
+
 
 def get_variable_list(model):
     """Construct a comma separated list of variables, sorted on by name and prefixed with their type"""
@@ -61,6 +64,9 @@ class ClassBlock:
 
         # The name of the class.
         self.name = c.name
+
+        # The name of the model.
+        self.model_name = c.parent.name
 
         # Which variables are in the model?
         self.variables = c.variables
@@ -133,9 +139,10 @@ class StateMachineBlock:
         # Does the state machine require a current state variable?
         self.render_current_state_variable = len(sm.states) > 1
 
-        # The name of the state machine and the parent class.
+        # The name of the state machine, the parent class, and parent model.
         self.name = sm.name
         self.class_name = sm.parent_class.name
+        self.model_name = sm.parent_class.parent.name
 
         # A reference to the parent class for variable resolving.
         self.parent_class = sm.parent_class

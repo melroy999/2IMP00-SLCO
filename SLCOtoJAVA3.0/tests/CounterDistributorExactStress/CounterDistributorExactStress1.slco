@@ -1,7 +1,7 @@
-model CounterDistributorExact1 {
+model CounterDistributorExactStress1 {
     classes
-    CounterDistributorExact {
-        variables Integer x
+    CounterDistributorExactStress {
+        variables Integer x Integer a1
         state machines
         Counter {
             initial C
@@ -14,9 +14,9 @@ model CounterDistributorExact1 {
             initial P
             transitions
                 from P to P {
-                    x = 0;
+                    [x = 0; a1 := a1 + 1];
                 }
         }
     }
-    objects p: CounterDistributorExact()
+    objects p: CounterDistributorExactStress()
 }

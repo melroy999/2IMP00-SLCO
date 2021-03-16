@@ -43,6 +43,8 @@ def main(_args):
                         help="add a timer to the code, to make program executions finite (in seconds, default: 60s)")
     parser.add_argument("-nds", action='store_true',
                         help="disable deterministic structures")
+    parser.add_argument("-lock_fairness", action='store_true',
+                        help="enable fairness of locks")
     parser.add_argument("-v", action='store_true',
                         help="enable verbose debug prints")
     parser.add_argument("-pc", action='store_true',

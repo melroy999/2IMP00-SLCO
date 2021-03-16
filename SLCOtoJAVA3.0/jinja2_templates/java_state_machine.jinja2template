@@ -24,6 +24,10 @@ class {{model.name}}Thread extends Thread{% if model.states | length > 1 %} impl
     long transitionCounter;
     {% if model.add_performance_counters %}
     long successfulTransitionCounter;
+    {% for state in model.states %}
+    long transitionCounter{{ state }};
+    long successfulTransitionCounter{{ state }};
+    {% endfor %}
     {% endif %}
 
     {% endif %}
@@ -64,7 +68,14 @@ class {{model.name}}Thread extends Thread{% if model.states | length > 1 %} impl
     {% for s in model.states %}
     private void exec_{{s}}() {
         {% if model.groupings[s] %}
+        {% if model.add_performance_counters %}
+        transitionCounter{{s}}++;
+        {% endif %}
         {{ model.groupings[s] | get_decision_structure(model) | indent(8, False) | trim }}
+        {% if model.add_performance_counters %}
+        successfulTransitionCounter{{s}}++;
+        successfulTransitionCounter++;
+        {% endif %}
         {% else %}
         // There are no transitions to be made.
         {% endif %}
@@ -100,13 +111,23 @@ class {{model.name}}Thread extends Thread{% if model.states | length > 1 %} impl
             {% endif %}
         }
         {% if model.add_performance_counters %}
+        long running_time = System.nanoTime() - startTime;
         System.out.println(
             "{{model.class_name}}.{{model.name}};" +
             successfulTransitionCounter + ";" +
             transitionCounter + ";" +
             (double)successfulTransitionCounter/transitionCounter + ";" +
-            (System.nanoTime() - startTime) + ";"
+            running_time + ";"
         );
+        {% for state in model.states %}
+        System.out.println(
+            "{{model.class_name}}.{{model.name}}.{{state}};" +
+            successfulTransitionCounter{{ state }} + ";" +
+            transitionCounter{{ state }} + ";" +
+            (double)successfulTransitionCounter{{ state }}/transitionCounter{{ state }} + ";" +
+            running_time + ";"
+        );
+        {% endfor %}
         {% endif %}
     }
 
