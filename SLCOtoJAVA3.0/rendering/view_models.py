@@ -19,7 +19,7 @@ def get_variable_instantiation_list(model, variables):
     variable_instantiations = []
     for v in sorted(variables, key=lambda o: o.name):
         # Is a value assigned to the variable? If so, use it, otherwise, fall back to the default.
-        value = instantiated_variables[v.name] if v.name in instantiated_variables else get_default_value(v)
+        value = instantiated_variables[v.name] if v.name in instantiated_variables else get_initial_value(v)
 
         # Convert the variable to the Java representation.
         value = "{%s}" % ", ".join(str(v).lower() for v in value) if isinstance(value, list) else str(value).lower()
