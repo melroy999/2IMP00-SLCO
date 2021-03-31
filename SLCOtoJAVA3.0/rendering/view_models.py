@@ -26,8 +26,6 @@ def get_variable_instantiation_list(model, variables):
 
         if v.type.size > 1:
             variable_instantiations.append("new %s %s" % (get_java_type(v.type, False), value))
-        elif v.type.base == "Byte":
-            variable_instantiations.append("(byte) %s" % value)
         else:
             variable_instantiations.append("%s" % value)
 

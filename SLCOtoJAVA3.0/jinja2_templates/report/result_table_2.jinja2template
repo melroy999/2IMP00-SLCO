@@ -1,0 +1,28 @@
+\begin{table}[htbp]
+    \centering
+    \resizebox{\columnwidth}{!}{ %
+        \begin{tabularx}{1.45\textwidth}{{ model.table_col_def }}
+            \hline
+            \multicolumn{9}{|c|}{\textsc{Performance comparison of fair and unfair locking for target model} `{{ model.target_model }}'} \\
+            \hline\noalign{\vspace*{\doublerulesep}}
+            \hhline{-||----||----}
+            \multicolumn{1}{|c||}{\multirow{3}{*}{
+                \begin{tabular}{c}
+                $(n={{ model.n }}, t={{ model.t }})$ \\
+                \textsc{Target Object} \\
+            \end{tabular}
+            }} & \multicolumn{4}{c||}{\textsc{Unfair Locking}} & \multicolumn{4}{c|}{\textsc{Fair Locking}} \\
+            \hhline{~||----||----}
+             & \multicolumn{2}{c|}{\textsc{Det}} & \multicolumn{2}{c||}{\textsc{NDet}} & \multicolumn{2}{c|}{\textsc{Det}} & \multicolumn{2}{c|}{\textsc{NDet}} \\
+            \hhline{~||----||----}
+            & $\mu(st)$ & $\mu(r)$ & $\mu(st)$ & $\mu(r)$ & $\mu(st)$ & $\mu(r)$ & $\mu(st)$ & $\mu(r)$ \\
+            \hhline{=::====::====}
+            {% for entry in model.entries %}
+            {{ entry }}
+            \hhline{-||----||----}
+            {% endfor %}
+        \end{tabularx}
+    }
+    \caption{A table containing a performance comparison between fair and unfair locking within the target model {{ model.target_model }}, with and without the inclusion of deterministic structures. The number of successful transitions $(st)$ and the success ratio $(r)$ are measured over a time span of {{ model.t }} seconds, with each entry representing the mean of {{ model.n }} trials.}
+    \label{tbl:{{model.label}}}
+\end{table}

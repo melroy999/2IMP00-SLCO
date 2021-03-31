@@ -22,7 +22,7 @@ def get_instruction(m, rewrite_table=None):
     if model_class == "Assignment":
         index_str = "[" + get_instruction(m.left.index, rewrite_table) + "]" if m.left.index is not None else ""
         var_str = m.left.var.name + index_str
-        exp_str = ("(byte) (%s)" if m.left.var.type.base == "Byte" else "%s") % get_instruction(m.right, rewrite_table)
+        exp_str = "%s" % get_instruction(m.right, rewrite_table)
         return "%s = %s" % (var_str, exp_str)
     elif model_class == "Composite":
         statement_strings = [get_instruction(m.guard, rewrite_table)] if not m.guard.is_trivially_satisfiable else []
@@ -68,10 +68,9 @@ def get_java_type(model, ignore_size=False):
     """Maps type names from SLCO to Java"""
     if model.base == "Boolean":
         return "boolean" if model.size < 1 or ignore_size else "boolean[]"
-    elif model.base == "Integer":
+    elif model.base in ["Integer", "Byte"]:
+        # Note: Bytes need to be handled as integers, since unsigned bytes do not exist in Java.
         return "int" if model.size < 1 or ignore_size else "int[]"
-    elif model.base == "Byte":
-        return "byte" if model.size < 1 or ignore_size else "byte[]"
 
 
 def get_initial_value(model):
