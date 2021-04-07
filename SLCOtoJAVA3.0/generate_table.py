@@ -1,5 +1,3 @@
-from math import log10
-
 import jinja2
 
 from preprocess_experiment_data import gather_data
@@ -15,7 +13,7 @@ latex_table_template = env.get_template("report/result_table.jinja2template")
 latex_table_2_template = env.get_template("report/result_table_2.jinja2template")
 
 # Import all the data.
-aggregate_data = gather_data()
+aggregate_data = gather_data(fair="results_fairness_telephony.pkl", unfair="results_no_fairness_telephony.pkl")
 
 
 def to_scientific_notation(v):

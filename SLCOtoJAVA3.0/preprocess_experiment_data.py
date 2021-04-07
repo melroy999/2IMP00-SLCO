@@ -59,10 +59,10 @@ def process_data(test_statistics, output_target):
             output_target[test_type][model] = aggregate_model_data
 
 
-def gather_data():
-    with open("results_fairness.pkl", "rb") as f:
+def gather_data(fair="results_fairness.pkl", unfair="results_no_fairness.pkl"):
+    with open(fair, "rb") as f:
         test_statistics_fair = pickle.load(f)
-    with open("results_no_fairness.pkl", "rb") as f:
+    with open(unfair, "rb") as f:
         test_statistics_unfair = pickle.load(f)
 
     data = {"FAIR": dict(), "UNFAIR": dict()}

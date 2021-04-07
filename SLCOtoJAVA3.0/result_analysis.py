@@ -3,12 +3,12 @@ import jinja2
 import numpy
 from statistics import mean, median, stdev, variance
 
-with_fairness = False
+with_fairness = True
 if with_fairness:
-    with open('results_fairness.pkl', 'rb') as f:  # Python 3: open(..., 'rb')
+    with open('results_fairness_telephony.pkl', 'rb') as f:  # Python 3: open(..., 'rb')
         test_statistics = pickle.load(f)
 else:
-    with open('results_no_fairness.pkl', 'rb') as f:  # Python 3: open(..., 'rb')
+    with open('results_no_fairness_telephony.pkl', 'rb') as f:  # Python 3: open(..., 'rb')
         test_statistics = pickle.load(f)
 
 
@@ -331,209 +331,209 @@ def render_nr_of_successful_transitions_comparison_plot(
 
 
 if with_fairness:
-    render_nr_of_successful_transitions_group_plot(
-        "CounterDistributorExact", step=3000000,
-        output_file_name="plots/fair/CounterDistributorExact_nr_of_st_group_plot.tex"
-    )
-    render_success_ratio_group_plot(
-        "CounterDistributorExact",
-        output_file_name="plots/fair/CounterDistributorExact_nr_of_sr_group_plot.tex"
-    )
-    render_nr_of_successful_transitions_group_plot(
-        "CounterDistributorExact", model_suffix="Distributor.P", step=1500000,
-        output_file_name="plots/fair/CounterDistributorExact_nr_of_st_group_plot.Distributor.P.tex"
-    )
-    render_success_ratio_group_plot(
-        "CounterDistributorExact", model_suffix="Distributor.P",
-        output_file_name="plots/fair/CounterDistributorExact_nr_of_sr_group_plot.Distributor.P.tex"
-    )
-    render_nr_of_successful_transitions_group_plot(
-        "CounterDistributorExact", model_suffix="Counter.C", step=1500000,
-        output_file_name="plots/fair/CounterDistributorExact_nr_of_st_group_plot.Counter.C.tex"
-    )
-    render_success_ratio_group_plot(
-        "CounterDistributorExact", model_suffix="Counter.C",
-        output_file_name="plots/fair/CounterDistributorExact_nr_of_sr_group_plot.Counter.C.tex"
-    )
-    render_nr_of_successful_transitions_group_plot(
-        "CounterDistributorExactStress", step=3000000,
-        output_file_name="plots/fair/CounterDistributorExactStress_nr_of_st_group_plot.tex"
-    )
-    render_success_ratio_group_plot(
-        "CounterDistributorExactStress",
-        output_file_name="plots/fair/CounterDistributorExactStress_nr_of_sr_group_plot.tex"
-    )
-    render_nr_of_successful_transitions_group_plot(
-        "CounterDistributorExactStress", model_suffix="Distributor.P", step=1500000,
-        output_file_name="plots/fair/CounterDistributorExactStress_nr_of_st_group_plot.Distributor.P.tex"
-    )
-    render_success_ratio_group_plot(
-        "CounterDistributorExactStress", model_suffix="Distributor.P",
-        output_file_name="plots/fair/CounterDistributorExactStress_nr_of_sr_group_plot.Distributor.P.tex"
-    )
-    render_nr_of_successful_transitions_group_plot(
-        "CounterDistributorExactStress", model_suffix="Counter.C", step=1500000,
-        output_file_name="plots/fair/CounterDistributorExactStress_nr_of_st_group_plot.Counter.C.tex"
-    )
-    render_success_ratio_group_plot(
-        "CounterDistributorExactStress", model_suffix="Counter.C",
-        output_file_name="plots/fair/CounterDistributorExactStress_nr_of_sr_group_plot.Counter.C.tex"
-    )
-    render_nr_of_successful_transitions_comparison_plot(
-        [
-            "CounterDistributorExact10",
-            "CounterDistributorExact10.Counter",
-            "CounterDistributorExact10.Distributor",
-            "CounterDistributorExactStress10",
-            "CounterDistributorExactStress10.Counter",
-            "CounterDistributorExactStress10.Distributor",
-        ],
-        model_abbreviations={
-            "CounterDistributorExact10": "CDE.10",
-            "CounterDistributorExact10.Counter": "CDE.10.Counter",
-            "CounterDistributorExact10.Distributor": "CDE.10.Distributor",
-            "CounterDistributorExactStress10": "CDES.10",
-            "CounterDistributorExactStress10.Counter": "CDES.10.Counter",
-            "CounterDistributorExactStress10.Distributor": "CDES.10.Distributor",
-        },
-        step=3000000,
-        bar_width="0.6cm",
-        output_file_name="plots/fair/CounterDistributorExact10_CounterDistributorExactStress10_st_comparison.tex"
-    )
-    render_nr_of_successful_transitions_group_plot(
-        "Elevator", step=5000000,
-        output_file_name="plots/fair/Elevator_nr_of_st_group_plot.tex"
-    )
-    render_nr_of_successful_transitions_comparison_plot(
-        [
-            "dve_elevator2_1.cabin",
-            "dve_elevator2_1.environment",
-            "dve_elevator2_1.controller",
-            "dve_elevator2_2.cabin",
-            "dve_elevator2_2.environment",
-            "dve_elevator2_2.controller",
-            "dve_elevator2_3.cabin",
-            "dve_elevator2_3.environment",
-            "dve_elevator2_3.controller",
-        ],
-        model_abbreviations={
-            "dve_elevator2_1.cabin": "Elevator.2.1.Cabin",
-            "dve_elevator2_1.environment": "Elevator.2.1.Environment",
-            "dve_elevator2_1.controller": "Elevator.2.1.Controller",
-            "dve_elevator2_2.cabin": "Elevator.2.2.Cabin",
-            "dve_elevator2_2.environment": "Elevator.2.2.Environment",
-            "dve_elevator2_2.controller": "Elevator.2.2.Controller",
-            "dve_elevator2_3.cabin": "Elevator.2.3.Cabin",
-            "dve_elevator2_3.environment": "Elevator.2.3.Environment",
-            "dve_elevator2_3.controller": "Elevator.2.3.Controller",
-        },
-        step=14000000,
-        output_file_name="plots/fair/Elevator_state_comparison.tex"
-    )
+    # render_nr_of_successful_transitions_group_plot(
+    #     "CounterDistributorExact", step=3000000,
+    #     output_file_name="plots/fair/CounterDistributorExact_nr_of_st_group_plot.tex"
+    # )
+    # render_success_ratio_group_plot(
+    #     "CounterDistributorExact",
+    #     output_file_name="plots/fair/CounterDistributorExact_nr_of_sr_group_plot.tex"
+    # )
+    # render_nr_of_successful_transitions_group_plot(
+    #     "CounterDistributorExact", model_suffix="Distributor.P", step=1500000,
+    #     output_file_name="plots/fair/CounterDistributorExact_nr_of_st_group_plot.Distributor.P.tex"
+    # )
+    # render_success_ratio_group_plot(
+    #     "CounterDistributorExact", model_suffix="Distributor.P",
+    #     output_file_name="plots/fair/CounterDistributorExact_nr_of_sr_group_plot.Distributor.P.tex"
+    # )
+    # render_nr_of_successful_transitions_group_plot(
+    #     "CounterDistributorExact", model_suffix="Counter.C", step=1500000,
+    #     output_file_name="plots/fair/CounterDistributorExact_nr_of_st_group_plot.Counter.C.tex"
+    # )
+    # render_success_ratio_group_plot(
+    #     "CounterDistributorExact", model_suffix="Counter.C",
+    #     output_file_name="plots/fair/CounterDistributorExact_nr_of_sr_group_plot.Counter.C.tex"
+    # )
+    # render_nr_of_successful_transitions_group_plot(
+    #     "CounterDistributorExactStress", step=3000000,
+    #     output_file_name="plots/fair/CounterDistributorExactStress_nr_of_st_group_plot.tex"
+    # )
+    # render_success_ratio_group_plot(
+    #     "CounterDistributorExactStress",
+    #     output_file_name="plots/fair/CounterDistributorExactStress_nr_of_sr_group_plot.tex"
+    # )
+    # render_nr_of_successful_transitions_group_plot(
+    #     "CounterDistributorExactStress", model_suffix="Distributor.P", step=1500000,
+    #     output_file_name="plots/fair/CounterDistributorExactStress_nr_of_st_group_plot.Distributor.P.tex"
+    # )
+    # render_success_ratio_group_plot(
+    #     "CounterDistributorExactStress", model_suffix="Distributor.P",
+    #     output_file_name="plots/fair/CounterDistributorExactStress_nr_of_sr_group_plot.Distributor.P.tex"
+    # )
+    # render_nr_of_successful_transitions_group_plot(
+    #     "CounterDistributorExactStress", model_suffix="Counter.C", step=1500000,
+    #     output_file_name="plots/fair/CounterDistributorExactStress_nr_of_st_group_plot.Counter.C.tex"
+    # )
+    # render_success_ratio_group_plot(
+    #     "CounterDistributorExactStress", model_suffix="Counter.C",
+    #     output_file_name="plots/fair/CounterDistributorExactStress_nr_of_sr_group_plot.Counter.C.tex"
+    # )
+    # render_nr_of_successful_transitions_comparison_plot(
+    #     [
+    #         "CounterDistributorExact10",
+    #         "CounterDistributorExact10.Counter",
+    #         "CounterDistributorExact10.Distributor",
+    #         "CounterDistributorExactStress10",
+    #         "CounterDistributorExactStress10.Counter",
+    #         "CounterDistributorExactStress10.Distributor",
+    #     ],
+    #     model_abbreviations={
+    #         "CounterDistributorExact10": "CDE.10",
+    #         "CounterDistributorExact10.Counter": "CDE.10.Counter",
+    #         "CounterDistributorExact10.Distributor": "CDE.10.Distributor",
+    #         "CounterDistributorExactStress10": "CDES.10",
+    #         "CounterDistributorExactStress10.Counter": "CDES.10.Counter",
+    #         "CounterDistributorExactStress10.Distributor": "CDES.10.Distributor",
+    #     },
+    #     step=3000000,
+    #     bar_width="0.6cm",
+    #     output_file_name="plots/fair/CounterDistributorExact10_CounterDistributorExactStress10_st_comparison.tex"
+    # )
+    # render_nr_of_successful_transitions_group_plot(
+    #     "Elevator", step=5000000,
+    #     output_file_name="plots/fair/Elevator_nr_of_st_group_plot.tex"
+    # )
+    # render_nr_of_successful_transitions_comparison_plot(
+    #     [
+    #         "dve_elevator2_1.cabin",
+    #         "dve_elevator2_1.environment",
+    #         "dve_elevator2_1.controller",
+    #         "dve_elevator2_2.cabin",
+    #         "dve_elevator2_2.environment",
+    #         "dve_elevator2_2.controller",
+    #         "dve_elevator2_3.cabin",
+    #         "dve_elevator2_3.environment",
+    #         "dve_elevator2_3.controller",
+    #     ],
+    #     model_abbreviations={
+    #         "dve_elevator2_1.cabin": "Elevator.2.1.Cabin",
+    #         "dve_elevator2_1.environment": "Elevator.2.1.Environment",
+    #         "dve_elevator2_1.controller": "Elevator.2.1.Controller",
+    #         "dve_elevator2_2.cabin": "Elevator.2.2.Cabin",
+    #         "dve_elevator2_2.environment": "Elevator.2.2.Environment",
+    #         "dve_elevator2_2.controller": "Elevator.2.2.Controller",
+    #         "dve_elevator2_3.cabin": "Elevator.2.3.Cabin",
+    #         "dve_elevator2_3.environment": "Elevator.2.3.Environment",
+    #         "dve_elevator2_3.controller": "Elevator.2.3.Controller",
+    #     },
+    #     step=14000000,
+    #     output_file_name="plots/fair/Elevator_state_comparison.tex"
+    # )
     render_nr_of_successful_transitions_group_plot(
         "Telephony", step=250000000,
         output_file_name="plots/fair/Telephony_nr_of_st_group_plot.tex"
     )
 else:
-    render_nr_of_successful_transitions_group_plot(
-        "CounterDistributorExact", step=100000000,
-        output_file_name="plots/unfair/CounterDistributorExact_nr_of_st_group_plot.tex"
-    )
-    render_success_ratio_group_plot(
-        "CounterDistributorExact",
-        output_file_name="plots/unfair/CounterDistributorExact_nr_of_sr_group_plot.tex"
-    )
-    render_nr_of_successful_transitions_group_plot(
-        "CounterDistributorExact", model_suffix="Distributor.P", step=60000000,
-        output_file_name="plots/unfair/CounterDistributorExact_nr_of_st_group_plot.Distributor.P.tex"
-    )
-    render_success_ratio_group_plot(
-        "CounterDistributorExact", model_suffix="Distributor.P",
-        output_file_name="plots/unfair/CounterDistributorExact_nr_of_sr_group_plot.Distributor.P.tex"
-    )
-    render_nr_of_successful_transitions_group_plot(
-        "CounterDistributorExact", model_suffix="Counter.C", step=70000000,
-        output_file_name="plots/unfair/CounterDistributorExact_nr_of_st_group_plot.Counter.C.tex"
-    )
-    render_success_ratio_group_plot(
-        "CounterDistributorExact", model_suffix="Counter.C",
-        output_file_name="plots/unfair/CounterDistributorExact_nr_of_sr_group_plot.Counter.C.tex"
-    )
-    render_nr_of_successful_transitions_group_plot(
-        "CounterDistributorExactStress", step=80000000,
-        output_file_name="plots/unfair/CounterDistributorExactStress_nr_of_st_group_plot.tex"
-    )
-    render_success_ratio_group_plot(
-        "CounterDistributorExactStress",
-        output_file_name="plots/unfair/CounterDistributorExactStressStress_nr_of_sr_group_plot.tex"
-    )
-    render_nr_of_successful_transitions_group_plot(
-        "CounterDistributorExactStress", model_suffix="Distributor.P", step=40000000,
-        output_file_name="plots/unfair/CounterDistributorExactStress_nr_of_st_group_plot.Distributor.P.tex"
-    )
-    render_success_ratio_group_plot(
-        "CounterDistributorExactStress", model_suffix="Distributor.P",
-        output_file_name="plots/unfair/CounterDistributorExactStress_nr_of_sr_group_plot.Distributor.P.tex"
-    )
-    render_nr_of_successful_transitions_group_plot(
-        "CounterDistributorExactStress", model_suffix="Counter.C", step=40000000,
-        output_file_name="plots/unfair/CounterDistributorExactStress_nr_of_st_group_plot.Counter.C.tex"
-    )
-    render_success_ratio_group_plot(
-        "CounterDistributorExactStress", model_suffix="Counter.C",
-        output_file_name="plots/unfair/CounterDistributorExactStress_nr_of_sr_group_plot.Counter.C.tex"
-    )
-    render_nr_of_successful_transitions_comparison_plot(
-        [
-            "CounterDistributorExact10",
-            "CounterDistributorExact10.Counter",
-            "CounterDistributorExact10.Distributor",
-            "CounterDistributorExactStress10",
-            "CounterDistributorExactStress10.Counter",
-            "CounterDistributorExactStress10.Distributor",
-        ],
-        model_abbreviations={
-            "CounterDistributorExact10": "CDE.10",
-            "CounterDistributorExact10.Counter": "CDE.10.Counter",
-            "CounterDistributorExact10.Distributor": "CDE.10.Distributor",
-            "CounterDistributorExactStress10": "CDES.10",
-            "CounterDistributorExactStress10.Counter": "CDES.10.Counter",
-            "CounterDistributorExactStress10.Distributor": "CDES.10.Distributor",
-        },
-        step=100000000,
-        bar_width="0.6cm",
-        output_file_name="plots/unfair/CounterDistributorExact10_CounterDistributorExactStress10_st_comparison.tex"
-    )
-    render_nr_of_successful_transitions_group_plot(
-        "Elevator", step=20000000,
-        output_file_name="plots/unfair/Elevator_nr_of_st_group_plot.tex"
-    )
-    render_nr_of_successful_transitions_comparison_plot(
-        [
-            "dve_elevator2_1.cabin",
-            "dve_elevator2_1.environment",
-            "dve_elevator2_1.controller",
-            "dve_elevator2_2.cabin",
-            "dve_elevator2_2.environment",
-            "dve_elevator2_2.controller",
-            "dve_elevator2_3.cabin",
-            "dve_elevator2_3.environment",
-            "dve_elevator2_3.controller",
-        ],
-        model_abbreviations={
-            "dve_elevator2_1.cabin": "Elevator.2.1.Cabin",
-            "dve_elevator2_1.environment": "Elevator.2.1.Environment",
-            "dve_elevator2_1.controller": "Elevator.2.1.Controller",
-            "dve_elevator2_2.cabin": "Elevator.2.2.Cabin",
-            "dve_elevator2_2.environment": "Elevator.2.2.Environment",
-            "dve_elevator2_2.controller": "Elevator.2.2.Controller",
-            "dve_elevator2_3.cabin": "Elevator.2.3.Cabin",
-            "dve_elevator2_3.environment": "Elevator.2.3.Environment",
-            "dve_elevator2_3.controller": "Elevator.2.3.Controller",
-        },
-        step=14000000,
-        output_file_name="plots/unfair/Elevator_state_comparison.tex"
-    )
+    # render_nr_of_successful_transitions_group_plot(
+    #     "CounterDistributorExact", step=100000000,
+    #     output_file_name="plots/unfair/CounterDistributorExact_nr_of_st_group_plot.tex"
+    # )
+    # render_success_ratio_group_plot(
+    #     "CounterDistributorExact",
+    #     output_file_name="plots/unfair/CounterDistributorExact_nr_of_sr_group_plot.tex"
+    # )
+    # render_nr_of_successful_transitions_group_plot(
+    #     "CounterDistributorExact", model_suffix="Distributor.P", step=60000000,
+    #     output_file_name="plots/unfair/CounterDistributorExact_nr_of_st_group_plot.Distributor.P.tex"
+    # )
+    # render_success_ratio_group_plot(
+    #     "CounterDistributorExact", model_suffix="Distributor.P",
+    #     output_file_name="plots/unfair/CounterDistributorExact_nr_of_sr_group_plot.Distributor.P.tex"
+    # )
+    # render_nr_of_successful_transitions_group_plot(
+    #     "CounterDistributorExact", model_suffix="Counter.C", step=70000000,
+    #     output_file_name="plots/unfair/CounterDistributorExact_nr_of_st_group_plot.Counter.C.tex"
+    # )
+    # render_success_ratio_group_plot(
+    #     "CounterDistributorExact", model_suffix="Counter.C",
+    #     output_file_name="plots/unfair/CounterDistributorExact_nr_of_sr_group_plot.Counter.C.tex"
+    # )
+    # render_nr_of_successful_transitions_group_plot(
+    #     "CounterDistributorExactStress", step=80000000,
+    #     output_file_name="plots/unfair/CounterDistributorExactStress_nr_of_st_group_plot.tex"
+    # )
+    # render_success_ratio_group_plot(
+    #     "CounterDistributorExactStress",
+    #     output_file_name="plots/unfair/CounterDistributorExactStressStress_nr_of_sr_group_plot.tex"
+    # )
+    # render_nr_of_successful_transitions_group_plot(
+    #     "CounterDistributorExactStress", model_suffix="Distributor.P", step=40000000,
+    #     output_file_name="plots/unfair/CounterDistributorExactStress_nr_of_st_group_plot.Distributor.P.tex"
+    # )
+    # render_success_ratio_group_plot(
+    #     "CounterDistributorExactStress", model_suffix="Distributor.P",
+    #     output_file_name="plots/unfair/CounterDistributorExactStress_nr_of_sr_group_plot.Distributor.P.tex"
+    # )
+    # render_nr_of_successful_transitions_group_plot(
+    #     "CounterDistributorExactStress", model_suffix="Counter.C", step=40000000,
+    #     output_file_name="plots/unfair/CounterDistributorExactStress_nr_of_st_group_plot.Counter.C.tex"
+    # )
+    # render_success_ratio_group_plot(
+    #     "CounterDistributorExactStress", model_suffix="Counter.C",
+    #     output_file_name="plots/unfair/CounterDistributorExactStress_nr_of_sr_group_plot.Counter.C.tex"
+    # )
+    # render_nr_of_successful_transitions_comparison_plot(
+    #     [
+    #         "CounterDistributorExact10",
+    #         "CounterDistributorExact10.Counter",
+    #         "CounterDistributorExact10.Distributor",
+    #         "CounterDistributorExactStress10",
+    #         "CounterDistributorExactStress10.Counter",
+    #         "CounterDistributorExactStress10.Distributor",
+    #     ],
+    #     model_abbreviations={
+    #         "CounterDistributorExact10": "CDE.10",
+    #         "CounterDistributorExact10.Counter": "CDE.10.Counter",
+    #         "CounterDistributorExact10.Distributor": "CDE.10.Distributor",
+    #         "CounterDistributorExactStress10": "CDES.10",
+    #         "CounterDistributorExactStress10.Counter": "CDES.10.Counter",
+    #         "CounterDistributorExactStress10.Distributor": "CDES.10.Distributor",
+    #     },
+    #     step=100000000,
+    #     bar_width="0.6cm",
+    #     output_file_name="plots/unfair/CounterDistributorExact10_CounterDistributorExactStress10_st_comparison.tex"
+    # )
+    # render_nr_of_successful_transitions_group_plot(
+    #     "Elevator", step=20000000,
+    #     output_file_name="plots/unfair/Elevator_nr_of_st_group_plot.tex"
+    # )
+    # render_nr_of_successful_transitions_comparison_plot(
+    #     [
+    #         "dve_elevator2_1.cabin",
+    #         "dve_elevator2_1.environment",
+    #         "dve_elevator2_1.controller",
+    #         "dve_elevator2_2.cabin",
+    #         "dve_elevator2_2.environment",
+    #         "dve_elevator2_2.controller",
+    #         "dve_elevator2_3.cabin",
+    #         "dve_elevator2_3.environment",
+    #         "dve_elevator2_3.controller",
+    #     ],
+    #     model_abbreviations={
+    #         "dve_elevator2_1.cabin": "Elevator.2.1.Cabin",
+    #         "dve_elevator2_1.environment": "Elevator.2.1.Environment",
+    #         "dve_elevator2_1.controller": "Elevator.2.1.Controller",
+    #         "dve_elevator2_2.cabin": "Elevator.2.2.Cabin",
+    #         "dve_elevator2_2.environment": "Elevator.2.2.Environment",
+    #         "dve_elevator2_2.controller": "Elevator.2.2.Controller",
+    #         "dve_elevator2_3.cabin": "Elevator.2.3.Cabin",
+    #         "dve_elevator2_3.environment": "Elevator.2.3.Environment",
+    #         "dve_elevator2_3.controller": "Elevator.2.3.Controller",
+    #     },
+    #     step=14000000,
+    #     output_file_name="plots/unfair/Elevator_state_comparison.tex"
+    # )
     render_nr_of_successful_transitions_group_plot(
         "Telephony", step=160000000,
         output_file_name="plots/unfair/Telephony_nr_of_st_group_plot.tex"
